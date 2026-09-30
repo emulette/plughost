@@ -13,6 +13,6 @@ crate-type = ["cdylib"]
 workspace = true
 
 [dependencies]
-clack-extensions = { workspace = true, features = ["audio-ports", "audio-ports-config", "audio-ports-activation", "clack-plugin", "note-ports", "params", "state", "surround"] }
+clack-extensions = { workspace = true, features = ["ambisonic", "audio-ports", "audio-ports-config", "audio-ports-activation", "clack-plugin", "configurable-audio-ports", "note-ports", "params", "state", "surround"] }
 clack-plugin.workspace = true
 vst3.workspace = true

@@ -191,7 +191,8 @@ fn inactive_ports_keep_native_indices_and_reset_retains_routing() {
 #[ignore = "needs native routing fixture"]
 fn invalid_requested_layout_and_precision_buffers_are_rejected() {
     let mut plugin = plugin();
-    let mut wrong = config(SampleFormat::F64, Layout::Mono, 101);
+    // CLAP has no speakers for the wides of 9.1.6.
+    let mut wrong = config(SampleFormat::F64, Layout::Surround916, 101);
     assert_eq!(
         plugin.prepare_audio(&wrong),
         Err(Error::Clap(ClapError::AudioConfiguration))
@@ -243,6 +244,59 @@ fn native_render_keeps_all_active_channels_and_f64_surround_order() {
     for i in 0..8 {
         assert_eq!(rendered.channels[i + 2], input[i + 1]);
     }
+}
+
+#[test]
+#[ignore = "needs native routing fixture"]
+fn configurable_ports_take_every_layout_clap_expresses_in_portable_order() {
+    use plughost_core::render::{RenderOptions, TailPolicy, render};
+    let mut plugin = plugin();
+    for layout in Layout::ALL
+        .into_iter()
+        .filter(|&layout| layout != Layout::None && layout != Layout::Surround916)
+    {
+        let request = AudioConfig {
+            configuration: None,
+            ..config(SampleFormat::F64, layout, 0)
+        };
+        let buses = plugin
+            .prepare_audio(&request)
+            .unwrap_or_else(|error| panic!("{layout:?}: {error}"));
+        assert_eq!(buses[1].layout, Some(layout));
+        assert_eq!(buses[3].layout, Some(layout));
+        assert_eq!(plugin.audio_buses().unwrap(), buses);
+        let mut input = vec![vec![0.0f64; 32]; layout.channels() + 1];
+        for (i, channel) in input.iter_mut().enumerate().skip(1) {
+            channel.fill(i as f64 + 2.0f64.powi(-40));
+        }
+        let refs: Vec<_> = input.iter().map(Vec::as_slice).collect();
+        let rendered = render(
+            &mut plugin,
+            &refs,
+            32,
+            &[],
+            &RenderOptions {
+                tail: TailPolicy::Reported,
+                max_tail_seconds: 0.0,
+            },
+        )
+        .unwrap();
+        assert_eq!(rendered.channels.len(), layout.channels() + 2);
+        for i in 0..layout.channels() {
+            assert_eq!(
+                rendered.channels[i + 2],
+                input[i + 1],
+                "{layout:?} channel {i}"
+            );
+        }
+    }
+    assert_eq!(
+        plugin.prepare_audio(&AudioConfig {
+            configuration: None,
+            ..config(SampleFormat::F64, Layout::Surround916, 0)
+        }),
+        Err(Error::Clap(ClapError::AudioConfiguration))
+    );
 }
 
 #[test]

@@ -628,21 +628,35 @@ impl Drop for Plugin {
     }
 }
 
-/// Exact native speaker orders matching the portable layouts.
-fn surround_orders(layout: Layout) -> Option<&'static [&'static [SurroundChannel]]> {
+/// The native speaker of each portable channel, for layouts CLAP's surround speakers express.
+/// CLAP has no wide speakers for 9.1.6. Ls and Rs are CLAP's back speakers.
+fn surround_order(layout: Layout) -> Option<&'static [SurroundChannel]> {
     use SurroundChannel::{
         BackLeft, BackRight, FrontCenter, FrontLeft, FrontRight, LowFrequency, SideLeft, SideRight,
+        TopBackLeft, TopBackRight, TopFrontLeft, TopFrontRight, TopSideLeft, TopSideRight,
     };
     match layout {
-        Layout::Surround51 => Some(&[&[
+        Layout::Lcr => Some(&[FrontLeft, FrontRight, FrontCenter]),
+        Layout::Quad => Some(&[FrontLeft, FrontRight, BackLeft, BackRight]),
+        Layout::Surround50 => Some(&[FrontLeft, FrontRight, FrontCenter, BackLeft, BackRight]),
+        Layout::Surround51 => Some(&[
             FrontLeft,
             FrontRight,
             FrontCenter,
             LowFrequency,
             BackLeft,
             BackRight,
-        ]]),
-        Layout::Surround71 => Some(&[&[
+        ]),
+        Layout::Surround70 => Some(&[
+            FrontLeft,
+            FrontRight,
+            FrontCenter,
+            BackLeft,
+            BackRight,
+            SideLeft,
+            SideRight,
+        ]),
+        Layout::Surround71 => Some(&[
             FrontLeft,
             FrontRight,
             FrontCenter,
@@ -651,24 +665,72 @@ fn surround_orders(layout: Layout) -> Option<&'static [&'static [SurroundChannel
             BackRight,
             SideLeft,
             SideRight,
-        ]]),
+        ]),
+        Layout::Surround512 => Some(&[
+            FrontLeft,
+            FrontRight,
+            FrontCenter,
+            LowFrequency,
+            BackLeft,
+            BackRight,
+            TopSideLeft,
+            TopSideRight,
+        ]),
+        Layout::Surround514 => Some(&[
+            FrontLeft,
+            FrontRight,
+            FrontCenter,
+            LowFrequency,
+            BackLeft,
+            BackRight,
+            TopFrontLeft,
+            TopFrontRight,
+            TopBackLeft,
+            TopBackRight,
+        ]),
+        Layout::Surround712 => Some(&[
+            FrontLeft,
+            FrontRight,
+            FrontCenter,
+            LowFrequency,
+            BackLeft,
+            BackRight,
+            SideLeft,
+            SideRight,
+            TopSideLeft,
+            TopSideRight,
+        ]),
+        Layout::Surround714 => Some(&[
+            FrontLeft,
+            FrontRight,
+            FrontCenter,
+            LowFrequency,
+            BackLeft,
+            BackRight,
+            SideLeft,
+            SideRight,
+            TopFrontLeft,
+            TopFrontRight,
+            TopBackLeft,
+            TopBackRight,
+        ]),
         Layout::None
         | Layout::Mono
         | Layout::Stereo
-        | Layout::Lcr
-        | Layout::Quad
-        | Layout::Surround50
-        | Layout::Surround70
-        | Layout::Surround512
-        | Layout::Surround514
-        | Layout::Surround712
-        | Layout::Surround714
         | Layout::Surround916
         | Layout::Ambisonics1
         | Layout::Ambisonics2
         | Layout::Ambisonics3
         | Layout::Ambisonics4 => None,
     }
+}
+
+/// Ambisonic layouts exchange ACN-ordered, SN3D-normalized channels.
+fn is_ambisonic(layout: Layout) -> bool {
+    matches!(
+        layout,
+        Layout::Ambisonics1 | Layout::Ambisonics2 | Layout::Ambisonics3 | Layout::Ambisonics4
+    )
 }
 
 /// Processes a CLAP plugin from a processing thread.

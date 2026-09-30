@@ -100,10 +100,12 @@ required-features = ["vst3"]
 
 [dependencies]
 clack-extensions = { workspace = true, optional = true, features = [
+    "ambisonic",
     "audio-ports",
     "audio-ports-config",
     "audio-ports-activation",
     "clack-host",
+    "configurable-audio-ports",
     "gui",
     "latency",
     "log",

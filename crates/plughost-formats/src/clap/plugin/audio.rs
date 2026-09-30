@@ -1,11 +1,20 @@
 use super::*;
+use clack_extensions::ambisonic::{
+    AmbisonicConfig, AmbisonicLayout, AmbisonicNormalization, AmbisonicOrdering,
+};
 use clack_extensions::audio_ports::{AudioPortInfo, AudioPortInfoBuffer};
 use clack_extensions::audio_ports_activation::SampleSize;
 use clack_extensions::audio_ports_config::AudioPortsConfigBuffer;
+use clack_extensions::configurable_audio_ports::{AudioPortRequest, AudioPortRequestDetails};
+use clack_extensions::surround::SurroundConfig;
 use plughost_core::{
-    AudioBusInfo, AudioBusRole, AudioConfig, AudioConfiguration, AudioDirection, BypassState,
-    Support,
+    AudioBusConfig, AudioBusInfo, AudioBusRole, AudioConfig, AudioConfiguration, AudioDirection,
+    BypassState, Support,
 };
+
+/// The ambisonic format of the portable ambisonic layouts.
+const ACN_SN3D: AmbisonicConfig =
+    AmbisonicConfig::new(AmbisonicOrdering::ACN, AmbisonicNormalization::SN3D);
 impl Plugin {
     /// The explicit full-bus configuration, absent before preparation or after legacy prepare.
     pub fn audio_config(&self) -> Option<AudioConfig> {
@@ -30,6 +39,7 @@ impl Plugin {
             return Ok(Vec::new());
         };
         let surround = self.shared().extensions().surround;
+        let ambisonic = self.shared().extensions().ambisonic;
         let handle = self.instance.plugin_handle();
         let mut result = Vec::new();
         let mut buffer = AudioPortInfoBuffer::new();
@@ -58,13 +68,21 @@ impl Plugin {
                     let channels: Vec<_> = (0..map.channel_count())
                         .filter_map(|i| map.get(i))
                         .collect();
-                    bus.layout =
-                        [Layout::Surround51, Layout::Surround71]
-                            .into_iter()
-                            .find(|layout| {
-                                super::surround_orders(*layout)
-                                    .is_some_and(|orders| orders.contains(&channels.as_slice()))
-                            });
+                    bus.layout = Layout::ALL
+                        .into_iter()
+                        .find(|&layout| super::surround_order(layout) == Some(channels.as_slice()));
+                } else if info.port_type == Some(AudioPortType::AMBISONIC)
+                    && let Some(ambisonic) = ambisonic
+                {
+                    bus.layout = ambisonic
+                        .get_config(&handle, input, index)
+                        .filter(|config| *config == ACN_SN3D)
+                        .and_then(|_| {
+                            Layout::ALL.into_iter().find(|&layout| {
+                                super::is_ambisonic(layout)
+                                    && layout.channels() == info.channel_count as usize
+                            })
+                        });
                 }
                 result.push(bus);
             }
@@ -139,6 +157,21 @@ impl Plugin {
                 bus.active = Some(true);
             }
         }
+        let wanted: Vec<_> = buses
+            .iter()
+            .filter(|bus| bus.role == AudioBusRole::Main)
+            .map(|bus| {
+                let layout = match bus.direction {
+                    AudioDirection::Input => config.input,
+                    AudioDirection::Output => config.output,
+                };
+                (bus.direction, bus.id, layout)
+            })
+            .filter(|&(_, _, layout)| layout != Layout::None)
+            .collect();
+        if self.request_layouts(&buses, &wanted)? {
+            buses = self.read_audio_buses()?;
+        }
         let main_input = main_bus(&buses, AudioDirection::Input, config.input)?;
         let main_output = main_bus(&buses, AudioDirection::Output, config.output)?;
         let events = self.main_event_config()?;
@@ -168,6 +201,20 @@ impl Plugin {
             self.audio_active.clear();
         }
         let mut buses = self.read_audio_buses()?;
+        let requested = |direction, requests: &[AudioBusConfig]| {
+            requests
+                .iter()
+                .filter(|request| request.layout != Layout::None)
+                .map(move |request| (direction, request.id, request.layout))
+                .collect::<Vec<_>>()
+        };
+        let wanted: Vec<_> = requested(AudioDirection::Input, &config.inputs)
+            .into_iter()
+            .chain(requested(AudioDirection::Output, &config.outputs))
+            .collect();
+        if self.request_layouts(&buses, &wanted)? {
+            buses = self.read_audio_buses()?;
+        }
         for (direction, requests) in [
             (AudioDirection::Input, &config.inputs),
             (AudioDirection::Output, &config.outputs),
@@ -250,6 +297,56 @@ impl Plugin {
             main_output,
         )?;
         Ok(buses)
+    }
+    /// Asks a plugin with configurable ports for the wanted layouts its ports do not have, all at
+    /// once. Returns whether the plugin applied them; the caller then reads the ports again.
+    fn request_layouts(
+        &mut self,
+        buses: &[AudioBusInfo],
+        wanted: &[(AudioDirection, u64, Layout)],
+    ) -> Result<bool, ClapError> {
+        let Some(extension) = self.shared().extensions().configurable_audio else {
+            return Ok(false);
+        };
+        let ambisonic = |channel_count: usize| AmbisonicLayout {
+            config: &ACN_SN3D,
+            channel_count: channel_count as u32,
+        };
+        let mut requests = Vec::new();
+        for &(direction, id, layout) in wanted {
+            let Some(bus) = buses
+                .iter()
+                .find(|bus| bus.direction == direction && bus.id == id)
+            else {
+                continue;
+            };
+            if bus.layout == Some(layout) {
+                continue;
+            }
+            let details: AudioPortRequestDetails = match layout {
+                Layout::Mono => AudioPortRequestDetails::mono(),
+                Layout::Stereo => AudioPortRequestDetails::stereo(),
+                layout if super::is_ambisonic(layout) => ambisonic(layout.channels()).into(),
+                layout => match super::surround_order(layout) {
+                    Some(order) => SurroundConfig::new(order).into(),
+                    // The plugin cannot be asked for a layout CLAP cannot express.
+                    None => continue,
+                },
+            };
+            requests.push(AudioPortRequest::new(
+                direction == AudioDirection::Input,
+                bus.index,
+                details,
+            ));
+        }
+        if requests.is_empty() {
+            return Ok(false);
+        }
+        let mut handle = self
+            .instance
+            .inactive_plugin_handle()
+            .ok_or(ClapError::AudioConfiguration)?;
+        Ok(extension.apply_configuration(&mut handle, &requests))
     }
     fn activate_audio(
         &mut self,

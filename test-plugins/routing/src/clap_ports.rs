@@ -15,17 +15,36 @@ fn kind(channels: u32) -> AudioPortType<'static> {
         _ => AudioPortType::SURROUND,
     }
 }
-fn port(config: u32, index: u32, input: bool, writer: &mut AudioPortInfoWriter) {
-    let Some(main) = channels(config) else { return };
+const ACN_SN3D: AmbisonicConfig =
+    AmbisonicConfig::new(AmbisonicOrdering::ACN, AmbisonicNormalization::SN3D);
+fn port(
+    config: u32,
+    main: Option<&Main>,
+    index: u32,
+    input: bool,
+    writer: &mut AudioPortInfoWriter,
+) {
+    let Some(configured) = channels(config) else {
+        return;
+    };
     if index >= 2 {
         return;
     }
     let count = if index == 1 {
-        main
+        match main {
+            Some(Main::Surround(map)) => map.len() as u32,
+            Some(Main::Ambisonic(channels)) => *channels,
+            None => configured,
+        }
     } else if input {
         1
     } else {
         2
+    };
+    let port_type = match main {
+        Some(Main::Ambisonic(_)) if index == 1 => AudioPortType::AMBISONIC,
+        Some(Main::Surround(_)) if index == 1 => AudioPortType::SURROUND,
+        _ => kind(count),
     };
     writer.set(&AudioPortInfo {
         id: ClapId::new(if input { 20 + index } else { 30 + index }),
@@ -43,7 +62,7 @@ fn port(config: u32, index: u32, input: bool, writer: &mut AudioPortInfoWriter) 
             } else {
                 AudioPortFlags::empty()
             },
-        port_type: Some(kind(count)),
+        port_type: Some(port_type),
         in_place_pair: None,
     });
 }
@@ -52,7 +71,14 @@ impl PluginAudioPortsImpl for MainThread<'_> {
         2
     }
     fn get(&self, index: u32, input: bool, writer: &mut AudioPortInfoWriter) {
-        port(*lock(&self.shared.configuration), index, input, writer);
+        let main = lock(&self.shared.main).clone();
+        port(
+            *lock(&self.shared.configuration),
+            main.as_ref(),
+            index,
+            input,
+            writer,
+        );
     }
 }
 impl PluginAudioPortsConfigImpl for MainThread<'_> {
@@ -86,6 +112,7 @@ impl PluginAudioPortsConfigImpl for MainThread<'_> {
             return Err(PluginError::Message(crate::errors::CONFIGURATION));
         }
         *lock(&self.shared.configuration) = id.get();
+        *lock(&self.shared.main) = None;
         *lock(&self.shared.active) = [[true; 2]; 2];
         Ok(())
     }
@@ -95,7 +122,7 @@ impl PluginAudioPortsConfigInfoImpl for MainThread<'_> {
         Some(ClapId::new(*lock(&self.shared.configuration)))
     }
     fn get(&self, id: ClapId, index: u32, input: bool, writer: &mut AudioPortInfoWriter) {
-        port(id.get(), index, input, writer);
+        port(id.get(), None, index, input, writer);
     }
 }
 impl PluginAudioPortsActivationImpl for MainThread<'_> {
@@ -132,6 +159,12 @@ impl PluginSurroundImpl for MainThread<'_> {
             || mask == (surround51 | SurroundChannels::SIDE_LEFT | SurroundChannels::SIDE_RIGHT)
     }
     fn get_channel_map(&self, _input: bool, index: u32, writer: &mut SurroundMapWriter) {
+        if let Some(Main::Surround(map)) = &*lock(&self.shared.main) {
+            if index == 1 {
+                writer.set(map.iter().copied());
+            }
+            return;
+        }
         let configuration = *lock(&self.shared.configuration);
         if index == 1 && matches!(configuration, 102 | 103) {
             let map = [
@@ -149,5 +182,83 @@ impl PluginSurroundImpl for MainThread<'_> {
                     .take(if configuration == 102 { 6 } else { 8 }),
             );
         }
+    }
+}
+impl PluginAmbisonicImpl for MainThread<'_> {
+    fn is_config_supported(&self, config: AmbisonicConfig) -> bool {
+        config == ACN_SN3D
+    }
+    fn get_config(&self, _is_input: bool, port_index: u32) -> Option<AmbisonicConfig> {
+        matches!(*lock(&self.shared.main), Some(Main::Ambisonic(_)) if port_index == 1)
+            .then_some(ACN_SN3D)
+    }
+}
+/// The main layout requests ask for: a mono or stereo configuration or another main layout.
+#[derive(Clone)]
+enum Requested {
+    Configuration(u32),
+    Main(Main),
+}
+/// The one main layout the requests ask for, when they are all for the main ports.
+fn requested(requests: &[AudioPortRequest<'_>]) -> Option<Requested> {
+    let mut result: Option<Requested> = None;
+    for request in requests {
+        if request.port_index() != 1 {
+            return None;
+        }
+        let details = request.details();
+        let wanted = if let Some(surround) = details.downcast::<SurroundConfig>() {
+            let map = (0..surround.channel_count())
+                .map(|index| surround.get(index))
+                .collect::<Option<Vec<_>>>()?;
+            Requested::Main(Main::Surround(map))
+        } else if let Some(ambisonic) = details.downcast::<AmbisonicLayout>() {
+            let side = (ambisonic.channel_count as f64).sqrt() as u32;
+            if *ambisonic.config != ACN_SN3D
+                || !(2..=5).contains(&side)
+                || side * side != ambisonic.channel_count
+            {
+                return None;
+            }
+            Requested::Main(Main::Ambisonic(ambisonic.channel_count))
+        } else if details.port_type() == Some(AudioPortType::MONO) {
+            Requested::Configuration(100)
+        } else if details.port_type() == Some(AudioPortType::STEREO) {
+            Requested::Configuration(101)
+        } else {
+            return None;
+        };
+        let same = match (&result, &wanted) {
+            (None, _) => true,
+            (Some(Requested::Configuration(a)), Requested::Configuration(b)) => a == b,
+            (Some(Requested::Main(Main::Surround(a))), Requested::Main(Main::Surround(b))) => {
+                a == b
+            }
+            (Some(Requested::Main(Main::Ambisonic(a))), Requested::Main(Main::Ambisonic(b))) => {
+                a == b
+            }
+            _ => false,
+        };
+        if !same {
+            return None;
+        }
+        result = Some(wanted);
+    }
+    result
+}
+impl PluginConfigurableAudioPortsImpl for MainThread<'_> {
+    fn can_apply_configuration(&self, requests: &[AudioPortRequest<'_>]) -> bool {
+        requested(requests).is_some()
+    }
+    fn apply_configuration(&self, requests: &[AudioPortRequest<'_>]) -> bool {
+        match requested(requests) {
+            Some(Requested::Configuration(id)) => {
+                *lock(&self.shared.configuration) = id;
+                *lock(&self.shared.main) = None;
+            }
+            Some(Requested::Main(main)) => *lock(&self.shared.main) = Some(main),
+            None => return false,
+        }
+        true
     }
 }

@@ -8,6 +8,7 @@ use std::sync::{Mutex, OnceLock};
 use std::thread::ThreadId;
 use std::time::{Duration, Instant};
 
+use clack_extensions::ambisonic::{HostAmbisonic, HostAmbisonicImpl, PluginAmbisonic};
 use clack_extensions::audio_ports::{
     AudioPortRescanFlags, HostAudioPorts, HostAudioPortsImpl, PluginAudioPorts,
 };
@@ -16,6 +17,7 @@ use clack_extensions::audio_ports_config::{
     HostAudioPortsConfig, HostAudioPortsConfigImpl, PluginAudioPortsConfig,
     PluginAudioPortsConfigInfo,
 };
+use clack_extensions::configurable_audio_ports::PluginConfigurableAudioPorts;
 use clack_extensions::gui::{GuiSize, HostGui, HostGuiImpl, PluginGui};
 use clack_extensions::latency::{HostLatency, HostLatencyImpl, PluginLatency};
 use clack_extensions::log::{HostLog, HostLogImpl, LogSeverity};
@@ -63,6 +65,7 @@ impl HostHandlers for Host {
 
     fn declare_extensions(builder: &mut HostExtensions<Self>, _shared: &Shared) {
         builder
+            .register::<HostAmbisonic>()
             .register::<HostAudioPorts>()
             .register::<HostAudioPortsConfig>()
             .register::<HostGui>()
@@ -87,6 +90,8 @@ pub struct Extensions {
     pub audio_config: Option<PluginAudioPortsConfig>,
     pub audio_config_info: Option<PluginAudioPortsConfigInfo>,
     pub audio_activation: Option<PluginAudioPortsActivation>,
+    pub ambisonic: Option<PluginAmbisonic>,
+    pub configurable_audio: Option<PluginConfigurableAudioPorts>,
     pub gui: Option<PluginGui>,
     pub latency: Option<PluginLatency>,
     pub note_ports: Option<PluginNotePorts>,
@@ -187,6 +192,8 @@ impl<'a> SharedHandler<'a> for Shared {
             audio_config: instance.get_extension(),
             audio_config_info: instance.get_extension(),
             audio_activation: instance.get_extension(),
+            ambisonic: instance.get_extension(),
+            configurable_audio: instance.get_extension(),
             gui: instance.get_extension(),
             latency: instance.get_extension(),
             note_ports: instance.get_extension(),
@@ -397,6 +404,12 @@ impl HostNotePortsImpl for MainThread<'_> {
 }
 
 impl HostSurroundImpl for MainThread<'_> {
+    fn changed(&self) {
+        self.shared.restart_requested.store(true, Ordering::Relaxed);
+    }
+}
+
+impl HostAmbisonicImpl for MainThread<'_> {
     fn changed(&self) {
         self.shared.restart_requested.store(true, Ordering::Relaxed);
     }

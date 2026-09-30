@@ -1,4 +1,5 @@
-//! Independent routing fixture: auxiliary buses precede main buses in both native formats. Two
+//! Independent routing fixture: auxiliary buses precede main buses in both native formats. The
+//! main buses take any portable layout, on the CLAP side also through configurable ports. Two
 //! event inputs feed one event output: notes from input port `p` leave transposed up by
 //! 12 × (p + 1) semitones with controller `KEY_CONTROLLER` carrying the input key, system
 //! exclusive messages are echoed, and `FLOOD` makes the fixture exceed any block's event budget.

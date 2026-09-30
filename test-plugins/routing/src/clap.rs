@@ -1,6 +1,8 @@
+use clack_extensions::ambisonic::*;
 use clack_extensions::audio_ports::*;
 use clack_extensions::audio_ports_activation::*;
 use clack_extensions::audio_ports_config::*;
+use clack_extensions::configurable_audio_ports::*;
 use clack_extensions::note_ports::PluginNotePorts;
 use clack_extensions::params::*;
 use clack_extensions::state::*;
@@ -24,9 +26,18 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|error| error.into_inner())
 }
 pub struct Fixture;
+/// A main port layout the host applied through configurable ports.
+#[derive(Clone)]
+enum Main {
+    Surround(Vec<SurroundChannel>),
+    /// Channels of ACN-ordered, SN3D-normalized ambisonics.
+    Ambisonic(u32),
+}
 pub struct Shared {
     values: Mutex<[f64; 2]>,
     configuration: Mutex<u32>,
+    /// Replaces the selected configuration's main ports until another is selected.
+    main: Mutex<Option<Main>>,
     active: Mutex<[[bool; 2]; 2]>,
 }
 impl Shared {
@@ -58,6 +69,8 @@ impl Plugin for Fixture {
             .register::<PluginAudioPortsActivation>()
             .register::<PluginNotePorts>()
             .register::<PluginSurround>()
+            .register::<PluginAmbisonic>()
+            .register::<PluginConfigurableAudioPorts>()
             .register::<PluginParams>()
             .register::<PluginState>();
     }
@@ -70,6 +83,7 @@ impl DefaultPluginFactory for Fixture {
         Ok(Shared {
             values: Mutex::new([1.0, 0.0]),
             configuration: Mutex::new(101),
+            main: Mutex::new(None),
             active: Mutex::new([[true; 2]; 2]),
         })
     }
