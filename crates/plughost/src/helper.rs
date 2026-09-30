@@ -21,7 +21,7 @@ use plughost_core::ipc::shared::{Activity, Caller, transfer};
 use plughost_core::ipc::{PROTOCOL_VERSION, Request, Response};
 
 use crate::errors::Error;
-use transport::{Incoming, Stopped, Transport};
+use transport::{Incoming, Stopped, Transport, Unqueued};
 
 /// Time for the helper process to start and connect back.
 const START_TIMEOUT: Duration = Duration::from_secs(30);
@@ -186,7 +186,6 @@ impl Helper {
         &mut self,
         host: &HostIdentity,
         plugins: &[PluginRef],
-        states: &[plughost_core::PluginState],
         timeout: Duration,
     ) -> Result<Response, Error> {
         let activity =
@@ -195,7 +194,6 @@ impl Helper {
             Request::Load {
                 host: host.clone(),
                 plugins: plugins.to_vec(),
-                states: states.to_vec(),
                 activity,
             },
             timeout,
@@ -250,8 +248,14 @@ impl Helper {
             self.kill();
             return Ok(None);
         }
-        if self.queue(&request).is_err() {
-            return self.ended_controlled(cancelled).map_or(Ok(None), Err);
+        match self.queue(&request) {
+            Ok(()) => {}
+            // The helper is fine; the request is not one this crate should have made.
+            Err(Unqueued::Unencodable) => {
+                self.kill();
+                return Err(Error::Protocol);
+            }
+            Err(Unqueued::Closed) => return self.ended_controlled(cancelled).map_or(Ok(None), Err),
         }
         let started = Instant::now();
         loop {
@@ -276,7 +280,7 @@ impl Helper {
         }
     }
 
-    fn queue(&mut self, request: &Request) -> Result<(), Stopped> {
+    fn queue(&mut self, request: &Request) -> Result<(), Unqueued> {
         self.processing = matches!(request, Request::Process { .. });
         #[cfg(target_os = "windows")]
         if matches!(

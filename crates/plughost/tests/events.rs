@@ -292,6 +292,26 @@ fn last_slot_events_leave_the_chain_in_offset_order() {
 
 #[test]
 #[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
+fn events_a_plugin_sends_past_the_block_land_on_its_last_frame() {
+    // The fixture sends a note off on key 0 at the block's length; CLAP also reports its end.
+    for format in [PluginFormat::Vst3, PluginFormat::Clap] {
+        let (mut chain, config) = routing_chain(format);
+        chain.take_diagnostics().unwrap();
+        let (_, produced) =
+            run(&mut chain, &config, 64, &[MidiEvent::note_off(10, 0, 0, 0)]).unwrap();
+        assert_eq!(produced, [MidiEvent::note_off(63, 0, 12, 0)], "{format:?}");
+        let (_, produced) = run(&mut chain, &config, 64, &[]).unwrap();
+        assert_eq!(produced, [], "{format:?}");
+        let diagnostics = chain.take_diagnostics().unwrap();
+        assert!(
+            diagnostics.records.is_empty(),
+            "{format:?}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
 fn exceeding_the_output_budget_stops_processing_until_reset() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let (mut chain, config) = routing_chain(format);

@@ -611,12 +611,18 @@ fn absent_time_stays_absent_and_discrete_automation_is_quantized() {
             },
         )
         .unwrap();
+        // Without a transport, VST3 still gets a process context, one without musical time.
+        let no_musical_time = if format == PluginFormat::Vst3 {
+            -2.0
+        } else {
+            -1.0
+        };
         assert!(
             output
                 .channels
                 .iter()
                 .flatten()
-                .all(|sample| *sample == -1.0)
+                .all(|sample| *sample == no_musical_time)
         );
         assert_eq!(
             chain

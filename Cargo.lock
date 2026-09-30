@@ -410,6 +410,9 @@ dependencies = [
  "clack-extensions",
  "clack-plugin",
  "libc",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "vst3",
  "windows-sys",
 ]

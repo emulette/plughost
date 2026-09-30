@@ -4,8 +4,8 @@ use std::ops::Range;
 use objc2::rc::Retained;
 use objc2::{AnyThread, msg_send};
 use objc2_audio_toolbox::{
-    AUAudioUnit, AUAudioUnitBus, AUAudioUnitBusArray, kAudioUnitType_MIDIProcessor,
-    kAudioUnitType_MusicDevice, kAudioUnitType_MusicEffect,
+    AUAudioUnit, AUAudioUnitBus, AUAudioUnitBusArray, kAudioUnitType_Generator,
+    kAudioUnitType_MIDIProcessor, kAudioUnitType_MusicDevice, kAudioUnitType_MusicEffect,
 };
 use objc2_avf_audio::{AVAudioChannelLayout, AVAudioFormat};
 use objc2_core_audio_types::{
@@ -323,6 +323,9 @@ pub(super) fn validate_configuration(
         };
         let input = counts(&config.inputs);
         let output = counts(&config.outputs);
+        // Instruments, generators and MIDI processors may leave their input off whatever channel
+        // pairs they list (JUCE lists only the pairs with the input on).
+        let input_off = input.1 == 0 && input_optional(unit);
         if !capabilities.is_empty()
             && !(0..capabilities.count()).step_by(2).any(|index| {
                 matches_capability(
@@ -330,13 +333,30 @@ pub(super) fn validate_configuration(
                     capabilities.objectAtIndex(index + 1).longLongValue(),
                     input,
                     output,
-                )
+                ) || input_off
+                    && matches_capability(
+                        -2,
+                        capabilities.objectAtIndex(index + 1).longLongValue(),
+                        input,
+                        output,
+                    )
             })
         {
             return Err(AuError::AudioConfiguration);
         }
     }
     Ok(())
+}
+
+/// Whether the unit's type makes audio input optional.
+fn input_optional(unit: &AUAudioUnit) -> bool {
+    let kind = unsafe { unit.componentDescription() }.componentType;
+    [
+        kAudioUnitType_MusicDevice,
+        kAudioUnitType_Generator,
+        kAudioUnitType_MIDIProcessor,
+    ]
+    .contains(&kind)
 }
 
 fn matches_capability(input: i64, output: i64, inputs: (i64, i64), outputs: (i64, i64)) -> bool {

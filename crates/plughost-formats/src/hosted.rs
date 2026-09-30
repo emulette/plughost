@@ -502,14 +502,18 @@ impl HostedPlugin for au::Plugin {
     unsafe fn open_editor(
         &mut self,
         parent: *mut c_void,
-        _resize: ResizeRequest,
+        resize: ResizeRequest,
     ) -> Result<EditorView, Error> {
-        let (width, height) = unsafe { au::Plugin::open_editor(self, parent)? };
+        let (width, height) = unsafe { au::Plugin::open_editor(self, parent, resize)? };
         Ok(EditorView::Embedded { width, height })
     }
 
     fn close_editor(&mut self) {
         au::Plugin::close_editor(self);
+    }
+
+    fn idle(&mut self) {
+        au::Plugin::idle(self);
     }
 }
 

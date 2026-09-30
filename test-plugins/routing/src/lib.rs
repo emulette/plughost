@@ -2,11 +2,14 @@
 //! event inputs feed one event output: notes from input port `p` leave transposed up by
 //! 12 × (p + 1) semitones with controller `KEY_CONTROLLER` carrying the input key, system
 //! exclusive messages are echoed, and `FLOOD` makes the fixture exceed any block's event budget.
+//! A note off on `LATE_KEY` leaves at the block's length, past its last frame, and the CLAP side
+//! also reports the note's end.
 mod clap;
 mod errors;
 mod vst;
 
 const KEY_CONTROLLER: u8 = 20;
+const LATE_KEY: u8 = 0;
 const FLOOD: [u8; 4] = [0xF0, 0x7D, 0x7F, 0xF7];
 const FLOOD_EVENTS: usize = 5000;
 const EVENT_INPUTS: u32 = 2;

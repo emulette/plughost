@@ -2,11 +2,17 @@ use super::{ClapError, text};
 use clap_sys::factory::preset_discovery::clap_preset_discovery_metadata_receiver as Raw;
 use clap_sys::universal_plugin_id::clap_universal_plugin_id;
 use plughost_core::{DiscoveredPreset, PresetLocation, PresetPluginId};
+use std::collections::HashSet;
 use std::ffi::{CStr, c_char};
 pub(super) struct Receiver {
     pub presets: Vec<DiscoveredPreset>,
     pub error: Option<ClapError>,
     location: PresetLocation,
+    /// The load keys of the presets so far, and whether one had no name or no key, so each new
+    /// preset is checked against them without going through the others.
+    load_keys: HashSet<String>,
+    unnamed: bool,
+    unkeyed: bool,
 }
 impl Receiver {
     pub fn new(location: PresetLocation) -> Self {
@@ -14,6 +20,9 @@ impl Receiver {
             presets: Vec::new(),
             error: None,
             location,
+            load_keys: HashSet::new(),
+            unnamed: false,
+            unkeyed: false,
         }
     }
     pub fn raw(&mut self) -> Raw {
@@ -89,19 +98,24 @@ unsafe extern "C" fn begin_preset(
             }
             // Presets of the plugin location, like those of a container file, need a name and key.
             if (r.location == PresetLocation::Plugin || !r.presets.is_empty())
-                && (name.is_none()
-                    || load_key.is_none()
-                    || r.presets.iter().any(|p| p.name.is_none()))
+                && (name.is_none() || load_key.is_none() || r.unnamed)
             {
                 return Err(ClapError::PresetMetadata);
             }
             if !r.presets.is_empty()
-                && (load_key.is_none()
-                    || r.presets
-                        .iter()
-                        .any(|p| p.load_key == load_key || p.load_key.is_none()))
+                && (r.unkeyed
+                    || load_key
+                        .as_ref()
+                        .is_none_or(|key| r.load_keys.contains(key)))
             {
                 return Err(ClapError::PresetMetadata);
+            }
+            r.unnamed |= name.is_none();
+            match &load_key {
+                Some(key) => {
+                    r.load_keys.insert(key.clone());
+                }
+                None => r.unkeyed = true,
             }
             r.presets.push(DiscoveredPreset {
                 location: r.location.clone(),

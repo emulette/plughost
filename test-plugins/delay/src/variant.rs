@@ -18,10 +18,13 @@ pub enum Variant {
     LargeState,
     StallMainThread,
     ArrangementFalse,
+    Editor,
+    RestartOnActivate,
+    Timers,
 }
 
 /// Module file name (without extension), class ID suffix, and plugin name of each variant.
-const VARIANTS: [(Variant, &str, u32, &str); 10] = [
+const VARIANTS: [(Variant, &str, u32, &str); 13] = [
     (
         Variant::Delay,
         "plughost-test-delay",
@@ -81,6 +84,24 @@ const VARIANTS: [(Variant, &str, u32, &str); 10] = [
         "plughost-test-arrangement-false",
         0x7900000A,
         "plughost test arrangement false",
+    ),
+    (
+        Variant::Editor,
+        "plughost-test-editor",
+        0x7900000B,
+        "plughost test editor",
+    ),
+    (
+        Variant::RestartOnActivate,
+        "plughost-test-restart-on-activate",
+        0x7900000C,
+        "plughost test restart on activate",
+    ),
+    (
+        Variant::Timers,
+        "plughost-test-timers",
+        0x7900000D,
+        "plughost test timers",
     ),
 ];
 

@@ -127,6 +127,7 @@ impl Processor {
                 queue: &parameter_events,
             },
             events: produced,
+            frames,
             sysex: 0,
             overflow: false,
             unconvertible: 0,

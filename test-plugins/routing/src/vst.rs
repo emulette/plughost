@@ -30,6 +30,9 @@ fn copy_wide(s: &str, out: &mut [TChar]) {
 }
 struct Routing {
     values: Mutex<[f64; 2]>,
+    /// The points the last block with audio brought for the gain, reported as parameter
+    /// `GAIN_POINTS` in hundredths.
+    gain_points: Mutex<usize>,
     arrangement: Mutex<SpeakerArrangement>,
     active: Mutex<[[bool; 2]; 2]>,
 }
@@ -37,6 +40,7 @@ impl Routing {
     fn new() -> Self {
         Self {
             values: Mutex::new([1.0, 0.0]),
+            gain_points: Mutex::new(0),
             arrangement: Mutex::new(SpeakerArr::kStereo),
             active: Mutex::new([[true; 2]; 2]),
         }

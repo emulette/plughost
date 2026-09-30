@@ -44,7 +44,9 @@ impl Plugin {
         config: &AudioConfig,
     ) -> Result<Vec<AudioBusInfo>, Vst3Error> {
         let parameters = self.parameter_cache();
-        lock(&self.engine).prepare_audio(config, &parameters)
+        let buses = lock(&self.engine).prepare_audio(config, &parameters)?;
+        self.seed_held_values();
+        Ok(buses)
     }
     pub(crate) fn bypass(&self) -> Result<BypassState, Vst3Error> {
         let Some(id) = self.bypass_parameter() else {

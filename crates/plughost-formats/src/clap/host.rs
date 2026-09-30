@@ -149,6 +149,14 @@ impl Shared {
         self.extensions.get_or_init(Extensions::default)
     }
 
+    pub fn has_pending(&self) -> bool {
+        !self
+            .pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_empty()
+    }
+
     /// Control-path snapshot; draining retains the producer's prepared capacity.
     pub fn take_pending(&self) -> Vec<(u32, f64)> {
         self.pending

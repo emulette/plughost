@@ -23,6 +23,15 @@ pub(super) enum Stopped {
     Closed,
 }
 
+/// Why a request was not queued.
+#[derive(Debug)]
+pub(super) enum Unqueued {
+    /// The transport was closed, or the previous request is not written yet.
+    Closed,
+    /// The request could not be encoded, such as one larger than a message may be.
+    Unencodable,
+}
+
 pub(super) struct Transport {
     pipe: Option<pipe::Pipe>,
     decoder: FrameDecoder,
@@ -45,11 +54,11 @@ impl Transport {
 
     /// Starts writing `request`; [`Transport::flush`] writes it. The previous request must have
     /// been flushed.
-    pub fn queue(&mut self, request: &Request) -> Result<(), Stopped> {
+    pub fn queue(&mut self, request: &Request) -> Result<(), Unqueued> {
         if self.pipe.is_none() || self.written < self.outgoing.len() {
-            return Err(Stopped::Closed);
+            return Err(Unqueued::Closed);
         }
-        encode_message(&mut self.outgoing, request).map_err(|_| Stopped::Closed)?;
+        encode_message(&mut self.outgoing, request).map_err(|_| Unqueued::Unencodable)?;
         self.written = 0;
         Ok(())
     }

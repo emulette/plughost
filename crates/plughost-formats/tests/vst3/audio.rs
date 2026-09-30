@@ -358,3 +358,56 @@ fn arrangements_the_plugin_took_are_used_whatever_it_answered() {
         .unwrap();
     assert_eq!(plugin.config().unwrap().output, Layout::Stereo);
 }
+
+/// The points the routing fixture's last block brought for its gain.
+fn gain_points(plugin: &mut Plugin) -> f64 {
+    let value = plugin
+        .parameters()
+        .into_iter()
+        .find(|(info, _)| info.id == 2)
+        .unwrap()
+        .1;
+    (value * 100.0).round()
+}
+
+fn automate_gain(plugin: &mut Plugin, offset: usize) {
+    let input = [0.5f32; 4];
+    let mut outputs = [[0.0f32; 4]; 4];
+    let mut slices: Vec<_> = outputs.iter_mut().map(|c| c.as_mut_slice()).collect();
+    plugin
+        .process(
+            &plughost_core::BlockContext::new(4),
+            &[&input, &input, &input],
+            &mut slices,
+            &[plughost_core::ParameterChange {
+                id: 0,
+                offset,
+                value: 0.25,
+            }],
+            &[],
+            &mut Vec::new(),
+        )
+        .unwrap();
+}
+
+#[test]
+#[ignore = "needs routing test plugin"]
+fn a_first_point_after_preparation_or_restore_is_a_step_not_a_ramp() {
+    let _serial = serial();
+    let mut plugin = plugin("plughost-test-routing");
+    let state = plugin
+        .save_state(plughost_core::StatePurpose::Project)
+        .unwrap();
+    plugin
+        .prepare_audio(&buses(SampleFormat::F32, Layout::Stereo))
+        .unwrap();
+    // A point after the block's start comes with one that holds the value until it, even
+    // before the host sent the plugin any value.
+    automate_gain(&mut plugin, 2);
+    assert_eq!(gain_points(&mut plugin), 2.0);
+    plugin
+        .restore_state(&state, plughost_core::StatePurpose::Project)
+        .unwrap();
+    automate_gain(&mut plugin, 2);
+    assert_eq!(gain_points(&mut plugin), 2.0);
+}

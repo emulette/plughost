@@ -16,7 +16,7 @@ use crate::render::Tail;
 use crate::state::{PluginState, PresetInfo, StatePurpose};
 use crate::{CapabilityReport, DiagnosticBatch, Failure, HostIdentity};
 
-pub const PROTOCOL_VERSION: u32 = 20;
+pub const PROTOCOL_VERSION: u32 = 21;
 /// Upper bound on one message. A helper whose memory a plugin corrupted could send anything.
 pub const MAX_MESSAGE_BYTES: usize = 256 << 20;
 
@@ -89,12 +89,17 @@ pub enum Request {
     ListAudioUnits,
     /// Host mode: load the chain. `activity` is the transfer token of the application's
     /// [`shared::Activity`], through which the helper announces the slot each of its threads calls.
-    /// `states` is empty or holds one project state per plugin, restored as each one loads.
     Load {
         host: HostIdentity,
         plugins: Vec<PluginRef>,
-        states: Vec<crate::PluginState>,
         activity: u64,
+    },
+    /// Host mode, right after `Load`: restores a project state into the slot's newly loaded
+    /// plugin. Each state goes in its own request, so the states of a chain together may exceed
+    /// one message.
+    LoadState {
+        slot: usize,
+        state: crate::PluginState,
     },
     /// One block through the chain, with events on the chain's external event inputs.
     Process {

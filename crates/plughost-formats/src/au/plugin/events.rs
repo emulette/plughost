@@ -1,13 +1,17 @@
 //! Native automation callbacks own only a bounded queue; all AU queries stay on the owner.
 use std::collections::VecDeque;
+use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2_audio_toolbox::{
-    AUParameterAutomationEvent, AUParameterAutomationEventType, AUParameterObserverToken,
-    AUParameterTree,
+    AUAudioUnit, AUAudioUnitV2Bridge, AUParameterAutomationEvent, AUParameterAutomationEventType,
+    AUParameterObserverToken, AUParameterTree, AudioUnit, AudioUnitAddPropertyListener,
+    AudioUnitElement, AudioUnitPropertyID, AudioUnitRemovePropertyListenerWithUserData,
+    AudioUnitScope, kAudioUnitProperty_ParameterValueStrings,
 };
 use objc2_foundation::NSInteger;
 use plughost_core::{ParameterEvent, ParameterEventBatch};
@@ -96,10 +100,66 @@ impl Drop for Observation {
     }
 }
 
+/// Follows a v2 unit's `kAudioUnitProperty_ParameterValueStrings`. The bridge replaces its tree
+/// when the unit announces a changed parameter list or parameter info, but keeps it, value
+/// strings included, when only value strings change.
+pub(super) struct ValueStrings {
+    unit: AudioUnit,
+    changed: Box<AtomicBool>,
+}
+
+impl ValueStrings {
+    /// None for v3 units, or when the unit does not take the listener.
+    pub fn new(unit: &AUAudioUnit) -> Option<Self> {
+        let unit = unsafe { unit.downcast_ref::<AUAudioUnitV2Bridge>()?.audioUnit() };
+        let changed = Box::new(AtomicBool::new(false));
+        let status = unsafe {
+            AudioUnitAddPropertyListener(
+                unit,
+                kAudioUnitProperty_ParameterValueStrings,
+                Some(value_strings_changed),
+                std::ptr::from_ref(&*changed).cast_mut().cast(),
+            )
+        };
+        (status == 0).then_some(Self { unit, changed })
+    }
+
+    fn take(&self) -> bool {
+        self.changed.swap(false, Ordering::Relaxed)
+    }
+}
+
+/// Runs on whichever thread the unit announces the change from; it only raises the flag.
+unsafe extern "C-unwind" fn value_strings_changed(
+    changed: NonNull<c_void>,
+    _: AudioUnit,
+    _: AudioUnitPropertyID,
+    _: AudioUnitScope,
+    _: AudioUnitElement,
+) {
+    // SAFETY: the listener is removed before its flag is freed.
+    unsafe { changed.cast::<AtomicBool>().as_ref() }.store(true, Ordering::Relaxed);
+}
+
+impl Drop for ValueStrings {
+    fn drop(&mut self) {
+        // The unit must still exist; the plugin drops this before releasing it.
+        unsafe {
+            AudioUnitRemovePropertyListenerWithUserData(
+                self.unit,
+                kAudioUnitProperty_ParameterValueStrings,
+                Some(value_strings_changed),
+                std::ptr::from_ref(&*self.changed).cast_mut().cast(),
+            )
+        };
+    }
+}
+
 impl Plugin {
     /// Follows the unit's parameter tree. A unit announces changed parameters by replacing its
-    /// tree (the v2 bridge does so for `kAudioUnitProperty_ParameterList`); a replacement rebinds
-    /// the observer and refreshes the processing thread's parameter ranges.
+    /// tree (the v2 bridge does so on the main thread's run loop for
+    /// `kAudioUnitProperty_ParameterList` and `kAudioUnitProperty_ParameterInfo`); a replacement
+    /// rebinds the observer and refreshes the processing thread's parameter ranges.
     pub(super) fn refresh_parameter_observer(&mut self) {
         let mut engine = lock(&self.engine);
         let tree = engine
@@ -127,11 +187,13 @@ impl Plugin {
         }
     }
 
-    /// Drains native value/gesture events and reports a replaced parameter tree. AU has no general
-    /// dirty notification, so this method never synthesizes a dirty event from unrelated callbacks.
+    /// Drains native value/gesture events and reports a replaced parameter tree or changed value
+    /// strings. AU has no general dirty notification, so this method never synthesizes a dirty
+    /// event from unrelated callbacks.
     pub(crate) fn take_parameter_events(&mut self) -> ParameterEventBatch {
         self.refresh_parameter_observer();
-        let changed = std::mem::take(&mut self.parameter_metadata_changed);
+        let value_strings = self.value_strings.as_ref().is_some_and(ValueStrings::take);
+        let changed = std::mem::take(&mut self.parameter_metadata_changed) || value_strings;
         let pending = self
             .observation
             .as_ref()

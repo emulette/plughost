@@ -35,6 +35,36 @@ fn native_parameter_queues_order_replace_bound_and_reuse_points() {
     assert!(unsafe { changes.addParameterData(&80, std::ptr::null_mut()) }.is_null());
 }
 
+#[test]
+fn host_points_in_any_order_are_read_per_queue_in_offset_order_with_the_last_value() {
+    let changes = ParameterChanges::new(2, 8).unwrap();
+    for (id, offset, value) in [
+        (1, 0, 0.0),
+        (2, 0, 0.5),
+        (1, 9, 0.9),
+        (2, 3, 0.3),
+        (1, 4, 0.4),
+        (1, 9, 0.8),
+    ] {
+        changes.push(id, offset, value);
+    }
+    let points = |index| {
+        let queue = unsafe { vst3::ComRef::from_raw(changes.getParameterData(index)) }.unwrap();
+        let count = unsafe { queue.getPointCount() };
+        let points: Vec<_> = (0..count)
+            .map(|point| {
+                let (mut offset, mut value) = (-1, -1.0);
+                unsafe { queue.getPoint(point, &mut offset, &mut value) };
+                (offset, value)
+            })
+            .collect();
+        (unsafe { queue.getParameterId() }, points)
+    };
+    assert_eq!(points(0), (1, vec![(0, 0.0), (4, 0.4), (9, 0.8)]));
+    assert_eq!(points(1), (2, vec![(0, 0.5), (3, 0.3)]));
+    assert_eq!(last_values(&changes), [(1, 0.8), (2, 0.3)]);
+}
+
 fn last_values(changes: &ParameterChanges) -> Vec<(ParamID, ParamValue)> {
     let mut values = Vec::new();
     changes.each_last_value(|id, value| values.push((id, value)));

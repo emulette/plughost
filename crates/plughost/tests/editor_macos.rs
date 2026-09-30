@@ -1,5 +1,6 @@
-//! Editor windows of a real helper on the macOS desktop: editors that show, hide and close
-//! themselves, and Audio Unit views. Build the helper and the test plugins first (see `support`).
+//! Editor windows of a real helper on the macOS desktop: keyboard focus, editors that show, hide
+//! and close themselves, and Audio Unit views. Build the helper and the test plugins first (see
+//! `support`).
 #![cfg(target_os = "macos")]
 
 use std::ptr::NonNull;
@@ -12,7 +13,7 @@ use plughost::{BlockContext, Chain, Layout, MidiEvent, PluginFormat, PluginRef};
 
 mod support;
 
-use support::{fixture, prepare, spawn};
+use support::{delay_variant, fixture, prepare, spawn};
 
 /// 'aufx' 'dely' 'appl'
 const AU_DELAY: &str = "6175667864656C796170706C";
@@ -124,6 +125,30 @@ fn request(chain: &mut Chain, key: u8) {
             &mut Vec::new(),
         )
         .unwrap();
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn an_opened_editor_window_gives_the_editor_keyboard_focus() {
+    // The editor variant reports 1 once its view is its window's first responder, and 2 once a
+    // key it sends to its window reaches it.
+    const FOCUS: u64 = 15;
+    let mut chain = spawn(&[delay_variant(PluginFormat::Clap, "editor", 0xB)]);
+    chain.open_editor(0).unwrap();
+    wait(
+        &mut chain,
+        |chain| {
+            let (_, value) = chain
+                .parameters(0)
+                .unwrap()
+                .into_iter()
+                .find(|(info, _)| info.id == FOCUS)
+                .unwrap();
+            chain.parameter_to_plain(0, FOCUS, value).unwrap() == 2.0
+        },
+        "keys never reached the editor's view",
+    );
+    chain.close_editor(0).unwrap();
 }
 
 #[test]

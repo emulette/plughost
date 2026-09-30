@@ -94,7 +94,9 @@ path at a time, and cache access failures return `Error::Cache`.
 Use `Scanner::policy(ScanPolicy)` to explicitly allow or block bundles and registered Audio Units.
 Blocked bundles report `ScanOutcome::Blocked` and remain blocked during retry. The policy is
 independent of automatic failure exclusion and is owned by the calling application.
-AUv3 state restoration has known compatibility failures with the VST3 SDK's Audio Unit samples.
+The VST3 SDK's AUv3 samples pass parameter edits to their processor only while processing and
+save the processor's state, so a state saved after an edit and before the next processed block
+misses the edit.
 Query plugin capabilities before relying on optional native behavior.
 [COMPATIBILITY.md](https://github.com/emulette/plughost/blob/main/COMPATIBILITY.md) lists the
 installed plugins and SDK samples checked on each platform and what they passed.

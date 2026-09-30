@@ -68,7 +68,6 @@ fn an_unread_request_does_not_block_the_supervisor_or_cleanup() {
             bundle: None,
             class_id: "x".repeat(8 * 1024 * 1024),
         }],
-        states: Vec::new(),
         activity: 0,
     };
     let started = Instant::now();
@@ -110,7 +109,6 @@ fn a_large_request_flushed_in_short_slices_arrives_intact() {
                 .map(|index| char::from(b'a' + (index % 26) as u8))
                 .collect(),
         }],
-        states: Vec::new(),
         activity: 0,
     };
     let reader = std::thread::spawn(move || MessageReader::new(Slow(peer)).read::<Request>());
@@ -124,5 +122,33 @@ fn a_large_request_flushed_in_short_slices_arrives_intact() {
         }
     }
     assert_eq!(reader.join().unwrap().unwrap(), request);
+    transport.close();
+}
+
+#[test]
+fn a_request_too_large_for_a_message_is_not_mistaken_for_a_closed_connection() {
+    let (mut transport, mut peer) = connection();
+    identify(&mut transport, &mut peer);
+    let oversized = Request::LoadState {
+        slot: 0,
+        state: plughost_core::PluginState {
+            format: plughost_core::PluginFormat::Clap,
+            class_id: String::new(),
+            name: String::new(),
+            vendor: String::new(),
+            version: String::new(),
+            component: vec![0; plughost_core::ipc::MAX_MESSAGE_BYTES],
+            controller: Vec::new(),
+        },
+    };
+    assert!(matches!(
+        transport.queue(&oversized),
+        Err(Unqueued::Unencodable)
+    ));
+    // Nothing was written; the connection carries the next request.
+    let reader = std::thread::spawn(move || MessageReader::new(peer).read::<Request>());
+    transport.queue(&Request::Shutdown).unwrap();
+    transport.flush(Duration::from_secs(2)).unwrap();
+    assert_eq!(reader.join().unwrap().unwrap(), Request::Shutdown);
     transport.close();
 }

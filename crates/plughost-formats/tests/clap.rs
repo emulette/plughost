@@ -287,6 +287,18 @@ fn latency_is_read_for_the_prepared_sample_rate() {
 
 #[test]
 #[ignore = "needs scripts/build-test-plugins.sh"]
+fn values_read_right_after_an_edit_include_it() {
+    let _serial = serial();
+    let mut plugin = plugin();
+    plugin.set_parameter(GAIN, 0.25).unwrap();
+    assert_eq!(parameter_value(&mut plugin, GAIN), 0.25);
+    plugin.prepare(&config(48_000.0)).unwrap();
+    plugin.set_parameter(GAIN, 0.5).unwrap();
+    assert_eq!(parameter_value(&mut plugin, GAIN), 0.5);
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
 fn edits_reach_the_next_block() {
     let _serial = serial();
     let mut plugin = plugin();
@@ -518,4 +530,24 @@ fn a_restart_requested_while_processing_keeps_the_block_and_fails_the_next() {
     assert_eq!(plugin.latency().unwrap(), 544);
     assert!(plugin.processor().restart_required());
     assert_eq!(process(&[]), Err(Error::Clap(ClapError::RestartRequired)));
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
+fn a_timer_removed_by_another_timer_is_not_called() {
+    let _serial = serial();
+    // The fixture's first timer removes its second one; it reports calls the removed one gets.
+    const REMOVED_TIMER_CALLS: u64 = 15;
+    let bundle = test_plugin("plughost-test-timers");
+    let mut plugin = Plugin::new(
+        &bundle,
+        "com.studio.plughost.test-delay.7900000d",
+        &plughost_core::HostIdentity::default(),
+    )
+    .unwrap();
+    for _ in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        plugin.idle();
+    }
+    assert_eq!(parameter_value(&mut plugin, REMOVED_TIMER_CALLS), 0.0);
 }

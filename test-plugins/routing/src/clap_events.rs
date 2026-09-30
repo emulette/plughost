@@ -1,6 +1,7 @@
 use super::*;
 use clack_extensions::note_ports::*;
-use clack_plugin::events::event_types::{MidiEvent, MidiSysExEvent};
+use clack_plugin::events::event_types::{MidiEvent, MidiSysExEvent, NoteEndEvent};
+use clack_plugin::events::{Match, Pckn};
 
 impl PluginNotePortsImpl for MainThread<'_> {
     fn count(&self, input: bool) -> u32 {
@@ -13,17 +14,23 @@ impl PluginNotePortsImpl for MainThread<'_> {
             (true, 1) => b"Octave notes",
             _ => return,
         };
+        // The second input takes MIDI with MPE only, as MPE controllers' ports do.
+        let (supported_dialects, preferred_dialect) = if input && index == 1 {
+            (NoteDialects::MIDI_MPE, NoteDialect::MidiMpe)
+        } else {
+            (NoteDialects::MIDI, NoteDialect::Midi)
+        };
         writer.set(&NotePortInfo {
             id: ClapId::new(index),
             name,
-            supported_dialects: NoteDialects::MIDI,
-            preferred_dialect: Some(NoteDialect::Midi),
+            supported_dialects,
+            preferred_dialect: Some(preferred_dialect),
         });
     }
 }
 
 /// Moves input events to output port 0 as the crate documentation describes.
-pub(super) fn route(input: &InputEvents, output: &mut OutputEvents) {
+pub(super) fn route(input: &InputEvents, output: &mut OutputEvents, frames: u32) {
     for event in input {
         match event.as_core_event() {
             Some(CoreEventSpace::Midi(midi)) => {
@@ -32,6 +39,13 @@ pub(super) fn route(input: &InputEvents, output: &mut OutputEvents) {
                 if matches!(status & 0xF0, 0x80 | 0x90) {
                     let port = usize::from(midi.port_index());
                     let note = [status, crate::transpose(port, key), velocity];
+                    if status & 0xF0 == 0x80 && key == crate::LATE_KEY {
+                        let channel = u16::from(status & 0x0F);
+                        let end = Pckn::new(0u16, channel, u16::from(note[1]), Match::All);
+                        let _ = output.try_push(MidiEvent::new(frames, 0, note));
+                        let _ = output.try_push(NoteEndEvent::new(frames, end));
+                        continue;
+                    }
                     let _ = output.try_push(MidiEvent::new(time, 0, note));
                     if status & 0xF0 == 0x90 && velocity > 0 {
                         let channel = status & 0x0F;

@@ -40,18 +40,30 @@ impl OutputEventList {
         })
     }
     /// Moves the events added since the last call into `into` in offset order, keeping the
-    /// plugin's order at equal offsets; fails when the plugin exceeded the block's budgets, whose
-    /// events are discarded.
-    pub fn take(&self, into: &mut Vec<MidiEvent>) -> Result<(), Vst3Error> {
+    /// plugin's order at equal offsets; events at or after the end of the block of `frames` land
+    /// on its last frame. Fails when the plugin exceeded the block's budgets, whose events are
+    /// discarded.
+    pub fn take(&self, into: &mut Vec<MidiEvent>, frames: usize) -> Result<(), Vst3Error> {
         let mut output = lock(&self.output);
         output.sysex = 0;
         if std::mem::take(&mut output.overflow) {
             output.events.clear();
             return Err(Vst3Error::OutputEventCapacity);
         }
+        let last = frames.saturating_sub(1);
+        for event in &mut output.events {
+            event.offset = event.offset.min(last);
+        }
         output.events.sort_by_key(|event| event.offset);
         into.append(&mut output.events);
         Ok(())
+    }
+    /// Drops the events of a block that failed.
+    pub fn discard(&self) {
+        let mut output = lock(&self.output);
+        output.events.clear();
+        output.sysex = 0;
+        output.overflow = false;
     }
     /// Events that had no MIDI form, since the last call.
     pub fn take_unconvertible(&self) -> u64 {

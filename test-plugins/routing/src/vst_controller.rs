@@ -1,4 +1,8 @@
 use super::*;
+
+/// Read-only: how many points the last block with audio brought for the gain, in hundredths.
+const GAIN_POINTS: ParamID = 2;
+
 impl IEditControllerTrait for Routing {
     unsafe fn setComponentState(&self, state: *mut IBStream) -> tresult {
         self.load(state)
@@ -10,13 +14,24 @@ impl IEditControllerTrait for Routing {
         self.save(state)
     }
     unsafe fn getParameterCount(&self) -> int32 {
-        2
+        3
     }
     unsafe fn getParameterInfo(&self, index: int32, info: *mut ParameterInfo) -> tresult {
-        if !(0..2).contains(&index) {
+        if !(0..3).contains(&index) {
             return kInvalidArgument;
         }
         let info = unsafe { &mut *info };
+        if index == GAIN_POINTS as i32 {
+            info.id = GAIN_POINTS;
+            copy_wide("Gain points", &mut info.title);
+            info.shortTitle = info.title;
+            info.units = [0; 128];
+            info.stepCount = 0;
+            info.defaultNormalizedValue = 0.0;
+            info.unitId = 0;
+            info.flags = ParameterInfo_::ParameterFlags_::kIsReadOnly as i32;
+            return kResultOk;
+        }
         info.id = index as u32;
         copy_wide(if index == 0 { "Gain" } else { "Bypass" }, &mut info.title);
         info.shortTitle = info.title;
@@ -56,6 +71,9 @@ impl IEditControllerTrait for Routing {
         value
     }
     unsafe fn getParamNormalized(&self, id: ParamID) -> ParamValue {
+        if id == GAIN_POINTS {
+            return *lock(&self.gain_points) as f64 / 100.0;
+        }
         lock(&self.values)
             .get(id as usize)
             .copied()

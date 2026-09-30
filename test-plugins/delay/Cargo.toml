@@ -13,12 +13,15 @@ crate-type = ["cdylib"]
 workspace = true
 
 [dependencies]
-clack-extensions = { workspace = true, features = ["audio-ports", "clack-plugin", "gui", "latency", "log", "params", "state", "state-context", "tail"] }
+clack-extensions = { workspace = true, features = ["audio-ports", "clack-plugin", "gui", "latency", "log", "params", "state", "state-context", "tail", "timer"] }
 clack-plugin.workspace = true
 vst3.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc.workspace = true
+objc2.workspace = true
+objc2-app-kit = { workspace = true, features = ["NSGraphicsContext"] }
+objc2-foundation.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }

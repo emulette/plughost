@@ -45,6 +45,9 @@ impl Routing {
                 NOTE_OFF => {
                     let key = unsafe { event.__field0.noteOff.pitch };
                     event.__field0.noteOff.pitch = crate::transpose(bus, key as u8).into();
+                    if key == i16::from(crate::LATE_KEY) {
+                        event.sampleOffset = data.numSamples;
+                    }
                     unsafe { output.addEvent(&mut event) };
                 }
                 DATA => {

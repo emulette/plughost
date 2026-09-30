@@ -362,10 +362,17 @@ fn start(
     timeouts: Timeouts,
 ) -> Result<Chain, Error> {
     let mut process = Helper::spawn(helper, Mode::Host)?;
-    let infos = match process.load(host, plugins, states, timeouts.load)? {
+    let infos = match process.load(host, plugins, timeouts.load)? {
         Response::Loaded(infos) => infos,
         _ => return Err(Error::Protocol),
     };
+    for (slot, state) in states.iter().enumerate() {
+        let request = Request::LoadState {
+            slot,
+            state: state.clone(),
+        };
+        expect_done(process.request(request, timeouts.load)?)?;
+    }
     Ok(Chain {
         identity: host.clone(),
         helper_path: helper.to_path_buf(),

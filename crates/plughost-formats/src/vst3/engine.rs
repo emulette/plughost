@@ -169,6 +169,9 @@ impl Engine {
             return Err(Vst3Error::Activate(result));
         }
         activated(processor);
+        // Restart requests made while taking this configuration are about the configuration
+        // itself; kept, they would ask for the same preparation again forever.
+        instance.handler.take_restart_flags();
         self.prepared = Some(Prepared {
             config: ProcessConfig {
                 sample_rate: config.sample_rate,
@@ -232,6 +235,7 @@ impl Engine {
             return Err(Vst3Error::Activate(result));
         }
         activated(&instance.processor);
+        instance.handler.take_restart_flags();
         Ok(())
     }
 
@@ -306,9 +310,10 @@ impl Engine {
         prepared.position += frames as i64;
         prepared.take_outputs(&instance.handler);
         if result != kResultOk {
+            prepared.output_events.discard();
             return Err(Vst3Error::Process(result));
         }
-        prepared.output_events.take(produced)
+        prepared.output_events.take(produced, frames)
     }
 
     /// Delivers edits that have not reached the processor yet, with a process call that carries
@@ -318,7 +323,9 @@ impl Engine {
         if !instance.handler.has_pending() {
             return Ok(());
         }
-        let prepared = self.prepared.as_mut().ok_or(Vst3Error::NotPrepared)?;
+        let Some(prepared) = self.prepared.as_mut() else {
+            return flush_inactive(instance);
+        };
         prepared.begin(&instance.handler);
         let result = call_process(instance, prepared, &plughost_core::BlockContext::new(0));
         prepared.take_outputs(&instance.handler);
@@ -340,6 +347,63 @@ impl Engine {
             },
         )
     }
+}
+
+/// The processing setup of a flush while unprepared. No audio is processed.
+const FLUSH_SETUP: (f64, i32) = (48_000.0, 512);
+
+/// Delivers pending edits to an unprepared plugin the way the SDK's validator flushes: activated
+/// on its current buses for one process call without audio buffers, then deactivated.
+fn flush_inactive(instance: &Instance) -> Result<(), Vst3Error> {
+    let limit = plughost_core::MAX_BLOCK_EVENTS;
+    let changes = ComWrapper::new(ParameterChanges::new(limit, limit)?);
+    let output_changes = ComWrapper::new(ParameterChanges::latest(limit)?);
+    let events = ComWrapper::new(EventList::new(limit)?);
+    let output_events = ComWrapper::new(OutputEventList::new()?);
+    let processor = &instance.processor;
+    let (sample_rate, max_block_size) = FLUSH_SETUP;
+    let mut setup = ProcessSetup {
+        processMode: ProcessModes_::kOffline as i32,
+        symbolicSampleSize: SymbolicSampleSizes_::kSample32 as i32,
+        maxSamplesPerBlock: max_block_size,
+        sampleRate: sample_rate,
+    };
+    let result = unsafe { processor.setupProcessing(&mut setup) };
+    if result != kResultOk {
+        return Err(Vst3Error::SetupRejected(result));
+    }
+    let result = unsafe { instance.component.setActive(1) };
+    if result != kResultOk {
+        return Err(Vst3Error::Activate(result));
+    }
+    activated(processor);
+    instance
+        .handler
+        .drain_pending(|id, value| changes.push(id, 0, value));
+    let mut data = ProcessData {
+        processMode: setup.processMode,
+        symbolicSampleSize: setup.symbolicSampleSize,
+        numSamples: 0,
+        numInputs: 0,
+        numOutputs: 0,
+        inputs: std::ptr::null_mut(),
+        outputs: std::ptr::null_mut(),
+        inputParameterChanges: ParameterChanges::ptr(&changes),
+        outputParameterChanges: ParameterChanges::ptr(&output_changes),
+        inputEvents: EventList::ptr(&events),
+        outputEvents: OutputEventList::ptr(&output_events),
+        processContext: std::ptr::null_mut(),
+    };
+    let result = unsafe {
+        let result = processor.process(&mut data);
+        processor.setProcessing(0);
+        instance.component.setActive(0);
+        result
+    };
+    if result != kResultOk {
+        return Err(Vst3Error::Process(result));
+    }
+    Ok(())
 }
 
 /// Starts processing an activated plugin. The SDK's call sequence reads the latency after every
@@ -431,6 +495,23 @@ impl Prepared {
     /// The processor's values changed in a way the host did not send (restored state).
     pub fn forget_held_values(&mut self) {
         self.held.fill(UNKNOWN);
+    }
+
+    /// Takes the controller's values, read at `generation`, as the processor's: a first point
+    /// after the start of a block then holds them until it instead of ramping from wherever the
+    /// plugin is. `values` follow the cached parameter list.
+    pub fn seed_held_values(&mut self, values: &[f64], generation: u32) {
+        if values.len() != self.held.len() {
+            return;
+        }
+        for (held, &value) in self.held.iter_mut().zip(values) {
+            *held = Held {
+                value,
+                block: -1,
+                offset: 0,
+            };
+        }
+        self.values_generation = generation;
     }
 
     /// Validates every automation point before the block consumes pending edits.
@@ -728,11 +809,8 @@ fn call_process(
         outputParameterChanges: ParameterChanges::ptr(&prepared.output_changes),
         inputEvents: EventList::ptr(&prepared.events),
         outputEvents: OutputEventList::ptr(&prepared.output_events),
-        processContext: if block.transport.is_some() {
-            &mut context
-        } else {
-            std::ptr::null_mut()
-        },
+        // Always present: many plugins read the sample rate and time from it without checking.
+        processContext: &mut context,
     };
     unsafe { instance.processor.process(&mut data) }
 }

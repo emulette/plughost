@@ -87,6 +87,7 @@ impl Host {
             | Request::ImportPreset { slot, .. }
             | Request::SaveState { slot, .. }
             | Request::RestoreState { slot, .. }
+            | Request::LoadState { slot, .. }
             | Request::OpenEditor { slot }
             | Request::CloseEditor { slot }
             | Request::EditorOpen { slot } => Some(*slot),
@@ -173,9 +174,9 @@ impl Host {
             Request::Load {
                 host,
                 plugins,
-                states,
                 activity,
-            } => self.load(&plugins, &states, &host, activity),
+            } => self.load(&plugins, &host, activity),
+            Request::LoadState { slot, state } => self.load_state(slot, &state),
             Request::Capabilities { slot } => self.with_slot(slot, |plugin| {
                 Ok(Response::Capabilities(CapabilityReport {
                     plugin: plugin.capabilities()?,
@@ -376,13 +377,7 @@ impl Host {
 
     /// Receives the activity mapping first: its transfer must be consumed even when the request
     /// is rejected. Invalid input leaves the current chain loaded.
-    fn load(
-        &mut self,
-        plugins: &[PluginRef],
-        states: &[PluginState],
-        host: &HostIdentity,
-        activity: u64,
-    ) -> Response {
+    fn load(&mut self, plugins: &[PluginRef], host: &HostIdentity, activity: u64) -> Response {
         // SAFETY: the application transferred its activity mapping once, for this request.
         match unsafe { self.transfer.receive_activity(activity) } {
             Ok(activity) => {
@@ -405,12 +400,6 @@ impl Host {
                 error: InputError::EmptyChain,
             };
         }
-        if !states.is_empty() && states.len() != plugins.len() {
-            return Response::Rejected {
-                slot: None,
-                error: InputError::StateCount,
-            };
-        }
         self.close_editors();
         *process::lock(&self.pipeline) = Pipeline {
             calls: self.calls.clone(),
@@ -424,23 +413,13 @@ impl Host {
         let mut infos = Vec::new();
         for (slot, plugin) in plugins.iter().enumerate() {
             let _call = calls.enter(Caller::Main, slot);
-            let mut loaded = match plughost_formats::load(plugin, host) {
+            let loaded = match plughost_formats::load(plugin, host) {
                 Ok(loaded) => loaded,
                 Err(error) => {
                     self.slots.clear();
                     return failed(slot, &error);
                 }
             };
-            if let Some(state) = states.get(slot) {
-                if !state::same_class(loaded.info(), state) {
-                    self.slots.clear();
-                    return state::mismatch(slot);
-                }
-                if let Err(error) = loaded.restore_state(state, StatePurpose::Project) {
-                    self.slots.clear();
-                    return failed(slot, &error);
-                }
-            }
             infos.push(loaded.info().clone());
             self.slots.push(loaded);
         }
@@ -451,6 +430,18 @@ impl Host {
         process::lock(&self.pipeline).processors =
             self.slots.iter().map(|plugin| plugin.processor()).collect();
         Response::Loaded(infos)
+    }
+
+    /// Restores a project state into a slot's newly loaded, unprepared plugin.
+    fn load_state(&mut self, slot: usize, state: &PluginState) -> Response {
+        let plugin = &mut self.slots[slot];
+        if !state::same_class(plugin.info(), state) {
+            return state::mismatch(slot);
+        }
+        match plugin.restore_state(state, StatePurpose::Project) {
+            Ok(()) => Response::Done,
+            Err(error) => failed(slot, &error),
+        }
     }
 
     /// Resets every slot with the plugin's native reset; open editors stay open.

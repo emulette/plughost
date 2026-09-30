@@ -285,8 +285,12 @@ impl Plugin {
         Arc::clone(&self.parameters)
     }
 
-    /// Each parameter with its current value, normalized over its range.
+    /// Each parameter with its current value, normalized over its range. Queued host edits
+    /// reach the plugin first.
     pub(crate) fn parameters(&mut self) -> Vec<(ParameterInfo, f64)> {
+        if self.shared().has_pending() {
+            self.flush();
+        }
         let Some(params) = self.shared().extensions().params else {
             return Vec::new();
         };
@@ -598,9 +602,14 @@ impl Plugin {
                     })
                     .collect()
             });
-            let handle = self.instance.plugin_handle();
             for id in due {
-                timer.on_timer(&handle, id);
+                // An earlier callback of this tick may have removed the timer.
+                let registered = self
+                    .instance
+                    .access_handler(|main| main.timers.borrow().iter().any(|timer| timer.id == id));
+                if registered {
+                    timer.on_timer(&self.instance.plugin_handle(), id);
+                }
             }
         }
         if flush {

@@ -9,10 +9,13 @@ use plughost_core::{MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES, MidiData};
 pub(super) struct ProcessOutput<'a> {
     pub parameters: events::ParameterOutput<'a>,
     pub events: &'a mut Vec<MidiEvent>,
+    /// The block's length; events at or after its end land on its last frame.
+    pub frames: usize,
     pub sysex: usize,
     /// The plugin pushed more events or system exclusive bytes than the block allows.
     pub overflow: bool,
-    /// Events with no MIDI 1.0 form (note expression, choke, MIDI 2.0, wildcard notes).
+    /// Events with no MIDI 1.0 form (note expression, choke, MIDI 2.0, wildcard notes); a note
+    /// end only reports a voice that ended and is not counted.
     pub unconvertible: u64,
 }
 
@@ -56,6 +59,8 @@ impl OutputEventBuffer for ProcessOutput<'_> {
                 | CoreEventSpace::ParamGestureBegin(_)
                 | CoreEventSpace::ParamGestureEnd(_),
             ) => return self.parameters.try_push(event),
+            // The plugin reports a voice it ended; there is nothing to deliver.
+            Some(CoreEventSpace::NoteEnd(_)) => return Ok(()),
             _ => None,
         };
         let Some((port, data)) = converted else {
@@ -63,7 +68,7 @@ impl OutputEventBuffer for ProcessOutput<'_> {
             return Ok(());
         };
         let event = MidiEvent {
-            offset: event.header().time() as usize,
+            offset: (event.header().time() as usize).min(self.frames.saturating_sub(1)),
             port,
             data,
         };

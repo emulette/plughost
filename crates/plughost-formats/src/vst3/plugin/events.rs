@@ -7,7 +7,12 @@ impl Plugin {
     pub(crate) fn take_parameter_events(&mut self) -> ParameterEventBatch {
         self.sync_controller();
         self.parameter_cache();
-        self.handler.events.take()
+        let batch = self.handler.events.take();
+        // The plugin changed its values itself; the processing side takes them again.
+        if batch.resync_required || batch.events.contains(&ParameterEvent::ValuesChanged) {
+            self.seed_held_values();
+        }
+        batch
     }
 
     /// Reports output events the plugin produced that have no MIDI 1.0 form, which are not

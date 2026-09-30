@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 use std::ffi::CStr;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use clack_extensions::audio_ports::{
@@ -37,6 +38,10 @@ use crate::{LATENCY, state_payload};
 
 const GAIN: ClapId = ClapId::new(0);
 const RANGE: ClapId = ClapId::new(1);
+/// The `editor` variant's report of its editor's keyboard focus (see `editor.rs`).
+const EDITOR_FOCUS: ClapId = ClapId::new(15);
+/// The `timers` variant's report of calls for a removed timer (see `timers.rs`).
+const REMOVED_TIMER_CALLS: ClapId = ClapId::new(15);
 
 fn id() -> String {
     format!("com.studio.plughost.test-delay.{:x}", variant().id())
@@ -58,6 +63,13 @@ impl Plugin for TestPlugin {
             .register::<PluginState>();
         if variant() != Variant::NoopReset {
             builder.register::<PluginStateContext>();
+        }
+        if variant() == Variant::Timers {
+            builder.register::<clack_extensions::timer::PluginTimer>();
+        }
+        #[cfg(target_os = "macos")]
+        if variant() == Variant::Editor {
+            builder.register::<clack_extensions::gui::PluginGui>();
         }
     }
 }
@@ -99,6 +111,8 @@ impl DefaultPluginFactory for TestPlugin {
             gain: AtomicU64::new(1.0f64.to_bits()),
             gain_max: AtomicU64::new(1.0f64.to_bits()),
             latency: AtomicU32::new(0),
+            editor_focus: Arc::new(AtomicU32::new(0)),
+            removed_timer_calls: AtomicU32::new(0),
         })
     }
 
@@ -106,10 +120,16 @@ impl DefaultPluginFactory for TestPlugin {
         host: HostMainThreadHandle<'a>,
         shared: &'a Shared,
     ) -> Result<MainThread<'a>, PluginError> {
+        let timers = (variant() == Variant::Timers)
+            .then(|| crate::timers::Timers::register(&host))
+            .flatten();
         Ok(MainThread {
+            timers,
             shared,
             params: host.get_extension(),
             host,
+            #[cfg(target_os = "macos")]
+            editor: Default::default(),
         })
     }
 }
@@ -128,6 +148,11 @@ pub struct Shared {
     gain_max: AtomicU64,
     /// The delay at the active sample rate, set on activation.
     latency: AtomicU32,
+    /// What the `editor` variant's editor received, reported as `editor::FOCUS`.
+    editor_focus: Arc<AtomicU32>,
+    /// Calls the `timers` variant received for a timer it had removed, reported as
+    /// `REMOVED_TIMER_CALLS`.
+    pub(crate) removed_timer_calls: AtomicU32,
 }
 
 impl Shared {
@@ -159,9 +184,23 @@ impl Shared {
 impl PluginShared<'_> for Shared {}
 
 pub struct MainThread<'a> {
-    shared: &'a Shared,
-    host: HostMainThreadHandle<'a>,
+    pub(crate) shared: &'a Shared,
+    pub(crate) host: HostMainThreadHandle<'a>,
+    pub(crate) timers: Option<crate::timers::Timers>,
     params: Option<HostParams>,
+    #[cfg(target_os = "macos")]
+    editor: crate::editor::Slot,
+}
+
+#[cfg(target_os = "macos")]
+impl MainThread<'_> {
+    pub(crate) fn editor(&self) -> &crate::editor::Slot {
+        &self.editor
+    }
+
+    pub(crate) fn focus(&self) -> Arc<AtomicU32> {
+        Arc::clone(&self.shared.editor_focus)
+    }
 }
 
 impl<'a> PluginMainThread<'a, Shared> for MainThread<'a> {
@@ -201,11 +240,31 @@ impl PluginLatencyImpl for MainThread<'_> {
 
 impl PluginMainThreadParams for MainThread<'_> {
     fn count(&self) -> u32 {
-        15
+        15 + u32::from(matches!(variant(), Variant::Editor | Variant::Timers))
     }
 
     fn get_info(&self, index: u32, info: &mut ParamInfoWriter) {
         match index {
+            15 if variant() == Variant::Timers => info.set(&ParamInfo {
+                id: REMOVED_TIMER_CALLS,
+                flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: b"Removed timer calls",
+                module: b"",
+                min_value: 0.0,
+                max_value: 1000.0,
+                default_value: 0.0,
+            }),
+            15 => info.set(&ParamInfo {
+                id: EDITOR_FOCUS,
+                flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: b"Editor focus",
+                module: b"",
+                min_value: 0.0,
+                max_value: 2.0,
+                default_value: 0.0,
+            }),
             13..=14 => info.set(&ParamInfo {
                 id: ClapId::new(index),
                 flags: ParamInfoFlags::IS_READONLY
@@ -317,6 +376,14 @@ impl PluginMainThreadParams for MainThread<'_> {
     }
 
     fn get_value(&self, id: ClapId) -> Option<f64> {
+        if id == REMOVED_TIMER_CALLS && variant() == Variant::Timers {
+            return Some(f64::from(
+                self.shared.removed_timer_calls.load(Ordering::Relaxed),
+            ));
+        }
+        if id == EDITOR_FOCUS && variant() == Variant::Editor {
+            return Some(f64::from(self.shared.editor_focus.load(Ordering::Relaxed)));
+        }
         if id.get() == 13 {
             return Some(5.0);
         }

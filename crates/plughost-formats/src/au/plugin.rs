@@ -6,6 +6,7 @@ mod editor;
 mod events;
 mod invalidation;
 mod midi_output;
+mod musical_context;
 mod parameters;
 mod programs;
 mod render_audio;
@@ -141,6 +142,8 @@ pub struct Plugin {
     /// restored earlier.
     restored_unprepared: Option<(Retained<State>, plughost_core::StatePurpose)>,
     observation: Option<events::Observation>,
+    /// None for v3 units.
+    value_strings: Option<events::ValueStrings>,
     _invalidation: invalidation::Observation,
     parameter_metadata_changed: bool,
     /// The plain value this host last set per parameter of a v2 unit. The v2 bridge reports host
@@ -163,6 +166,7 @@ impl Plugin {
         let unit = instantiate(description)?;
         let invalidated = Arc::new(AtomicBool::new(false));
         let invalidation = invalidation::Observation::new(&unit, invalidated.clone());
+        let value_strings = events::ValueStrings::new(&unit);
         let unconvertible = Arc::new(AtomicU64::new(0));
         let mut plugin = Plugin {
             info,
@@ -176,6 +180,7 @@ impl Plugin {
             edited: false,
             restored_unprepared: None,
             observation: None,
+            value_strings,
             _invalidation: invalidation,
             parameter_metadata_changed: false,
             host_values: HashMap::new(),
@@ -309,11 +314,10 @@ impl Plugin {
             .ok_or(AuError::Input(
                 plughost_core::InputError::UnknownParameter { id },
             ))?;
-        parameter_info(&parameter)
-            .validate_edit(value)
-            .map_err(AuError::Input)?;
+        let info = parameter_info(&parameter);
+        info.validate_edit(value).map_err(AuError::Input)?;
         let (min, max) = unsafe { (parameter.minValue(), parameter.maxValue()) };
-        let plain = min + value as f32 * (max - min);
+        let plain = plain(min, max, &info, value);
         self.edited = true;
         // For a v2 unit, set the parameter the way v2 hosts do and notify listeners, which is how
         // some plugins keep their own model, and so their saved state, in step. The v3 path
@@ -422,6 +426,7 @@ impl Drop for Plugin {
     fn drop(&mut self) {
         self.close_editor();
         self.observation = None;
+        self.value_strings = None;
         if let Some(notified) = self.notified {
             std::thread::sleep(NOTIFY_SETTLE.saturating_sub(notified.elapsed()));
         }
@@ -493,6 +498,18 @@ fn plain_value(unit: &AUAudioUnit, parameter: &AUParameter) -> f32 {
         }
     }
     unsafe { parameter.value() }
+}
+
+/// The plain value of normalized `value` over `min..=max`, whole for a discrete parameter. It is
+/// computed in double precision: in single precision 13 / 22 of 22 is 12.999999, which units that
+/// truncate read as 12.
+fn plain(min: f32, max: f32, info: &ParameterInfo, value: f64) -> f32 {
+    let plain = f64::from(min) + value * (f64::from(max) - f64::from(min));
+    (if info.flags.discrete {
+        plain.round()
+    } else {
+        plain
+    }) as f32
 }
 
 /// `plain` normalized over the parameter's range.
@@ -593,29 +610,18 @@ impl Engine {
                   to_next_beat: *mut NSInteger,
                   downbeat: *mut f64| {
                 let snapshot = *context_timeline.lock().unwrap_or_else(|p| p.into_inner());
-                let Some(value) = snapshot else {
-                    return Bool::NO;
-                };
-                let (Some(bpm), Some(beats), Some(meter)) =
-                    (value.tempo, value.beat_position, value.time_signature)
-                else {
-                    return Bool::NO;
-                };
-                let samples_per_beat = sample_rate * 60.0 / bpm;
-                put(tempo, bpm);
-                put(numerator, f64::from(meter.numerator));
-                put(denominator, meter.denominator as NSInteger);
-                put(beat, beats);
-                put(
-                    to_next_beat,
-                    ((beats.ceil() - beats) * samples_per_beat) as NSInteger,
-                );
-                if let Some(bar) = value.bar_position {
-                    put(downbeat, bar.start);
-                } else if !downbeat.is_null() {
-                    return Bool::NO;
-                }
-                Bool::YES
+                musical_context::fill(
+                    snapshot,
+                    sample_rate,
+                    musical_context::Outputs {
+                        tempo,
+                        numerator,
+                        denominator,
+                        beat,
+                        to_next_beat,
+                        downbeat,
+                    },
+                )
             },
         );
         let transport_timeline = Arc::clone(&timeline);
@@ -798,9 +804,12 @@ impl Engine {
         if let Some(midi_output) = &prepared.midi_output {
             midi_output.begin(position, frames);
         }
-        render_audio::render(prepared, input, output, frames, position)?;
+        // The timeline moves on whether or not the unit rendered, as VST3's does: a unit asked
+        // for the same time again can hand back the output it made for it.
+        let rendered = render_audio::render(prepared, input, output, frames, position);
         prepared.position += frames as f64;
         prepared.last_frames = frames;
+        rendered?;
         match &prepared.midi_output {
             Some(midi_output) => midi_output.take(produced),
             None => Ok(()),
@@ -817,7 +826,7 @@ impl Engine {
         if offset >= prepared.config.max_block_size {
             return Err(AuError::Input(plughost_core::InputError::Automation));
         }
-        let plain = min + value as f32 * (max - min);
+        let plain = plain(*min, *max, info, value);
         prepared.schedule.call((
             prepared.position as AUEventSampleTime + offset as AUEventSampleTime,
             0,

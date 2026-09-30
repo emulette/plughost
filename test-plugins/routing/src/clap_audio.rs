@@ -22,8 +22,8 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
         mut audio: Audio,
         events: Events,
     ) -> Result<ProcessStatus, PluginError> {
-        super::events::route(events.input, events.output);
         let frames = audio.frames_count() as usize;
+        super::events::route(events.input, events.output, frames as u32);
         let values = crate::frame_values(
             *lock(&self.shared.values),
             frames,

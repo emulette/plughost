@@ -92,6 +92,9 @@ impl IAudioProcessorTrait for Routing {
                 }
             }
         }
+        if frames > 0 {
+            *lock(&self.gain_points) = points.iter().filter(|(_, id, _)| *id == 0).count();
+        }
         let values = crate::frame_values(initial, frames, points);
         unsafe { self.events(data) };
         if frames == 0 {

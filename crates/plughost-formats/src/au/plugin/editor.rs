@@ -1,6 +1,7 @@
 //! Editor views. A version 2 unit's Cocoa view comes from the view factory the unit names, new
 //! for every opening: the v2 bridge hands out its view controller once, and that view does not
 //! survive being taken out of its window. Other units give their view controller on request.
+//! Units change the size of their views themselves, so an open editor's size is followed.
 use std::ffi::{CString, c_void};
 use std::ptr::NonNull;
 
@@ -18,15 +19,22 @@ use objc2_core_foundation::{CFBundle, CFRetained, CFString, CFURL};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
 use super::{AuError, Handoff, Plugin, Slot, lock};
+use crate::ResizeRequest;
 
 /// An open editor: its view in the host's window, and the view controller that owns the view.
 pub(super) struct Editor {
     view: Retained<NSView>,
-    _controller: Option<Retained<NSViewController>>,
+    controller: Option<Retained<NSViewController>>,
+    /// The view size the host last gave its window.
+    size: NSSize,
+    /// The view controller's preferred content size when last read.
+    preferred: NSSize,
+    resize: ResizeRequest,
 }
 
 impl Plugin {
-    /// Adds the Audio Unit's view (a v3 view, or a v2 Cocoa view) to `parent`.
+    /// Adds the Audio Unit's view (a v3 view, or a v2 Cocoa view) to `parent`. [`Plugin::idle`]
+    /// passes the view's later sizes to `resize`.
     ///
     /// # Safety
     ///
@@ -34,34 +42,59 @@ impl Plugin {
     pub(crate) unsafe fn open_editor(
         &mut self,
         parent: *mut c_void,
+        resize: ResizeRequest,
     ) -> Result<(u32, u32), AuError> {
         self.close_editor();
         MainThreadMarker::new().ok_or(AuError::NoEditor)?;
-        let (view, controller, size) = match self.cocoa_view()? {
-            Some(view) => {
-                let size = view.frame().size;
-                (view, None, size)
-            }
+        let (view, controller, preferred) = match self.cocoa_view()? {
+            Some(view) => (view, None, NSSize::new(0.0, 0.0)),
             None => {
                 let controller = self.view_controller()?;
-                let view = controller.view();
                 let preferred = controller.preferredContentSize();
-                let size = if preferred.width > 0.0 && preferred.height > 0.0 {
-                    preferred
-                } else {
-                    view.frame().size
-                };
-                (view, Some(controller), size)
+                (controller.view(), Some(controller), preferred)
             }
+        };
+        let size = if has_area(preferred) {
+            preferred
+        } else {
+            view.frame().size
         };
         view.setFrame(NSRect::new(NSPoint::new(0.0, 0.0), size));
         let parent = unsafe { &*(parent as *const NSView) };
+        // The window follows the view; resizing it must not resize the view in turn.
+        parent.setAutoresizesSubviews(false);
         parent.addSubview(&view);
         self.editor = Some(Editor {
             view,
-            _controller: controller,
+            controller,
+            size,
+            preferred,
+            resize,
         });
-        Ok((size.width.round() as u32, size.height.round() as u32))
+        Ok(pixels(size))
+    }
+
+    /// Passes a new size of the open editor's view to its window: the size a v3 view controller
+    /// prefers when that changes, or the size a view gave itself.
+    pub(crate) fn idle(&mut self) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        if let Some(controller) = &editor.controller {
+            let preferred = controller.preferredContentSize();
+            if preferred != editor.preferred {
+                editor.preferred = preferred;
+                if has_area(preferred) {
+                    editor.view.setFrameSize(preferred);
+                }
+            }
+        }
+        let size = editor.view.frame().size;
+        if size != editor.size {
+            editor.size = size;
+            let (width, height) = pixels(size);
+            (editor.resize)(width, height);
+        }
     }
 
     pub(crate) fn close_editor(&mut self) {
@@ -151,4 +184,12 @@ impl Plugin {
             msg_send![&factory, uiViewForAudioUnit: unit, withSize: NSSize::new(0.0, 0.0)]
         })
     }
+}
+
+fn has_area(size: NSSize) -> bool {
+    size.width > 0.0 && size.height > 0.0
+}
+
+fn pixels(size: NSSize) -> (u32, u32) {
+    (size.width.round() as u32, size.height.round() as u32)
 }

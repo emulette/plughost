@@ -55,7 +55,8 @@ impl InputBuffer {
     }
     /// Queues `event` for its port, whose dialects decide the native form: notes as CLAP note
     /// events where the port takes them, other channel messages (and notes on MIDI-only ports)
-    /// and system exclusive data as MIDI events where it takes MIDI; the rest are not delivered.
+    /// as MIDI events where it takes MIDI or MIDI with MPE, and system exclusive data as MIDI
+    /// events where it takes MIDI; the rest are not delivered.
     /// A system exclusive event refers to `event`'s bytes until the buffer is cleared.
     pub fn note(&mut self, event: &MidiEvent, dialects: NoteDialects) {
         let time = event.offset as u32;
@@ -96,7 +97,10 @@ impl InputBuffer {
                     f64::from(velocity) / 127.0,
                 )));
             }
-            Some(_) if dialects.supports(NoteDialect::Midi) => {
+            Some(_)
+                if dialects.supports(NoteDialect::Midi)
+                    || dialects.supports(NoteDialect::MidiMpe) =>
+            {
                 if let MidiData::Channel(data) = event.data {
                     self.push(NativeEvent::Midi(ClapMidiEvent::new(time, port, data)));
                 }

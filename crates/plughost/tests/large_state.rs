@@ -4,7 +4,7 @@ use plughost::{Error, FailureKind, HostIdentity, PluginFormat, Timeouts};
 
 mod support;
 
-use support::{delay_variant, prepare, spawn, spawn_with};
+use support::{delay, delay_variant, prepare, spawn, spawn_with};
 
 #[test]
 #[ignore = "needs scripts/build-helper and scripts/build-test-plugins (.ps1 or .sh)"]
@@ -53,6 +53,31 @@ fn large_native_state_crosses_ipc_and_oversized_native_output_is_not_accepted() 
                 .unwrap(),
             state
         );
+    }
+}
+
+#[test]
+#[ignore = "needs scripts/build-helper and scripts/build-test-plugins (.ps1 or .sh)"]
+fn recovery_restores_states_that_together_exceed_one_message() {
+    let plugins = [0.25, 0.5, 0.75].map(|_| delay(PluginFormat::Clap));
+    let mut chain = spawn(&plugins);
+    let states: Vec<_> = [0.25, 0.5, 0.75]
+        .into_iter()
+        .enumerate()
+        .map(|(slot, gain)| {
+            chain.set_parameter(slot, 0, gain).unwrap();
+            let mut state = chain
+                .save_state(slot, plughost::StatePurpose::Project)
+                .unwrap();
+            // The delay reads its gain from the first bytes and ignores the rest.
+            state.component.resize(100 << 20, 0);
+            state
+        })
+        .collect();
+    let mut recovered = chain.recover(&states).unwrap();
+    for (slot, gain) in [0.25, 0.5, 0.75].into_iter().enumerate() {
+        let (_, value) = recovered.parameters(slot).unwrap()[0].clone();
+        assert_eq!(value, gain);
     }
 }
 

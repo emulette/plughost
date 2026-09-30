@@ -50,7 +50,20 @@ name = "au_buffers"
 required-features = ["au"]
 
 [[test]]
+name = "au_buses"
+required-features = ["au"]
+
+[[test]]
+name = "au_editor"
+required-features = ["au"]
+harness = false
+
+[[test]]
 name = "au_midi_output"
+required-features = ["au"]
+
+[[test]]
+name = "au_v2"
 required-features = ["au"]
 
 [[test]]

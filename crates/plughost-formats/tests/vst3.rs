@@ -375,6 +375,31 @@ fn edit_saved_right_after_it_is_made_survives_in_a_fresh_instance() {
 
 #[test]
 #[ignore = "needs scripts/build-test-plugins.sh"]
+fn edit_saved_before_the_plugin_was_ever_prepared_survives_in_a_fresh_instance() {
+    let _serial = serial();
+    let input = signal(4800, |v| v as f32);
+    let mut original = plugin("again");
+    original.set_parameter(AGAIN_GAIN, 0.25).unwrap();
+    let state = original
+        .save_state(plughost_core::StatePurpose::Project)
+        .unwrap();
+
+    let mut fresh = plugin("again");
+    fresh
+        .restore_state(&state, plughost_core::StatePurpose::Project)
+        .unwrap();
+    fresh.prepare(&config(48_000.0, SampleFormat::F32)).unwrap();
+    assert!(max_difference(&run(&mut fresh, &input), &input, 0.25) < 1e-6);
+    // The original stays unprepared, and processes with the edit once prepared.
+    assert_eq!(original.config(), None);
+    original
+        .prepare(&config(48_000.0, SampleFormat::F32))
+        .unwrap();
+    assert!(max_difference(&run(&mut original, &input), &input, 0.25) < 1e-6);
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
 fn reset_keeps_the_state_and_clears_internal_audio() {
     let _serial = serial();
     let mut plugin = plugin("adelay");
@@ -594,6 +619,22 @@ fn automation_reaches_the_controller_on_the_owning_thread_only() {
     .unwrap();
     assert_eq!(plugin.parameter_value(0), 0.25);
     assert!(!plugin.processor().restart_required());
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
+fn buses_announced_while_activating_do_not_ask_for_another_preparation() {
+    let _serial = serial();
+    let mut plugin = plugin("plughost-test-restart-on-activate");
+    plugin
+        .prepare(&config(48_000.0, SampleFormat::F32))
+        .unwrap();
+    assert!(!plugin.processor().restart_required());
+    let input = signal(512, |v| v as f32);
+    run(&mut plugin, &input);
+    plugin.reset().unwrap();
+    assert!(!plugin.processor().restart_required());
+    run(&mut plugin, &input);
 }
 
 #[test]

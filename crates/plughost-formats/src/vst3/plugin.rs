@@ -94,7 +94,25 @@ impl Plugin {
     /// memory requirements; native plugin code and control callbacks may still allocate while processing.
     pub(crate) fn prepare(&mut self, config: &ProcessConfig) -> Result<(), Vst3Error> {
         let parameters = self.parameter_cache();
-        lock(&self.engine).prepare(config, &parameters)
+        lock(&self.engine).prepare(config, &parameters)?;
+        self.seed_held_values();
+        Ok(())
+    }
+
+    /// Hands the controller's current values to the prepared processing side; see
+    /// [`super::engine::Prepared::seed_held_values`].
+    pub(super) fn seed_held_values(&self) {
+        let parameters = self.parameter_cache();
+        let generation = self.handler.values_generation();
+        let values: Vec<f64> = (0..parameters.len())
+            .map(|index| unsafe {
+                self.controller
+                    .getParamNormalized(parameters.native_id(index))
+            })
+            .collect();
+        if let Some(prepared) = &mut lock(&self.engine).prepared {
+            prepared.seed_held_values(&values, generation);
+        }
     }
 
     /// Stops processing and deactivates the plugin.
@@ -255,9 +273,13 @@ impl Plugin {
         let component = component.take_bytes();
         let controller =
             MemoryStream::bounded(kind, plughost_core::MAX_STATE_BYTES - component.len());
-        unsafe { self.controller.getState(stream_ptr(&controller)) };
+        let result = unsafe { self.controller.getState(stream_ptr(&controller)) };
         if controller.exceeded() {
             return Err(Vst3Error::StateTooLarge);
+        }
+        // As on restore, a controller without state of its own may not implement it.
+        if result != kResultOk && result != kNotImplemented {
+            return Err(Vst3Error::GetState(result));
         }
         Ok(PluginState {
             format: PluginFormat::Vst3,
@@ -312,6 +334,7 @@ impl Plugin {
             let stream = MemoryStream::from_bytes(&state.controller, kind);
             controller_result(unsafe { self.controller.setState(stream_ptr(&stream)) })?;
         }
+        self.seed_held_values();
         Ok(())
     }
 

@@ -12,7 +12,10 @@
 //! `crash-in-process`, `hang-in-process`, `crash-on-scan` (in `GetPluginFactory`), and
 //! `hang-on-scan`. `noop-reset` reproduces a CLAP plugin whose reset leaves audio behind.
 //! `stall-main-thread` makes the CLAP side hold up the host's main thread once, for
-//! [`MAIN_THREAD_STALL`], from a main-thread callback it requests while processing.
+//! [`MAIN_THREAD_STALL`], from a main-thread callback it requests while processing. On macOS,
+//! `editor` gives the CLAP side an editor inside the host's window (see `editor.rs`).
+//! `restart-on-activate` makes the VST3 side report changed buses each time it activates.
+//! `timers` gives the CLAP side two timers, the first of which removes the second (`timers.rs`).
 
 #![allow(non_snake_case)]
 // VST3 enum constants are i32 on Windows and u32 elsewhere, so a cast needed on one platform is
@@ -44,8 +47,11 @@ use vst3::Steinberg::{
 use vst3::{Class, ComPtr, ComRef, ComWrapper, uid};
 
 mod clap;
+#[cfg(target_os = "macos")]
+mod editor;
 mod errors;
 mod state_payload;
+mod timers;
 mod units;
 mod variant;
 
@@ -364,6 +370,13 @@ impl IComponentTrait for Delay {
         if state != 0 {
             for line in lock(&self.lines).iter_mut() {
                 line.iter_mut().for_each(|sample| *sample = 0.0);
+            }
+            // Some plugins announce the buses they settle on as they activate.
+            if variant() == Variant::RestartOnActivate
+                && let Some(handler) = lock(&self.handler).clone()
+            {
+                use vst3::Steinberg::Vst::RestartFlags_::kIoChanged;
+                unsafe { handler.restartComponent(kIoChanged as int32) };
             }
         }
         kResultOk
