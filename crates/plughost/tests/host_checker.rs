@@ -2,7 +2,7 @@
 //! through read-only `ProcessWarn1`..`8` parameters, 24 log IDs per parameter. Its log table in
 //! the SDK sources names each ID's severity; the host must cause no error-level entry.
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use plughost::{
     AutomationEvent, BlockContext, Chain, Layout, MidiEvent, ParameterChange, ParameterEvent,
@@ -11,15 +11,17 @@ use plughost::{
 
 mod support;
 
-use support::{fixture, spawn, target};
+use support::{fixture, spawn};
 
 const CLASS: &str = "23FC190E02DD4499A8D2230E50617DA3";
 const IDS_PER_PARAMETER: u32 = 24;
 
 /// The severity of each log ID, in the order of the SDK's `LOG_EVENT_LIST`.
 fn severities() -> Vec<String> {
-    let sdk = std::env::var_os("VST3_SDK_DIR")
-        .map_or_else(|| target().join("VST_SDK/vst3sdk"), PathBuf::from);
+    let sdk = std::env::var_os("VST3_SDK_DIR").map_or_else(
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.vst3sdk/VST_SDK/vst3sdk"),
+        PathBuf::from,
+    );
     let header =
         std::fs::read_to_string(sdk.join("public.sdk/samples/vst/hostchecker/source/logevents.h"))
             .unwrap();

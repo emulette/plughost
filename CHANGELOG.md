@@ -5,6 +5,16 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.2] - 2026-09-30
+
+### Changed
+
+- Releases are published from GitHub Actions through crates.io trusted publishing. The crates'
+  code is unchanged from 0.0.1.
+- The repository's test asset scripts keep the VST3 SDK archive, sources, and builds in
+  `.vst3sdk/` instead of `target/`. Delete `target/VST_SDK`, `target/vst-sdk.zip`, and
+  `target/vst3sdk-build*` from an existing checkout.
+
 ## [0.0.1] - 2026-09-30
 
 First public release: offline hosting of VST3 and CLAP plugins on macOS (Apple Silicon) and
@@ -28,4 +38,5 @@ Windows x64, and of Audio Units on macOS, with each chain isolated in a helper p
 - Failures: typed errors with the failing slot, helper exit monitoring, diagnostics, and chain
   recovery in a new helper from saved states.
 
+[0.0.2]: https://github.com/emulette/plughost/releases/tag/v0.0.2
 [0.0.1]: https://github.com/emulette/plughost/releases/tag/v0.0.1

@@ -27,11 +27,13 @@ foreach ($extension in @('vst3', 'clap')) {
     Copy-Item -LiteralPath "$root/target/release/plughost_test_routing.dll" -Destination "$out/plughost-test-routing.$extension"
 }
 
+$vst3sdk = "$root/.vst3sdk"
 $sdk = $env:VST3_SDK_DIR
 if (-not $sdk) {
-    $sdk = "$root/target/VST_SDK/vst3sdk"
+    $sdk = "$vst3sdk/VST_SDK/vst3sdk"
     if (-not (Test-Path -LiteralPath "$sdk/CMakeLists.txt")) {
-        $archive = "$root/target/vst-sdk.zip"
+        New-Item -ItemType Directory -Force $vst3sdk | Out-Null
+        $archive = "$vst3sdk/vst-sdk.zip"
         $url = 'https://download.steinberg.net/sdk_downloads/vst-sdk_3.8.1_build-84_2026-08-11.zip'
         # A cached archive is reused only while it matches the pinned hash; anything else, such
         # as an interrupted download, is replaced.
@@ -44,10 +46,10 @@ if (-not $sdk) {
             }
             Move-Item -LiteralPath "$archive.part" -Destination $archive -Force
         }
-        Expand-Archive -LiteralPath $archive -DestinationPath "$root/target" -Force
+        Expand-Archive -LiteralPath $archive -DestinationPath $vst3sdk -Force
     }
 }
-$build = "$root/target/vst3sdk-build-windows"
+$build = "$vst3sdk/build-windows"
 & cmake -S $sdk -B $build -A x64 -DSMTG_CREATE_PLUGIN_LINK=OFF -DSMTG_RUN_VST_VALIDATOR=OFF
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & cmake --build $build --config Release --target again again-simple adelay note-expression-synth host-checker utf16-name --parallel 4

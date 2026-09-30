@@ -1,4 +1,7 @@
 target/
+# The pinned VST3 SDK archive, its sources, and their CMake builds, kept out of target/ so that
+# Cargo-aware tools such as CI caches do not treat them as Cargo output.
+.vst3sdk/
 .DS_Store
 
 # Credential stores. Registry and network tooling writes these into the working

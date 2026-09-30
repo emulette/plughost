@@ -40,7 +40,7 @@ jobs:
       - name: Cache the pinned VST3 SDK archive
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: target/vst-sdk.zip
+          path: .vst3sdk/vst-sdk.zip
           key: vst3-sdk-3.8.1-build-84
       - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
         with:

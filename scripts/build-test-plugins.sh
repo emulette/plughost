@@ -56,11 +56,13 @@ for extension in vst3 clap; do
     package "$root/target/release/libplughost_test_routing.dylib" plughost-test-routing "$extension"
 done
 
-sdk="${VST3_SDK_DIR:-$root/target/VST_SDK/vst3sdk}"
+vst3sdk="$root/.vst3sdk"
+sdk="${VST3_SDK_DIR:-$vst3sdk/VST_SDK/vst3sdk}"
 if [ -z "${VST3_SDK_DIR:-}" ] && [ ! -f "$sdk/CMakeLists.txt" ]; then
     # A cached archive is reused only while it matches the pinned hash; anything else, such as an
     # interrupted download, is replaced.
-    archive="$root/target/vst-sdk.zip"
+    mkdir -p "$vst3sdk"
+    archive="$vst3sdk/vst-sdk.zip"
     sha256=64965f1b74e08a6d4087a35af7a716f4dcff5852c66ad7ee13f1c47e79c1ab77
     if [ ! -f "$archive" ] || [ "$(shasum -a 256 "$archive" | cut -d ' ' -f 1)" != "$sha256" ]; then
         curl --fail --location --output "$archive.part" https://download.steinberg.net/sdk_downloads/vst-sdk_3.8.1_build-84_2026-08-11.zip
@@ -71,9 +73,9 @@ if [ -z "${VST3_SDK_DIR:-}" ] && [ ! -f "$sdk/CMakeLists.txt" ]; then
         fi
         mv "$archive.part" "$archive"
     fi
-    ditto -x -k "$archive" "$root/target"
+    ditto -x -k "$archive" "$vst3sdk"
 fi
-build="$root/target/vst3sdk-build"
+build="$vst3sdk/build-macos"
 cmake -S "$sdk" -B "$build" -G Xcode -DSMTG_CREATE_PLUGIN_LINK=OFF -DSMTG_RUN_VST_VALIDATOR=OFF > /dev/null
 xcodebuild -project "$build/vstsdk.xcodeproj" -configuration Release -target again \
     -target again-simple -target adelay -target note-expression-synth -target host-checker \
