@@ -3,25 +3,25 @@
 > Rust library for offline VST3, Audio Unit, and CLAP hosting. Applications control
 > plugin chains through isolated helper processes and supply their own audio and timeline.
 
-This reference describes plughost 0.0.2 and requires Rust 1.92 or newer. It covers the
+This reference describes plughost 0.0.3 and requires Rust 1.92 or newer. It covers the
 public application API, its native limitations, and the helper an application must ship.
 Use the typed API documentation for complete signatures.
 
 ## Entry points
 
 - [Installation and stereo render example](https://github.com/emulette/plughost/blob/main/README.md)
-- [Application API](https://docs.rs/plughost/0.0.2/plughost/)
-- [Shared types and render API](https://docs.rs/plughost-core/0.0.2/plughost_core/)
-- [In-process formats](https://docs.rs/plughost-formats/0.0.2/plughost_formats/)
-- [Helper runtime](https://docs.rs/plughost-helper/0.0.2/plughost_helper/)
+- [Application API](https://docs.rs/plughost/0.0.3/plughost/)
+- [Shared types and render API](https://docs.rs/plughost-core/0.0.3/plughost_core/)
+- [In-process formats](https://docs.rs/plughost-formats/0.0.3/plughost_formats/)
+- [Helper runtime](https://docs.rs/plughost-helper/0.0.3/plughost_helper/)
 - [Application exports](https://github.com/emulette/plughost/blob/main/crates/plughost/src/lib.rs)
 - [Checked plugins](https://github.com/emulette/plughost/blob/main/COMPATIBILITY.md)
 - [Changes](https://github.com/emulette/plughost/blob/main/CHANGELOG.md)
 
 ## Dependencies and deployment
 
-The application depends on `plughost = "=0.0.2"`. A separate executable depends on
-`plughost-helper = "=0.0.2"` and calls `plughost_helper::run()` from `main`, returning
+The application depends on `plughost = "=0.0.3"`. A separate executable depends on
+`plughost-helper = "=0.0.3"` and calls `plughost_helper::run()` from `main`, returning
 `std::process::ExitCode`. Ship that executable with the application and pass its path to
 `Scanner::new` and `Chain::spawn`. The library supplies the helper's command-line arguments
 and IPC handshake. Keep application and helper versions matched.

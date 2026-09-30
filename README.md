@@ -5,21 +5,21 @@ Each plugin chain runs in a helper process, isolating plugin crashes and hangs f
 
 ## Installation
 
-plughost 0.0.2 requires Rust 1.92 or newer. Supported platforms are macOS on Apple Silicon
+plughost 0.0.3 requires Rust 1.92 or newer. Supported platforms are macOS on Apple Silicon
 (`aarch64-apple-darwin`) and Windows x64 (`x86_64-pc-windows-msvc`).
 
 Add the application library to your application's `Cargo.toml`:
 
 ```toml
 [dependencies]
-plughost = "=0.0.2"
+plughost = "=0.0.3"
 ```
 
 Your application also ships a separate helper executable. In that executable's package:
 
 ```toml
 [dependencies]
-plughost-helper = "=0.0.2"
+plughost-helper = "=0.0.3"
 ```
 
 Its `main.rs` is:
@@ -63,7 +63,7 @@ fn render_effect(
 
 Input channels must have equal lengths and already use the configured sample rate. Rendering
 removes reported latency and appends a bounded tail. For instruments, explicit buses, automation,
-streaming, state, and recovery, see the [API documentation](https://docs.rs/plughost/0.0.2/plughost/)
+streaming, state, and recovery, see the [API documentation](https://docs.rs/plughost/0.0.3/plughost/)
 and the [llms.txt reference](https://github.com/emulette/plughost/blob/main/llms.txt).
 The [render example](https://github.com/emulette/plughost/blob/main/crates/plughost/examples/render.rs)
 is a complete offline batch: it finds a plugin class, renders several jobs, and recovers the
