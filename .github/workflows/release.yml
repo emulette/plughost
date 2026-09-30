@@ -72,10 +72,6 @@ jobs:
   #
   # macOS, not Linux: `cargo publish` builds each package before uploading it, and the crates do
   # not compile outside macOS and Windows.
-  #
-  # crates.io cannot mint a crate's first release over OIDC, so 0.0.1 uses the
-  # CARGO_REGISTRY_TOKEN secret. Once all four crates exist, attach their trusted publishers,
-  # delete the secret, and mint the token with rust-lang/crates-io-auth-action instead.
   publish-crates-io:
     name: Publish the crates to crates.io
     needs: core
@@ -84,6 +80,7 @@ jobs:
     environment: crates-io
     permissions:
       contents: read
+      id-token: write
     steps:
       - name: Check out exact release revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -93,12 +90,18 @@ jobs:
       - name: Install the pinned toolchain
         run: rustup show
 
+      # Exchanges this job's OIDC identity for a token that expires in 30 minutes and is revoked
+      # when the job ends, so no registry credential is stored in the repository.
+      - name: Mint a short-lived crates.io token
+        id: crates-io-auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
       # Each crate requires the exact version of the ones before it, so the order is load bearing.
       # A probe failure leaves the crate unpublished: publishing stays the authoritative act and at
       # worst reproduces the duplicate-version error.
       - name: Publish in dependency order
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           version="${RELEASE_TAG#v}"
