@@ -98,8 +98,6 @@ The VST3 SDK's AUv3 samples pass parameter edits to their processor only while p
 save the processor's state, so a state saved after an edit and before the next processed block
 misses the edit.
 Query plugin capabilities before relying on optional native behavior.
-[COMPATIBILITY.md](https://github.com/emulette/plughost/blob/main/COMPATIBILITY.md) lists the
-installed plugins and SDK samples checked on each platform and what they passed.
 
 ## Crates
 
@@ -150,7 +148,7 @@ For repeatable offline performance measurements, build the test assets and helpe
 describes its 192-case matrix, options, and output. It uses repository fixtures and does not scan
 installed plugins. The same guide describes the comparison with Pedalboard for one installed plugin
 (`cargo bench -p plughost --bench compare`), including direct, isolated and per-block IPC costs,
-and lists its results.
+and summarizes its results.
 
 Check the distributable crates together with the command below. Each crate then builds from its
 packaged sources alone. Use a fresh target directory: Cargo reuses builds of an earlier package of
