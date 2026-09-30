@@ -18,8 +18,21 @@ impl IAudioProcessorTrait for Routing {
             || ![
                 SpeakerArr::kMono,
                 SpeakerArr::kStereo,
+                SpeakerArr::k30Cine,
+                SpeakerArr::k40Music,
+                SpeakerArr::k50,
                 SpeakerArr::k51,
+                SpeakerArr::k70Music,
                 SpeakerArr::k71Music,
+                SpeakerArr::k51_2_TS,
+                SpeakerArr::k51_4,
+                SpeakerArr::k71_2,
+                SpeakerArr::k71_4,
+                SpeakerArr::k91_6_W,
+                SpeakerArr::kAmbi1stOrderACN,
+                SpeakerArr::kAmbi2cdOrderACN,
+                SpeakerArr::kAmbi3rdOrderACN,
+                SpeakerArr::kAmbi4thOrderACN,
             ]
             .contains(&input[1])
         {

@@ -247,44 +247,51 @@ fn invalid_native_audio_requests_and_unsupported_bypass_are_explicit() {
 
 #[test]
 #[ignore = "needs routing test plugin"]
-fn seven_one_f64_render_preserves_every_native_speaker_position() {
+fn every_layout_f64_render_preserves_every_native_speaker_position() {
     let _serial = serial();
-    let mut plugin = plugin("plughost-test-routing");
-    let snapshot = plugin
-        .prepare_audio(&buses(SampleFormat::F64, Layout::Surround71))
-        .unwrap();
-    assert!(
-        snapshot
-            .iter()
-            .filter(|bus| bus.role == AudioBusRole::Main)
-            .all(|bus| bus.channels == 8 && bus.layout == Some(Layout::Surround71))
-    );
-    plugin.set_parameter(0, 0.5).unwrap();
-    let mut input = vec![vec![0.25f64; 4]];
-    for index in 0..Layout::Surround71.channels() {
-        input.push(vec![(index + 1) as f64 + 1.0e-10; 4]);
-    }
-    let slices: Vec<_> = input.iter().map(Vec::as_slice).collect();
-    let rendered = render(
-        &mut plugin,
-        &slices,
-        4,
-        &[],
-        &RenderOptions {
-            tail: TailPolicy::Reported,
-            max_tail_seconds: 0.0,
-        },
-    )
-    .unwrap();
-    assert_eq!(rendered.channels.len(), 10);
-    assert_eq!(rendered.channels[0], input[1]);
-    assert_eq!(rendered.channels[1], input[0]);
-    for index in 0..Layout::Surround71.channels() {
-        assert_eq!(
-            rendered.channels[index + 2],
-            vec![input[index + 1][0] * 0.375; 4],
-            "channel {index}"
+    for layout in Layout::ALL
+        .into_iter()
+        .filter(|layout| layout.channels() > 2)
+    {
+        let mut plugin = plugin("plughost-test-routing");
+        let snapshot = plugin
+            .prepare_audio(&buses(SampleFormat::F64, layout))
+            .unwrap_or_else(|error| panic!("{layout:?}: {error}"));
+        assert!(
+            snapshot
+                .iter()
+                .filter(|bus| bus.role == AudioBusRole::Main)
+                .all(|bus| bus.channels as usize == layout.channels()
+                    && bus.layout == Some(layout)),
+            "{layout:?}"
         );
+        plugin.set_parameter(0, 0.5).unwrap();
+        let mut input = vec![vec![0.25f64; 4]];
+        for index in 0..layout.channels() {
+            input.push(vec![(index + 1) as f64 + 1.0e-10; 4]);
+        }
+        let slices: Vec<_> = input.iter().map(Vec::as_slice).collect();
+        let rendered = render(
+            &mut plugin,
+            &slices,
+            4,
+            &[],
+            &RenderOptions {
+                tail: TailPolicy::Reported,
+                max_tail_seconds: 0.0,
+            },
+        )
+        .unwrap();
+        assert_eq!(rendered.channels.len(), layout.channels() + 2);
+        assert_eq!(rendered.channels[0], input[1]);
+        assert_eq!(rendered.channels[1], input[0]);
+        for index in 0..layout.channels() {
+            assert_eq!(
+                rendered.channels[index + 2],
+                vec![input[index + 1][0] * 0.375; 4],
+                "{layout:?} channel {index}"
+            );
+        }
     }
 }
 

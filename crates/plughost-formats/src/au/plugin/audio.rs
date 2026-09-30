@@ -280,7 +280,20 @@ fn tag(layout: Layout) -> Result<u32, AuError> {
         Layout::Stereo => Ok(STEREO),
         Layout::Surround51 => Ok(SURROUND_51),
         Layout::Surround71 => Ok(SURROUND_71),
-        Layout::None => Err(AuError::AudioConfiguration),
+        Layout::None
+        | Layout::Lcr
+        | Layout::Quad
+        | Layout::Surround50
+        | Layout::Surround70
+        | Layout::Surround512
+        | Layout::Surround514
+        | Layout::Surround712
+        | Layout::Surround714
+        | Layout::Surround916
+        | Layout::Ambisonics1
+        | Layout::Ambisonics2
+        | Layout::Ambisonics3
+        | Layout::Ambisonics4 => Err(AuError::AudioConfiguration),
     }
 }
 

@@ -19,6 +19,9 @@ pub(crate) fn direction(value: AudioDirection) -> i32 {
         AudioDirection::Output => BusDirections_::kOutput as i32,
     }
 }
+/// VST3 orders a bus's channels by speaker bit, which is the portable order of every layout.
+/// Arrangements with other speakers (k51_2 has top front instead of top middle speakers) are
+/// not portable layouts.
 pub(crate) fn arrangement(layout: Layout) -> SpeakerArrangement {
     match layout {
         Layout::None => SpeakerArr::kEmpty,
@@ -26,18 +29,25 @@ pub(crate) fn arrangement(layout: Layout) -> SpeakerArrangement {
         Layout::Stereo => SpeakerArr::kStereo,
         Layout::Surround51 => SpeakerArr::k51,
         Layout::Surround71 => SpeakerArr::k71Music,
+        Layout::Lcr => SpeakerArr::k30Cine,
+        Layout::Quad => SpeakerArr::k40Music,
+        Layout::Surround50 => SpeakerArr::k50,
+        Layout::Surround70 => SpeakerArr::k70Music,
+        Layout::Surround512 => SpeakerArr::k51_2_TS,
+        Layout::Surround514 => SpeakerArr::k51_4,
+        Layout::Surround712 => SpeakerArr::k71_2,
+        Layout::Surround714 => SpeakerArr::k71_4,
+        Layout::Surround916 => SpeakerArr::k91_6_W,
+        Layout::Ambisonics1 => SpeakerArr::kAmbi1stOrderACN,
+        Layout::Ambisonics2 => SpeakerArr::kAmbi2cdOrderACN,
+        Layout::Ambisonics3 => SpeakerArr::kAmbi3rdOrderACN,
+        Layout::Ambisonics4 => SpeakerArr::kAmbi4thOrderACN,
     }
 }
 fn layout(value: SpeakerArrangement) -> Option<Layout> {
-    [
-        Layout::None,
-        Layout::Mono,
-        Layout::Stereo,
-        Layout::Surround51,
-        Layout::Surround71,
-    ]
-    .into_iter()
-    .find(|&layout| arrangement(layout) == value)
+    Layout::ALL
+        .into_iter()
+        .find(|&layout| arrangement(layout) == value)
 }
 
 impl Instance {
@@ -238,5 +248,23 @@ impl Instance {
             bus.active = Some(active);
         }
         Ok(buses)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_layout_has_its_own_arrangement_of_its_channel_count() {
+        for layout in Layout::ALL {
+            let speakers = arrangement(layout);
+            assert_eq!(
+                speakers.count_ones() as usize,
+                layout.channels(),
+                "{layout:?}"
+            );
+            assert_eq!(super::layout(speakers), Some(layout));
+        }
     }
 }

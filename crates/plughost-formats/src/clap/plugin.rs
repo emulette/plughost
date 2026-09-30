@@ -652,7 +652,22 @@ fn surround_orders(layout: Layout) -> Option<&'static [&'static [SurroundChannel
             SideLeft,
             SideRight,
         ]]),
-        Layout::None | Layout::Mono | Layout::Stereo => None,
+        Layout::None
+        | Layout::Mono
+        | Layout::Stereo
+        | Layout::Lcr
+        | Layout::Quad
+        | Layout::Surround50
+        | Layout::Surround70
+        | Layout::Surround512
+        | Layout::Surround514
+        | Layout::Surround712
+        | Layout::Surround714
+        | Layout::Surround916
+        | Layout::Ambisonics1
+        | Layout::Ambisonics2
+        | Layout::Ambisonics3
+        | Layout::Ambisonics4 => None,
     }
 }
 
