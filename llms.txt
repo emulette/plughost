@@ -3,24 +3,24 @@
 > Rust library for offline VST3, Audio Unit, and CLAP hosting. Applications control
 > plugin chains through isolated helper processes and supply their own audio and timeline.
 
-This reference describes plughost 0.0.3 and requires Rust 1.92 or newer. It covers the
+This reference describes plughost 0.0.4 and requires Rust 1.92 or newer. It covers the
 public application API, its native limitations, and the helper an application must ship.
 Use the typed API documentation for complete signatures.
 
 ## Entry points
 
 - [Installation and stereo render example](https://github.com/emulette/plughost/blob/main/README.md)
-- [Application API](https://docs.rs/plughost/0.0.3/plughost/)
-- [Shared types and render API](https://docs.rs/plughost-core/0.0.3/plughost_core/)
-- [In-process formats](https://docs.rs/plughost-formats/0.0.3/plughost_formats/)
-- [Helper runtime](https://docs.rs/plughost-helper/0.0.3/plughost_helper/)
+- [Application API](https://docs.rs/plughost/0.0.4/plughost/)
+- [Shared types and render API](https://docs.rs/plughost-core/0.0.4/plughost_core/)
+- [In-process formats](https://docs.rs/plughost-formats/0.0.4/plughost_formats/)
+- [Helper runtime](https://docs.rs/plughost-helper/0.0.4/plughost_helper/)
 - [Application exports](https://github.com/emulette/plughost/blob/main/crates/plughost/src/lib.rs)
 - [Changes](https://github.com/emulette/plughost/blob/main/CHANGELOG.md)
 
 ## Dependencies and deployment
 
-The application depends on `plughost = "=0.0.3"`. A separate executable depends on
-`plughost-helper = "=0.0.3"` and calls `plughost_helper::run()` from `main`, returning
+The application depends on `plughost = "=0.0.4"`. A separate executable depends on
+`plughost-helper = "=0.0.4"` and calls `plughost_helper::run()` from `main`, returning
 `std::process::ExitCode`. Ship that executable with the application and pass its path to
 `Scanner::new` and `Chain::spawn`. The library supplies the helper's command-line arguments
 and IPC handshake. Keep application and helper versions matched.
@@ -352,7 +352,9 @@ open one (CLAP), so `editor_open` also changes without application calls; a hidd
 stays open, and a request that fails to open an editor is reported in diagnostics. An Audio
 Unit editor's window follows the size its view takes, except that an AUv3 running in its
 extension process keeps the size it opened with: macOS does not pass later size changes of
-such a view to the host. The editor window is not embedded in application windows.
+such a view to the host. The editor window is not embedded in application windows. Opening
+or showing an editor brings the helper to the front; on macOS the application that was
+frontmost before is activated again when the helper's last window closes.
 
 Match typed `Error` variants or use `Error::kind()` for the shared `FailureKind`; do not
 parse display text. `Error` and the scan enums are `#[non_exhaustive]`; `Error::source()`

@@ -9,7 +9,7 @@ mod platform {
 
     use objc2::rc::Retained;
     use objc2::{MainThreadMarker, MainThreadOnly};
-    use objc2_app_kit::{NSApplication, NSBackingStoreType, NSWindow, NSWindowStyleMask};
+    use objc2_app_kit::{NSBackingStoreType, NSWindow, NSWindowStyleMask};
     use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
     use plughost_core::{Failure, FailureKind};
     use plughost_formats::{EditorView, HostedPlugin, ResizeRequest};
@@ -111,10 +111,7 @@ mod platform {
         }
 
         fn bring_to_front(&self) {
-            if let Some(mtm) = MainThreadMarker::new() {
-                #[allow(deprecated)]
-                NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
-            }
+            crate::events::activate();
             self.window.makeKeyAndOrderFront(None);
         }
 

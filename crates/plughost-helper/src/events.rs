@@ -2,9 +2,20 @@
 
 #[cfg(target_os = "macos")]
 mod platform {
+    use std::cell::Cell;
+
     use objc2::MainThreadMarker;
-    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEventMask};
+    use objc2::rc::Retained;
+    use objc2_app_kit::{
+        NSApplication, NSApplicationActivationOptions, NSApplicationActivationPolicy, NSEventMask,
+        NSRunningApplication, NSWorkspace,
+    };
     use objc2_foundation::{NSDate, NSDefaultRunLoopMode};
+
+    thread_local! {
+        /// The application that was frontmost when the helper last brought itself to the front.
+        static PREVIOUS: Cell<Option<Retained<NSRunningApplication>>> = const { Cell::new(None) };
+    }
 
     /// Plugins create windows, timers, and dialogs, which need an application object. The helper
     /// is a background (`LSUIElement`) application.
@@ -19,11 +30,35 @@ mod platform {
         Ok(Runtime)
     }
 
-    /// Brings the helper to the front, so dialogs plugins show can be answered.
+    /// Brings the helper to the front, so editors and the dialogs plugins show can be used. The
+    /// application that was frontmost gets the activation back once the helper shows no windows.
     pub fn activate() {
-        if let Some(mtm) = MainThreadMarker::new() {
-            #[allow(deprecated)]
-            NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let previous = NSWorkspace::sharedWorkspace().frontmostApplication();
+        if let Some(previous) =
+            previous.filter(|app| *app != NSRunningApplication::currentApplication())
+        {
+            PREVIOUS.set(Some(previous));
+        }
+        #[allow(deprecated)]
+        NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
+    }
+
+    /// An accessory application stays active after its last window closes, which leaves key input
+    /// with no window to go to. Returns the activation to the application that had it.
+    fn return_activation(app: &NSApplication) {
+        if !app.isActive()
+            || app
+                .windows()
+                .iter()
+                .any(|window| window.isVisible() || window.isMiniaturized())
+        {
+            return;
+        }
+        if let Some(previous) = PREVIOUS.take() {
+            previous.activateWithOptions(NSApplicationActivationOptions::empty());
         }
     }
 
@@ -34,7 +69,8 @@ mod platform {
         objc2::rc::autoreleasepool(|_| work())
     }
 
-    /// Handles the events and run loop sources that are ready, without waiting.
+    /// Handles the events and run loop sources that are ready, without waiting, then returns the
+    /// activation if the last window closed.
     pub fn pump() {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
@@ -55,6 +91,7 @@ mod platform {
                 None => break,
             }
         }
+        return_activation(&app);
     }
 }
 
