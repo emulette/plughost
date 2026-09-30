@@ -1,0 +1,393 @@
+# plughost
+
+> Rust library for offline VST3, Audio Unit, and CLAP hosting. Applications control
+> plugin chains through isolated helper processes and supply their own audio and timeline.
+
+This reference describes plughost 0.0.1 and requires Rust 1.92 or newer. It covers the
+public application API, its native limitations, and the helper an application must ship.
+Use the typed API documentation for complete signatures.
+
+## Entry points
+
+- [Installation and stereo render example](https://github.com/emulette/plughost/blob/main/README.md)
+- [Application API](https://docs.rs/plughost/0.0.1/plughost/)
+- [Shared types and render API](https://docs.rs/plughost-core/0.0.1/plughost_core/)
+- [In-process formats](https://docs.rs/plughost-formats/0.0.1/plughost_formats/)
+- [Helper runtime](https://docs.rs/plughost-helper/0.0.1/plughost_helper/)
+- [Application exports](https://github.com/emulette/plughost/blob/main/crates/plughost/src/lib.rs)
+- [Checked plugins](https://github.com/emulette/plughost/blob/main/COMPATIBILITY.md)
+- [Changes](https://github.com/emulette/plughost/blob/main/CHANGELOG.md)
+
+## Dependencies and deployment
+
+The application depends on `plughost = "=0.0.1"`. A separate executable depends on
+`plughost-helper = "=0.0.1"` and calls `plughost_helper::run()` from `main`, returning
+`std::process::ExitCode`. Ship that executable with the application and pass its path to
+`Scanner::new` and `Chain::spawn`. The library supplies the helper's command-line arguments
+and IPC handshake. Keep application and helper versions matched.
+
+Supported targets are `aarch64-apple-darwin` and `x86_64-pc-windows-msvc`. Audio Units are
+macOS-only. The helper and loaded plugin must use the same architecture. Intel Macs,
+Rosetta, Linux, and cross-architecture bridges are outside the supported targets.
+
+On macOS the helper is a background `LSUIElement` application, signed with Hardened Runtime
+and the `disable-library-validation` and `allow-unsigned-executable-memory` entitlements.
+Pass the executable inside `Contents/MacOS`, not the `.app` directory. The repository's
+[packaging script](https://github.com/emulette/plughost/blob/main/scripts/macos/package-app.sh)
+uses ad-hoc signing for local development; the distributing application owns its production
+signing and notarization. On Windows pass the helper `.exe` path.
+
+`plughost-formats` loads native code in the calling process. Its default features are
+`vst3`, `au`, and `clap`; direct users can disable defaults and select formats. Native
+lifecycle/controller/editor calls normally belong on the main thread, with the OS event
+loop running. `plughost-helper` uses all format features and owns these threads and loops.
+Use `plughost` for application-level crash isolation.
+
+## Discovery
+
+Construct `Scanner::new(helper_path, cache_path)`. Both arguments are `&Path`. The default
+search covers standard VST3/CLAP directories, `CLAP_PATH`, and the macOS Audio Unit registry.
+Use `.directories(Vec<PathBuf>)` to choose bundle directories explicitly. Native inspection
+is serial by default; `.jobs(n)` explicitly enables parallel loading (`0` selects `1`).
+Audio Unit registry enumeration still occurs on macOS.
+
+Use `.policy(ScanPolicy)` for explicit selection. `ScanPolicy::default()` allows all items;
+`ScanPolicy::new(ScanAction::Block)` allows only identities with an explicit Allow rule.
+Add rules with `.bundle(path, ScanAction::Allow/Block)` or
+`.audio_unit(class_id, ScanAction::Allow/Block)`. Last rule per identity wins. Bundle paths
+must match discovered paths exactly; paths are not canonicalized. AU IDs ignore ASCII case.
+Blocked bundles report `ScanOutcome::Blocked` without inspecting/loading the binary, preserving
+cached entries and failure counts. Blocked AU classes are omitted from both progress events
+and the catalog. The registry itself is still queried without instantiating plugins.
+Rules apply to discovery, scan and retry. Allow does not reset automatic failure exclusion;
+retry bypasses that exclusion but never bypasses Block. The caller owns/persists these rules,
+separately from native cache results. They select scanner results, not permission to load a
+PluginRef through Chain or the direct formats API.
+
+`scanner.discover()` returns a `Catalog` without loading bundle code or writing the cache.
+It reads compatible binary headers, static VST3 `moduleinfo.json`, and unchanged native cache
+results. Missing or malformed metadata yields `ScanOutcome::NotInspected`, not an automatic
+native load. Cached native failures remain visible without being retried. Audio Unit registry
+enumeration uses a helper without instantiating the units.
+
+`scanner.scan(&progress)` inspects native classes and accepts a `Sync` callback receiving
+`&BundleScan`. With multiple jobs it can be called concurrently. Static metadata never
+substitutes for native inspection, but unchanged native results can be reused from cache.
+Each result includes its source, outcome, failure count,
+and exclusion state. `Catalog::plugins()` returns `(PluginRef, &PluginInfo)` entries.
+`PluginRef` contains `format`, optional `bundle`, and `class_id`; use discovered values.
+VST3/CLAP references require a bundle path, while Audio Unit references use their class ID.
+
+Neither metadata discovery nor native class inspection proves that instantiation,
+preparation, or processing will succeed. Audio Units are enumerated from the registry in
+both paths. Cache schema 2 contains native bundle results; earlier caches are invalidated
+because they did not distinguish static metadata from native inspection.
+The default scan stall timeout is 30 seconds. Two consecutive failures of an unchanged
+bundle exclude it from automatic loading; the scan that reaches the limit already reports
+`excluded`. `Scanner::retry(path)` bypasses exclusion and
+uses a 24-hour stall timeout for interactive loading.
+
+Bundle cache fingerprints cover the executable, Contents/Info.plist and
+Contents/Resources/moduleinfo.json paths, sizes and modification times. Changes, addition or
+removal of these files invalidate results; changing a failed binary resets its failure count.
+This is metadata-based invalidation, not content hashing of every resource in a bundle.
+AU registry results are never cached and are queried for every invocation. Enumeration includes
+effects, MIDI-controlled audio effects, instruments and MIDI-only processors; being listed does
+not imply that their event-processing capabilities are implemented.
+
+VST3 metadata is parsed as JSON5, as the VST3 SDK does; a file that does not parse is
+ignored. Only audio module classes are listed; compatibility mappings and snapshots
+are not interpreted. Native factory enumeration supplies IPluginFactory3::setHostContext
+when supported, with a live IHostApplication retained for the module lifetime. Direct
+`Module::load_with_host(path, &HostIdentity)` and the generic formats loader use the caller's
+identity; `Module::load` and scan helpers use the default plughost identity. Instance initialization
+still receives its own host context. A factory that ignores the optional context remains usable.
+
+Native inspection may show plugin license dialogs. `scan_controlled(&control, &events)`,
+`discover_controlled(&control, &events)` and `retry_controlled(path, &control, &events)`
+accept a `ScanControl::default()` and a `Sync` callback receiving `&ScanEvent`. Retain a
+clone of the control on the UI/control thread and call `cancel()` to stop all operations
+using it. Cancellation is permanent for that control; use a new one for an independent run.
+
+`ScanEvent::Progress { item, stage }` identifies `ScanTarget::Bundle(path)` or `AudioUnits`
+and the Inspecting/StartingHelper/Loading/ModuleLoaded/ClassFound stage. Clone and retain
+`item`, then call `item.skip()` to stop only that item. Late skip requests cannot affect
+the next item, including a later scan of the same path. `BundleFinished` and
+`AudioUnitsFinished` carry completed outcomes. Callbacks run on scanner workers, can overlap
+with explicit parallelism, and must return promptly; dispatch UI work from them.
+
+Cancellation stops new admissions, interrupts helper startup/handshake/response supervision,
+and reaps active helpers before the scan call returns. Already admitted work may briefly
+start before its next stop check. Directory traversal checks between filesystem entries;
+blocking OS filesystem calls and caller callbacks cannot be interrupted. `Cancelled` and
+`Skipped` are distinct outcomes, preserve old cache entries/counts, and are never cached as
+plugin failures. Unadmitted items are absent from the returned catalog. Native processing
+is terminated with its helper; no plugin cooperation or license diagnosis is required.
+
+Native scans/retries save each changed bundle result before its `BundleFinished` notification.
+An interrupted scan retains completed results and existing entries for unprocessed paths.
+Cancelled/skipped items and unchanged cache hits do not rewrite the snapshot; if nothing has
+been saved, cancellation need not create a cache JSON file. Use `retry_controlled` for chosen
+paths after cancellation; it preserves other entries. ClassFound notifications are provisional
+until the bundle finishes. No failure or timeout is interpreted as a license diagnosis.
+
+The writer publishes each snapshot as compact JSON through a unique sibling temporary file and
+atomic replacement. The final snapshot is synchronized to stable storage once, when the scan or
+retry ends (Unix also synchronizes the containing directory); after a power loss mid-scan the
+cache can read as empty and is rebuilt. Cache read/write/lock errors return
+`Error::Cache`; a mid-scan save failure stops admissions and reaps active helpers. The caller's
+ScanControl is not marked cancelled by an internal cache error. Results saved earlier remain
+available, while the result whose save failed is not announced as completed. A final sync
+failure can occur after a complete replacement has become visible; it is still an error.
+
+One native scan/retry writer can use a cache path at a time. A competing writer gets
+`Error::Cache` with `io::ErrorKind::WouldBlock`, without loading plugins or waiting for the
+first scan. The adjacent `<cache filename>.lock` file is intentionally retained; its OS lock
+is released when the writer closes or its process exits. Discovery reads snapshots without
+acquiring that lock and never writes the cache. A killed writer may leave an unpublished
+`.plughost-cache-*` temporary, which is never read as a cache. Process interruption is covered;
+power-loss durability and network filesystem behavior are not guaranteed. Render cancellation
+is independent of scan cancellation.
+
+## Chains and capability queries
+
+`Chain::spawn(helper, plugins, host_identity, timeouts)` starts one helper for a nonempty
+slice of `PluginRef`, in chain order. Slots are zero-based indices in that slice.
+`HostIdentity` is the calling application's identity; recovered chains keep it.
+`Timeouts` separates load, control, and block-processing operations. Defaults are 300,
+60, and 10 seconds respectively.
+
+`chain.plugins()` returns loaded plugin metadata. `chain.capabilities(slot)` returns a
+`CapabilityReport` with native plugin evidence and isolated-host implementation support.
+Both sides must support an operation. Treat `Support::Unknown` separately from
+`Support::Unsupported`, and query again after configuration changes. Even a supported
+operation can fail for a particular native configuration.
+
+`Chain::prepare_audio(&RoutedChainConfig)` is the one preparation entry point.
+`chain.main_bus_config(sample_rate, max_block_size, input, outputs)` builds the common
+serial case: f32, `ProcessMode::Offline`, the chain input on the first slot's main input,
+each slot's main output on the next slot's main input, and one output `Layout` per slot.
+Instruments use `Layout::None` for their main input; auxiliary buses stay inactive. Change
+fields such as `sample_format` or `mode` before preparing.
+`ProcessMode::Realtime` only changes the mode reported to the plugin; rendering remains
+offline and is not paced to wall-clock time.
+
+## Audio buses and precision
+
+Call `audio_buses(slot)` and `audio_configurations(slot)` for native bus information.
+An empty configuration list does not mean individually configurable buses are unavailable.
+An unknown speaker layout must not be inferred from its channel count.
+
+`RoutedChainConfig` configures explicit routing and f32/f64 precision.
+The configuration contains external input layouts and one `SlotAudioConfig` per plugin.
+Each input route has an `AudioBusConfig`, an `AudioSource`, and `ChannelAdaptation`.
+Sources select an external input bus, a previous slot's output bus, or silence. Native
+bus IDs are scoped to direction and selected configuration. Omitted native buses are inactive.
+
+Caller input channels are concatenated in external `config.inputs` order. Active native
+output buses are concatenated in native bus-index order, not request-vector order. The
+returned bus map describes the negotiated result. Channel adaptation must be explicit;
+surround channels are never guessed, reordered, or automatically downmixed.
+
+Layouts are none, mono, stereo, 5.1 (`L R C LFE Ls Rs`), and 7.1
+(`L R C LFE Ls Rs Lss Rss`). AU processing is f32 only. VST3/CLAP f64 requires native
+plugin support. There is no resampler or implicit conversion between processing precisions.
+Use `process_audio_f32` / `process_audio_f64` in the prepared precision.
+
+Reconfiguring a prepared chain stages fresh instances and preserves the active chain on
+returned native setup errors. Initial preparation can partly configure an unprepared native
+instance before failing. A native crash or timeout can terminate the shared helper.
+
+## Blocks, transport, and events
+
+`Chain::process_audio_f32(context, input, output, automation, events, produced)` (or `_f64`)
+processes one block and appends the chain's output events to `produced`. All channel slices must have `context.frames` samples,
+no more than the prepared maximum block size. `BlockContext::new(frames)` supplies frame
+count without transport. The helper's reply is validated before it modifies output buffers.
+Automation and MIDI together are limited to `MAX_BLOCK_EVENTS` (4,096) per call across the
+chain, and system exclusive data to `MAX_BLOCK_SYSEX_BYTES` (64 KiB); excess input fails with
+`InputError::EventCapacity` before DSP advances. Pending
+control edits have a separate 4,096-entry budget (VST3 coalesces by parameter ID). Prepared
+host event storage is reused. Native VST3 output-queue overflow requires re-preparation.
+External-input alignment storage is reserved during preparation and limited to
+256 MiB per chain. A failed staged reservation preserves the old chain.
+
+PCM and events use fixed shared-memory slots prepared for the selected precision and maximum
+block size. Each generation has a separate 256 MiB shared-storage budget, plus local/native
+buffers; re-preparation temporarily retains both generations. Control messages and completion
+notifications use the socket. Processing still copies audio, allocates in other host paths,
+and waits for the helper; shared memory does not make `Chain` real-time safe.
+
+`Transport` is a snapshot at the first sample of a block. Its optional timing fields remain
+unavailable when `None`; the host does not invent them. Beat positions use quarter notes.
+The caller owns seeks and loop wrapping. Moving transport does not implicitly reset DSP.
+
+`AutomationEvent { slot, change }` addresses a parameter independently of note routing.
+`ParameterChange` contains native parameter ID, sample offset, and normalized value.
+Values must be finite and in `0..=1`. Events are ordered by offset and lie inside the block.
+Read-only or non-automatable targets are rejected when appropriate.
+
+`MidiEvent { offset, port, data }` carries a MIDI 1.0 channel message
+(`MidiData::Channel`) or a complete system exclusive message from `F0` to `F7`
+(`MidiData::SysEx`). Constructors include `note_on`, `note_off`, `control_change` and `sysex`;
+`on_port(port)` selects one of the chain's external event inputs. Offsets are block-relative
+for direct processing and render-relative for rendering. MIDI 2.0, MPE and note expression are
+not implemented.
+
+`event_ports(slot)` lists a plugin's native event ports as `EventPortInfo` (native ID, index,
+name, direction, MIDI and system exclusive support). `SlotAudioConfig::events` is a
+`SlotEventConfig`: `inputs` route `EventSource::External { port }` or
+`EventSource::Previous { port }` (a native output ID of the previous slot) to native input
+ports, merging several routes to one port in offset order, and `outputs` names the native
+output ports to collect. The last slot's collected outputs, in that order, are the chain's
+event outputs; `RoutedChainConfig::event_inputs` counts its external event inputs, at most
+`MAX_EVENT_PORTS` (16). `main_bus_config` routes external input 0 to the first slot's first
+event input and each slot's first event output to the next slot's first event input.
+
+A VST3 plugin without event input buses that maps MIDI controllers through IMidiMapping has
+one input port that takes controller messages only. CLAP delivers notes as CLAP note events
+where a port prefers them and other messages as MIDI. Output notes, legacy VST3 controller
+output and system exclusive data become MIDI events; events with no MIDI 1.0 form are counted
+in diagnostics, not delivered. Audio Units take events on port 0 only and send MIDI on one
+output port per MIDI output cable they name. When a plugin produces more than one block's event budget, the block fails and
+the chain refuses to process until `reset`, since events already delivered may be lost.
+
+## Offline rendering
+
+`render(&mut chain, input, frames, events, &options)` returns owned output channels,
+removed latency, rendered tail length, and the chain's output events. Output event offsets
+count from the start of the input and are not shifted by the removed latency. Input is one slice per input channel; each must
+contain exactly `frames` samples. For an instrument, use empty input and explicitly select
+`render::<f32, _>` or `render::<f64, _>` so the output precision can be inferred.
+
+Rendering trims reported latency and appends a tail bounded by
+`RenderOptions::max_tail_seconds`. The default uses `TailPolicy::UntilSilence` with a
+linear peak threshold of `1.585e-5`, a one-second hold, and a 30-second maximum tail.
+`TailPolicy::Reported` uses the plugin-reported tail, capped by that maximum. A changed
+latency is an error; reported-tail rendering also rejects changes to its tail assumption.
+
+`render_with_schedule` accepts a `RenderSchedule` containing automation points, ramps,
+and transport changes. Offsets are render-relative. Transport changes and the combined
+4,096-event budget delimit submitted blocks. Ramps expand into exact sample points for
+one block at a time; native adapters perform any required internal subdivision.
+`AutomationRamp` endpoints are inclusive and linear in normalized value; native metadata
+quantizes discrete parameters. A single timestamp that exceeds the event budget is
+rejected before rendering starts; equal-time events are never split across submissions.
+
+`render_stream` takes `RenderInput`, a consumer of `Delivery { audio, events }` blocks, and a
+cancellation callback. It
+retains bounded output state instead of the complete result. Cancellation is checked
+before submitted blocks, returns `RenderStatus::Cancelled`, and preserves already delivered
+samples. It cannot interrupt a plugin already executing a native block; the processing
+timeout bounds an unresponsive helper.
+
+For offline throughput, choose `max_block_size` when preparing the chain. Larger supported
+blocks reduce helper round trips for sparse events, while exact ramps can still reach the
+event budget first. They also reserve more memory and increase the processing span between
+cancellation checks. The renderer never silently increases that limit or submits ahead of
+the next cancellation check. Silence trimming remains sample-based, although DSP may have
+advanced through the remainder of the last submitted block. Check plugin output and
+cancellation behavior at the chosen size; there is no universal optimal block size.
+
+`RenderSession::new(&mut chain)` continues DSP across multiple `push` calls and one
+`finish`, trimming latency and flushing the tail only once. Event and schedule offsets in
+each `push` are relative to that segment. It does not reset the processor.
+After cancellation or failure, drop the session and reset before starting an independent
+render. A finished, cancelled, or failed session cannot accept further segments.
+
+## Parameters, state, and presets
+
+- `parameters(slot)` returns `ParameterInfo` and current normalized values.
+- `parameter_details` returns native range endpoints and group information. Endpoints do
+  not imply a linear mapping. A missing default is unavailable, not the current value.
+- `parameter_choices` pages discrete native labels. Respect `PARAMETER_CHOICE_PAGE_SIZE`.
+- `parameter_text`, `parameter_from_text`, `parameter_to_plain`, and
+  `parameter_to_normalized` use the native conversion. Unsupported conversions return errors.
+- `set_parameter` and `set_parameter_text` edit through native APIs and refresh prepared
+  chain timing. `bypass` / `set_bypass` use native bypass without host dry/wet substitution.
+- `take_parameter_events` drains bounded value/gesture/metadata notifications. On overflow,
+  cancel active gestures and requery metadata and values.
+
+`save_state(slot, purpose)` returns opaque `PluginState`; use `StatePurpose::Project` for
+project persistence. Persist it in application-owned storage. State includes the plugin
+format/class identity; restore only to the matching class with `restore_state(slot, &state,
+purpose)`. `StatePurpose` distinguishes `Project`, `Preset`, and `Duplicate`. Native formats
+can reject unsupported purposes.
+
+`restore_state` stages a fresh instance, prepares it, and validates timing before replacing
+the slot. Returned native failures preserve the active slot. A crash/timeout can still end
+the helper. Successful restore clears that slot's DSP history. An open editor is recreated;
+reopening failures appear in diagnostics. State payloads are bounded by `MAX_STATE_BYTES`
+(128 MiB across processor and controller payloads). A VST3 component or controller that
+rejects its state fails the restore; a controller without state support does not.
+
+`inspect_preset`, `export_preset`, and `import_preset` operate on native preset bytes;
+the caller owns file I/O. `MAX_PRESET_BYTES` is 64 MiB. `factory_presets` and
+`select_factory_preset` use native programs; VST3 selection requires preparation first.
+`standard_preset_directories` and `discover_preset_files` find standard preset paths.
+Discovery follows links and junctions, including a linked root, without revisiting link loops,
+and skips unreadable entries; only an unreadable root is an error.
+`preset_providers` and `discover_presets` run CLAP provider discovery in isolated helpers.
+A directory location is crawled in one helper for the provider's declared file types, as preset
+roots are; each `DiscoveredPreset` names its `location` (the plugin or the file it was found in),
+and files the provider refused are listed in `failed_files`. A crash or timeout fails the whole
+query. `load_discovered_preset` applies a preset's location/key on a fresh instance.
+Discovery metadata alone does not prove a preset belongs to the currently loaded class.
+
+AUv3 state restoration has known compatibility failures with the VST3 SDK Audio Unit
+samples. Do not assume every plugin implements all state, conversion, or preset operations.
+
+## Editors, errors, and recovery
+
+`open_editor(slot)` creates a helper-owned native window; processing can continue while
+it is open. Poll `editor_open(slot)` and call `close_editor(slot)` when appropriate.
+A desktop session and the plugin's native editor implementation are required. A CLAP editor
+that cannot draw inside the host window opens as its own floating window. The helper follows
+plugin requests to open an editor (VST3 `requestOpenEditor`) and to show, hide or close an
+open one (CLAP), so `editor_open` also changes without application calls; a hidden editor
+stays open, and a request that fails to open an editor is reported in diagnostics. The editor window is not
+embedded in application windows.
+
+Match typed `Error` variants or use `Error::kind()` for the shared `FailureKind`; do not
+parse display text. `Error` and the scan enums are `#[non_exhaustive]`; `Error::source()`
+exposes wrapped I/O, render, input and operation errors. After a timeout or protocol error the
+helper is terminated; later requests return `Error::Crashed` (`NotPrepared` for processing)
+until the application recovers the chain. `Error::Crashed` and `Error::TimedOut` can include the last reported
+slot, which may be unavailable. Treat plugin failures as recoverable application events.
+
+`reset()` clears DSP history while retaining settings. `recover(&states)` starts a separate
+chain in a new helper with the same plugin list, host identity and timeouts, restores `states`
+(one `StatePurpose::Project` state per slot, or none for initial states) as each plugin loads,
+and prepares it with the saved audio configuration. The original chain is not modified, so the
+application keeps a last known good snapshot from `save_state`, recovers from it, and replaces
+its chain only once recovery succeeds; after a failure the original remains available for
+another attempt. Edits after the snapshot, DSP history, open editors and unread diagnostics are
+not recovered. `reprepare()` reactivates the saved configuration once; repeated native restart
+requests remain visible to the caller.
+
+`helper_monitor()` returns a clonable `HelperMonitor` for the current helper generation. Its
+`exit_status()` and `wait_for_exit(timeout)` observe the OS exit without IPC, including while
+the chain is idle; wait from application or control code. A recovered chain has its own monitor.
+Helpers run in an application-owned macOS process group or Windows kill-on-close Job. Drop,
+timeout, and scan cancellation terminate the helper and descendants that stay in that scope; a
+helper also terminates its scope when the application exits or disconnects, even if a modal
+dialog or stuck native call blocks its main thread. An invalidated Audio Unit extension instance
+fails later calls with `RestartRequired`; it is not recreated automatically.
+
+`take_changes()` drains coalesced timing/restart notifications. `take_diagnostics()` drains
+bounded structured plugin logs and helper failures. Unread helper-local diagnostics are lost
+when that helper exits. Startup errors and arbitrary plugin stderr remain on stderr; plugin
+stdout is discarded. Applications own recovery decisions and user-facing reporting.
+
+## Development and examples
+
+Repository examples are `plughost --example scan`, `plughost --example render` (an offline
+batch with a state snapshot and recovery), `plughost --example editor`,
+`plughost-helper --example helper`, and `plughost-formats --example check`.
+Run them through `cargo run -p <crate> --example <name> -- <arguments>`; each source file
+lists its arguments. Native loading can show license dialogs, so select plugins explicitly.
+
+The [README development section](https://github.com/emulette/plughost/blob/main/README.md#development)
+covers fixture/helper builds, tests, formatting, Clippy, API docs, and package verification.
+Test plugins and build scripts live in the repository, outside published crate packages.
+Keep crash/hang fixtures out of an application's normal plugin search directories.

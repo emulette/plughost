@@ -1,0 +1,18 @@
+[package]
+name = "plughost-test-routing"
+description = "Dual-format native multibus, layout, precision, bypass and event routing fixture"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+clack-extensions = { workspace = true, features = ["audio-ports", "audio-ports-config", "audio-ports-activation", "clack-plugin", "note-ports", "params", "state", "surround"] }
+clack-plugin.workspace = true
+vst3.workspace = true

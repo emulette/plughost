@@ -1,0 +1,13 @@
+[package]
+name = "plughost-test-presets"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+[lib]
+crate-type = ["cdylib"]
+[lints]
+workspace = true
+[dependencies]
+clack-plugin.workspace = true
+clack-extensions = { workspace = true, features = ["clack-plugin", "preset-discovery", "audio-ports", "state"] }

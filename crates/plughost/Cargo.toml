@@ -1,0 +1,68 @@
+[package]
+name = "plughost"
+description = "Load and run VST3, Audio Unit, and CLAP plugins from Rust, isolated in helper processes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/plughost"
+publish = true
+include = ["/src/**", "/examples/**", "/Cargo.toml", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
+keywords = ["audio", "plugin", "vst3", "clap", "audio-unit"]
+categories = ["multimedia::audio"]
+
+[package.metadata.docs.rs]
+default-target = "aarch64-apple-darwin"
+targets = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
+
+[lints]
+workspace = true
+
+[dependencies]
+interprocess.workspace = true
+json5.workspace = true
+plughost-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+walkdir.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation.workspace = true
+rustix = { workspace = true, features = ["event", "process"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_Security", "Win32_UI_Shell", "Win32_System_Com"] }
+
+[dev-dependencies]
+plughost-formats.workspace = true
+
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[[bench]]
+name = "offline"
+path = "benches/offline/main.rs"
+harness = false
+
+[[bench]]
+name = "compare"
+path = "benches/compare/main.rs"
+harness = false
+
+[[bench]]
+name = "soak"
+path = "benches/soak/main.rs"
+harness = false
+
+[[test]]
+name = "shared_completion"
+path = "tests/shared_completion.rs"
+harness = false
+
+[[test]]
+name = "scan_scheduling"
+path = "tests/scan_scheduling.rs"
+harness = false

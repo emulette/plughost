@@ -1,0 +1,24 @@
+[package]
+name = "plughost-test-delay"
+description = "VST3 and CLAP test plugin that delays its input by a fixed, reported latency"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+clack-extensions = { workspace = true, features = ["audio-ports", "clack-plugin", "gui", "latency", "log", "params", "state", "state-context", "tail"] }
+clack-plugin.workspace = true
+vst3.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }

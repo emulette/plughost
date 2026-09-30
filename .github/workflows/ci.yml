@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon; the tests open editor windows in the runner's desktop session.
+          - os: macos-15
+            verify: scripts/verify-macos.sh
+          - os: windows-2022
+            verify: pwsh -NoProfile -File scripts/verify-windows.ps1
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Cache the pinned VST3 SDK archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/vst-sdk.zip
+          key: vst3-sdk-3.8.1-build-84
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-deny@0.20.2
+          fallback: none
+      - name: Build fixtures and helper, test, lint, document, check dependencies
+        run: ${{ matrix.verify }}
+      - name: Build each crate from its package
+        run: cargo package --locked --target-dir target/package-check -p plughost-core -p plughost-formats -p plughost-helper -p plughost
