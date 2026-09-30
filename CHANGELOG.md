@@ -5,7 +5,7 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.0.1] - Unreleased
+## [0.0.1] - 2026-09-30
 
 First public release: offline hosting of VST3 and CLAP plugins on macOS (Apple Silicon) and
 Windows x64, and of Audio Units on macOS, with each chain isolated in a helper process.
