@@ -9,8 +9,16 @@ use objc2_audio_toolbox::{
 };
 use objc2_avf_audio::{AVAudioChannelLayout, AVAudioFormat};
 use objc2_core_audio_types::{
+    kAudioChannelLayoutTag_Atmos_5_1_2 as SURROUND_512,
+    kAudioChannelLayoutTag_Atmos_5_1_4 as SURROUND_514,
+    kAudioChannelLayoutTag_Atmos_7_1_2 as SURROUND_712,
+    kAudioChannelLayoutTag_Atmos_7_1_4 as SURROUND_714,
+    kAudioChannelLayoutTag_Atmos_9_1_6 as SURROUND_916,
+    kAudioChannelLayoutTag_AudioUnit_7_0 as SURROUND_70,
     kAudioChannelLayoutTag_DiscreteInOrder as DISCRETE_IN_ORDER,
-    kAudioChannelLayoutTag_Mono as MONO, kAudioChannelLayoutTag_Stereo as STEREO,
+    kAudioChannelLayoutTag_HOA_ACN_SN3D as HOA_ACN_SN3D, kAudioChannelLayoutTag_MPEG_3_0_A as LCR,
+    kAudioChannelLayoutTag_MPEG_5_0_A as SURROUND_50, kAudioChannelLayoutTag_Mono as MONO,
+    kAudioChannelLayoutTag_Quadraphonic as QUAD, kAudioChannelLayoutTag_Stereo as STEREO,
     kAudioChannelLayoutTag_WAVE_5_1_A as SURROUND_51,
     kAudioChannelLayoutTag_WAVE_7_1 as SURROUND_71,
 };
@@ -26,6 +34,8 @@ use super::{AuError, Plugin, apply_state, describe, lock};
 pub(super) struct BusBuffer {
     pub index: usize,
     pub channels: Range<usize>,
+    /// The portable channel of each native channel, when the orders differ.
+    pub order: Option<&'static [usize]>,
 }
 
 impl Plugin {
@@ -131,17 +141,15 @@ fn format(bus: &AUAudioUnitBus) -> Result<Retained<AVAudioFormat>, AuError> {
 fn layout(format: &AVAudioFormat, requested: Option<Layout>) -> Option<Layout> {
     match unsafe { format.channelLayout() } {
         Some(layout) => match unsafe { layout.layoutTag() } {
-            MONO => Some(Layout::Mono),
-            STEREO => Some(Layout::Stereo),
-            SURROUND_51 => Some(Layout::Surround51),
-            SURROUND_71 => Some(Layout::Surround71),
             // DiscreteInOrder explicitly preserves lane order, without assigning speakers.
             // Preserve the caller's negotiated labels; never infer them from channel count.
             tag if tag & 0xffff_0000 == DISCRETE_IN_ORDER => requested.filter(|layout| {
                 layout.channels() == (tag & 0xffff) as usize
                     && layout.channels() == unsafe { format.channelCount() } as usize
             }),
-            _ => None,
+            tag => Layout::ALL
+                .into_iter()
+                .find(|&layout| self::tag(layout).is_ok_and(|candidate| candidate == tag)),
         },
         // AVAudioFormat explicitly permits omitted layouts for mono and stereo only.
         None => match unsafe { format.channelCount() } {
@@ -276,24 +284,53 @@ pub(super) fn main_bus_config(
 
 fn tag(layout: Layout) -> Result<u32, AuError> {
     match layout {
+        Layout::None => Err(AuError::AudioConfiguration),
         Layout::Mono => Ok(MONO),
         Layout::Stereo => Ok(STEREO),
         Layout::Surround51 => Ok(SURROUND_51),
         Layout::Surround71 => Ok(SURROUND_71),
+        Layout::Lcr => Ok(LCR),
+        Layout::Quad => Ok(QUAD),
+        Layout::Surround50 => Ok(SURROUND_50),
+        Layout::Surround70 => Ok(SURROUND_70),
+        Layout::Surround512 => Ok(SURROUND_512),
+        Layout::Surround514 => Ok(SURROUND_514),
+        Layout::Surround712 => Ok(SURROUND_712),
+        Layout::Surround714 => Ok(SURROUND_714),
+        Layout::Surround916 => Ok(SURROUND_916),
+        // The ambisonic tag carries the channel count, not the order.
+        Layout::Ambisonics1 | Layout::Ambisonics2 | Layout::Ambisonics3 | Layout::Ambisonics4 => {
+            Ok(HOA_ACN_SN3D | layout.channels() as u32)
+        }
+    }
+}
+
+/// The portable channel of each channel of the layout's tag, for tags that list the side
+/// surrounds (Ls Rs) before the rear surrounds (Rls Rrs), or the wides before the heights.
+fn native_order(layout: Layout) -> Option<&'static [usize]> {
+    match layout {
+        // L R Ls Rs C Rls Rrs
+        Layout::Surround70 => Some(&[0, 1, 5, 6, 2, 3, 4]),
+        // L R C LFE Ls Rs Rls Rrs Ltm Rtm
+        Layout::Surround712 => Some(&[0, 1, 2, 3, 6, 7, 4, 5, 8, 9]),
+        // L R C LFE Ls Rs Rls Rrs Vhl Vhr Ltr Rtr
+        Layout::Surround714 => Some(&[0, 1, 2, 3, 6, 7, 4, 5, 8, 9, 10, 11]),
+        // L R C LFE Ls Rs Rls Rrs Lw Rw Vhl Vhr Ltm Rtm Ltr Rtr
+        Layout::Surround916 => Some(&[0, 1, 2, 3, 6, 7, 4, 5, 14, 15, 8, 9, 12, 13, 10, 11]),
         Layout::None
+        | Layout::Mono
+        | Layout::Stereo
+        | Layout::Surround51
+        | Layout::Surround71
         | Layout::Lcr
         | Layout::Quad
         | Layout::Surround50
-        | Layout::Surround70
         | Layout::Surround512
         | Layout::Surround514
-        | Layout::Surround712
-        | Layout::Surround714
-        | Layout::Surround916
         | Layout::Ambisonics1
         | Layout::Ambisonics2
         | Layout::Ambisonics3
-        | Layout::Ambisonics4 => Err(AuError::AudioConfiguration),
+        | Layout::Ambisonics4 => None,
     }
 }
 
@@ -421,6 +458,7 @@ pub(super) fn configure(
                 buffers.push(BusBuffer {
                     index,
                     channels: offset..end,
+                    order: native_order(request.layout),
                 });
                 offset = end;
             }
@@ -458,6 +496,103 @@ mod tests {
         assert_eq!(layout(&different_order, Some(Layout::Surround51)), None);
         let unknown = format(objc2_core_audio_types::kAudioChannelLayoutTag_Unknown | 6);
         assert_eq!(layout(&unknown, Some(Layout::Surround51)), None);
+    }
+
+    /// The system's channel labels of a layout tag, in native order.
+    fn system_labels(tag: u32) -> Vec<u32> {
+        use objc2_audio_toolbox::{
+            AudioFormatGetProperty, AudioFormatGetPropertyInfo,
+            kAudioFormatProperty_ChannelLayoutForTag,
+        };
+        use objc2_core_audio_types::{AudioChannelDescription, AudioChannelLayout};
+        let specifier = (&raw const tag).cast();
+        let mut size = 0u32;
+        let status = unsafe {
+            AudioFormatGetPropertyInfo(
+                kAudioFormatProperty_ChannelLayoutForTag,
+                size_of::<u32>() as u32,
+                specifier,
+                std::ptr::NonNull::from(&mut size),
+            )
+        };
+        assert_eq!(status, 0, "{tag:#x}");
+        // u64 storage keeps the layout aligned.
+        let mut storage = vec![0u64; (size as usize).div_ceil(size_of::<u64>())];
+        let layout = storage.as_mut_ptr().cast::<AudioChannelLayout>();
+        let status = unsafe {
+            AudioFormatGetProperty(
+                kAudioFormatProperty_ChannelLayoutForTag,
+                size_of::<u32>() as u32,
+                specifier,
+                &mut size,
+                layout.cast(),
+            )
+        };
+        assert_eq!(status, 0, "{tag:#x}");
+        let descriptions: &[AudioChannelDescription] = unsafe {
+            std::slice::from_raw_parts(
+                (*layout).mChannelDescriptions.as_ptr(),
+                (*layout).mNumberChannelDescriptions as usize,
+            )
+        };
+        descriptions.iter().map(|d| d.mChannelLabel).collect()
+    }
+
+    #[test]
+    fn native_orders_place_every_portable_channel_where_the_tag_has_its_speaker() {
+        use objc2_core_audio_types::{
+            kAudioChannelLabel_Center as C, kAudioChannelLabel_HOA_ACN_0 as ACN,
+            kAudioChannelLabel_LFEScreen as LFE, kAudioChannelLabel_Left as L,
+            kAudioChannelLabel_LeftSurround as LS, kAudioChannelLabel_LeftTopMiddle as LTM,
+            kAudioChannelLabel_LeftTopRear as LTR, kAudioChannelLabel_LeftWide as LW,
+            kAudioChannelLabel_Mono as M, kAudioChannelLabel_RearSurroundLeft as RLS,
+            kAudioChannelLabel_RearSurroundRight as RRS, kAudioChannelLabel_Right as R,
+            kAudioChannelLabel_RightSurround as RS, kAudioChannelLabel_RightTopMiddle as RTM,
+            kAudioChannelLabel_RightTopRear as RTR, kAudioChannelLabel_RightWide as RW,
+            kAudioChannelLabel_VerticalHeightLeft as LTF,
+            kAudioChannelLabel_VerticalHeightRight as RTF,
+        };
+        // The system's speaker for each portable channel. Layouts with side surrounds have the
+        // portable Ls Rs at the rear.
+        let portable = |layout| -> Vec<u32> {
+            match layout {
+                Layout::Mono => vec![M],
+                Layout::Stereo => vec![L, R],
+                Layout::Lcr => vec![L, R, C],
+                Layout::Quad => vec![L, R, LS, RS],
+                Layout::Surround50 => vec![L, R, C, LS, RS],
+                Layout::Surround51 => vec![L, R, C, LFE, LS, RS],
+                Layout::Surround70 => vec![L, R, C, RLS, RRS, LS, RS],
+                Layout::Surround71 => vec![L, R, C, LFE, RLS, RRS, LS, RS],
+                Layout::Surround512 => vec![L, R, C, LFE, LS, RS, LTM, RTM],
+                Layout::Surround514 => vec![L, R, C, LFE, LS, RS, LTF, RTF, LTR, RTR],
+                Layout::Surround712 => vec![L, R, C, LFE, RLS, RRS, LS, RS, LTM, RTM],
+                Layout::Surround714 => {
+                    vec![L, R, C, LFE, RLS, RRS, LS, RS, LTF, RTF, LTR, RTR]
+                }
+                Layout::Surround916 => vec![
+                    L, R, C, LFE, RLS, RRS, LS, RS, LTF, RTF, LTR, RTR, LTM, RTM, LW, RW,
+                ],
+                Layout::Ambisonics1
+                | Layout::Ambisonics2
+                | Layout::Ambisonics3
+                | Layout::Ambisonics4 => (0..layout.channels() as u32).map(|n| ACN | n).collect(),
+                Layout::None => Vec::new(),
+            }
+        };
+        for layout in Layout::ALL
+            .into_iter()
+            .filter(|&layout| layout != Layout::None)
+        {
+            let expected = portable(layout);
+            assert_eq!(expected.len(), layout.channels(), "{layout:?}");
+            let labels = system_labels(tag(layout).unwrap());
+            let order = native_order(layout);
+            let placed: Vec<_> = (0..labels.len())
+                .map(|native| expected[order.map_or(native, |order| order[native])])
+                .collect();
+            assert_eq!(placed, labels, "{layout:?}");
+        }
     }
 
     #[test]

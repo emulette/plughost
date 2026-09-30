@@ -61,7 +61,10 @@ fn parameter_edits_refresh_tail_before_the_next_render() {
 #[ignore = "needs scripts/build-helper.sh"]
 fn discrete_surround_routing_survives_reconfiguration_and_preset_restore() {
     let mut chain = chain();
-    for layout in [Layout::Surround51, Layout::Surround71] {
+    for layout in Layout::ALL
+        .into_iter()
+        .filter(|layout| layout.channels() > 2)
+    {
         let bus = AudioBusConfig {
             id: 0,
             layout,

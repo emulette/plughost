@@ -14,7 +14,7 @@ fn sidechain_and_noncontiguous_outputs_keep_native_bus_identity() {
               pull: *mut DynBlock<PullInput>| {
             let mut key = vec![0.0f32; frames as usize];
             let mut key_buffers = BufferList::new(1);
-            key_buffers.point_at(&mut [&mut key]);
+            key_buffers.point_at(&mut [&mut key], None);
             let status = unsafe {
                 (*pull).call((
                     flags,
@@ -60,20 +60,24 @@ fn sidechain_and_noncontiguous_outputs_keep_native_bus_identity() {
         BusBuffer {
             index: 0,
             channels: 0..2,
+            order: None,
         },
         BusBuffer {
             index: 2,
             channels: 2..3,
+            order: None,
         },
     ];
     let outputs = [
         BusBuffer {
             index: 0,
             channels: 0..2,
+            order: None,
         },
         BusBuffer {
             index: 3,
             channels: 2..3,
+            order: None,
         },
     ];
     let left = [0.5f32; 4];
@@ -150,15 +154,18 @@ fn repeated_partial_pulls_and_replaced_outputs_always_read_original_input() {
         vec![BusBuffer {
             index: 2,
             channels: 0..1,
+            order: None,
         }],
         vec![
             BusBuffer {
                 index: 0,
                 channels: 0..1,
+                order: None,
             },
             BusBuffer {
                 index: 3,
                 channels: 1..2,
+                order: None,
             },
         ],
         8,
@@ -211,7 +218,7 @@ fn invalid_pulls_and_render_failures_leave_the_storage_reusable() {
                 // A valid foreign list with the wrong number of channels must also be rejected.
                 let mut wrong = BufferList::new(2);
                 let (mut left, mut right) = ([0.0; 4], [0.0; 4]);
-                wrong.point_at(&mut [&mut left, &mut right]);
+                wrong.point_at(&mut [&mut left, &mut right], None);
                 let status = unsafe {
                     (*pull).call((
                         flags,
@@ -261,10 +268,12 @@ fn invalid_pulls_and_render_failures_leave_the_storage_reusable() {
         vec![BusBuffer {
             index: 2,
             channels: 0..1,
+            order: None,
         }],
         vec![BusBuffer {
             index: 3,
             channels: 0..1,
+            order: None,
         }],
         4,
     )
@@ -310,10 +319,12 @@ fn pulls_receive_the_block_input_whatever_their_timestamp() {
         vec![BusBuffer {
             index: 0,
             channels: 0..1,
+            order: None,
         }],
         vec![BusBuffer {
             index: 0,
             channels: 0..1,
+            order: None,
         }],
         4,
     )
@@ -357,6 +368,7 @@ fn instruments_receive_no_pull_block() {
         vec![BusBuffer {
             index: 0,
             channels: 0..1,
+            order: None,
         }],
         8,
     )
@@ -366,4 +378,53 @@ fn instruments_receive_no_pull_block() {
         .render(RcBlock::as_ptr(&native), &[], &mut [&mut output], 8, 0.0)
         .unwrap();
     assert_eq!(output, [0.25; 8]);
+}
+
+#[test]
+fn native_channel_order_maps_each_portable_channel_both_ways() {
+    // The unit adds 100 times the native channel index to each channel it pulls.
+    let native: RcBlock<Render> = RcBlock::new(
+        move |flags: NonNull<AudioUnitRenderActionFlags>,
+              time: NonNull<AudioTimeStamp>,
+              frames: AUAudioFrameCount,
+              _bus: NSInteger,
+              output: NonNull<AudioBufferList>,
+              pull: *mut DynBlock<PullInput>| {
+            let status = unsafe { (*pull).call((flags, time, frames, 0, output)) };
+            if status != 0 {
+                return status;
+            }
+            for (native, buffer) in unsafe { buffers_of(output.as_ptr()) }.iter().enumerate() {
+                for sample in unsafe {
+                    std::slice::from_raw_parts_mut(buffer.mData.cast::<f32>(), frames as usize)
+                } {
+                    *sample += 100.0 * native as f32;
+                }
+            }
+            0
+        },
+    );
+    let order: &'static [usize] = &[0, 1, 5, 6, 2, 3, 4];
+    let bus = BusBuffer {
+        index: 0,
+        channels: 0..order.len(),
+        order: Some(order),
+    };
+    let mut storage = Buffers::new(vec![bus.clone()], vec![bus], 4).unwrap();
+    let input: Vec<Vec<f32>> = (0..order.len())
+        .map(|channel| vec![channel as f32; 4])
+        .collect();
+    let inputs: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
+    let mut output = vec![vec![0.0f32; 4]; order.len()];
+    let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
+    storage
+        .render(RcBlock::as_ptr(&native), &inputs, &mut outputs, 4, 0.0)
+        .unwrap();
+    for (native, &portable) in order.iter().enumerate() {
+        assert_eq!(
+            output[portable],
+            vec![portable as f32 + 100.0 * native as f32; 4],
+            "portable channel {portable}"
+        );
+    }
 }

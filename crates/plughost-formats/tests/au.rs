@@ -208,7 +208,10 @@ fn an_instrument_plays_notes_from_their_offset() {
 
 #[test]
 fn surround_layouts_pass_each_channel_through() {
-    for layout in [Layout::Surround51, Layout::Surround71] {
+    for layout in Layout::ALL
+        .into_iter()
+        .filter(|layout| layout.channels() > 2)
+    {
         let mut plugin = Plugin::new(AU_DELAY).unwrap();
         plugin
             .prepare(&ProcessConfig {
@@ -266,12 +269,10 @@ fn audio_config(layout: Layout) -> plughost_core::AudioConfig {
 
 #[test]
 fn explicit_bus_api_preserves_speaker_order_and_rejects_f64_without_unpreparing() {
-    for layout in [
-        Layout::Mono,
-        Layout::Stereo,
-        Layout::Surround51,
-        Layout::Surround71,
-    ] {
+    for layout in Layout::ALL
+        .into_iter()
+        .filter(|&layout| layout != Layout::None)
+    {
         let mut plugin = Plugin::new(AU_DELAY).unwrap();
         let config = audio_config(layout);
         let buses = plugin.prepare_audio(&config).unwrap();

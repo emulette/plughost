@@ -47,10 +47,14 @@ impl BufferList {
         }
     }
 
-    /// Points each buffer at one channel and restores the native-writable header.
-    pub fn point_at(&mut self, channels: &mut [&mut [f32]]) {
+    /// Points buffer `i` at channel `order[i]`, or at channel `i` without an order, and restores
+    /// the native-writable header.
+    pub fn point_at(&mut self, channels: &mut [&mut [f32]], order: Option<&[usize]>) {
         unsafe { (*self.as_mut_ptr()).mNumberBuffers = self.count as u32 };
-        for (buffer, channel) in self.buffers().iter_mut().zip(channels.iter_mut()) {
+        for (index, buffer) in self.buffers().iter_mut().enumerate() {
+            let Some(channel) = channels.get_mut(order.map_or(index, |order| order[index])) else {
+                break;
+            };
             *buffer = AudioBuffer {
                 mNumberChannels: 1,
                 mDataByteSize: std::mem::size_of_val(*channel) as u32,

@@ -1,5 +1,5 @@
 //! Prepared AU buffers with a call-scoped pull block for immutable caller input.
-use std::{ops::Range, ptr::NonNull};
+use std::ptr::NonNull;
 
 use block2::{DynBlock, RcBlock, StackBlock};
 use objc2_audio_toolbox::{
@@ -13,7 +13,7 @@ use super::audio::BusBuffer;
 use super::{AuError, Prepared, PullInput, Render};
 
 pub(super) struct Buffers {
-    input_buses: Vec<Option<Range<usize>>>,
+    input_buses: Vec<Option<BusBuffer>>,
     samples: Vec<Vec<f32>>,
     sources: Vec<*mut f32>,
     outputs: Vec<(BusBuffer, BufferList)>,
@@ -27,7 +27,8 @@ impl Buffers {
         let channels = inputs.iter().map(|bus| bus.channels.len()).sum();
         let mut input_buses = vec![None; inputs.last().map_or(0, |bus| bus.index + 1)];
         for bus in inputs {
-            input_buses[bus.index] = Some(bus.channels);
+            let index = bus.index;
+            input_buses[index] = Some(bus);
         }
         let samples = (0..channels)
             .map(|_| {
@@ -75,7 +76,9 @@ impl Buffers {
                   count: AUAudioFrameCount,
                   bus: NSInteger,
                   list: NonNull<AudioBufferList>| {
-                let Some(channels) = usize::try_from(bus)
+                let Some(BusBuffer {
+                    channels, order, ..
+                }) = usize::try_from(bus)
                     .ok()
                     .and_then(|index| input_buses.get(index))
                     .and_then(Option::as_ref)
@@ -98,7 +101,8 @@ impl Buffers {
                 {
                     return kAudioUnitErr_NoConnection;
                 }
-                for (buffer, index) in buffers.iter_mut().zip(channels.clone()) {
+                for (native, buffer) in buffers.iter_mut().enumerate() {
+                    let index = channels.start + order.map_or(native, |order| order[native]);
                     // SAFETY: count fits this block. Scratch is owned and reserved for the maximum
                     // block; caller input stays immutable through the native call.
                     let source = input[index].as_ptr();
@@ -120,10 +124,8 @@ impl Buffers {
         };
         for (bus, list) in &mut self.outputs {
             let channels = &mut output[bus.channels.clone()];
-            list.point_at(channels);
-            let result = render_output(
-                render, bus.index, list, channels, frames, position, pull_ptr,
-            );
+            list.point_at(channels, bus.order);
+            let result = render_output(render, bus, list, channels, frames, position, pull_ptr);
             // Native may replace the list's pointers or header, including on failure.
             list.clear();
             result?;
@@ -148,7 +150,7 @@ pub(super) fn render(
 }
 fn render_output(
     render: *mut DynBlock<Render>,
-    bus: usize,
+    bus: &BusBuffer,
     list: &mut BufferList,
     channels: &mut [&mut [f32]],
     frames: usize,
@@ -164,7 +166,7 @@ fn render_output(
             NonNull::from(&mut flags),
             NonNull::from(&mut time),
             frames as AUAudioFrameCount,
-            bus as NSInteger,
+            bus.index as NSInteger,
             NonNull::new_unchecked(list.as_mut_ptr()),
             pull,
         ))
@@ -178,7 +180,8 @@ fn render_output(
     if unsafe { (*list.as_mut_ptr()).mNumberBuffers } as usize != channels.len() {
         return Err(AuError::Buffers);
     }
-    for (buffer, channel) in list.buffers().iter().zip(channels.iter_mut()) {
+    for (native, buffer) in list.buffers().iter().enumerate() {
+        let channel = &mut channels[bus.order.map_or(native, |order| order[native])];
         if buffer.mNumberChannels != 1
             || (buffer.mDataByteSize as usize) < bytes
             || buffer.mData.is_null()
