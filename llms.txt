@@ -188,8 +188,16 @@ output buses are concatenated in native bus-index order, not request-vector orde
 returned bus map describes the negotiated result. Channel adaptation must be explicit;
 surround channels are never guessed, reordered, or automatically downmixed.
 
-Layouts are none, mono, stereo, 5.1 (`L R C LFE Ls Rs`), and 7.1
-(`L R C LFE Ls Rs Lss Rss`). AU processing is f32 only. VST3/CLAP f64 requires native
+Layouts are none, mono, stereo, LCR, quad, 5.0, 5.1, 7.0, 7.1, 5.1.2, 5.1.4, 7.1.2, 7.1.4,
+9.1.6, and first- to fourth-order ambisonics (ACN order, SN3D normalization). `Layout::ALL`
+lists them, and each variant documents its one channel order, which is the order of its VST3
+speaker bits: 7.1.4 is `L R C LFE Ls Rs Lss Rss Ltf Rtf Ltr Rtr`, with Ls and Rs as the rear
+surrounds of layouts that also have side surrounds. Audio Unit buses use the matching system
+channel layout tags (Atmos tags for 5.1.2 to 9.1.6, HOA ACN SN3D for ambisonics); where a tag
+lists its speakers in another order, the host maps each native channel to its portable channel.
+CLAP ports match a layout by their surround channel map or ambisonic format; a plugin with
+configurable audio ports is asked for the requested layouts during preparation. CLAP has no
+wide speakers, so 9.1.6 is refused for CLAP plugins. AU processing is f32 only. VST3/CLAP f64 requires native
 plugin support. There is no resampler or implicit conversion between processing precisions.
 Use `process_audio_f32` / `process_audio_f64` in the prepared precision.
 

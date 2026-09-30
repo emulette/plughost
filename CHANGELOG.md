@@ -5,6 +5,24 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Layouts for LCR, quad, 5.0, 7.0, 5.1.2, 5.1.4, 7.1.2, 7.1.4 and 9.1.6, and first- to
+  fourth-order ambisonics (ACN order, SN3D normalization). Each has one channel order, listed on
+  its `Layout` variant; `Layout::ALL` lists every layout.
+- Audio Unit buses take these layouts with the system's channel layout tags. The host maps the
+  channels of tags that list speakers in another order, such as the Atmos 7.1.4 tag.
+- CLAP plugins with configurable audio ports are asked for the requested layouts when a chain is
+  prepared, and ambisonic CLAP ports report their layout. CLAP has no wide speakers, so 9.1.6 is
+  refused for CLAP plugins.
+
+### Changed
+
+- `Layout` has new variants, so exhaustive matches on it need new arms. Applications and helpers
+  must use the same plughost version, as before.
+
 ## [0.0.4] - 2026-09-30
 
 ### Fixed
