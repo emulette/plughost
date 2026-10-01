@@ -27,7 +27,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 pub struct Fixture;
 /// A main port layout the host applied through configurable ports.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 enum Main {
     Surround(Vec<SurroundChannel>),
     /// Channels of ACN-ordered, SN3D-normalized ambisonics.

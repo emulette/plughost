@@ -14,8 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   its `Layout` variant; `Layout::ALL` lists every layout.
 - Audio Unit buses take these layouts with the system's channel layout tags. The host maps the
   channels of tags that list speakers in another order, such as the Atmos 7.1.4 tag.
-- CLAP plugins with configurable audio ports are asked for the requested layouts when a chain is
-  prepared, and ambisonic CLAP ports report their layout. CLAP has no wide speakers, so 9.1.6 is
+- CLAP plugins with configurable audio ports are asked for the requested layouts when they are
+  prepared without a selected port configuration, and ambisonic CLAP ports report their layout. CLAP has no wide speakers, so 9.1.6 is
   refused for CLAP plugins.
 
 ### Changed

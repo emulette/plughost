@@ -221,7 +221,8 @@ fn surround_layouts_pass_each_channel_through() {
             })
             .unwrap_or_else(|error| panic!("{layout:?}: {error}"));
         plugin.set_parameter(WET_DRY_MIX, 0.0).unwrap();
-        // A different constant per channel shows whether channels stay in place.
+        // A different constant per channel shows whether channels come back in place. The unit
+        // tests check the native channel orders themselves.
         let input: Vec<Vec<f32>> = (0..layout.channels())
             .map(|ch| vec![0.1 * (ch + 1) as f32; 512])
             .collect();

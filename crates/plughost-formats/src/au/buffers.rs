@@ -52,9 +52,7 @@ impl BufferList {
     pub fn point_at(&mut self, channels: &mut [&mut [f32]], order: Option<&[usize]>) {
         unsafe { (*self.as_mut_ptr()).mNumberBuffers = self.count as u32 };
         for (index, buffer) in self.buffers().iter_mut().enumerate() {
-            let Some(channel) = channels.get_mut(order.map_or(index, |order| order[index])) else {
-                break;
-            };
+            let channel = &mut channels[order.map_or(index, |order| order[index])];
             *buffer = AudioBuffer {
                 mNumberChannels: 1,
                 mDataByteSize: std::mem::size_of_val(*channel) as u32,

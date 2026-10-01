@@ -803,3 +803,49 @@ fn state_context(
         plughost_core::StatePurpose::Duplicate => StateContextType::ForDuplicate,
     }
 }
+
+#[cfg(all(test, feature = "vst3"))]
+mod layout_tests {
+    use super::*;
+    use vst3::Steinberg::Vst::*;
+
+    /// The CLAP speaker of each VST3 speaker that has one.
+    fn clap_speaker(speaker: Speaker) -> Option<SurroundChannel> {
+        use SurroundChannel::*;
+        [
+            (kSpeakerL, FrontLeft),
+            (kSpeakerR, FrontRight),
+            (kSpeakerC, FrontCenter),
+            (kSpeakerLfe, LowFrequency),
+            (kSpeakerLs, BackLeft),
+            (kSpeakerRs, BackRight),
+            (kSpeakerSl, SideLeft),
+            (kSpeakerSr, SideRight),
+            (kSpeakerTfl, TopFrontLeft),
+            (kSpeakerTfr, TopFrontRight),
+            (kSpeakerTrl, TopBackLeft),
+            (kSpeakerTrr, TopBackRight),
+            (kSpeakerTsl, TopSideLeft),
+            (kSpeakerTsr, TopSideRight),
+        ]
+        .into_iter()
+        .find(|&(vst3, _)| vst3 == speaker)
+        .map(|(_, clap)| clap)
+    }
+
+    #[test]
+    fn surround_orders_are_the_speakers_of_the_vst3_arrangements() {
+        let surround = Layout::ALL
+            .into_iter()
+            .filter(|&layout| layout.channels() > 2 && !is_ambisonic(layout));
+        for layout in surround {
+            let arrangement = crate::vst3::audio::arrangement(layout);
+            let speakers: Option<Vec<_>> = (0..64)
+                .map(|bit| 1u64 << bit)
+                .filter(|speaker| arrangement & speaker != 0)
+                .map(clap_speaker)
+                .collect();
+            assert_eq!(surround_order(layout), speakers.as_deref(), "{layout:?}");
+        }
+    }
+}

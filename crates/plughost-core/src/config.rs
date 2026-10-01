@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Ls and Rs are the surrounds of layouts without side channels. Layouts that also have side
 /// surrounds (Lss, Rss) list Ls and Rs as the rear surrounds before them. Height channels are
 /// top front (Ltf, Rtf), top middle (Ltm, Rtm) and top rear (Ltr, Rtr); Lw and Rw are the wides.
+/// A new variant also belongs in [`Layout::ALL`], which formats search to recognize layouts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Layout {
     /// No bus, for example the input of an instrument.

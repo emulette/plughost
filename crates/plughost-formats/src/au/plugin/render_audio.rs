@@ -76,9 +76,7 @@ impl Buffers {
                   count: AUAudioFrameCount,
                   bus: NSInteger,
                   list: NonNull<AudioBufferList>| {
-                let Some(BusBuffer {
-                    channels, order, ..
-                }) = usize::try_from(bus)
+                let Some(input_bus) = usize::try_from(bus)
                     .ok()
                     .and_then(|index| input_buses.get(index))
                     .and_then(Option::as_ref)
@@ -89,7 +87,7 @@ impl Buffers {
                     return kAudioUnitErr_NoConnection;
                 }
                 let buffers = unsafe { buffers_of(list.as_ptr()) };
-                if buffers.len() != channels.len()
+                if buffers.len() != input_bus.channels.len()
                     || buffers.iter().any(|buffer| buffer.mNumberChannels != 1)
                 {
                     return kAudioUnitErr_NoConnection;
@@ -102,7 +100,7 @@ impl Buffers {
                     return kAudioUnitErr_NoConnection;
                 }
                 for (native, buffer) in buffers.iter_mut().enumerate() {
-                    let index = channels.start + order.map_or(native, |order| order[native]);
+                    let index = input_bus.channels.start + input_bus.portable(native);
                     // SAFETY: count fits this block. Scratch is owned and reserved for the maximum
                     // block; caller input stays immutable through the native call.
                     let source = input[index].as_ptr();
@@ -181,7 +179,7 @@ fn render_output(
         return Err(AuError::Buffers);
     }
     for (native, buffer) in list.buffers().iter().enumerate() {
-        let channel = &mut channels[bus.order.map_or(native, |order| order[native])];
+        let channel = &mut channels[bus.portable(native)];
         if buffer.mNumberChannels != 1
             || (buffer.mDataByteSize as usize) < bytes
             || buffer.mData.is_null()

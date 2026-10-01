@@ -38,6 +38,13 @@ pub(super) struct BusBuffer {
     pub order: Option<&'static [usize]>,
 }
 
+impl BusBuffer {
+    /// The portable channel, within this bus, of native channel `native`.
+    pub fn portable(&self, native: usize) -> usize {
+        self.order.map_or(native, |order| order[native])
+    }
+}
+
 impl Plugin {
     pub(crate) fn audio_buses(&self) -> Result<Vec<AudioBusInfo>, AuError> {
         let engine = lock(&self.engine);
@@ -305,8 +312,8 @@ fn tag(layout: Layout) -> Result<u32, AuError> {
     }
 }
 
-/// The portable channel of each channel of the layout's tag, for tags that list the side
-/// surrounds (Ls Rs) before the rear surrounds (Rls Rrs), or the wides before the heights.
+/// The portable channel of each channel of the layout's tag, for tags whose speaker order differs
+/// from the portable order.
 fn native_order(layout: Layout) -> Option<&'static [usize]> {
     match layout {
         // L R Ls Rs C Rls Rrs
@@ -448,6 +455,12 @@ pub(super) fn configure(
                     unsafe { msg_send![&*bus, setFormat: &*format, error: _] };
                 set.map_err(|error| AuError::LayoutRefused(request.layout, describe(&error)))?;
                 let actual = self::format(&bus)?;
+                // A unit that took the format as discrete lanes keeps them in portable order.
+                let order = unsafe { actual.channelLayout() }
+                    .filter(|native| {
+                        tag(request.layout).ok() == Some(unsafe { native.layoutTag() })
+                    })
+                    .and_then(|_| native_order(request.layout));
                 if layout(&actual, Some(request.layout)) != Some(request.layout)
                     || unsafe { actual.sampleRate() } != config.sample_rate
                     || !unsafe { actual.isStandard() }
@@ -458,7 +471,7 @@ pub(super) fn configure(
                 buffers.push(BusBuffer {
                     index,
                     channels: offset..end,
-                    order: native_order(request.layout),
+                    order,
                 });
                 offset = end;
             }

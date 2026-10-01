@@ -191,8 +191,8 @@ fn inactive_ports_keep_native_indices_and_reset_retains_routing() {
 #[ignore = "needs native routing fixture"]
 fn invalid_requested_layout_and_precision_buffers_are_rejected() {
     let mut plugin = plugin();
-    // CLAP has no speakers for the wides of 9.1.6.
-    let mut wrong = config(SampleFormat::F64, Layout::Surround916, 101);
+    // The selected configuration defines the ports; its layout is not requested away.
+    let mut wrong = config(SampleFormat::F64, Layout::Mono, 101);
     assert_eq!(
         plugin.prepare_audio(&wrong),
         Err(Error::Clap(ClapError::AudioConfiguration))
@@ -248,7 +248,7 @@ fn native_render_keeps_all_active_channels_and_f64_surround_order() {
 
 #[test]
 #[ignore = "needs native routing fixture"]
-fn configurable_ports_take_every_layout_clap_expresses_in_portable_order() {
+fn configurable_ports_take_every_layout_clap_expresses() {
     use plughost_core::render::{RenderOptions, TailPolicy, render};
     let mut plugin = plugin();
     for layout in Layout::ALL
@@ -297,6 +297,28 @@ fn configurable_ports_take_every_layout_clap_expresses_in_portable_order() {
         }),
         Err(Error::Clap(ClapError::AudioConfiguration))
     );
+}
+
+#[test]
+#[ignore = "needs native routing fixture"]
+fn a_preparation_that_must_fail_leaves_the_ports_unconfigured() {
+    let mut plugin = plugin();
+    let stereo = AudioConfig {
+        configuration: None,
+        ..config(SampleFormat::F64, Layout::Stereo, 0)
+    };
+    plugin.prepare_audio(&stereo).unwrap();
+    // The main output asks for 9.1.6, which CLAP cannot express, so 7.1.4 is not asked either.
+    let mut mixed = stereo.clone();
+    mixed.inputs[1].layout = Layout::Surround714;
+    mixed.outputs[1].layout = Layout::Surround916;
+    assert_eq!(
+        plugin.prepare_audio(&mixed),
+        Err(Error::Clap(ClapError::AudioConfiguration))
+    );
+    let buses = plugin.audio_buses().unwrap();
+    assert_eq!(buses[1].layout, Some(Layout::Stereo));
+    assert_eq!(buses[3].layout, Some(Layout::Stereo));
 }
 
 #[test]

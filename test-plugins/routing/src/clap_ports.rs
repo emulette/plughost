@@ -148,15 +148,9 @@ fn activate(shared: &Shared, input: bool, index: u32, active: bool) -> bool {
     true
 }
 impl PluginSurroundImpl for MainThread<'_> {
-    fn is_channel_mask_supported(&self, mask: SurroundChannels) -> bool {
-        let surround51 = SurroundChannels::FRONT_LEFT
-            | SurroundChannels::FRONT_RIGHT
-            | SurroundChannels::FRONT_CENTER
-            | SurroundChannels::LOW_FREQUENCY
-            | SurroundChannels::BACK_LEFT
-            | SurroundChannels::BACK_RIGHT;
-        mask == surround51
-            || mask == (surround51 | SurroundChannels::SIDE_LEFT | SurroundChannels::SIDE_RIGHT)
+    /// Configurable ports take any map.
+    fn is_channel_mask_supported(&self, _mask: SurroundChannels) -> bool {
+        true
     }
     fn get_channel_map(&self, _input: bool, index: u32, writer: &mut SurroundMapWriter) {
         if let Some(Main::Surround(map)) = &*lock(&self.shared.main) {
@@ -194,14 +188,14 @@ impl PluginAmbisonicImpl for MainThread<'_> {
     }
 }
 /// The main layout requests ask for: a mono or stereo configuration or another main layout.
-#[derive(Clone)]
+#[derive(PartialEq)]
 enum Requested {
     Configuration(u32),
     Main(Main),
 }
 /// The one main layout the requests ask for, when they are all for the main ports.
 fn requested(requests: &[AudioPortRequest<'_>]) -> Option<Requested> {
-    let mut result: Option<Requested> = None;
+    let mut result = None;
     for request in requests {
         if request.port_index() != 1 {
             return None;
@@ -213,7 +207,8 @@ fn requested(requests: &[AudioPortRequest<'_>]) -> Option<Requested> {
                 .collect::<Option<Vec<_>>>()?;
             Requested::Main(Main::Surround(map))
         } else if let Some(ambisonic) = details.downcast::<AmbisonicLayout>() {
-            let side = (ambisonic.channel_count as f64).sqrt() as u32;
+            // First to fourth order: (order + 1)² channels.
+            let side = ambisonic.channel_count.isqrt();
             if *ambisonic.config != ACN_SN3D
                 || !(2..=5).contains(&side)
                 || side * side != ambisonic.channel_count
@@ -228,18 +223,7 @@ fn requested(requests: &[AudioPortRequest<'_>]) -> Option<Requested> {
         } else {
             return None;
         };
-        let same = match (&result, &wanted) {
-            (None, _) => true,
-            (Some(Requested::Configuration(a)), Requested::Configuration(b)) => a == b,
-            (Some(Requested::Main(Main::Surround(a))), Requested::Main(Main::Surround(b))) => {
-                a == b
-            }
-            (Some(Requested::Main(Main::Ambisonic(a))), Requested::Main(Main::Ambisonic(b))) => {
-                a == b
-            }
-            _ => false,
-        };
-        if !same {
+        if result.as_ref().is_some_and(|result| *result != wanted) {
             return None;
         }
         result = Some(wanted);

@@ -4,7 +4,7 @@
 // a no-op on the other.
 #![allow(clippy::unnecessary_cast)]
 
-mod audio;
+pub(crate) mod audio;
 mod buffers;
 mod editor;
 mod engine;

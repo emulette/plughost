@@ -65,12 +65,16 @@ impl Plugin {
                 {
                     let mut storage = [0; 64];
                     let map = surround.get_channel_map(&handle, input, index, &mut storage);
-                    let channels: Vec<_> = (0..map.channel_count())
-                        .filter_map(|i| map.get(i))
-                        .collect();
-                    bus.layout = Layout::ALL
-                        .into_iter()
-                        .find(|&layout| super::surround_order(layout) == Some(channels.as_slice()));
+                    // Every channel needs a known speaker: a map with others has no portable layout.
+                    let channels: Option<Vec<_>> =
+                        (0..map.channel_count()).map(|i| map.get(i)).collect();
+                    bus.layout = channels
+                        .filter(|channels| channels.len() == info.channel_count as usize)
+                        .and_then(|channels| {
+                            Layout::ALL.into_iter().find(|&layout| {
+                                super::surround_order(layout) == Some(channels.as_slice())
+                            })
+                        });
                 } else if info.port_type == Some(AudioPortType::AMBISONIC)
                     && let Some(ambisonic) = ambisonic
                 {
@@ -128,6 +132,21 @@ impl Plugin {
         config.validate().map_err(ClapError::Input)?;
         self.deactivate();
         let mut buses = self.read_audio_buses()?;
+        let wanted: Vec<_> = buses
+            .iter()
+            .filter(|bus| bus.role == AudioBusRole::Main)
+            .map(|bus| {
+                let layout = match bus.direction {
+                    AudioDirection::Input => config.input,
+                    AudioDirection::Output => config.output,
+                };
+                (bus.direction, bus.id, layout)
+            })
+            .filter(|&(_, _, layout)| layout != Layout::None)
+            .collect();
+        if self.request_layouts(&buses, &wanted)? {
+            buses = self.read_audio_buses()?;
+        }
         for bus in &mut buses {
             if bus.active == Some(false) {
                 let activation = self
@@ -156,21 +175,6 @@ impl Plugin {
                     .insert((bus.direction == AudioDirection::Input, bus.id), true);
                 bus.active = Some(true);
             }
-        }
-        let wanted: Vec<_> = buses
-            .iter()
-            .filter(|bus| bus.role == AudioBusRole::Main)
-            .map(|bus| {
-                let layout = match bus.direction {
-                    AudioDirection::Input => config.input,
-                    AudioDirection::Output => config.output,
-                };
-                (bus.direction, bus.id, layout)
-            })
-            .filter(|&(_, _, layout)| layout != Layout::None)
-            .collect();
-        if self.request_layouts(&buses, &wanted)? {
-            buses = self.read_audio_buses()?;
         }
         let main_input = main_bus(&buses, AudioDirection::Input, config.input)?;
         let main_output = main_bus(&buses, AudioDirection::Output, config.output)?;
@@ -201,6 +205,7 @@ impl Plugin {
             self.audio_active.clear();
         }
         let mut buses = self.read_audio_buses()?;
+        // A selected configuration defines the ports; only without one are layouts requested.
         let requested = |direction, requests: &[AudioBusConfig]| {
             requests
                 .iter()
@@ -212,7 +217,7 @@ impl Plugin {
             .into_iter()
             .chain(requested(AudioDirection::Output, &config.outputs))
             .collect();
-        if self.request_layouts(&buses, &wanted)? {
+        if config.configuration.is_none() && self.request_layouts(&buses, &wanted)? {
             buses = self.read_audio_buses()?;
         }
         for (direction, requests) in [
@@ -300,6 +305,8 @@ impl Plugin {
     }
     /// Asks a plugin with configurable ports for the wanted layouts its ports do not have, all at
     /// once. Returns whether the plugin applied them; the caller then reads the ports again.
+    /// Nothing is asked when a wanted bus is unknown or its layout has no CLAP form, since that
+    /// preparation fails anyway.
     fn request_layouts(
         &mut self,
         buses: &[AudioBusInfo],
@@ -318,7 +325,7 @@ impl Plugin {
                 .iter()
                 .find(|bus| bus.direction == direction && bus.id == id)
             else {
-                continue;
+                return Ok(false);
             };
             if bus.layout == Some(layout) {
                 continue;
@@ -329,8 +336,7 @@ impl Plugin {
                 layout if super::is_ambisonic(layout) => ambisonic(layout.channels()).into(),
                 layout => match super::surround_order(layout) {
                     Some(order) => SurroundConfig::new(order).into(),
-                    // The plugin cannot be asked for a layout CLAP cannot express.
-                    None => continue,
+                    None => return Ok(false),
                 },
             };
             requests.push(AudioPortRequest::new(
