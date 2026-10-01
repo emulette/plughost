@@ -5,10 +5,12 @@ use vst3::Steinberg::Vst::Event_::EventTypes_;
 const NOTE_ON: u32 = EventTypes_::kNoteOnEvent as u32;
 const NOTE_OFF: u32 = EventTypes_::kNoteOffEvent as u32;
 const DATA: u32 = EventTypes_::kDataEvent as u32;
+const POLY_PRESSURE: u32 = EventTypes_::kPolyPressureEvent as u32;
+const NOTE_EXPRESSION_VALUE: u32 = EventTypes_::kNoteExpressionValueEvent as u32;
 
 impl Routing {
-    /// Moves input events to output bus 0 as the crate documentation describes. A legacy controller output
-    /// carries each note on's input key.
+    /// Moves input events to output bus 0 as the crate documentation describes. A legacy
+    /// controller output carries each note on's input key.
     pub(super) unsafe fn events(&self, data: &ProcessData) {
         let (Some(input), Some(output)) = (unsafe { ComRef::from_raw(data.inputEvents) }, unsafe {
             ComRef::from_raw(data.outputEvents)
@@ -22,6 +24,15 @@ impl Routing {
             }
             let bus = event.busIndex as usize;
             event.busIndex = 0;
+            if bus == crate::EXPRESSION_PORT {
+                if matches!(
+                    u32::from(event.r#type),
+                    NOTE_ON | NOTE_OFF | POLY_PRESSURE | NOTE_EXPRESSION_VALUE
+                ) {
+                    unsafe { output.addEvent(&mut event) };
+                }
+                continue;
+            }
             match u32::from(event.r#type) {
                 NOTE_ON => {
                     let (key, channel) =

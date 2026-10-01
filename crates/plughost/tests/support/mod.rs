@@ -70,6 +70,15 @@ pub fn routing(format: PluginFormat) -> PluginRef {
     fixture(format, "plughost-test-routing", class_id)
 }
 
+/// The instrument fixture, which plays notes by their IDs with their tuning and pressure.
+pub fn synth(format: PluginFormat) -> PluginRef {
+    let class_id = match format {
+        PluginFormat::Vst3 => "706C7567686F737453796E7468000001",
+        _ => "com.studio.plughost.test-synth",
+    };
+    fixture(format, "plughost-test-synth", class_id)
+}
+
 pub fn spawn(plugins: &[PluginRef]) -> Chain {
     spawn_with(plugins, &HostIdentity::default(), Timeouts::default())
 }

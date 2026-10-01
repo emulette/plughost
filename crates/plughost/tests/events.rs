@@ -10,18 +10,10 @@ use plughost::{
 
 mod support;
 
-use support::{delay, fixture, routing, spawn};
+use support::{delay, routing, spawn, synth};
 
 const KEY_CONTROLLER: u8 = 20;
 const FLOOD: [u8; 4] = [0xF0, 0x7D, 0x7F, 0xF7];
-
-fn synth() -> PluginRef {
-    fixture(
-        PluginFormat::Clap,
-        "plughost-test-synth",
-        "com.studio.plughost.test-synth",
-    )
-}
 
 fn stereo(id: u64) -> AudioBusConfig {
     AudioBusConfig {
@@ -41,11 +33,12 @@ fn ports(chain: &mut Chain, slot: usize, direction: AudioDirection) -> Vec<u64> 
         .collect()
 }
 
-/// Routes both of `slot`'s event inputs from the chain's two external event inputs.
+/// Routes `slot`'s first two event inputs from the chain's two external event inputs.
 fn two_inputs(chain: &mut Chain, config: &mut RoutedChainConfig, slot: usize) {
     config.event_inputs = 2;
     config.slots[slot].events.inputs = ports(chain, slot, AudioDirection::Input)
         .into_iter()
+        .take(2)
         .enumerate()
         .map(|(port, id)| EventInputRoute {
             port: id,
@@ -104,7 +97,7 @@ fn run(
 }
 
 fn instrument_chain() -> (Chain, RoutedChainConfig) {
-    let mut chain = spawn(&[synth()]);
+    let mut chain = spawn(&[synth(PluginFormat::Clap)]);
     let config = chain
         .main_bus_config(48_000.0, 512, Layout::None, &[Layout::Stereo])
         .unwrap();
@@ -137,6 +130,7 @@ fn event_ports_describe_native_buses_in_order() {
             [
                 (AudioDirection::Input, 0, "Notes".to_owned()),
                 (AudioDirection::Input, 1, "Octave notes".to_owned()),
+                (AudioDirection::Input, 2, "Expressions".to_owned()),
                 (AudioDirection::Output, 0, "Notes out".to_owned()),
             ],
             "{format:?}"
@@ -157,24 +151,38 @@ fn event_ports_tell_where_note_expressions_and_mpe_arrive() {
             .collect()
     };
     use Support::{Supported, Unknown, Unsupported};
-    // The CLAP routing fixture's second input takes MIDI with MPE, its first plain MIDI.
+    // The CLAP routing fixture's first input takes plain MIDI, its second MIDI with MPE, and its
+    // third CLAP notes.
     assert_eq!(
-        inputs(routing(PluginFormat::Clap))[..2],
-        [(Unsupported, Unsupported), (Unsupported, Supported)]
+        inputs(routing(PluginFormat::Clap)),
+        [
+            (Unsupported, Unsupported),
+            (Unsupported, Supported),
+            (Supported, Unsupported)
+        ]
     );
     // Its VST3 controller lists no note expressions, and VST3 declares no MPE.
     assert_eq!(
-        inputs(routing(PluginFormat::Vst3))[..2],
-        [(Unsupported, Unknown), (Unsupported, Unknown)]
+        inputs(routing(PluginFormat::Vst3)),
+        [(Unsupported, Unknown); 3]
     );
-    assert_eq!(inputs(synth())[0], (Supported, Unsupported));
+    assert_eq!(
+        inputs(synth(PluginFormat::Clap)),
+        [(Supported, Unsupported); 2]
+    );
+    // The VST3 synth's controller lists tuning for both buses.
+    assert_eq!(inputs(synth(PluginFormat::Vst3)), [(Supported, Unknown); 2]);
 }
 
 #[test]
 #[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
 fn midi_effect_output_plays_an_instrument_before_an_audio_effect() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
-        let mut chain = spawn(&[routing(format), synth(), delay(PluginFormat::Vst3)]);
+        let mut chain = spawn(&[
+            routing(format),
+            synth(PluginFormat::Clap),
+            delay(PluginFormat::Vst3),
+        ]);
         let effect_output = ports(&mut chain, 0, AudioDirection::Output)[0];
         let config = RoutedChainConfig {
             sample_rate: 48_000.0,

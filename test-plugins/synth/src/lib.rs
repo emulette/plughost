@@ -1,17 +1,21 @@
-//! CLAP test instrument whose output shows exactly when notes and MIDI arrive. One voice per note
-//! port: from a note on, a voice is `velocity × volume × cos(phase)` at the key's frequency, so
-//! the first sample of a note equals its velocity; the voice stops at the sample of its note off,
-//! or, when the sustain pedal (control change 64) is down, at the sample the pedal is released.
-//! Every output channel is the first port's voice minus the second's. MIDI control change 7 and
-//! the system exclusive message `F0 7D 01 vv F7` set the volume to `vv / 127`. Both note ports
-//! take CLAP and MIDI note events. Note ons for keys 0 to 2 drive the editor (see `gui.rs`)
-//! instead of sounding.
+//! CLAP and VST3 test instrument whose output shows exactly when notes, their tuning and pressure,
+//! and MIDI arrive (see `voices.rs`). Each note is a voice, told apart from other notes on its key
+//! by its note ID; a voice stops at the sample of its note off, or, when the sustain pedal (control
+//! change 64) is down, at the sample the pedal is released. Every output channel is the sum of the
+//! first note port's voices minus the second's. MIDI control change 7 and the system exclusive
+//! message `F0 7D 01 vv F7` set the volume to `vv / 127`. Both CLAP note ports take CLAP and MIDI
+//! note events, with tuning and pressure note expressions. Note ons for keys 0 to 2 drive the CLAP
+//! editor (see `gui.rs`) instead of sounding. The VST3 side (`vst.rs`) plays notes, tuning and
+//! poly pressure on two event buses.
 
 mod errors;
 mod gui;
+mod voices;
+mod vst;
+
+use voices::{Expression, PORTS, Target, Voices};
 
 use std::cell::RefCell;
-use std::f64::consts::TAU;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use clack_extensions::audio_ports::{
@@ -23,7 +27,8 @@ use clack_extensions::note_ports::{
     NoteDialect, NoteDialects, NotePortInfo, NotePortInfoWriter, PluginNotePorts,
     PluginNotePortsImpl,
 };
-use clack_plugin::events::Match;
+use clack_plugin::events::Pckn;
+use clack_plugin::events::event_types::NoteExpressionType;
 use clack_plugin::events::spaces::CoreEventSpace;
 use clack_plugin::plugin::features::{INSTRUMENT, STEREO, SYNTHESIZER};
 use clack_plugin::prelude::*;
@@ -32,7 +37,6 @@ const ID: &str = "com.studio.plughost.test-synth";
 const NAME: &str = "plughost test synth";
 const VOLUME_CONTROLLER: u8 = 7;
 const SUSTAIN_CONTROLLER: u8 = 64;
-const NOTE_PORTS: usize = 2;
 
 pub struct TestSynth;
 
@@ -114,11 +118,11 @@ impl PluginAudioPortsImpl for MainThread<'_> {
 
 impl PluginNotePortsImpl for MainThread<'_> {
     fn count(&self, is_input: bool) -> u32 {
-        if is_input { NOTE_PORTS as u32 } else { 0 }
+        if is_input { PORTS as u32 } else { 0 }
     }
 
     fn get(&self, index: u32, is_input: bool, writer: &mut NotePortInfoWriter) {
-        if (index as usize) < NOTE_PORTS && is_input {
+        if (index as usize) < PORTS && is_input {
             writer.set(&NotePortInfo {
                 id: ClapId::new(index),
                 name: if index == 0 {
@@ -134,36 +138,17 @@ impl PluginNotePortsImpl for MainThread<'_> {
 }
 
 enum Action {
-    On {
-        port: usize,
-        key: u16,
-        velocity: f64,
-    },
-    Off {
-        port: usize,
-        key: u16,
-    },
+    On(Target, f64),
+    Off(Target),
+    Expression(Target, Expression),
     Volume(f64),
     Sustain(bool),
     Editor(u8),
 }
 
-#[derive(Clone, Copy)]
-struct Note {
-    key: u16,
-    velocity: f64,
-    /// Phase in cycles.
-    phase: f64,
-    /// Released while the sustain pedal was down.
-    released: bool,
-}
-
 pub struct Voice<'a> {
     shared: &'a Shared<'a>,
-    sample_rate: f64,
-    volume: f64,
-    sustain: bool,
-    notes: [Option<Note>; NOTE_PORTS],
+    voices: Voices,
 }
 
 impl Voice<'_> {
@@ -173,99 +158,72 @@ impl Voice<'_> {
                 self.shared.editor_request.store(request, Ordering::Relaxed);
                 self.shared.host.request_callback();
             }
-            Action::On {
-                port,
-                key,
-                velocity,
-            } => {
-                self.notes[port] = Some(Note {
-                    key,
-                    velocity,
-                    phase: 0.0,
-                    released: false,
-                });
-            }
-            Action::Off { port, key } => {
-                if let Some(note) = &mut self.notes[port]
-                    && note.key == key
-                {
-                    if self.sustain {
-                        note.released = true;
-                    } else {
-                        self.notes[port] = None;
-                    }
-                }
-            }
-            Action::Volume(volume) => self.volume = volume,
-            Action::Sustain(down) => {
-                self.sustain = down;
-                if !down {
-                    for note in &mut self.notes {
-                        if note.is_some_and(|note| note.released) {
-                            *note = None;
-                        }
-                    }
-                }
-            }
+            Action::On(target, velocity) => self.voices.note_on(target, velocity),
+            Action::Off(target) => self.voices.note_off(target),
+            Action::Expression(target, expression) => self.voices.expression(target, &expression),
+            Action::Volume(volume) => self.voices.set_volume(volume),
+            Action::Sustain(down) => self.voices.set_sustain(down),
         }
     }
+}
 
-    fn next_sample(&mut self) -> f32 {
-        let mut sample = 0.0;
-        for (port, note) in self.notes.iter_mut().enumerate() {
-            let Some(note) = note else {
-                continue;
-            };
-            let voice = note.velocity * self.volume * (note.phase * TAU).cos();
-            sample += if port == 0 { voice } else { -voice };
-            let frequency = 440.0 * 2f64.powf((f64::from(note.key) - 69.0) / 12.0);
-            note.phase = (note.phase + frequency / self.sample_rate).fract();
-        }
-        sample as f32
+/// The voices a note event addresses, on one of the synth's ports.
+fn target(pckn: Pckn) -> Option<Target> {
+    let port = usize::from(*pckn.port_index.as_specific()?);
+    (port < PORTS).then_some(Target {
+        port,
+        channel: pckn.channel.into_specific(),
+        key: pckn.key.into_specific(),
+        id: pckn.note_id.into_specific(),
+    })
+}
+
+/// The voices a MIDI note message on `port` addresses.
+fn midi_target(port: usize, status: u8, key: u8) -> Target {
+    Target {
+        port,
+        channel: Some(u16::from(status & 0x0F)),
+        key: Some(u16::from(key)),
+        id: None,
     }
 }
 
 fn action(event: &UnknownEvent) -> Option<Action> {
-    let specific = |value: Match<u16>| match value {
-        Match::Specific(value) => Some(value),
-        Match::All => None,
-    };
-    let port = |port: u16| Some(usize::from(port)).filter(|port| *port < NOTE_PORTS);
     let editor = |key: u16| Some(Action::Editor(key as u8 + gui::HIDE));
     match event.as_core_event()? {
         CoreEventSpace::NoteOn(on) => {
-            let key = specific(on.pckn().key)?;
-            if key < 3 {
-                return editor(key);
+            let target = target(on.pckn())?;
+            if target.key.is_some_and(|key| key < 3) {
+                return editor(target.key?);
             }
-            Some(Action::On {
-                port: port(specific(on.pckn().port_index)?)?,
-                key,
-                velocity: on.velocity(),
-            })
+            Some(Action::On(target, on.velocity()))
         }
-        CoreEventSpace::NoteOff(off) => Some(Action::Off {
-            port: port(specific(off.pckn().port_index)?)?,
-            key: specific(off.pckn().key)?,
-        }),
+        CoreEventSpace::NoteOff(off) => Some(Action::Off(target(off.pckn())?)),
+        CoreEventSpace::NoteExpression(expression) => {
+            let target = target(expression.pckn())?;
+            match expression.expression_type()? {
+                NoteExpressionType::Tuning => Some(Action::Expression(
+                    target,
+                    Expression::Tuning(expression.value()),
+                )),
+                NoteExpressionType::Pressure => Some(Action::Expression(
+                    target,
+                    Expression::Pressure(expression.value()),
+                )),
+                _ => None,
+            }
+        }
         CoreEventSpace::Midi(midi) => {
-            let port = port(midi.port_index())?;
+            let port = Some(usize::from(midi.port_index())).filter(|port| *port < PORTS)?;
             match midi.data() {
                 [status, key, velocity] if status & 0xF0 == 0x90 && velocity > 0 && key < 3 => {
                     editor(u16::from(key))
                 }
-                [status, key, velocity] if status & 0xF0 == 0x90 && velocity > 0 => {
-                    Some(Action::On {
-                        port,
-                        key: u16::from(key),
-                        velocity: f64::from(velocity) / 127.0,
-                    })
-                }
+                [status, key, velocity] if status & 0xF0 == 0x90 && velocity > 0 => Some(
+                    Action::On(midi_target(port, status, key), f64::from(velocity) / 127.0),
+                ),
                 [status, key, _] if status & 0xF0 == 0x80 || status & 0xF0 == 0x90 => {
-                    Some(Action::Off {
-                        port,
-                        key: u16::from(key),
-                    })
+                    Some(Action::Off(midi_target(port, status, key)))
                 }
                 [status, VOLUME_CONTROLLER, value] if status & 0xF0 == 0xB0 => {
                     Some(Action::Volume(f64::from(value) / 127.0))
@@ -296,10 +254,7 @@ impl<'a> PluginAudioProcessor<'a, Shared<'a>, MainThread<'a>> for Voice<'a> {
     ) -> Result<Self, PluginError> {
         Ok(Voice {
             shared,
-            sample_rate: config.sample_rate,
-            volume: 1.0,
-            sustain: false,
-            notes: [None; NOTE_PORTS],
+            voices: Voices::new(config.sample_rate),
         })
     }
 
@@ -318,7 +273,7 @@ impl<'a> PluginAudioProcessor<'a, Shared<'a>, MainThread<'a>> for Voice<'a> {
                     self.apply(action);
                 }
             }
-            *sample = self.next_sample();
+            *sample = self.voices.next_sample();
         }
         for mut port in &mut audio {
             let Some(channels) = port.channels()?.into_f32() else {
@@ -334,8 +289,7 @@ impl<'a> PluginAudioProcessor<'a, Shared<'a>, MainThread<'a>> for Voice<'a> {
     }
 
     fn reset(&mut self) {
-        self.sustain = false;
-        self.notes = [None; NOTE_PORTS];
+        self.voices.reset();
     }
 }
 

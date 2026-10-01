@@ -6,7 +6,7 @@
 #                                    -arrangement-false, -editor, -restart-on-activate, -timers
 #                                    (the same binary; the plugin picks its variant from its
 #                                    bundle name)
-#   plughost-test-synth.clap         from test-plugins/synth
+#   plughost-test-synth.{vst3,clap}  from test-plugins/synth
 #   plughost-test-presets.clap       from test-plugins/presets
 #   plughost-test-routing.{vst3,clap} from test-plugins/routing
 #   again.vst3, again-simple.vst3, adelay.vst3, note-expression-synth.vst3, host-checker.vst3,
@@ -49,7 +49,9 @@ for variant in delay crash-in-process hang-in-process crash-on-scan hang-on-scan
     done
 done
 cargo build --release --locked -p plughost-test-synth --manifest-path "$root/Cargo.toml" --target-dir "$root/target"
-package "$root/target/release/libplughost_test_synth.dylib" plughost-test-synth clap
+for extension in vst3 clap; do
+    package "$root/target/release/libplughost_test_synth.dylib" plughost-test-synth "$extension"
+done
 
 cargo build --release --locked -p plughost-test-presets --manifest-path "$root/Cargo.toml" --target-dir "$root/target"
 package "$root/target/release/libplughost_test_presets.dylib" plughost-test-presets clap

@@ -195,7 +195,8 @@ fn event_bus_info(direction: i32, index: int32, out: &mut BusInfo) -> tresult {
     let name = match (input, index) {
         (false, _) => "Notes out",
         (true, 0) => "Notes",
-        _ => "Octave notes",
+        (true, 1) => "Octave notes",
+        _ => "Expressions",
     };
     copy_wide(name, &mut out.name);
     kResultOk

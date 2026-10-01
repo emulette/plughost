@@ -15,7 +15,9 @@ foreach ($variant in @('delay', 'crash-in-process', 'hang-in-process', 'crash-on
 }
 & cargo build --release --locked -p plughost-test-synth --manifest-path "$root/Cargo.toml" --target-dir "$root/target"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-Copy-Item -LiteralPath "$root/target/release/plughost_test_synth.dll" -Destination "$out/plughost-test-synth.clap"
+foreach ($extension in @('vst3', 'clap')) {
+    Copy-Item -LiteralPath "$root/target/release/plughost_test_synth.dll" -Destination "$out/plughost-test-synth.$extension"
+}
 
 & cargo build --release --locked -p plughost-test-presets --manifest-path "$root/Cargo.toml" --target-dir "$root/target"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

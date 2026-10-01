@@ -1,6 +1,6 @@
 [package]
 name = "plughost-test-synth"
-description = "CLAP test instrument whose output shows exactly when notes and MIDI arrive"
+description = "CLAP and VST3 test instrument whose output shows exactly when notes, expressions and MIDI arrive"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
@@ -15,6 +15,7 @@ workspace = true
 [dependencies]
 clack-extensions = { workspace = true, features = ["audio-ports", "clack-plugin", "gui", "note-ports"] }
 clack-plugin.workspace = true
+vst3.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true

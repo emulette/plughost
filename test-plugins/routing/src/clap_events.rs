@@ -12,13 +12,16 @@ impl PluginNotePortsImpl for MainThread<'_> {
             (false, 0) => b"Notes out",
             (true, 0) => b"Notes",
             (true, 1) => b"Octave notes",
+            (true, 2) => b"Expressions",
             _ => return,
         };
-        // The second input takes MIDI with MPE only, as MPE controllers' ports do.
-        let (supported_dialects, preferred_dialect) = if input && index == 1 {
-            (NoteDialects::MIDI_MPE, NoteDialect::MidiMpe)
-        } else {
-            (NoteDialects::MIDI, NoteDialect::Midi)
+        // The second input takes MIDI with MPE only, as MPE controllers' ports do; the third
+        // takes CLAP notes only, and the output sends both.
+        let (supported_dialects, preferred_dialect) = match (input, index) {
+            (true, 1) => (NoteDialects::MIDI_MPE, NoteDialect::MidiMpe),
+            (true, 2) => (NoteDialects::CLAP, NoteDialect::Clap),
+            (false, _) => (NoteDialects::MIDI | NoteDialects::CLAP, NoteDialect::Midi),
+            _ => (NoteDialects::MIDI, NoteDialect::Midi),
         };
         writer.set(&NotePortInfo {
             id: ClapId::new(index),
@@ -31,8 +34,21 @@ impl PluginNotePortsImpl for MainThread<'_> {
 
 /// Moves input events to output port 0 as the crate documentation describes.
 pub(super) fn route(input: &InputEvents, output: &mut OutputEvents, frames: u32) {
+    let output_port = |pckn: Pckn| Pckn {
+        port_index: Match::Specific(0),
+        ..pckn
+    };
     for event in input {
         match event.as_core_event() {
+            Some(CoreEventSpace::NoteOn(on)) => {
+                let _ = output.try_push(on.with_pckn(output_port(on.pckn())));
+            }
+            Some(CoreEventSpace::NoteOff(off)) => {
+                let _ = output.try_push(off.with_pckn(output_port(off.pckn())));
+            }
+            Some(CoreEventSpace::NoteExpression(expression)) => {
+                let _ = output.try_push(expression.with_pckn(output_port(expression.pckn())));
+            }
             Some(CoreEventSpace::Midi(midi)) => {
                 let time = midi.header().time();
                 let [status, key, velocity] = midi.data();
