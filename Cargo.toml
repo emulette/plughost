@@ -29,7 +29,7 @@ clap-sys = "0.5.0"
 interprocess = "2.4.4"
 json5 = "1.3.1"
 libc = "0.2.189"
-libloading = "0.8.9"
+libloading = "0.9.0"
 memmap2 = "0.9.11"
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSGraphics", "NSResponder", "NSRunningApplication", "NSView", "NSWindow", "NSWorkspace"] }
