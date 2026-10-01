@@ -25,9 +25,10 @@ fn make_chain() -> Chain {
             "com.studio.plughost.test-presets",
         )],
         &HostIdentity::default(),
-        Timeouts {
-            load: TIMEOUT,
-            ..Default::default()
+        {
+            let mut timeouts = Timeouts::default();
+            timeouts.load = TIMEOUT;
+            timeouts
         },
     );
     let config = chain

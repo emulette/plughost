@@ -204,10 +204,7 @@ fn multibus_f64_surround_and_bypass_survive_state_and_reset() {
         &input,
         4,
         &[],
-        &RenderOptions {
-            tail: TailPolicy::Reported,
-            max_tail_seconds: 0.0,
-        },
+        &RenderOptions::new(TailPolicy::Reported, 0.0),
     )
     .unwrap();
     assert_eq!(rendered.channels.len(), 8);
@@ -276,10 +273,7 @@ fn every_layout_f64_render_preserves_every_native_speaker_position() {
             &slices,
             4,
             &[],
-            &RenderOptions {
-                tail: TailPolicy::Reported,
-                max_tail_seconds: 0.0,
-            },
+            &RenderOptions::new(TailPolicy::Reported, 0.0),
         )
         .unwrap();
         assert_eq!(rendered.channels.len(), layout.channels() + 2);

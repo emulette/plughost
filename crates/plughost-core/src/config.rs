@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 /// top front (Ltf, Rtf), top middle (Ltm, Rtm) and top rear (Ltr, Rtr); Lw and Rw are the wides.
 /// A new variant also belongs in [`Layout::ALL`], which formats search to recognize layouts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Layout {
     /// No bus, for example the input of an instrument.
     None,

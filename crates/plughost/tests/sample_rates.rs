@@ -40,10 +40,7 @@ where
         })
         .collect();
     let frames = input[0].len();
-    let options = RenderOptions {
-        tail: TailPolicy::Reported,
-        max_tail_seconds: 0.0,
-    };
+    let options = RenderOptions::new(TailPolicy::Reported, 0.0);
     let rendered = render(chain, &[&input[0], &input[1]], frames, &[], &options).unwrap();
     let case = format!("{format:?} {rate} Hz, {block}-frame blocks");
     assert_eq!(rendered.latency, expected_latency(format, rate), "{case}");

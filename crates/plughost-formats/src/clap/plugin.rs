@@ -69,19 +69,22 @@ fn info(descriptor: &PluginDescriptor) -> Option<PluginInfo> {
         .features()
         .map(|feature| feature.to_string_lossy().into_owned())
         .collect();
-    Some(PluginInfo {
-        format: PluginFormat::Clap,
-        class_id: descriptor.id()?.to_str().ok()?.to_owned(),
-        name: text(descriptor.name()),
-        vendor: text(descriptor.vendor()),
-        version: text(descriptor.version()),
-        sdk_version: "CLAP".to_owned(),
-        kind: if categories.iter().any(|c| c == INSTRUMENT) {
-            PluginKind::Instrument
-        } else {
-            PluginKind::Effect
-        },
-        categories,
+    Some({
+        let mut plugin_info = PluginInfo::new(
+            PluginFormat::Clap,
+            descriptor.id()?.to_str().ok()?.to_owned(),
+            text(descriptor.name()),
+            if categories.iter().any(|c| c == INSTRUMENT) {
+                PluginKind::Instrument
+            } else {
+                PluginKind::Effect
+            },
+        );
+        plugin_info.vendor = text(descriptor.vendor());
+        plugin_info.version = text(descriptor.version());
+        plugin_info.sdk_version = "CLAP".to_owned();
+        plugin_info.categories = categories;
+        plugin_info
     })
 }
 
@@ -366,6 +369,7 @@ impl Plugin {
         if context.is_none() && purpose != plughost_core::StatePurpose::Project {
             return Err(ClapError::StatePurposeUnsupported);
         }
+        let context_type = state_context(purpose)?;
         self.flush();
         let state = self
             .shared()
@@ -374,11 +378,7 @@ impl Plugin {
             .ok_or(ClapError::StateUnsupported)?;
         let mut bytes = crate::state_stream::StateWriter::new(plughost_core::MAX_STATE_BYTES);
         let result = if let Some(context) = context {
-            context.save(
-                &self.instance.plugin_handle(),
-                &mut bytes,
-                state_context(purpose),
-            )
+            context.save(&self.instance.plugin_handle(), &mut bytes, context_type)
         } else {
             state.save(&self.instance.plugin_handle(), &mut bytes)
         };
@@ -407,6 +407,7 @@ impl Plugin {
         if context.is_none() && purpose != plughost_core::StatePurpose::Project {
             return Err(ClapError::StatePurposeUnsupported);
         }
+        let context_type = state_context(purpose)?;
         if state.format != PluginFormat::Clap || state.class_id != self.info.class_id {
             return Err(ClapError::StateMismatch);
         }
@@ -420,7 +421,7 @@ impl Plugin {
             context.load(
                 &self.instance.plugin_handle(),
                 &mut Cursor::new(&state.component),
-                state_context(purpose),
+                context_type,
             )
         } else {
             extension.load(
@@ -699,14 +700,7 @@ fn surround_order(layout: Layout) -> Option<&'static [SurroundChannel]> {
             TopBackLeft,
             TopBackRight,
         ]),
-        Layout::None
-        | Layout::Mono
-        | Layout::Stereo
-        | Layout::Surround916
-        | Layout::Ambisonics1
-        | Layout::Ambisonics2
-        | Layout::Ambisonics3
-        | Layout::Ambisonics4 => None,
+        _ => None,
     }
 }
 
@@ -767,16 +761,12 @@ impl Processor {
 /// A restart request stops processing until the plugin is prepared again, which is also how a
 /// CLAP plugin changes its latency.
 fn timing(processor: &PluginAudioProcessor<Host>, prepared: &Prepared) -> PluginTiming {
-    let restart_required = processor.access_shared_handler(|shared| {
+    let mut timing = PluginTiming::new(prepared.latency, prepared.tail);
+    timing.restart_required = processor.access_shared_handler(|shared| {
         shared.restart_requested.load(Ordering::Relaxed)
             || shared.latency_changed.load(Ordering::Relaxed)
     });
-    PluginTiming {
-        latency: prepared.latency,
-        tail: prepared.tail,
-        restart_required,
-        latency_changed: false,
-    }
+    timing
 }
 
 /// The tail the plugin reports, read as its audio thread under the engine lock: as it activates,
@@ -795,13 +785,14 @@ fn read_tail(processor: &mut PluginAudioProcessor<Host>) -> Tail {
 
 fn state_context(
     purpose: plughost_core::StatePurpose,
-) -> clack_extensions::state_context::StateContextType {
+) -> Result<clack_extensions::state_context::StateContextType, ClapError> {
     use clack_extensions::state_context::StateContextType;
-    match purpose {
+    Ok(match purpose {
         plughost_core::StatePurpose::Project => StateContextType::ForProject,
         plughost_core::StatePurpose::Preset => StateContextType::ForPreset,
         plughost_core::StatePurpose::Duplicate => StateContextType::ForDuplicate,
-    }
+        _ => return Err(ClapError::StatePurposeUnsupported),
+    })
 }
 
 #[cfg(all(test, feature = "vst3"))]
@@ -839,7 +830,7 @@ mod layout_tests {
             .into_iter()
             .filter(|&layout| layout.channels() > 2 && !is_ambisonic(layout));
         for layout in surround {
-            let arrangement = crate::vst3::audio::arrangement(layout);
+            let arrangement = crate::vst3::audio::arrangement(layout).unwrap();
             let speakers: Option<Vec<_>> = (0..64)
                 .map(|bit| 1u64 << bit)
                 .filter(|speaker| arrangement & speaker != 0)

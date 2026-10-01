@@ -357,12 +357,10 @@ impl Engine {
     pub fn timing(&self) -> Result<PluginTiming, Vst3Error> {
         let flags = self.instance()?.handler.restart_flags();
         let prepared = self.prepared.as_ref().ok_or(Vst3Error::NotPrepared)?;
-        Ok(PluginTiming {
-            latency: prepared.latency,
-            tail: prepared.tail,
-            restart_required: flags & RESTART_REQUIRED != 0,
-            latency_changed: flags & RestartFlags_::kLatencyChanged != 0,
-        })
+        let mut timing = PluginTiming::new(prepared.latency, prepared.tail);
+        timing.restart_required = flags & RESTART_REQUIRED != 0;
+        timing.latency_changed = flags & RestartFlags_::kLatencyChanged != 0;
+        Ok(timing)
     }
 
     /// Reads the tail again, on the owning thread. VST3 has no notification for it.

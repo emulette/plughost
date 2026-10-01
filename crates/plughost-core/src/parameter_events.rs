@@ -7,6 +7,7 @@ pub const PARAMETER_EVENT_CAPACITY: usize = 256;
 
 /// Notifications reported by the plugin, in observed order. Values are normalized to 0..=1.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum ParameterEvent {
     Value { id: u64, normalized: f64 },
     BeginEdit { id: u64 },

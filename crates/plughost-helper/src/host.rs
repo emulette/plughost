@@ -163,22 +163,23 @@ impl Host {
             } => self.load(&plugins, &host, activity),
             Request::LoadState { slot, state } => self.load_state(slot, &state),
             Request::Capabilities { slot } => self.with_slot(slot, |plugin| {
-                Ok(Response::Capabilities(CapabilityReport {
-                    plugin: plugin.capabilities()?,
-                    host: Capabilities {
-                        embedded_editor: Support::Supported,
-                        bus_discovery: Support::Supported,
-                        note_input: Support::Supported,
-                        note_output: Support::Supported,
-                        sample_accurate_automation: Support::Supported,
-                        state: Support::Supported,
-                        factory_presets: (plugin.info().format
-                            != plughost_core::PluginFormat::Clap)
-                            .into(),
-                        f32: Support::Supported,
-                        f64: Support::Supported,
+                Ok(Response::Capabilities(CapabilityReport::new(
+                    plugin.capabilities()?,
+                    {
+                        let mut capabilities = Capabilities::default();
+                        capabilities.embedded_editor = Support::Supported;
+                        capabilities.bus_discovery = Support::Supported;
+                        capabilities.note_input = Support::Supported;
+                        capabilities.note_output = Support::Supported;
+                        capabilities.sample_accurate_automation = Support::Supported;
+                        capabilities.state = Support::Supported;
+                        capabilities.factory_presets =
+                            (plugin.info().format != plughost_core::PluginFormat::Clap).into();
+                        capabilities.f32 = Support::Supported;
+                        capabilities.f64 = Support::Supported;
+                        capabilities
                     },
-                }))
+                )))
             }),
             Request::Parameters { slot } => Response::Parameters(self.slots[slot].parameters()),
             Request::SetParameter { slot, id, value } => self.with_slot(slot, |plugin| {

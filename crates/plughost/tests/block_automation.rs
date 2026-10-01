@@ -53,10 +53,7 @@ fn overlapping_slot_ramps_discrete_points_and_duplicate_edits_preserve_samples()
                 &[&input, &input],
                 input.len(),
                 &[],
-                &RenderOptions {
-                    tail: TailPolicy::Reported,
-                    max_tail_seconds: 0.0,
-                },
+                &RenderOptions::new(TailPolicy::Reported, 0.0),
                 &RenderSchedule {
                     automation: &points,
                     ramps: &ramps,
@@ -148,10 +145,7 @@ fn apple_ramp_matches_single_sample_submission() {
             &[&input, &input],
             input.len(),
             &[],
-            &RenderOptions {
-                tail: TailPolicy::Reported,
-                max_tail_seconds: 0.0,
-            },
+            &RenderOptions::new(TailPolicy::Reported, 0.0),
             &RenderSchedule {
                 ramps: &ramp,
                 ..Default::default()

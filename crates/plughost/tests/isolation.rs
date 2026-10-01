@@ -87,10 +87,7 @@ fn signal(frames: usize) -> Vec<Vec<f32>> {
 
 fn run(chain: &mut Chain, input: &[Vec<f32>]) -> Vec<Vec<f32>> {
     let slices: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
-    let options = RenderOptions {
-        tail: TailPolicy::Reported,
-        max_tail_seconds: 0.0,
-    };
+    let options = RenderOptions::new(TailPolicy::Reported, 0.0);
     render(chain, &slices, input[0].len(), &[], &options)
         .unwrap()
         .channels
@@ -306,9 +303,10 @@ fn a_crash_names_the_slot_and_the_chain_can_recover() {
 #[test]
 #[ignore = "needs scripts/build-helper.sh and scripts/build-test-plugins.sh"]
 fn a_hang_times_out_and_names_the_slot() {
-    let timeouts = Timeouts {
-        process: Duration::from_millis(200),
-        ..Timeouts::default()
+    let timeouts = {
+        let mut timeouts = Timeouts::default();
+        timeouts.process = Duration::from_millis(200);
+        timeouts
     };
     // The CLAP fixture keeps logging while it hangs, which must not extend the timeout.
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
@@ -335,9 +333,10 @@ fn blocks_keep_processing_while_a_plugin_holds_up_the_main_thread() {
     let mut chain = spawn_with(
         &[delay_variant(PluginFormat::Clap, "stall-main-thread", 9)],
         &HostIdentity::default(),
-        Timeouts {
-            process: Duration::from_secs(1),
-            ..Timeouts::default()
+        {
+            let mut timeouts = Timeouts::default();
+            timeouts.process = Duration::from_secs(1);
+            timeouts
         },
     );
     prepare(&mut chain);
@@ -373,9 +372,10 @@ fn a_plugin_holding_up_the_idle_main_thread_is_named_when_a_request_times_out() 
             delay_variant(PluginFormat::Clap, "stall-main-thread", 9),
         ],
         &HostIdentity::default(),
-        Timeouts {
-            control: Duration::from_millis(500),
-            ..Timeouts::default()
+        {
+            let mut timeouts = Timeouts::default();
+            timeouts.control = Duration::from_millis(500);
+            timeouts
         },
     );
     prepare(&mut chain);
@@ -645,10 +645,7 @@ fn notes_render_through_a_chain_in_time() {
         Event::note_on(1000, 0, 69, 127),
         Event::note_off(2000, 0, 69, 0),
     ];
-    let options = RenderOptions {
-        tail: TailPolicy::Reported,
-        max_tail_seconds: 0.0,
-    };
+    let options = RenderOptions::new(TailPolicy::Reported, 0.0);
     let rendered = render::<f32, _>(&mut chain, &[], 4800, &events, &options).unwrap();
     assert_eq!(rendered.latency, DELAY_LATENCY);
     let output = &rendered.channels[0];

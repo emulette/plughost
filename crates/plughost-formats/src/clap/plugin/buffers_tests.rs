@@ -5,25 +5,28 @@ fn buses() -> Vec<AudioBusInfo> {
     [AudioDirection::Input, AudioDirection::Output]
         .into_iter()
         .flat_map(|direction| {
-            (0..2).map(move |index| AudioBusInfo {
-                id: u64::from(index) + 20,
-                index,
-                name: String::new(),
-                direction,
-                role: if index == 1 {
-                    AudioBusRole::Main
-                } else {
-                    AudioBusRole::Auxiliary
-                },
-                layout: Some(Layout::Mono),
-                channels: 1,
-                active: Some(index == 1),
-                f32: Support::Supported,
-                f64: if index == 0 {
+            (0..2).map(move |index| {
+                let mut audio_bus_info = AudioBusInfo::new(
+                    u64::from(index) + 20,
+                    index,
+                    String::new(),
+                    direction,
+                    if index == 1 {
+                        AudioBusRole::Main
+                    } else {
+                        AudioBusRole::Auxiliary
+                    },
+                    1,
+                );
+                audio_bus_info.layout = Some(Layout::Mono);
+                audio_bus_info.active = Some(index == 1);
+                audio_bus_info.f32 = Support::Supported;
+                audio_bus_info.f64 = if index == 0 {
                     Support::Unsupported
                 } else {
                     Support::Supported
-                },
+                };
+                audio_bus_info
             })
         })
         .collect()

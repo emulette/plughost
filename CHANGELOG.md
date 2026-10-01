@@ -44,6 +44,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   which the plugin reported a change. `PluginTiming` has the new field `latency_changed`.
 - `TailPolicy::Reported` plans the tail reported when the render starts, and a tail reported
   later no longer fails the render. `RenderError::TailChanged` is gone.
+- Types that later versions extend are `#[non_exhaustive]`, so additions do not break
+  applications again. Matches on `Layout`, `PluginFormat`, `PluginKind`, `TailPolicy`,
+  `RenderStatus`, `StatePurpose`, `PresetMetadata`, `FactoryPresetId`, `ParameterEvent` and
+  `DiagnosticSeverity` need a wildcard arm. Build `RenderOptions`, `Transport`, `BlockContext`,
+  `Timeouts`, `PluginInfo`, `EventPortInfo`, `AudioBusInfo`, `Capabilities`,
+  `CapabilityReport`, `PluginTiming`, `ParameterInfo`, `ParameterFlags`, `ParameterDetails`,
+  `FactoryPreset` and `PresetInfo` with their new `new` constructors (or `default`) and then
+  set their public fields, instead of struct literals: for example
+  `RenderOptions::new(TailPolicy::Reported, 0.0)`, `Transport::new(position, true)` with
+  `transport.tempo = Some(120.0)`, `BlockContext::new(frames).with_transport(transport)`, and
+  `let mut timeouts = Timeouts::default(); timeouts.process = duration;`. `Rendered`,
+  `RenderProgress` and `Delivery` are read only.
 - In `plughost-formats`, `HostedPlugin::latency` and `tail` are `HostedPlugin::timing`, which
   reads the timing on the plugin's thread, and `BlockProcessor::latency` and `tail` are
   `BlockProcessor::timing`, which returns what was last read there without calling the plugin.

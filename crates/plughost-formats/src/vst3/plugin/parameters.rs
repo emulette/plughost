@@ -48,12 +48,11 @@ impl Plugin {
         } else {
             None
         };
-        Ok(plughost_core::ParameterDetails {
-            info,
-            native_unit: None,
-            plain_at_zero,
-            plain_at_one,
-            groups,
+        Ok({
+            let mut parameter_details =
+                plughost_core::ParameterDetails::new(info, plain_at_zero, plain_at_one);
+            parameter_details.groups = groups;
+            parameter_details
         })
     }
 

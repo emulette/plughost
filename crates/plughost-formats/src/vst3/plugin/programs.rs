@@ -47,14 +47,17 @@ impl Plugin {
                     if presets.len() == MAX_FACTORY_PRESETS {
                         return Ok(presets);
                     }
-                    presets.push(FactoryPreset {
-                        id: FactoryPresetId::Vst3 {
-                            unit_id,
-                            list_id: list.id,
-                            program_index,
-                        },
-                        name: wide_string(&name),
-                        group: Some(wide_string(&list.name)),
+                    presets.push({
+                        let mut factory_preset = FactoryPreset::new(
+                            FactoryPresetId::Vst3 {
+                                unit_id,
+                                list_id: list.id,
+                                program_index,
+                            },
+                            wide_string(&name),
+                        );
+                        factory_preset.group = Some(wide_string(&list.name));
+                        factory_preset
                     });
                 }
             }

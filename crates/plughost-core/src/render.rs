@@ -21,6 +21,7 @@ pub enum Tail {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum TailPolicy {
     /// Render the tail length the processor reports when the render starts. An infinite tail
     /// renders up to the maximum. A tail the processor reports later does not change the plan.
@@ -33,6 +34,7 @@ pub enum TailPolicy {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RenderOptions {
     pub tail: TailPolicy,
     /// Upper bound on the rendered tail, whatever the policy. Must be finite and non-negative.
@@ -53,6 +55,13 @@ impl Default for RenderOptions {
 }
 
 impl RenderOptions {
+    pub const fn new(tail: TailPolicy, max_tail_seconds: f64) -> RenderOptions {
+        RenderOptions {
+            tail,
+            max_tail_seconds,
+        }
+    }
+
     fn validate(&self) -> Result<(), RenderError> {
         if !self.max_tail_seconds.is_finite() || self.max_tail_seconds < 0.0 {
             return Err(RenderError::TailDuration);
@@ -118,6 +127,7 @@ pub trait Process<S: Sample> {
 /// the previous delivery. Event offsets count from the start of the input, in the processing
 /// timeline; they are not shifted by the latency removed from the audio.
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub struct Delivery<'a, S> {
     /// One slice per output channel, all of one length, which may be zero.
     pub audio: &'a [&'a [S]],
@@ -125,6 +135,7 @@ pub struct Delivery<'a, S> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Rendered<S> {
     /// Output channels aligned with the input: `frames + tail` samples each.
     pub channels: Vec<Vec<S>>,
@@ -212,12 +223,14 @@ pub struct RenderInput<'a, S> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RenderStatus {
     Complete,
     Cancelled,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RenderProgress {
     pub status: RenderStatus,
     /// Native frames processed, including latency and tail. Cancellation never interrupts a call.

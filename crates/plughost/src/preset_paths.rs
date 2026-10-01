@@ -140,7 +140,7 @@ pub fn discover_preset_files(root: &PresetDirectory) -> Result<Vec<PresetFile>, 
     let extension = match root.format {
         PluginFormat::Vst3 => "vstpreset",
         PluginFormat::AudioUnit => "aupreset",
-        PluginFormat::Clap => return Err(PresetSearchError::UnsupportedFormat(root.format)),
+        _ => return Err(PresetSearchError::UnsupportedFormat(root.format)),
     };
     fs::read_dir(&root.path).map_err(|source| PresetSearchError::Io {
         path: root.path.clone(),

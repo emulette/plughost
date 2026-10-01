@@ -60,15 +60,15 @@ fn peer(name: &str, token: u64) {
                 unsafe { receiver.receive_activity(activity) }.unwrap();
                 fault = plugins[0].class_id.clone();
                 write
-                    .write(&Response::Loaded(vec![PluginInfo {
-                        format: PluginFormat::Clap,
-                        class_id: fault.clone(),
-                        name: "Protocol boundary fixture".into(),
-                        vendor: String::new(),
-                        version: String::new(),
-                        sdk_version: std::process::id().to_string(),
-                        kind: PluginKind::Effect,
-                        categories: vec![],
+                    .write(&Response::Loaded(vec![{
+                        let mut plugin_info = PluginInfo::new(
+                            PluginFormat::Clap,
+                            fault.clone(),
+                            "Protocol boundary fixture",
+                            PluginKind::Effect,
+                        );
+                        plugin_info.sdk_version = std::process::id().to_string();
+                        plugin_info
                     }]))
                     .unwrap();
             }
@@ -138,9 +138,10 @@ fn peer(name: &str, token: u64) {
 }
 
 fn caller(fault: &str) {
-    let timeout = Timeouts {
-        process: Duration::from_millis(150),
-        ..Timeouts::default()
+    let timeout = {
+        let mut timeouts = Timeouts::default();
+        timeouts.process = Duration::from_millis(150);
+        timeouts
     };
     let mut chain = Chain::spawn(
         &std::env::current_exe().unwrap(),

@@ -22,10 +22,7 @@ fn a_latency_change_takes_effect_when_the_chain_is_reset() {
     prepare(&mut chain);
     assert_eq!(chain.latency(), LATENCY);
     let input: Vec<f32> = (0..FRAMES).map(|i| (i as f32 * 0.01).sin()).collect();
-    let options = RenderOptions {
-        tail: TailPolicy::Reported,
-        max_tail_seconds: 0.0,
-    };
+    let options = RenderOptions::new(TailPolicy::Reported, 0.0);
     // The plugin announces its new latency halfway through the render and keeps its delay until
     // it activates again, so the whole render keeps the alignment it started with. Its latency
     // and tail getters answer wrong values on any thread but the one that created it.

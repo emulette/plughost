@@ -11,6 +11,7 @@ pub const MAX_EVENT_PORTS: usize = 16;
 /// A native event port. IDs are scoped to a direction; `index` is the native position that
 /// directly hosted plugins use as a [`Event::port`](crate::Event::port).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct EventPortInfo {
     pub id: u64,
     pub index: u32,
@@ -28,6 +29,22 @@ pub struct EventPortInfo {
     /// MPE: MIDI 1.0 with each note on its own channel, whose pitch bend, channel pressure and
     /// controller 74 shape that note. plughost delivers it as MIDI either way.
     pub mpe: Support,
+}
+
+impl EventPortInfo {
+    /// A port whose support for each kind of event is unknown.
+    pub fn new(id: u64, index: u32, name: impl Into<String>, direction: AudioDirection) -> Self {
+        EventPortInfo {
+            id,
+            index,
+            name: name.into(),
+            direction,
+            midi: Support::Unknown,
+            sysex: Support::Unknown,
+            note_expression: Support::Unknown,
+            mpe: Support::Unknown,
+        }
+    }
 }
 
 /// Where a slot's event input port takes events from.

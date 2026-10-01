@@ -154,7 +154,17 @@ is independent of scan cancellation.
 slice of `PluginRef`, in chain order. Slots are zero-based indices in that slice.
 `HostIdentity` is the calling application's identity; recovered chains keep it.
 `Timeouts` separates load, control, and block-processing operations. Defaults are 300,
-60, and 10 seconds respectively.
+60, and 10 seconds respectively; start from `Timeouts::default()` and set the fields to change.
+
+Types that later versions extend are `#[non_exhaustive]`: the enums `Layout`, `PluginFormat`,
+`PluginKind`, `EventData`, `ExpressionKind`, `TailPolicy`, `RenderStatus`, `StatePurpose`,
+`PresetMetadata`, `FactoryPresetId`, `ParameterEvent` and `DiagnosticSeverity` need a wildcard
+arm in a `match`, and the structs `Event`, `Note`, `NoteExpression`, `RenderOptions`,
+`Rendered`, `RenderProgress`, `Delivery`, `Transport`, `BlockContext`, `Timeouts`,
+`PluginInfo`, `EventPortInfo`, `AudioBusInfo`, `Capabilities`, `CapabilityReport`,
+`PluginTiming`, `ParameterInfo`, `ParameterFlags`, `ParameterDetails`, `FactoryPreset` and
+`PresetInfo` are built with their `new` or `default` constructors and then their public fields,
+not struct literals.
 
 `chain.plugins()` returns loaded plugin metadata. `chain.capabilities(slot)` returns a
 `CapabilityReport` with native plugin evidence and isolated-host implementation support.
@@ -211,7 +221,7 @@ instance before failing. A native crash or timeout can terminate the shared help
 `Chain::process_audio_f32(context, input, output, automation, events, produced)` (or `_f64`)
 processes one block and appends the chain's output events to `produced`. All channel slices must have `context.frames` samples,
 no more than the prepared maximum block size. `BlockContext::new(frames)` supplies frame
-count without transport. The helper's reply is validated before it modifies output buffers.
+count without transport, and `.with_transport(transport)` adds one. The helper's reply is validated before it modifies output buffers.
 Automation points and events are fixed-size records: together they are limited to
 `MAX_BLOCK_EVENTS` (4,096) per call across the chain, and system exclusive data, kept apart
 from the records, to `MAX_BLOCK_SYSEX_BYTES` (64 KiB); excess input fails with
@@ -227,8 +237,9 @@ buffers; re-preparation temporarily retains both generations. Control messages a
 notifications use the socket. Processing still copies audio, allocates in other host paths,
 and waits for the helper; shared memory does not make `Chain` real-time safe.
 
-`Transport` is a snapshot at the first sample of a block. Its optional timing fields remain
-unavailable when `None`; the host does not invent them. Beat positions use quarter notes.
+`Transport` is a snapshot at the first sample of a block. `Transport::new(sample_position,
+playing)` starts one; its optional timing fields remain unavailable when `None`, and the host
+does not invent them. Beat positions use quarter notes.
 The caller owns seeks and loop wrapping. Moving transport does not implicitly reset DSP.
 
 `AutomationEvent { slot, change }` addresses a parameter independently of note routing.
@@ -301,7 +312,8 @@ contain exactly `frames` samples. For an instrument, use empty input and explici
 `render::<f32, _>` or `render::<f64, _>` so the output precision can be inferred.
 
 Rendering trims reported latency and appends a tail bounded by
-`RenderOptions::max_tail_seconds`. The default uses `TailPolicy::UntilSilence` with a
+`RenderOptions::max_tail_seconds` (`RenderOptions::new(tail, max_tail_seconds)`). The default
+uses `TailPolicy::UntilSilence` with a
 linear peak threshold of `1.585e-5`, a one-second hold, and a 30-second maximum tail.
 `TailPolicy::Reported` uses the tail the chain reports when the render starts, capped by that
 maximum; a tail reported during the render does not change its length.

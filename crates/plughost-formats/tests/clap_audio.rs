@@ -234,10 +234,7 @@ fn native_render_keeps_all_active_channels_and_f64_surround_order() {
         &refs,
         32,
         &[],
-        &RenderOptions {
-            tail: TailPolicy::Reported,
-            max_tail_seconds: 0.0,
-        },
+        &RenderOptions::new(TailPolicy::Reported, 0.0),
     )
     .unwrap();
     assert_eq!(rendered.channels.len(), 10);
@@ -275,10 +272,7 @@ fn configurable_ports_take_every_layout_clap_expresses() {
             &refs,
             32,
             &[],
-            &RenderOptions {
-                tail: TailPolicy::Reported,
-                max_tail_seconds: 0.0,
-            },
+            &RenderOptions::new(TailPolicy::Reported, 0.0),
         )
         .unwrap();
         assert_eq!(rendered.channels.len(), layout.channels() + 2);

@@ -99,17 +99,19 @@ impl Plugin {
                 };
             }
         }
-        Capabilities {
-            embedded_editor,
-            bus_discovery: audio.is_some().into(),
-            note_input: note_support(true),
-            note_output: note_support(false),
-            sample_accurate_automation: automation,
-            state: state.is_some().into(),
+        {
+            let mut capabilities = Capabilities::default();
+            capabilities.embedded_editor = embedded_editor;
+            capabilities.bus_discovery = audio.is_some().into();
+            capabilities.note_input = note_support(true);
+            capabilities.note_output = note_support(false);
+            capabilities.sample_accurate_automation = automation;
+            capabilities.state = state.is_some().into();
             // Discovery uses a separate factory; the current instance query does not inspect it.
-            factory_presets: Support::Unknown,
-            f32,
-            f64,
+            capabilities.factory_presets = Support::Unknown;
+            capabilities.f32 = f32;
+            capabilities.f64 = f64;
+            capabilities
         }
     }
 }

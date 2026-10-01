@@ -32,8 +32,8 @@ use objc2_foundation::{NSError, NSInteger, NSPropertyListFormat};
 use plughost_core::render::Tail;
 use plughost_core::{Capabilities, Support};
 use plughost_core::{
-    Event, EventData, ParameterFlags, ParameterInfo, PluginFormat, PluginInfo, PluginState,
-    PluginTiming, ProcessConfig, ProcessMode, SampleFormat, events_fit,
+    Event, EventData, ParameterInfo, PluginFormat, PluginInfo, PluginState, PluginTiming,
+    ProcessConfig, ProcessMode, SampleFormat, events_fit,
 };
 
 use super::components::{components, parse_class_id};
@@ -225,27 +225,28 @@ impl Plugin {
     pub(crate) fn capabilities(&self) -> Result<Capabilities, AuError> {
         let engine = lock(&self.engine);
         let unit = engine.unit()?;
-        Ok(Capabilities {
-            embedded_editor: if self.editor.is_some() {
+        Ok({
+            let mut capabilities = Capabilities::default();
+            capabilities.embedded_editor = if self.editor.is_some() {
                 Support::Supported
             } else {
                 Support::Unknown
-            },
-            bus_discovery: Support::Supported,
-            note_input: (!unsafe { unit.scheduleMIDIEventBlock() }.is_null()).into(),
-            note_output: (!unsafe { unit.MIDIOutputNames() }.is_empty()).into(),
-            sample_accurate_automation: (!unsafe { unit.scheduleParameterBlock() }.is_null())
-                .into(),
-            state: Support::Unknown,
-            factory_presets: unsafe { unit.factoryPresets() }
+            };
+            capabilities.bus_discovery = Support::Supported;
+            capabilities.note_input = (!unsafe { unit.scheduleMIDIEventBlock() }.is_null()).into();
+            capabilities.note_output = (!unsafe { unit.MIDIOutputNames() }.is_empty()).into();
+            capabilities.sample_accurate_automation =
+                (!unsafe { unit.scheduleParameterBlock() }.is_null()).into();
+            capabilities.factory_presets = unsafe { unit.factoryPresets() }
                 .is_some_and(|presets| !presets.is_empty())
-                .into(),
-            f32: if engine.prepared.is_some() {
+                .into();
+            capabilities.f32 = if engine.prepared.is_some() {
                 Support::Supported
             } else {
                 Support::Unknown
-            },
-            f64: Support::Unsupported,
+            };
+            capabilities.f64 = Support::Unsupported;
+            capabilities
         })
     }
 
@@ -527,30 +528,23 @@ fn parameter_info(parameter: &AUParameter) -> ParameterInfo {
     let discrete =
         unit == AudioUnitParameterUnit::Indexed || unit == AudioUnitParameterUnit::Boolean;
     let title = unsafe { parameter.displayName() }.to_string();
-    ParameterInfo {
-        id: unsafe { parameter.address() },
-        title: title.clone(),
-        short_title: title.chars().take(8).collect(),
-        units: unsafe { parameter.unitName() }
-            .map(|name| name.to_string())
-            .unwrap_or_default(),
-        step_count: if discrete {
-            (max - min).round().max(0.0) as u32
-        } else {
-            0
-        },
-        // AUParameter does not expose a default; never substitute the current value.
-        default_value: None,
-        flags: ParameterFlags {
-            discrete,
-            automatable: options.contains(AudioUnitParameterOptions::Flag_IsWritable),
-            read_only: !options.contains(AudioUnitParameterOptions::Flag_IsWritable),
-            hidden: false,
-            bypass: false,
-            list: unsafe { parameter.valueStrings() }.is_some(),
-            program_change: false,
-        },
-    }
+    // AUParameter does not expose a default; never substitute the current value.
+    let mut info = ParameterInfo::new(unsafe { parameter.address() }, title.clone());
+    info.short_title = title.chars().take(8).collect();
+    info.units = unsafe { parameter.unitName() }
+        .map(|name| name.to_string())
+        .unwrap_or_default();
+    info.step_count = if discrete {
+        (max - min).round().max(0.0) as u32
+    } else {
+        0
+    };
+    let writable = options.contains(AudioUnitParameterOptions::Flag_IsWritable);
+    info.flags.discrete = discrete;
+    info.flags.automatable = writable;
+    info.flags.read_only = !writable;
+    info.flags.list = unsafe { parameter.valueStrings() }.is_some();
+    info
 }
 
 impl Engine {
@@ -715,12 +709,10 @@ impl Engine {
     /// The timing read on the owning thread; no call into the unit.
     fn timing(&self) -> Result<PluginTiming, AuError> {
         let (_, prepared) = self.parts()?;
-        Ok(PluginTiming {
-            latency: prepared.latency,
-            tail: prepared.tail,
-            restart_required: self.invalidated.load(Ordering::Acquire),
-            latency_changed: prepared.latency_changed,
-        })
+        let mut timing = PluginTiming::new(prepared.latency, prepared.tail);
+        timing.restart_required = self.invalidated.load(Ordering::Acquire);
+        timing.latency_changed = prepared.latency_changed;
+        Ok(timing)
     }
 
     /// Reads the latency and tail again on the owning thread. A unit changes its latency

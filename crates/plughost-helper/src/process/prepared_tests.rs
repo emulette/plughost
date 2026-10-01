@@ -37,12 +37,7 @@ fn config() -> RoutedChainConfig {
     }
 }
 fn timing() -> PluginTiming {
-    PluginTiming {
-        latency: 0,
-        tail: plughost_core::render::Tail::Samples(0),
-        restart_required: false,
-        latency_changed: false,
-    }
+    PluginTiming::new(0, plughost_core::render::Tail::Samples(0))
 }
 
 #[test]

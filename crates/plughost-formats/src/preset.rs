@@ -27,10 +27,10 @@ pub fn decode(format: PluginFormat, bytes: &[u8]) -> Result<DecodedPreset, Error
         PluginFormat::Vst3 => {
             let preset = crate::vst3::Preset::from_bytes(bytes)?;
             Ok(DecodedPreset {
-                info: PresetInfo {
-                    class_id: preset.class_id,
-                    metadata: plughost_core::PresetMetadata::Vst3 { info: preset.info },
-                },
+                info: PresetInfo::new(
+                    preset.class_id,
+                    plughost_core::PresetMetadata::Vst3 { info: preset.info },
+                ),
                 component: preset.component,
                 controller: preset.controller,
             })

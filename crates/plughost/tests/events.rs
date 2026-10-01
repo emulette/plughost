@@ -237,10 +237,7 @@ fn midi_effect_output_plays_an_instrument_before_an_audio_effect() {
             Event::note_on(1000, 0, 57, 127),
             Event::note_off(2000, 0, 57, 0),
         ];
-        let options = RenderOptions {
-            tail: TailPolicy::Reported,
-            max_tail_seconds: 0.0,
-        };
+        let options = RenderOptions::new(TailPolicy::Reported, 0.0);
         let rendered = render::<f32, _>(&mut chain, &[], 4800, &events, &options).unwrap();
         let output = &rendered.channels[0];
         assert!(output[..1000].iter().all(|&s| s == 0.0), "{format:?}");

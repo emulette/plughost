@@ -16,8 +16,10 @@ use plughost_core::{Event, HostIdentity, ParameterInfo, PluginInfo, PluginState,
 use crate::errors::Error;
 use crate::helper::{Helper, Mode};
 
-/// How long each kind of operation may go without a response from the helper.
+/// How long each kind of operation may go without a response from the helper. Start from
+/// [`Timeouts::default`] and change the fields that need other values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Timeouts {
     /// Loading plugins and restoring state; large instruments take minutes.
     pub load: Duration,

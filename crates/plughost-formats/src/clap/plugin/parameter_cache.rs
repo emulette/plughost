@@ -55,26 +55,27 @@ impl ParameterCache {
                 let stepped = flags.contains(ParamInfoFlags::IS_STEPPED);
                 let name = String::from_utf8_lossy(info.name).into_owned();
                 let mut parameter = Parameter {
-                    info: ParameterInfo {
-                        id: u64::from(info.id.get()),
-                        short_title: name.chars().take(8).collect(),
-                        title: name,
-                        units: String::new(),
-                        step_count: if stepped {
+                    info: {
+                        let short_title = name.chars().take(8).collect();
+                        let mut parameter_info = ParameterInfo::new(u64::from(info.id.get()), name);
+                        parameter_info.short_title = short_title;
+                        parameter_info.step_count = if stepped {
                             (info.max_value - info.min_value).round().max(0.0) as u32
                         } else {
                             0
-                        },
-                        default_value: None,
-                        flags: ParameterFlags {
-                            discrete: stepped,
-                            automatable: flags.contains(ParamInfoFlags::IS_AUTOMATABLE),
-                            read_only: flags.contains(ParamInfoFlags::IS_READONLY),
-                            hidden: flags.contains(ParamInfoFlags::IS_HIDDEN),
-                            bypass: flags.contains(ParamInfoFlags::IS_BYPASS),
-                            list: flags.contains(ParamInfoFlags::IS_ENUM),
-                            program_change: false,
-                        },
+                        };
+                        parameter_info.flags = {
+                            let mut parameter_flags = ParameterFlags::default();
+                            parameter_flags.discrete = stepped;
+                            parameter_flags.automatable =
+                                flags.contains(ParamInfoFlags::IS_AUTOMATABLE);
+                            parameter_flags.read_only = flags.contains(ParamInfoFlags::IS_READONLY);
+                            parameter_flags.hidden = flags.contains(ParamInfoFlags::IS_HIDDEN);
+                            parameter_flags.bypass = flags.contains(ParamInfoFlags::IS_BYPASS);
+                            parameter_flags.list = flags.contains(ParamInfoFlags::IS_ENUM);
+                            parameter_flags
+                        };
+                        parameter_info
                     },
                     native: info.id,
                     min: info.min_value,

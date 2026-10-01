@@ -22,10 +22,7 @@ fn render_markers(chain: &mut Chain, layout: Layout) {
         &input.iter().map(Vec::as_slice).collect::<Vec<_>>(),
         1024,
         &[],
-        &RenderOptions {
-            tail: TailPolicy::Reported,
-            max_tail_seconds: 0.0,
-        },
+        &RenderOptions::new(TailPolicy::Reported, 0.0),
     )
     .unwrap();
     for (actual, expected) in output.channels.iter().flatten().zip(input.iter().flatten()) {

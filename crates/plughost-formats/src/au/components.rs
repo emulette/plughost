@@ -63,24 +63,27 @@ fn info(component: AudioComponent) -> Option<PluginInfo> {
     let instrument = description.componentType == kAudioUnitType_MusicDevice;
     let v3 = AudioComponentFlags(description.componentFlags)
         .contains(AudioComponentFlags::IsV3AudioUnit);
-    Some(PluginInfo {
-        format: PluginFormat::AudioUnit,
-        class_id: class_id(&description),
-        name,
-        vendor,
-        version: format!(
+    Some({
+        let mut plugin_info = PluginInfo::new(
+            PluginFormat::AudioUnit,
+            class_id(&description),
+            name,
+            if instrument {
+                PluginKind::Instrument
+            } else {
+                PluginKind::Effect
+            },
+        );
+        plugin_info.vendor = vendor;
+        plugin_info.version = format!(
             "{}.{}.{}",
             version >> 16,
             (version >> 8) & 0xFF,
             version & 0xFF
-        ),
-        sdk_version: if v3 { "AUv3" } else { "AUv2" }.to_owned(),
-        kind: if instrument {
-            PluginKind::Instrument
-        } else {
-            PluginKind::Effect
-        },
-        categories: vec![if instrument { "Instrument" } else { "Fx" }.to_owned()],
+        );
+        plugin_info.sdk_version = if v3 { "AUv3" } else { "AUv2" }.to_owned();
+        plugin_info.categories = vec![if instrument { "Instrument" } else { "Fx" }.to_owned()];
+        plugin_info
     })
 }
 

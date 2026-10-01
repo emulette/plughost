@@ -2,15 +2,7 @@ use super::*;
 use plughost_core::{BarPosition, TimeSignature, Transport};
 
 fn transport() -> Transport {
-    Transport {
-        sample_position: 0,
-        beat_position: None,
-        bar_position: None,
-        tempo: None,
-        time_signature: None,
-        playing: true,
-        loop_region: None,
-    }
+    Transport::new(0, true)
 }
 
 fn nothing() -> Outputs {
@@ -26,9 +18,10 @@ fn nothing() -> Outputs {
 
 #[test]
 fn a_tempo_alone_reaches_a_unit_that_asks_only_for_the_tempo() {
-    let tempo_only = Transport {
-        tempo: Some(90.0),
-        ..transport()
+    let tempo_only = {
+        let mut transport = transport();
+        transport.tempo = Some(90.0);
+        transport
     };
     let mut tempo = 0.0;
     let result = fill(
@@ -57,18 +50,19 @@ fn a_tempo_alone_reaches_a_unit_that_asks_only_for_the_tempo() {
 
 #[test]
 fn a_full_transport_fills_every_value() {
-    let full = Transport {
-        tempo: Some(120.0),
-        beat_position: Some(4.5),
-        bar_position: Some(BarPosition {
+    let full = {
+        let mut transport = transport();
+        transport.tempo = Some(120.0);
+        transport.beat_position = Some(4.5);
+        transport.bar_position = Some(BarPosition {
             start: 4.0,
             number: 1,
-        }),
-        time_signature: Some(TimeSignature {
+        });
+        transport.time_signature = Some(TimeSignature {
             numerator: 3,
             denominator: 4,
-        }),
-        ..transport()
+        });
+        transport
     };
     let (mut tempo, mut numerator, mut denominator) = (0.0, 0.0, 0);
     let (mut beat, mut to_next_beat, mut downbeat) = (0.0, 0, 0.0);

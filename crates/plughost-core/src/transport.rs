@@ -28,6 +28,7 @@ pub struct BarPosition {
 /// A snapshot at the first sample of a block. `None` fields are unavailable, never synthesized.
 /// A seek is a discontinuity between consecutive snapshots. Loop wrapping is caller-owned.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Transport {
     pub sample_position: i64,
     pub beat_position: Option<f64>,
@@ -39,6 +40,19 @@ pub struct Transport {
 }
 
 impl Transport {
+    /// A position with no musical time, tempo, meter or loop.
+    pub fn new(sample_position: i64, playing: bool) -> Transport {
+        Transport {
+            sample_position,
+            beat_position: None,
+            bar_position: None,
+            tempo: None,
+            time_signature: None,
+            playing,
+            loop_region: None,
+        }
+    }
+
     pub fn validate(&self) -> Result<(), InputError> {
         // CLAP represents beats/seconds as signed 31-bit fixed point. Keep positions in the
         // common representable range instead of silently saturating at the format boundary.
@@ -122,6 +136,7 @@ impl Transport {
 
 /// Explicit block duration, independent of the presence of audio channels.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BlockContext {
     pub frames: usize,
     pub transport: Option<Transport>,
@@ -132,6 +147,14 @@ impl BlockContext {
         Self {
             frames,
             transport: None,
+        }
+    }
+
+    /// The same block at `transport`.
+    pub const fn with_transport(self, transport: Transport) -> Self {
+        Self {
+            transport: Some(transport),
+            ..self
         }
     }
 

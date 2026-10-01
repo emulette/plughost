@@ -108,23 +108,23 @@ impl Module {
             } else {
                 PluginKind::Effect
             };
-            classes.push((
-                class.cid,
-                PluginInfo {
-                    format: PluginFormat::Vst3,
-                    class_id: uid::to_string(&class.cid),
-                    name: class.name,
-                    vendor: if class.vendor.is_empty() {
-                        factory_vendor.clone()
-                    } else {
-                        class.vendor
-                    },
-                    version: class.version,
-                    sdk_version: class.sdk_version,
+            classes.push((class.cid, {
+                let mut plugin_info = PluginInfo::new(
+                    PluginFormat::Vst3,
+                    uid::to_string(&class.cid),
+                    class.name,
                     kind,
-                    categories,
-                },
-            ));
+                );
+                plugin_info.vendor = if class.vendor.is_empty() {
+                    factory_vendor.clone()
+                } else {
+                    class.vendor
+                };
+                plugin_info.version = class.version;
+                plugin_info.sdk_version = class.sdk_version;
+                plugin_info.categories = categories;
+                plugin_info
+            }));
         }
         classes
     }

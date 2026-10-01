@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum PluginFormat {
     Vst3,
     /// Audio Unit (macOS), v2 or v3.
@@ -20,6 +21,7 @@ pub struct PluginRef {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum PluginKind {
     Effect,
     Instrument,
@@ -27,6 +29,7 @@ pub enum PluginKind {
 
 /// A plugin class as its format describes it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PluginInfo {
     pub format: PluginFormat,
     /// The format's class identifier. For VST3 this is the 32-digit hexadecimal class ID in the
@@ -40,4 +43,25 @@ pub struct PluginInfo {
     pub kind: PluginKind,
     /// Format sub-categories, for example `Fx` and `EQ`.
     pub categories: Vec<String>,
+}
+
+impl PluginInfo {
+    /// A class with no vendor, version, SDK version or categories yet.
+    pub fn new(
+        format: PluginFormat,
+        class_id: impl Into<String>,
+        name: impl Into<String>,
+        kind: PluginKind,
+    ) -> PluginInfo {
+        PluginInfo {
+            format,
+            class_id: class_id.into(),
+            name: name.into(),
+            vendor: String::new(),
+            version: String::new(),
+            sdk_version: String::new(),
+            kind,
+            categories: Vec::new(),
+        }
+    }
 }

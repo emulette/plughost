@@ -44,10 +44,7 @@ fn native_and_helper_parameter_conversions_reach_output_and_saved_state() {
             &[&input, &input],
             input.len(),
             &[],
-            &RenderOptions {
-                tail: TailPolicy::Reported,
-                max_tail_seconds: 0.0,
-            },
+            &RenderOptions::new(TailPolicy::Reported, 0.0),
         )
         .unwrap();
         assert!(rendered.channels.iter().flatten().all(|v| *v == 0.5));

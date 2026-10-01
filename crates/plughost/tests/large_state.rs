@@ -86,14 +86,11 @@ fn recovery_restores_states_that_together_exceed_one_message() {
 fn native_state_save_timeout_terminates_the_helper_and_explicit_recovery_replaces_it() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let plugin = delay_variant(format, "large-state", 8);
-        let mut chain = spawn_with(
-            &[plugin],
-            &HostIdentity::default(),
-            Timeouts {
-                control: Duration::from_millis(500),
-                ..Timeouts::default()
-            },
-        );
+        let mut chain = spawn_with(&[plugin], &HostIdentity::default(), {
+            let mut timeouts = Timeouts::default();
+            timeouts.control = Duration::from_millis(500);
+            timeouts
+        });
         prepare(&mut chain);
         chain.set_parameter(0, 0, 0.125).unwrap();
         assert!(matches!(

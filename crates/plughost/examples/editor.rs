@@ -133,8 +133,8 @@ fn run(helper: &Path, target: &Path, index: usize) -> Result<bool, Error> {
         return Ok(false);
     };
     let input = match class.kind {
-        PluginKind::Effect => Layout::Stereo,
         PluginKind::Instrument => Layout::None,
+        _ => Layout::Stereo,
     };
     let channels = input.channels();
 

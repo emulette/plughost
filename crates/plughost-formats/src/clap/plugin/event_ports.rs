@@ -48,18 +48,19 @@ impl Plugin {
         ] {
             for (index, port) in self.note_ports(input)?.into_iter().enumerate() {
                 let midi = port.dialects.supports(NoteDialect::Midi);
-                ports.push(EventPortInfo {
-                    id: port.id,
-                    index: index as u32,
-                    name: port.name,
-                    direction,
-                    midi: Support::from(
+                ports.push({
+                    let mut event_port_info =
+                        EventPortInfo::new(port.id, index as u32, port.name, direction);
+                    event_port_info.midi = Support::from(
                         midi || port.dialects.supports(NoteDialect::Clap)
                             || port.dialects.supports(NoteDialect::MidiMpe),
-                    ),
-                    sysex: Support::from(midi),
-                    note_expression: Support::from(port.dialects.supports(NoteDialect::Clap)),
-                    mpe: Support::from(port.dialects.supports(NoteDialect::MidiMpe)),
+                    );
+                    event_port_info.sysex = Support::from(midi);
+                    event_port_info.note_expression =
+                        Support::from(port.dialects.supports(NoteDialect::Clap));
+                    event_port_info.mpe =
+                        Support::from(port.dialects.supports(NoteDialect::MidiMpe));
+                    event_port_info
                 });
             }
         }

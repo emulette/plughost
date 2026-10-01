@@ -270,10 +270,7 @@ fn signal<S: Sample>(frames: usize, from_f64: fn(f64) -> S) -> Vec<Vec<S>> {
 
 fn run<S: Sample>(plugin: &mut Plugin, input: &[Vec<S>]) -> Vec<Vec<S>> {
     let slices: Vec<&[S]> = input.iter().map(Vec::as_slice).collect();
-    let options = RenderOptions {
-        tail: TailPolicy::Reported,
-        max_tail_seconds: 0.0,
-    };
+    let options = RenderOptions::new(TailPolicy::Reported, 0.0);
     render(plugin, &slices, input[0].len(), &[], &options)
         .unwrap()
         .channels

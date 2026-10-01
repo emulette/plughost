@@ -45,12 +45,7 @@ fn config(previous: bool) -> RoutedChainConfig {
 }
 
 fn native(latency: u32, tail: u32) -> PluginTiming {
-    PluginTiming {
-        latency,
-        tail: Tail::Samples(tail),
-        restart_required: false,
-        latency_changed: false,
-    }
+    PluginTiming::new(latency, Tail::Samples(tail))
 }
 
 #[test]

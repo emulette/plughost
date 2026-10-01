@@ -23,6 +23,7 @@ impl From<bool> for Support {
 /// A snapshot for the current platform and plugin configuration. Static scan metadata does not
 /// establish these capabilities. Unknown is distinct from explicitly unsupported.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Capabilities {
     /// A native editor embedded in the helper's parent window (not a floating-only editor).
     pub embedded_editor: Support,
@@ -43,7 +44,14 @@ pub struct Capabilities {
 /// Native plugin evidence and the isolated Chain API's implementation for the queried slot.
 /// A feature needs both sides to support it. This does not describe the in-process API's limits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CapabilityReport {
     pub plugin: Capabilities,
     pub host: Capabilities,
+}
+
+impl CapabilityReport {
+    pub fn new(plugin: Capabilities, host: Capabilities) -> CapabilityReport {
+        CapabilityReport { plugin, host }
+    }
 }

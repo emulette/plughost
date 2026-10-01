@@ -44,15 +44,13 @@ impl Instance {
     pub fn event_ports(&self) -> Result<Vec<EventPortInfo>, Vst3Error> {
         let mut ports = Vec::new();
         if self.controllers_only() {
-            ports.push(EventPortInfo {
-                id: 0,
-                index: 0,
-                name: String::new(),
-                direction: AudioDirection::Input,
-                midi: Support::Supported,
-                sysex: Support::Unsupported,
-                note_expression: Support::Unsupported,
-                mpe: Support::Unknown,
+            ports.push({
+                let mut event_port_info =
+                    EventPortInfo::new(0, 0, String::new(), AudioDirection::Input);
+                event_port_info.midi = Support::Supported;
+                event_port_info.sysex = Support::Unsupported;
+                event_port_info.note_expression = Support::Unsupported;
+                event_port_info
             });
         }
         for dir in [AudioDirection::Input, AudioDirection::Output] {
@@ -66,19 +64,17 @@ impl Instance {
                 if result != kResultOk {
                     return Err(Vst3Error::AudioBusMetadata);
                 }
-                ports.push(EventPortInfo {
-                    id: index,
-                    index: index as u32,
-                    name: wide_string(&info.name),
-                    direction: dir,
-                    midi: Support::Supported,
+                ports.push({
+                    let mut event_port_info =
+                        EventPortInfo::new(index, index as u32, wide_string(&info.name), dir);
+                    event_port_info.midi = Support::Supported;
                     // Data events are part of the format; a plugin's use of them is not queryable.
-                    sysex: Support::Unknown,
-                    note_expression: match dir {
+                    event_port_info.sysex = Support::Unknown;
+                    event_port_info.note_expression = match dir {
                         AudioDirection::Input => self.note_expressions(index),
                         AudioDirection::Output => Support::Unknown,
-                    },
-                    mpe: Support::Unknown,
+                    };
+                    event_port_info
                 });
             }
         }

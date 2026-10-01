@@ -92,10 +92,7 @@ where
         automation: &points,
         ramps: &ramps,
     };
-    let options = RenderOptions {
-        tail: TailPolicy::Reported,
-        max_tail_seconds: 0.0,
-    };
+    let options = RenderOptions::new(TailPolicy::Reported, 0.0);
     let mut counted = Counted {
         processor,
         calls: 0,

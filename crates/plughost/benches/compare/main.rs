@@ -152,10 +152,7 @@ impl Process<f32> for Direct {
     }
 }
 
-const OPTIONS: RenderOptions = RenderOptions {
-    tail: TailPolicy::Reported,
-    max_tail_seconds: 0.0,
-};
+const OPTIONS: RenderOptions = RenderOptions::new(TailPolicy::Reported, 0.0);
 
 fn plugin_ref(options: &Options) -> Result<PluginRef> {
     // Audio Units are registered classes, named by class ID instead of a bundle.

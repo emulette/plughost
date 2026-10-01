@@ -167,10 +167,7 @@ fn run(options: &Options) -> Result<()> {
         .map(|slot| chain.save_state(slot, StatePurpose::Project))
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let input = noise((options.seconds * RATE) as usize);
-    let options_render = RenderOptions {
-        tail: TailPolicy::Reported,
-        max_tail_seconds: 0.0,
-    };
+    let options_render = RenderOptions::new(TailPolicy::Reported, 0.0);
     let pid = chain.helper_monitor().process_id();
     let first_memory = memory_mib(pid);
     let mut first: Option<Vec<Vec<f32>>> = None;

@@ -525,22 +525,24 @@ impl<S: Sample> Process<S> for Plugin {
 
 pub(super) fn parameter_info(info: &Vst3ParameterInfo) -> ParameterInfo {
     let flag = |bit: i32| info.flags & bit != 0;
-    ParameterInfo {
-        id: u64::from(info.id),
-        title: wide_string(&info.title),
-        short_title: wide_string(&info.shortTitle),
-        units: wide_string(&info.units),
-        step_count: info.stepCount.max(0) as u32,
-        default_value: Some(info.defaultNormalizedValue),
-        flags: ParameterFlags {
-            discrete: info.stepCount > 0,
-            automatable: flag(ParameterFlags_::kCanAutomate),
-            read_only: flag(ParameterFlags_::kIsReadOnly),
-            hidden: flag(ParameterFlags_::kIsHidden),
-            bypass: flag(ParameterFlags_::kIsBypass),
-            list: flag(ParameterFlags_::kIsList),
-            program_change: flag(ParameterFlags_::kIsProgramChange),
-        },
+    {
+        let mut parameter_info = ParameterInfo::new(u64::from(info.id), wide_string(&info.title));
+        parameter_info.short_title = wide_string(&info.shortTitle);
+        parameter_info.units = wide_string(&info.units);
+        parameter_info.step_count = info.stepCount.max(0) as u32;
+        parameter_info.default_value = Some(info.defaultNormalizedValue);
+        parameter_info.flags = {
+            let mut parameter_flags = ParameterFlags::default();
+            parameter_flags.discrete = info.stepCount > 0;
+            parameter_flags.automatable = flag(ParameterFlags_::kCanAutomate);
+            parameter_flags.read_only = flag(ParameterFlags_::kIsReadOnly);
+            parameter_flags.hidden = flag(ParameterFlags_::kIsHidden);
+            parameter_flags.bypass = flag(ParameterFlags_::kIsBypass);
+            parameter_flags.list = flag(ParameterFlags_::kIsList);
+            parameter_flags.program_change = flag(ParameterFlags_::kIsProgramChange);
+            parameter_flags
+        };
+        parameter_info
     }
 }
 
@@ -548,7 +550,7 @@ fn state_kind(purpose: plughost_core::StatePurpose) -> Result<StateKind, Vst3Err
     match purpose {
         plughost_core::StatePurpose::Project => Ok(StateKind::Project),
         plughost_core::StatePurpose::Preset => Ok(StateKind::Preset),
-        plughost_core::StatePurpose::Duplicate => Err(Vst3Error::StatePurposeUnsupported),
+        _ => Err(Vst3Error::StatePurposeUnsupported),
     }
 }
 

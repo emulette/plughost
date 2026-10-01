@@ -70,21 +70,16 @@ fn play(chain: &mut Chain, blocks: usize, frames: usize, rate: f64, automated: u
     let (mut left, mut right) = (vec![0.0; frames], vec![0.0; frames]);
     for block in 0..blocks {
         let position = (block * frames) as i64;
-        let context = BlockContext {
-            frames,
-            transport: Some(Transport {
-                sample_position: position,
-                beat_position: Some(position as f64 / rate * 2.0),
-                bar_position: None,
-                tempo: Some(120.0),
-                time_signature: Some(TimeSignature {
-                    numerator: 4,
-                    denominator: 4,
-                }),
-                playing: true,
-                loop_region: None,
-            }),
-        };
+        let context = BlockContext::new(frames).with_transport({
+            let mut transport = Transport::new(position, true);
+            transport.beat_position = Some(position as f64 / rate * 2.0);
+            transport.tempo = Some(120.0);
+            transport.time_signature = Some(TimeSignature {
+                numerator: 4,
+                denominator: 4,
+            });
+            transport
+        });
         let automation = [AutomationEvent {
             slot: 0,
             change: ParameterChange {

@@ -85,20 +85,14 @@ impl Process<f32> for Instrument {
     }
 }
 fn options() -> RenderOptions {
-    RenderOptions {
-        tail: TailPolicy::Reported,
-        max_tail_seconds: 0.0,
-    }
+    RenderOptions::new(TailPolicy::Reported, 0.0)
 }
 fn transport(beat: f64, tempo: f64, playing: bool) -> Transport {
-    Transport {
-        sample_position: 0,
-        beat_position: Some(beat),
-        bar_position: None,
-        tempo: Some(tempo),
-        playing,
-        time_signature: None,
-        loop_region: None,
+    {
+        let mut transport = Transport::new(0, playing);
+        transport.beat_position = Some(beat);
+        transport.tempo = Some(tempo);
+        transport
     }
 }
 

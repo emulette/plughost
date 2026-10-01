@@ -69,18 +69,17 @@ impl Plugin {
         let engine = lock(&self.engine);
         let unit = engine.unit()?;
         let mpe = Support::from(unsafe { unit.supportsMPE() });
-        let port = |index: u32, name: String, direction| plughost_core::EventPortInfo {
-            id: u64::from(index),
-            index,
-            name,
-            direction,
-            midi: Support::Supported,
-            sysex: Support::Supported,
-            note_expression: Support::Unsupported,
-            mpe: match direction {
+        let port = |index: u32, name: String, direction| {
+            let mut event_port_info =
+                plughost_core::EventPortInfo::new(u64::from(index), index, name, direction);
+            event_port_info.midi = Support::Supported;
+            event_port_info.sysex = Support::Supported;
+            event_port_info.note_expression = Support::Unsupported;
+            event_port_info.mpe = match direction {
                 AudioDirection::Input => mpe,
                 AudioDirection::Output => Support::Unknown,
-            },
+            };
+            event_port_info
         };
         let outputs = midi_output_names(unit);
         drop(engine);
@@ -206,20 +205,23 @@ pub(super) fn buses(
             {
                 return Err(AuError::AudioBusMetadata);
             }
-            result.push(AudioBusInfo {
-                id: index as u64,
-                index: index as u32,
-                name: unsafe { bus.name() }
-                    .map(|name| name.to_string())
-                    .unwrap_or_default(),
-                direction,
+            result.push({
                 // AU's primary input/output is element zero; additional elements are auxiliaries.
-                role: if index == 0 {
-                    AudioBusRole::Main
-                } else {
-                    AudioBusRole::Auxiliary
-                },
-                layout: layout(
+                let mut audio_bus_info = AudioBusInfo::new(
+                    index as u64,
+                    index as u32,
+                    unsafe { bus.name() }
+                        .map(|name| name.to_string())
+                        .unwrap_or_default(),
+                    direction,
+                    if index == 0 {
+                        AudioBusRole::Main
+                    } else {
+                        AudioBusRole::Auxiliary
+                    },
+                    channels,
+                );
+                audio_bus_info.layout = layout(
                     &format,
                     config.and_then(|config| {
                         let requested = match direction {
@@ -231,15 +233,15 @@ pub(super) fn buses(
                             .find(|bus| bus.id == index as u64 && bus.active)
                             .map(|bus| bus.layout)
                     }),
-                ),
-                channels,
-                active: Some(unsafe { bus.isEnabled() }),
-                f32: if unsafe { format.isStandard() } {
+                );
+                audio_bus_info.active = Some(unsafe { bus.isEnabled() });
+                audio_bus_info.f32 = if unsafe { format.isStandard() } {
                     Support::Supported
                 } else {
                     Support::Unknown
-                },
-                f64: Support::Unsupported,
+                };
+                audio_bus_info.f64 = Support::Unsupported;
+                audio_bus_info
             });
         }
     }
@@ -302,7 +304,6 @@ pub(super) fn main_bus_config(
 
 fn tag(layout: Layout) -> Result<u32, AuError> {
     match layout {
-        Layout::None => Err(AuError::AudioConfiguration),
         Layout::Mono => Ok(MONO),
         Layout::Stereo => Ok(STEREO),
         Layout::Surround51 => Ok(SURROUND_51),
@@ -320,6 +321,7 @@ fn tag(layout: Layout) -> Result<u32, AuError> {
         Layout::Ambisonics1 | Layout::Ambisonics2 | Layout::Ambisonics3 | Layout::Ambisonics4 => {
             Ok(HOA_ACN_SN3D | layout.channels() as u32)
         }
+        _ => Err(AuError::AudioConfiguration),
     }
 }
 
@@ -335,20 +337,7 @@ fn native_order(layout: Layout) -> Option<&'static [usize]> {
         Layout::Surround714 => Some(&[0, 1, 2, 3, 6, 7, 4, 5, 8, 9, 10, 11]),
         // L R C LFE Ls Rs Rls Rrs Lw Rw Vhl Vhr Ltm Rtm Ltr Rtr
         Layout::Surround916 => Some(&[0, 1, 2, 3, 6, 7, 4, 5, 14, 15, 8, 9, 12, 13, 10, 11]),
-        Layout::None
-        | Layout::Mono
-        | Layout::Stereo
-        | Layout::Surround51
-        | Layout::Surround71
-        | Layout::Lcr
-        | Layout::Quad
-        | Layout::Surround50
-        | Layout::Surround512
-        | Layout::Surround514
-        | Layout::Ambisonics1
-        | Layout::Ambisonics2
-        | Layout::Ambisonics3
-        | Layout::Ambisonics4 => None,
+        _ => None,
     }
 }
 
@@ -601,7 +590,7 @@ mod tests {
                 | Layout::Ambisonics2
                 | Layout::Ambisonics3
                 | Layout::Ambisonics4 => (0..layout.channels() as u32).map(|n| ACN | n).collect(),
-                Layout::None => Vec::new(),
+                _ => Vec::new(),
             }
         };
         for layout in Layout::ALL

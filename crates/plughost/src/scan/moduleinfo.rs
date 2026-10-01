@@ -43,21 +43,24 @@ fn parse(text: &str) -> Option<Vec<PluginInfo>> {
             if class_id.len() != 32 || !class_id.bytes().all(|b| b.is_ascii_hexdigit()) {
                 return None;
             }
-            Some(PluginInfo {
-                format: PluginFormat::Vst3,
-                class_id,
-                name: text("Name")?,
-                vendor: text("Vendor")
+            Some({
+                let mut plugin_info = PluginInfo::new(
+                    PluginFormat::Vst3,
+                    class_id,
+                    text("Name")?,
+                    if categories.iter().any(|c| c == "Instrument") {
+                        PluginKind::Instrument
+                    } else {
+                        PluginKind::Effect
+                    },
+                );
+                plugin_info.vendor = text("Vendor")
                     .filter(|vendor| !vendor.is_empty())
-                    .unwrap_or_else(|| factory_vendor.to_owned()),
-                version: text("Version").unwrap_or_default(),
-                sdk_version: text("SDKVersion").unwrap_or_default(),
-                kind: if categories.iter().any(|c| c == "Instrument") {
-                    PluginKind::Instrument
-                } else {
-                    PluginKind::Effect
-                },
-                categories,
+                    .unwrap_or_else(|| factory_vendor.to_owned());
+                plugin_info.version = text("Version").unwrap_or_default();
+                plugin_info.sdk_version = text("SDKVersion").unwrap_or_default();
+                plugin_info.categories = categories;
+                plugin_info
             })
         })
         .collect()

@@ -19,11 +19,10 @@ impl Plugin {
                 if number < 0 || !seen.insert(number) {
                     return Err(AuError::FactoryPresetMetadata);
                 }
-                Ok(FactoryPreset {
-                    id: FactoryPresetId::AudioUnit { number },
-                    name: unsafe { preset.name() }.to_string(),
-                    group: None,
-                })
+                Ok(FactoryPreset::new(
+                    FactoryPresetId::AudioUnit { number },
+                    unsafe { preset.name() }.to_string(),
+                ))
             })
             .collect()
     }

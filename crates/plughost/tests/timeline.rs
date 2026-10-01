@@ -8,10 +8,7 @@ mod support;
 use support::{delay as reference, spawn};
 
 fn options() -> RenderOptions {
-    RenderOptions {
-        tail: TailPolicy::Reported,
-        max_tail_seconds: 0.0,
-    }
+    RenderOptions::new(TailPolicy::Reported, 0.0)
 }
 fn chain(format: PluginFormat, block: usize) -> Chain {
     layout_chain(format, block, Layout::Stereo)
@@ -98,20 +95,19 @@ impl Process<f32> for Native {
     }
 }
 fn time(sample: i64, beat: f64, tempo: f64, playing: bool) -> Transport {
-    Transport {
-        sample_position: sample,
-        beat_position: Some(beat),
-        bar_position: Some(BarPosition {
+    {
+        let mut transport = Transport::new(sample, playing);
+        transport.beat_position = Some(beat);
+        transport.bar_position = Some(BarPosition {
             start: (beat / 4.0).floor() * 4.0,
             number: (beat / 4.0).floor() as i32,
-        }),
-        tempo: Some(tempo),
-        time_signature: Some(TimeSignature {
+        });
+        transport.tempo = Some(tempo);
+        transport.time_signature = Some(TimeSignature {
             numerator: 4,
             denominator: 4,
-        }),
-        playing,
-        loop_region: None,
+        });
+        transport
     }
 }
 fn near(actual: &[Vec<f32>], expected: &[Vec<f32>]) {
@@ -432,9 +428,10 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
         &[&input, &input],
         32,
         &[],
-        &RenderOptions {
-            max_tail_seconds: 1.0,
-            ..options()
+        &{
+            let mut render_options = options();
+            render_options.max_tail_seconds = 1.0;
+            render_options
         },
         &RenderSchedule {
             automation: &automation,

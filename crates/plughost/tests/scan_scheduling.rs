@@ -89,16 +89,12 @@ fn peer(name: &str, token: u64) {
                 write.write(&Response::ModuleLoaded).unwrap();
                 if gate.join("large-class").exists() {
                     write
-                        .write(&Response::Class(plughost_core::PluginInfo {
-                            format: plughost_core::PluginFormat::Clap,
-                            class_id: "cache-write-boundary".into(),
-                            name: "\n".repeat(4 << 20),
-                            vendor: String::new(),
-                            version: String::new(),
-                            sdk_version: String::new(),
-                            kind: plughost_core::PluginKind::Effect,
-                            categories: Vec::new(),
-                        }))
+                        .write(&Response::Class(plughost_core::PluginInfo::new(
+                            plughost_core::PluginFormat::Clap,
+                            "cache-write-boundary",
+                            "\n".repeat(4 << 20),
+                            plughost_core::PluginKind::Effect,
+                        )))
                         .unwrap();
                 }
                 write.write(&Response::Done).unwrap();

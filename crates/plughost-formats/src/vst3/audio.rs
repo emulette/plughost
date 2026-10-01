@@ -21,9 +21,9 @@ pub(crate) fn direction(value: AudioDirection) -> i32 {
 }
 /// VST3 orders a bus's channels by speaker bit, which is the portable order of every layout.
 /// Arrangements with other speakers (k51_2 has top front instead of top middle speakers) are
-/// not portable layouts.
-pub(crate) fn arrangement(layout: Layout) -> SpeakerArrangement {
-    match layout {
+/// not portable layouts, and a layout without an arrangement is refused.
+pub(crate) fn arrangement(layout: Layout) -> Option<SpeakerArrangement> {
+    Some(match layout {
         Layout::None => SpeakerArr::kEmpty,
         Layout::Mono => SpeakerArr::kMono,
         Layout::Stereo => SpeakerArr::kStereo,
@@ -42,12 +42,13 @@ pub(crate) fn arrangement(layout: Layout) -> SpeakerArrangement {
         Layout::Ambisonics2 => SpeakerArr::kAmbi2cdOrderACN,
         Layout::Ambisonics3 => SpeakerArr::kAmbi3rdOrderACN,
         Layout::Ambisonics4 => SpeakerArr::kAmbi4thOrderACN,
-    }
+        _ => return None,
+    })
 }
 fn layout(value: SpeakerArrangement) -> Option<Layout> {
     Layout::ALL
         .into_iter()
-        .find(|&layout| arrangement(layout) == value)
+        .find(|&layout| arrangement(layout) == Some(value))
 }
 
 impl Instance {
@@ -94,18 +95,21 @@ impl Instance {
                 } else {
                     AudioBusRole::Auxiliary
                 };
-                buses.push(AudioBusInfo {
-                    id: index as u64,
-                    index: index as u32,
-                    name: wide_string(&info.name),
-                    direction: dir,
-                    role,
-                    layout: layout(speakers),
-                    channels: info.channelCount as u32,
+                buses.push({
+                    let mut audio_bus_info = AudioBusInfo::new(
+                        index as u64,
+                        index as u32,
+                        wide_string(&info.name),
+                        dir,
+                        role,
+                        info.channelCount as u32,
+                    );
+                    audio_bus_info.layout = layout(speakers);
                     // kDefaultActive is a default, not the current activation state.
-                    active: None,
-                    f32,
-                    f64,
+                    audio_bus_info.active = None;
+                    audio_bus_info.f32 = f32;
+                    audio_bus_info.f64 = f64;
+                    audio_bus_info
                 });
             }
         }
@@ -179,7 +183,10 @@ impl Instance {
                 if let Some(request) = requested(dir).iter().find(|request| request.id == bus.id)
                     && request.layout != Layout::None
                 {
-                    speakers = arrangement(request.layout);
+                    speakers = arrangement(request.layout).ok_or(Vst3Error::LayoutRefused {
+                        requested: request.layout,
+                        plugin_channels: 0,
+                    })?;
                 }
                 arrangements[index].push(speakers);
             }
@@ -208,7 +215,7 @@ impl Instance {
                 {
                     return Err(Vst3Error::AudioBusMetadata);
                 }
-                if actual != arrangement(request.layout) {
+                if Some(actual) != arrangement(request.layout) {
                     return Err(Vst3Error::LayoutRefused {
                         requested: request.layout,
                         plugin_channels: actual.count_ones() as usize,
@@ -258,7 +265,7 @@ mod tests {
     #[test]
     fn every_layout_has_its_own_arrangement_of_its_channel_count() {
         for layout in Layout::ALL {
-            let speakers = arrangement(layout);
+            let speakers = arrangement(layout).unwrap();
             assert_eq!(
                 speakers.count_ones() as usize,
                 layout.channels(),

@@ -28,6 +28,7 @@ pub enum AudioBusRole {
 /// A native bus snapshot. An unknown layout is not inferred from its channel count.
 /// IDs are scoped to a direction and the selected native configuration.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct AudioBusInfo {
     pub id: u64,
     pub index: u32,
@@ -39,6 +40,31 @@ pub struct AudioBusInfo {
     pub active: Option<bool>,
     pub f32: Support,
     pub f64: Support,
+}
+
+impl AudioBusInfo {
+    /// A bus with an unknown layout, activation and precision support.
+    pub fn new(
+        id: u64,
+        index: u32,
+        name: impl Into<String>,
+        direction: AudioDirection,
+        role: AudioBusRole,
+        channels: u32,
+    ) -> AudioBusInfo {
+        AudioBusInfo {
+            id,
+            index,
+            name: name.into(),
+            direction,
+            role,
+            layout: None,
+            channels,
+            active: None,
+            f32: Support::Unknown,
+            f64: Support::Unknown,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

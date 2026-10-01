@@ -39,12 +39,10 @@ impl Plugin {
                 });
             }
         }
-        Ok(plughost_core::ParameterDetails {
-            info,
-            native_unit: None,
-            plain_at_zero: min,
-            plain_at_one: max,
-            groups: Some(groups),
+        Ok({
+            let mut parameter_details = plughost_core::ParameterDetails::new(info, min, max);
+            parameter_details.groups = Some(groups);
+            parameter_details
         })
     }
 

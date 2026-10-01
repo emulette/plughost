@@ -496,25 +496,28 @@ fn bus_info(info: &AudioPortInfo<'_>, index: u32, input: bool) -> AudioBusInfo {
         (2, Some(kind)) if kind == AudioPortType::STEREO => Some(Layout::Stereo),
         _ => None,
     };
-    AudioBusInfo {
-        id: u64::from(info.id.get()),
-        index,
-        name: String::from_utf8_lossy(info.name).into_owned(),
-        direction: if input {
-            AudioDirection::Input
-        } else {
-            AudioDirection::Output
-        },
-        role: if info.flags.contains(AudioPortFlags::IS_MAIN) {
-            AudioBusRole::Main
-        } else {
-            AudioBusRole::Auxiliary
-        },
-        layout,
-        channels: info.channel_count,
-        active: Some(true),
-        f32: Support::Supported,
-        f64: info.flags.contains(AudioPortFlags::SUPPORTS_64BITS).into(),
+    {
+        let mut audio_bus_info = AudioBusInfo::new(
+            u64::from(info.id.get()),
+            index,
+            String::from_utf8_lossy(info.name).into_owned(),
+            if input {
+                AudioDirection::Input
+            } else {
+                AudioDirection::Output
+            },
+            if info.flags.contains(AudioPortFlags::IS_MAIN) {
+                AudioBusRole::Main
+            } else {
+                AudioBusRole::Auxiliary
+            },
+            info.channel_count,
+        );
+        audio_bus_info.layout = layout;
+        audio_bus_info.active = Some(true);
+        audio_bus_info.f32 = Support::Supported;
+        audio_bus_info.f64 = info.flags.contains(AudioPortFlags::SUPPORTS_64BITS).into();
+        audio_bus_info
     }
 }
 fn main_bus(

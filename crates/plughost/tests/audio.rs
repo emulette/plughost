@@ -64,10 +64,7 @@ fn config(format: PluginFormat, precision: SampleFormat) -> RoutedChainConfig {
     }
 }
 fn options() -> RenderOptions {
-    RenderOptions {
-        tail: TailPolicy::Reported,
-        max_tail_seconds: 0.0,
-    }
+    RenderOptions::new(TailPolicy::Reported, 0.0)
 }
 fn input(frames: usize) -> Vec<Vec<f64>> {
     vec![
@@ -199,10 +196,7 @@ fn precision_rejection_preserves_output_and_f32_legacy_entry_uses_routing() {
             .unwrap();
         let mut output = vec![vec![99.0f32; 4]; 4];
         let result = chain.process_audio_f32(
-            &BlockContext {
-                frames: 4,
-                transport: None,
-            },
+            &BlockContext::new(4),
             &[&[0.25; 4], &[0.5; 4], &[0.75; 4]],
             &mut output.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
             &[],
@@ -222,10 +216,7 @@ fn precision_rejection_preserves_output_and_f32_legacy_entry_uses_routing() {
             .unwrap();
         chain
             .process_audio_f32(
-                &BlockContext {
-                    frames: 4,
-                    transport: None,
-                },
+                &BlockContext::new(4),
                 &[&[0.25; 4], &[0.5; 4], &[0.75; 4]],
                 &mut output.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
                 &[],

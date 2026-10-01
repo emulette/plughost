@@ -16,6 +16,7 @@ pub const DIAGNOSTIC_MESSAGE_BYTES: usize = 4096;
 
 /// Severity reported by the plugin or host, including CLAP's two misbehavior categories.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum DiagnosticSeverity {
     Debug,
     Info,

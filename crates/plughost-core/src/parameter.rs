@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ParameterFlags {
     pub discrete: bool,
     pub automatable: bool,
@@ -12,6 +13,7 @@ pub struct ParameterFlags {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ParameterInfo {
     /// VST3 or CLAP parameter ID, or Audio Unit parameter address.
     pub id: u64,
@@ -26,6 +28,19 @@ pub struct ParameterInfo {
 }
 
 impl ParameterInfo {
+    /// A continuous parameter without a default, short title, units or flags.
+    pub fn new(id: u64, title: impl Into<String>) -> ParameterInfo {
+        ParameterInfo {
+            id,
+            title: title.into(),
+            short_title: String::new(),
+            units: String::new(),
+            step_count: 0,
+            default_value: None,
+            flags: ParameterFlags::default(),
+        }
+    }
+
     pub fn automation_value(&self, value: f64) -> Result<f64, crate::InputError> {
         self.validate_edit(value)?;
         if !self.flags.automatable {
@@ -105,6 +120,7 @@ pub struct ParameterGroup {
 
 /// A fresh query. Endpoints describe the normalized mapping, not a linear scale.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ParameterDetails {
     pub info: ParameterInfo,
     /// AU AudioUnitParameterUnit code. Other formats do not expose this unit enumeration.
@@ -113,6 +129,19 @@ pub struct ParameterDetails {
     pub plain_at_one: f64,
     /// Root to leaf. None means unavailable; Some(empty) is ungrouped.
     pub groups: Option<Vec<ParameterGroup>>,
+}
+
+impl ParameterDetails {
+    /// Details without a native unit or group information.
+    pub fn new(info: ParameterInfo, plain_at_zero: f64, plain_at_one: f64) -> ParameterDetails {
+        ParameterDetails {
+            info,
+            native_unit: None,
+            plain_at_zero,
+            plain_at_one,
+            groups: None,
+        }
+    }
 }
 
 pub const PARAMETER_CHOICE_PAGE_SIZE: u32 = 256;

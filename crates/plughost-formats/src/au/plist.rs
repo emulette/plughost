@@ -117,10 +117,10 @@ fn inspect_dictionary(state: &State) -> Result<plughost_core::PresetInfo, AuErro
                 .map_err(|_| AuError::State)
         })
         .transpose()?;
-    Ok(plughost_core::PresetInfo {
+    Ok(plughost_core::PresetInfo::new(
         class_id,
-        metadata: plughost_core::PresetMetadata::AudioUnit { name },
-    })
+        plughost_core::PresetMetadata::AudioUnit { name },
+    ))
 }
 
 #[cfg(test)]

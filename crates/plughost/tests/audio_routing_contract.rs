@@ -291,10 +291,7 @@ fn unused_upstream_delay_is_not_trimmed_from_an_external_main_path() {
             &[&left, &right],
             left.len(),
             &[],
-            &plughost::RenderOptions {
-                tail: plughost::TailPolicy::Reported,
-                max_tail_seconds: 0.0,
-            },
+            &plughost::RenderOptions::new(plughost::TailPolicy::Reported, 0.0),
         )
         .unwrap();
         assert_eq!(rendered.channels, vec![left, right]);

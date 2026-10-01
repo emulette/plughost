@@ -16,12 +16,15 @@ impl Plugin {
         let engine = lock(&self.engine);
         let unit = engine.unit()?;
         let groups = (unsafe { unit.parameterTree() }).and_then(|tree| group_path(&tree, id));
-        Ok(plughost_core::ParameterDetails {
-            info: super::parameter_info(&parameter),
-            plain_at_zero,
-            plain_at_one,
-            groups,
-            native_unit: Some(unsafe { parameter.unit() }.0),
+        Ok({
+            let mut parameter_details = plughost_core::ParameterDetails::new(
+                super::parameter_info(&parameter),
+                plain_at_zero,
+                plain_at_one,
+            );
+            parameter_details.groups = groups;
+            parameter_details.native_unit = Some(unsafe { parameter.unit() }.0);
+            parameter_details
         })
     }
 

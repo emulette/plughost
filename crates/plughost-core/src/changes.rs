@@ -7,6 +7,7 @@ pub const CHANGE_CAPACITY: usize = 128;
 /// activated with: it changes only when the plugin is prepared again or reset, so processing and
 /// rendering keep one alignment in between. The tail follows the plugin's reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PluginTiming {
     pub latency: u32,
     pub tail: Tail,
@@ -15,6 +16,18 @@ pub struct PluginTiming {
     /// The plugin reported a new latency, which takes effect when it is prepared again or reset.
     /// It keeps processing with `latency` until then.
     pub latency_changed: bool,
+}
+
+impl PluginTiming {
+    /// The timing of a plugin with no restart or latency change pending.
+    pub fn new(latency: u32, tail: Tail) -> PluginTiming {
+        PluginTiming {
+            latency,
+            tail,
+            restart_required: false,
+            latency_changed: false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

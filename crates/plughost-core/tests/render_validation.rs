@@ -43,10 +43,7 @@ impl Process<f32> for Instrument {
 }
 
 fn reported(seconds: f64) -> RenderOptions {
-    RenderOptions {
-        tail: TailPolicy::Reported,
-        max_tail_seconds: seconds,
-    }
+    RenderOptions::new(TailPolicy::Reported, seconds)
 }
 
 fn rejected(processor: &mut Instrument, frames: usize, options: &RenderOptions) {
@@ -60,12 +57,14 @@ fn rejected(processor: &mut Instrument, frames: usize, options: &RenderOptions) 
 
 #[test]
 fn invalid_options_are_rejected_before_processing() {
-    let silence = |threshold, hold_seconds| RenderOptions {
-        tail: TailPolicy::UntilSilence {
-            threshold,
-            hold_seconds,
-        },
-        max_tail_seconds: 0.0,
+    let silence = |threshold, hold_seconds| {
+        RenderOptions::new(
+            TailPolicy::UntilSilence {
+                threshold,
+                hold_seconds,
+            },
+            0.0,
+        )
     };
     for options in [
         reported(f64::NAN),
@@ -89,13 +88,13 @@ fn fractional_durations_round_to_samples_without_changing_valid_output() {
 #[test]
 fn zero_limits_and_finite_thresholds_above_unity_are_valid() {
     let mut processor = Instrument::default();
-    let options = RenderOptions {
-        tail: TailPolicy::UntilSilence {
+    let options = RenderOptions::new(
+        TailPolicy::UntilSilence {
             threshold: 2.0,
             hold_seconds: 0.0,
         },
-        max_tail_seconds: 0.0,
-    };
+        0.0,
+    );
     let result = render(&mut processor, &[], 3, &[], &options).unwrap();
     assert_eq!(result.channels, [vec![0.25; 3]]);
     assert_eq!(result.tail, 0);

@@ -33,6 +33,7 @@ impl PluginState {
 
 /// Why a state is being saved or applied. Unsupported native contexts are explicit errors.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum StatePurpose {
     #[default]
     Project,
@@ -45,6 +46,7 @@ pub const MAX_PRESET_BYTES: usize = 64 << 20;
 
 /// Native file metadata, kept separate from a plugin's opaque state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum PresetMetadata {
     /// The VST3 Info chunk is opaque XML bytes, preserved without interpreting vendor attributes.
     Vst3 {
@@ -56,7 +58,17 @@ pub enum PresetMetadata {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PresetInfo {
     pub class_id: String,
     pub metadata: PresetMetadata,
+}
+
+impl PresetInfo {
+    pub fn new(class_id: impl Into<String>, metadata: PresetMetadata) -> PresetInfo {
+        PresetInfo {
+            class_id: class_id.into(),
+            metadata,
+        }
+    }
 }

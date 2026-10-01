@@ -257,9 +257,9 @@ fn main_buses(plugin: &mut dyn HostedPlugin, info: &PluginInfo) -> Result<Buses,
             .map(|bus| bus.layout.unwrap_or(Layout::Stereo))
     };
     let input = match (main(AudioDirection::Input), info.kind) {
-        (Some(layout), PluginKind::Effect) => layout,
-        (None, PluginKind::Effect) => Layout::Stereo,
         (_, PluginKind::Instrument) => Layout::None,
+        (Some(layout), _) => layout,
+        (None, _) => Layout::Stereo,
     };
     Ok((
         input,
@@ -442,10 +442,7 @@ fn render_input(
     events: &[Event],
 ) -> Result<Vec<Vec<f32>>, Error> {
     let slices: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
-    let options = RenderOptions {
-        tail: TailPolicy::Reported,
-        max_tail_seconds: 0.0,
-    };
+    let options = RenderOptions::new(TailPolicy::Reported, 0.0);
     Ok(render(driver, &slices, frames, events, &options)?.channels)
 }
 

@@ -44,21 +44,23 @@ impl Plugin {
             .map_or(Support::Unsupported, |units| {
                 count_support(unsafe { units.getProgramListCount() })
             });
-        Ok(Capabilities {
-            embedded_editor: if self.editor.is_some() {
+        Ok({
+            let mut capabilities = Capabilities::default();
+            capabilities.embedded_editor = if self.editor.is_some() {
                 Support::Supported
             } else {
                 Support::Unknown
-            },
-            bus_discovery: Support::Supported,
-            note_input: notes(BusDirections_::kInput as i32),
-            note_output: notes(BusDirections_::kOutput as i32),
-            sample_accurate_automation: automation,
+            };
+            capabilities.bus_discovery = Support::Supported;
+            capabilities.note_input = notes(BusDirections_::kInput as i32);
+            capabilities.note_output = notes(BusDirections_::kOutput as i32);
+            capabilities.sample_accurate_automation = automation;
             // IComponent has state methods but no query establishing that the plugin implements them.
-            state: Support::Unknown,
-            factory_presets,
-            f32: precision(SymbolicSampleSizes_::kSample32 as i32),
-            f64: precision(SymbolicSampleSizes_::kSample64 as i32),
+            capabilities.state = Support::Unknown;
+            capabilities.factory_presets = factory_presets;
+            capabilities.f32 = precision(SymbolicSampleSizes_::kSample32 as i32);
+            capabilities.f64 = precision(SymbolicSampleSizes_::kSample64 as i32);
+            capabilities
         })
     }
 }
