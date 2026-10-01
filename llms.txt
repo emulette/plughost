@@ -9,13 +9,13 @@ Use the typed API documentation for complete signatures.
 
 ## Entry points
 
-- [Installation and stereo render example](https://github.com/emulette/plughost/blob/main/README.md)
+- [Installation and stereo render example](README.md)
 - [Application API](https://docs.rs/plughost/0.0.5/plughost/)
 - [Shared types and render API](https://docs.rs/plughost-core/0.0.5/plughost_core/)
 - [In-process formats](https://docs.rs/plughost-formats/0.0.5/plughost_formats/)
 - [Helper runtime](https://docs.rs/plughost-helper/0.0.5/plughost_helper/)
-- [Application exports](https://github.com/emulette/plughost/blob/main/crates/plughost/src/lib.rs)
-- [Changes](https://github.com/emulette/plughost/blob/main/CHANGELOG.md)
+- [Application exports](crates/plughost/src/lib.rs)
+- [Changes](CHANGELOG.md)
 
 ## Dependencies and deployment
 
@@ -32,7 +32,7 @@ Rosetta, Linux, and cross-architecture bridges are outside the supported targets
 On macOS the helper is a background `LSUIElement` application, signed with Hardened Runtime
 and the `disable-library-validation` and `allow-unsigned-executable-memory` entitlements.
 Pass the executable inside `Contents/MacOS`, not the `.app` directory. The repository's
-[packaging script](https://github.com/emulette/plughost/blob/main/scripts/macos/package-app.sh)
+[packaging script](scripts/macos/package-app.sh)
 uses ad-hoc signing for local development; the distributing application owns its production
 signing and notarization. On Windows pass the helper `.exe` path.
 
@@ -404,7 +404,7 @@ batch with a state snapshot and recovery), `plughost --example editor`,
 Run them through `cargo run -p <crate> --example <name> -- <arguments>`; each source file
 lists its arguments. Native loading can show license dialogs, so select plugins explicitly.
 
-The [README development section](https://github.com/emulette/plughost/blob/main/README.md#development)
+The [README development section](README.md#development)
 covers fixture/helper builds, tests, formatting, Clippy, API docs, and package verification.
 Test plugins and build scripts live in the repository, outside published crate packages.
 Keep crash/hang fixtures out of an application's normal plugin search directories.

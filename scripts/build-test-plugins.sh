@@ -7,6 +7,8 @@
 #                                    (the same binary; the plugin picks its variant from its
 #                                    bundle name)
 #   plughost-test-synth.clap         from test-plugins/synth
+#   plughost-test-presets.clap       from test-plugins/presets
+#   plughost-test-routing.{vst3,clap} from test-plugins/routing
 #   again.vst3, again-simple.vst3, adelay.vst3, note-expression-synth.vst3, host-checker.vst3,
 #   utf16-name.vst3                  VST3 SDK examples (MIT); VST3_SDK_DIR reuses a complete SDK
 # For macOS; use build-test-plugins.ps1 on Windows.
