@@ -375,6 +375,14 @@ macro_rules! render_process {
             fn tail(&self) -> Result<Tail, Error> {
                 Ok(self.tail)
             }
+            /// Reads the timing anew; a latency a plugin announced must be applied with
+            /// [`Chain::reset`] or [`Chain::reprepare`] first.
+            fn begin_render(&mut self) -> Result<(), Error> {
+                if self.read_timing()? {
+                    return Err(plughost_core::RenderError::LatencyNotApplied.into());
+                }
+                Ok(())
+            }
             fn validate_automation(&mut self, automation: &[AutomationEvent]) -> Result<(), Error> {
                 self.validate_render_precision(<$sample as Sample>::FORMAT)?;
                 self.validate_render_automation(automation)

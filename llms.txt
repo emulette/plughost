@@ -284,19 +284,21 @@ event input and each slot's first event output to the next slot's first event in
 A VST3 plugin without event input buses that maps MIDI controllers through IMidiMapping has
 one input port that takes controller messages only. VST3 receives notes as note events with
 their IDs, pressure as poly pressure, and the other expressions as note expression values of the
-standard types, which reach a note by ID alone: such an expression without an ID is not
-delivered. CLAP ports that take the CLAP dialect receive notes, MIDI notes and expressions as
-CLAP note and note expression events; other channel messages go as MIDI to ports that take MIDI
-or MIDI with MPE, which receive notes and pressure in their MIDI 1.0 form where they have no
-CLAP dialect. System exclusive data goes only to ports that take MIDI. Audio Units take events on
+standard types, which reach a note by ID alone. A note off or such an expression without an ID
+goes to each note on its key by that note's ID, so notes started without an ID take no
+expression other than pressure. CLAP ports that take the CLAP dialect receive notes, MIDI notes
+and expressions as CLAP note and note expression events, and MIDI poly pressure as pressure when
+they take no MIDI; other channel messages go as MIDI to ports that take MIDI or MIDI with MPE,
+which receive notes and pressure in their MIDI 1.0 form where they have no CLAP dialect. System exclusive data goes only to ports that take MIDI. Audio Units take events on
 port 0 only, in their MIDI 1.0 form. An expression other than pressure has no MIDI 1.0 form and
 does not reach MIDI-only ports. MPE is MIDI 1.0 on member channels: it is delivered as MIDI,
 never converted into notes with IDs or note expressions.
 
 Plugin output in a format's note events becomes notes and expressions: CLAP note and note
 expression events, and VST3 notes, poly pressure and standard note expression values (named by
-an ID the plugin's own note on gave). A VST3 note on with a tuning is followed by a tuning
-expression. MIDI output, legacy VST3 controller output and system exclusive data stay MIDI.
+an ID the plugin's own note on gave). A CLAP note off or expression may name its note by ID
+alone, and a VST3 note in the ID range VST3 reserves for plugins arrives, with its expressions,
+without an ID. A VST3 note on with a tuning is followed by a tuning expression. MIDI output, legacy VST3 controller output and system exclusive data stay MIDI.
 Events with no portable form are counted in diagnostics, not delivered (a CLAP note end, which
 only reports a voice that ended, is neither). Output events a plugin places past the end of the
 block land on its last frame. Audio Units send MIDI on one output port per MIDI output cable they
@@ -318,19 +320,21 @@ linear peak threshold of `1.585e-5`, a one-second hold, and a 30-second maximum 
 `TailPolicy::Reported` uses the tail the chain reports when the render starts, capped by that
 maximum; a tail reported during the render does not change its length.
 
-A chain's latency holds from one preparation to the next, so rendering removes one latency
-throughout. Each plugin's latency is read as it activates, on the helper's main thread. A latency
-a plugin announces while it processes (VST3 `kLatencyChanged`, an Audio Unit's changed latency
-property) does not stop processing or fail a render: the plugin keeps the latency it was
-activated with, as VST3 specifies, and `take_changes()` reports `PluginTiming::latency_changed`
-for its slot. `reprepare()` activates the plugins again and applies it; a VST3 plugin also takes
-it on `reset()`. An Audio Unit may already process with the new latency before then. CLAP
-plugins change their latency by asking for a restart, which refuses processing until the chain
-is prepared again. Tails follow the plugins: VST3 and Audio Unit tails are read on the helper's
-main thread while it idles and when asked for timing or changes, CLAP tails after the block in
+A chain's latency holds from one preparation or reset to the next, so rendering removes one
+latency throughout. Each plugin's latency is read as it activates, on the helper's main thread.
+A latency a plugin announces while it processes (VST3 `kLatencyChanged`, an Audio Unit's changed
+latency property) does not stop processing or a render already running, and `take_changes()`
+reports `PluginTiming::latency_changed` for its slot. `reprepare()` activates the plugins again
+and applies it; VST3 plugins and Audio Units also take it on `reset()`. VST3 asks plugins to keep
+the latency they were activated with until then, but many, like Audio Units, delay by the new
+latency at once, so the chain's output is out of alignment until the application applies it. A
+render does not start while a change is pending: it fails with `RenderError::LatencyNotApplied`
+(`FailureKind::RestartRequired`) before processing anything. CLAP plugins change their latency by asking for a restart, which refuses processing until
+the chain is prepared again. Tails follow the plugins: they are read on the helper's main thread
+while it idles and when asked for timing or changes, and CLAP tails also after the block in
 which the plugin reported a change. The processing thread never queries latency or tail natively.
 A generic `render::Process` whose latency changes during a render still fails it with
-`RenderError::LatencyChanged`.
+`RenderError::LatencyChanged`; `Process::begin_render` lets it refuse a render before it starts.
 
 `render_with_schedule` accepts a `RenderSchedule` containing automation points, ramps,
 and transport changes. Offsets are render-relative. Transport changes and the combined
@@ -420,8 +424,8 @@ such a view to the host. The editor window is not embedded in application window
 or showing an editor brings the helper to the front; on macOS the application that was
 frontmost before is activated again when the helper's last window closes.
 
-Match typed `Error` variants or use `Error::kind()` for the shared `FailureKind`; do not
-parse display text. `Error` and the scan enums are `#[non_exhaustive]`; `Error::source()`
+Match typed `Error` variants (`Error::Render` carries a `RenderError`, `Error::Input` an
+`InputError`) or use `Error::kind()` for the shared `FailureKind`; do not parse display text. `Error` and the scan enums are `#[non_exhaustive]`; `Error::source()`
 exposes wrapped I/O, render, input and operation errors. After a timeout or protocol error the
 helper is terminated; later requests return `Error::Crashed` (`NotPrepared` for processing)
 until the application recovers the chain. `Error::Crashed` and `Error::TimedOut` can include the last reported

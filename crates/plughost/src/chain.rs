@@ -334,17 +334,27 @@ impl Chain {
     }
 
     fn refresh_timing(&mut self) -> Result<(), Error> {
+        self.read_timing().map(|_| ())
+    }
+
+    /// Reads the chain's latency and tail from the helper, and whether a plugin announced a
+    /// latency that is not applied yet.
+    fn read_timing(&mut self) -> Result<bool, Error> {
         if !self.is_prepared() {
-            return Ok(());
+            return Ok(false);
         }
         match self
             .helper
             .request(Request::Timing, self.timeouts.control)?
         {
-            Response::Timing { latency, tail } => {
+            Response::Timing {
+                latency,
+                tail,
+                latency_changed,
+            } => {
                 self.latency = latency;
                 self.tail = tail;
-                Ok(())
+                Ok(latency_changed)
             }
             _ => Err(Error::Protocol),
         }

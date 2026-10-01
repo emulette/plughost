@@ -225,6 +225,8 @@ const INPUT_CHANNELS: &str = "input channel count does not match the processor";
 const EVENTS: &str =
     "events must be valid MIDI messages on existing ports, in offset order, inside the input";
 const LATENCY_CHANGED: &str = "the processor's latency changed during rendering";
+const LATENCY_NOT_APPLIED: &str = "a plugin announced a new latency that is not applied yet; reset \
+     or prepare the chain again before rendering";
 const TAIL_DURATION: &str = "maximum tail seconds must be finite and non-negative";
 const SILENCE_THRESHOLD: &str = "silence threshold must be finite and non-negative";
 const SILENCE_HOLD: &str = "silence hold seconds must be finite and non-negative";
@@ -245,9 +247,18 @@ pub enum RenderError {
     SilenceHold,
     LengthOverflow,
     InputLength,
-    InputChannels { expected: usize, actual: usize },
+    InputChannels {
+        expected: usize,
+        actual: usize,
+    },
     Events,
-    LatencyChanged { before: u32, after: u32 },
+    LatencyChanged {
+        before: u32,
+        after: u32,
+    },
+    /// A plugin announced a new latency before the render started, and the processor has not
+    /// applied it yet.
+    LatencyNotApplied,
 }
 
 impl RenderError {
@@ -263,6 +274,7 @@ impl RenderError {
             | Self::InputChannels { .. }
             | Self::Events => FailureKind::InvalidInput,
             Self::LatencyChanged { .. } => FailureKind::Configuration,
+            Self::LatencyNotApplied => FailureKind::RestartRequired,
         }
     }
 }
@@ -284,6 +296,7 @@ impl fmt::Display for RenderError {
             RenderError::LatencyChanged { before, after } => {
                 write!(f, "{LATENCY_CHANGED} ({before} to {after} samples)")
             }
+            RenderError::LatencyNotApplied => f.write_str(LATENCY_NOT_APPLIED),
         }
     }
 }

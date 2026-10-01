@@ -500,6 +500,7 @@ impl Host {
             return Response::Timing {
                 latency: 0,
                 tail: Tail::Samples(0),
+                latency_changed: false,
             };
         };
         let timings = match audio_timing::chain_timings(&self.slots, &self.calls) {
@@ -510,6 +511,7 @@ impl Host {
             Ok((plan, tail)) => Response::Timing {
                 latency: plan.latency(),
                 tail,
+                latency_changed: timings.iter().any(|timing| timing.latency_changed),
             },
             Err(failure) => Response::Failed {
                 slot: None,

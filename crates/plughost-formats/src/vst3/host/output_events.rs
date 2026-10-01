@@ -16,8 +16,9 @@ use vst3::Steinberg::Vst::ControllerNumbers_::{
 use vst3::Steinberg::Vst::DataEvent_::DataTypes_::kMidiSysEx;
 use vst3::Steinberg::Vst::Event_::EventTypes_;
 
-/// Where an output note with an ID plays: its bus, channel and key. A note expression value names
-/// its note by ID alone.
+/// Where an output note with an ID plays, by its native ID: its bus, channel and key. A note
+/// expression value names its note by ID alone. IDs in the range VST3 reserves for plugins have no
+/// portable form, so their notes and expressions leave the plugin without one.
 type Sounding = HashMap<i32, (usize, u8, u8)>;
 
 #[derive(Default)]
@@ -29,7 +30,8 @@ struct Output {
     /// Events with no portable form (text expression, chords, scales, out-of-range values,
     /// expressions of unknown notes).
     unconvertible: u64,
-    /// The plugin's notes with IDs, from their note on to their note off, up to the event budget.
+    /// The plugin's notes with IDs, from the note on that left it to their note off, up to the
+    /// event budget.
     sounding: Sounding,
 }
 
@@ -45,9 +47,11 @@ impl OutputEventList {
         events
             .try_reserve_exact(MAX_BLOCK_EVENTS)
             .map_err(|_| Vst3Error::EventStorage)?;
+        // Room for twice the notes it follows, so that it does not grow on the processing thread
+        // after notes come and go.
         let mut sounding = HashMap::new();
         sounding
-            .try_reserve(MAX_BLOCK_EVENTS)
+            .try_reserve(2 * MAX_BLOCK_EVENTS)
             .map_err(|_| Vst3Error::EventStorage)?;
         Ok(Self {
             output: Mutex::new(Output {
@@ -128,11 +132,8 @@ fn expression(channel: u8, key: u8, kind: ExpressionKind, value: f64, id: i32) -
 }
 
 /// The portable form of one output event: one event, or a note on and its tuning; `None` when it
-/// has none. `sounding` follows the notes with IDs.
-fn convert(
-    event: &Event,
-    sounding: &mut Sounding,
-) -> Option<(usize, EventData, Option<EventData>)> {
+/// has none. Note expression values find their notes in `sounding`.
+fn convert(event: &Event, sounding: &Sounding) -> Option<(usize, EventData, Option<EventData>)> {
     let port = usize::try_from(event.busIndex).ok()?;
     let channel_message = |status: u8, channel: i32, first: i32, second: u8| {
         let channel = u8::try_from(channel).ok().filter(|c| *c < 16)?;
@@ -145,11 +146,8 @@ fn convert(
             NOTE_ON => {
                 let on = event.__field0.noteOn;
                 let note = note(on.channel, on.pitch, on.velocity, on.noteId)?;
-                if note.id.is_some() && sounding.len() < MAX_BLOCK_EVENTS {
-                    sounding.insert(on.noteId, (port, note.channel, note.key));
-                }
-                // The tuning of a note on is in cents.
-                let tuning = (on.tuning != 0.0).then(|| {
+                // The tuning of a note on is in cents; one that is not a number is none.
+                let tuning = (on.tuning.is_finite() && on.tuning != 0.0).then(|| {
                     let semitones = f64::from(on.tuning) / 100.0;
                     let kind = ExpressionKind::Tuning;
                     expression(note.channel, note.key, kind, semitones, on.noteId)
@@ -158,7 +156,6 @@ fn convert(
             }
             NOTE_OFF => {
                 let off = event.__field0.noteOff;
-                sounding.remove(&off.noteId);
                 let note = note(off.channel, off.pitch, off.velocity, off.noteId)?;
                 (EventData::NoteOff(note), None)
             }
@@ -217,6 +214,37 @@ fn convert(
     Some((port, data, tuning))
 }
 
+/// Follows the plugin's notes with IDs: a note on it delivered starts one, and a note off ends
+/// the note it names, or without an ID the notes on its key, whether or not it converts.
+fn follow(sounding: &mut Sounding, event: &Event, delivered: Option<&EventData>) {
+    let Ok(port) = usize::try_from(event.busIndex) else {
+        return;
+    };
+    // SAFETY: the union field read matches the event type the plugin declared.
+    match u32::from(event.r#type) {
+        NOTE_ON => {
+            let id = unsafe { event.__field0.noteOn.noteId };
+            if let Some(EventData::NoteOn(note)) = delivered
+                && id != -1
+                && (sounding.len() < MAX_BLOCK_EVENTS || sounding.contains_key(&id))
+            {
+                sounding.insert(id, (port, note.channel, note.key));
+            }
+        }
+        NOTE_OFF => {
+            let off = unsafe { event.__field0.noteOff };
+            if off.noteId != -1 {
+                sounding.remove(&off.noteId);
+            } else {
+                sounding.retain(|_, &mut (bus, channel, key)| {
+                    (bus, i16::from(channel), i16::from(key)) != (port, off.channel, off.pitch)
+                });
+            }
+        }
+        _ => {}
+    }
+}
+
 impl IEventListTrait for OutputEventList {
     unsafe fn getEventCount(&self) -> int32 {
         lock(&self.output).events.len() as i32
@@ -235,17 +263,18 @@ impl IEventListTrait for OutputEventList {
             output.unconvertible += 1;
             return kResultOk;
         };
-        let converted = convert(event, &mut output.sounding).and_then(|(port, data, tuning)| {
+        let converted = convert(event, &output.sounding).and_then(|(port, data, tuning)| {
             let event = PortEvent::new(offset, data).on_port(port);
             let tuning = tuning.map(|data| PortEvent::new(offset, data).on_port(port));
             (event.is_valid() && tuning.as_ref().is_none_or(PortEvent::is_valid))
                 .then_some((event, tuning))
         });
-        let Some((event, tuning)) = converted else {
+        let Some((converted, tuning)) = converted else {
+            follow(&mut output.sounding, event, None);
             output.unconvertible += 1;
             return kResultOk;
         };
-        let sysex = match &event.data {
+        let sysex = match &converted.data {
             EventData::SysEx(bytes) => bytes.len(),
             _ => 0,
         };
@@ -253,12 +282,18 @@ impl IEventListTrait for OutputEventList {
         if output.events.len() + count > MAX_BLOCK_EVENTS
             || output.sysex.saturating_add(sysex) > MAX_BLOCK_SYSEX_BYTES
         {
+            follow(&mut output.sounding, event, None);
             output.overflow = true;
             return kResultFalse;
         }
+        follow(&mut output.sounding, event, Some(&converted.data));
         output.sysex += sysex;
-        output.events.push(event);
+        output.events.push(converted);
         output.events.extend(tuning);
         kResultOk
     }
 }
+
+#[cfg(test)]
+#[path = "output_events_tests.rs"]
+mod tests;

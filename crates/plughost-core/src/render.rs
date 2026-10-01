@@ -91,10 +91,16 @@ pub trait Process<S: Sample> {
     fn input_channels(&self) -> usize;
     fn output_channels(&self) -> usize;
     /// The latency the processor's output has. It must not change while a render runs, so that
-    /// one alignment holds; plughost's processors keep the latency they were prepared with until
-    /// they are prepared again or reset.
+    /// one alignment holds; plughost's processors keep the latency they were prepared or last
+    /// reset with.
     fn latency(&self) -> Result<u32, Self::Error>;
     fn tail(&self) -> Result<Tail, Self::Error>;
+    /// Called once as a render starts, before it reads the latency and tail. A processor whose
+    /// latency changed without the change being applied yet refuses here with
+    /// [`RenderError::LatencyNotApplied`], since the whole render would keep the old alignment.
+    fn begin_render(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
     /// Validate all scheduled targets before the render advances DSP state. Implementors with
     /// automation must check slot/parameter identity, write access and automatable metadata.
     fn validate_automation(
@@ -152,8 +158,8 @@ pub struct Rendered<S> {
 /// through the processor, with `events` placed by offset from the start of the input, in offset
 /// order and before `frames`.
 ///
-/// The latency is read before rendering and after every block; a change is an error because the
-/// alignment would no longer hold. [`TailPolicy::Reported`] plans the tail length from the tail
+/// [`Process::begin_render`] runs first. The latency is read before rendering and after every
+/// block; a change is an error because the alignment would no longer hold. [`TailPolicy::Reported`] plans the tail length from the tail
 /// reported when the render starts; [`TailPolicy::UntilSilence`] ignores the reported tail.
 /// Options, processor timing, sample conversion and buffer lengths are validated before calling
 /// `process`. Durations round to the nearest sample. Invalid or unrepresentable values are errors,
@@ -278,6 +284,7 @@ pub fn render_stream<S: Sample, P: Process<S>>(
         return Err(RenderError::Events.into());
     }
 
+    processor.begin_render()?;
     let latency = processor.latency()?;
     let sample_rate = processor.sample_rate();
     let block = processor.max_block_size();

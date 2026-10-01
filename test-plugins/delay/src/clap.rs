@@ -1,8 +1,9 @@
 //! The CLAP side of the test plugin: the same delay, but [`LATENCY`] long at 48 kHz and
 //! proportional to the sample rate at others, so a host that reads the latency before activation
 //! gets it wrong; plus a gain parameter kept in the state, so parameter changes and state round
-//! trips can be tested, and a range parameter that, set while inactive, doubles the gain's range
-//! and announces it with `params.rescan`.
+//! trips can be tested, a range parameter that, set while inactive, doubles the gain's range
+//! and announces it with `params.rescan`, and a tail parameter whose change, with a block or a
+//! flush between blocks, the plugin reports from its audio thread.
 
 use std::collections::VecDeque;
 use std::ffi::CStr;
@@ -592,27 +593,7 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
         }
         self.shared.apply(events.input);
         report_edits(events.input, events.output);
-        for event in events.input {
-            if let Some(CoreEventSpace::ParamValue(change)) = event.as_core_event() {
-                match change.param_id().map(|id| id.get()) {
-                    Some(9) => {
-                        self.shared
-                            .tail
-                            .store(change.value() as u32, Ordering::Relaxed);
-                        if let Some(tail) = self.host.get_extension::<HostTail>() {
-                            tail.changed(&mut self.host);
-                        }
-                    }
-                    Some(10) => {
-                        self.shared
-                            .restart_mode
-                            .store(change.value() as u32, Ordering::Relaxed);
-                        self.host.shared().request_restart();
-                    }
-                    _ => {}
-                }
-            }
-        }
+        self.apply_timing(events.input);
         for mut port in &mut audio {
             let Some(channels) = port.channels()?.into_f32() else {
                 continue;
@@ -696,10 +677,39 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
     }
 }
 
+impl Processor<'_> {
+    /// Applies the tail and restart mode parameters, reporting a tail change from this audio
+    /// thread as CLAP asks, whether the edits arrive with a block or a flush between blocks.
+    fn apply_timing(&mut self, input: &InputEvents) {
+        for event in input {
+            if let Some(CoreEventSpace::ParamValue(change)) = event.as_core_event() {
+                match change.param_id().map(|id| id.get()) {
+                    Some(9) => {
+                        self.shared
+                            .tail
+                            .store(change.value() as u32, Ordering::Relaxed);
+                        if let Some(tail) = self.host.get_extension::<HostTail>() {
+                            tail.changed(&mut self.host);
+                        }
+                    }
+                    Some(10) => {
+                        self.shared
+                            .restart_mode
+                            .store(change.value() as u32, Ordering::Relaxed);
+                        self.host.shared().request_restart();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
 impl PluginAudioProcessorParams for Processor<'_> {
     fn flush(&mut self, input: &InputEvents, output: &mut OutputEvents) {
         self.shared.apply(input);
         report_edits(input, output);
+        self.apply_timing(input);
     }
 }
 

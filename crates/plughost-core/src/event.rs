@@ -55,10 +55,12 @@ pub struct Event {
 ///
 /// Plugins receive notes and expressions in their format's note events where it has them: CLAP
 /// note and note expression events on ports that take the CLAP dialect, and VST3 note events,
-/// note expression values, and poly pressure. Ports that take MIDI only receive the MIDI 1.0 form
-/// of [`EventData::to_midi`]; the note ID and the precision beyond 7 bits are lost there, and an
-/// expression other than pressure has no such form and is not delivered. Output notes and
-/// expressions in a format's note events become these variants; MIDI output stays MIDI.
+/// note expression values, and poly pressure. VST3 names a note by its ID, so a note off or an
+/// expression without an ID reaches each note on its key by that note's ID, and a note started
+/// without an ID takes no expression other than pressure. Ports that take MIDI only receive the
+/// MIDI 1.0 form of [`EventData::to_midi`]; the note ID and the precision beyond 7 bits are lost
+/// there, and an expression other than pressure has no such form and is not delivered. Output
+/// notes and expressions in a format's note events become these variants; MIDI output stays MIDI.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum EventData {

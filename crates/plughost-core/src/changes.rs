@@ -14,7 +14,7 @@ pub struct PluginTiming {
     /// The plugin asked to be prepared again; processing is refused until it is.
     pub restart_required: bool,
     /// The plugin reported a new latency, which takes effect when it is prepared again or reset.
-    /// It keeps processing with `latency` until then.
+    /// The chain keeps aligning to `latency` until then, and a render does not start.
     pub latency_changed: bool,
 }
 

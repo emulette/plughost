@@ -67,8 +67,8 @@ pub use plughost_core::{
     ParameterInfo, PluginFormat, PluginInfo, PluginKind, PluginRef, PluginState, PluginTiming,
     PresetDiscovery, PresetDiscoveryTarget, PresetFileFailure, PresetFileType, PresetInfo,
     PresetLocation, PresetLocationInfo, PresetMetadata, PresetPluginId, PresetProviderInfo,
-    PresetSoundpack, ProcessMode, RoutedChainConfig, SampleFormat, SlotAudioConfig, SlotChange,
-    SlotEventConfig, StatePurpose, Support, TimeSignature, Transport,
+    PresetSoundpack, ProcessMode, RenderError, RoutedChainConfig, SampleFormat, SlotAudioConfig,
+    SlotChange, SlotEventConfig, StatePurpose, Support, TimeSignature, Transport,
 };
 pub use preset_paths::{
     PresetDirectory, PresetFile, PresetSearchError, discover_preset_files,

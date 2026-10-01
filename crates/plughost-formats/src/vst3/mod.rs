@@ -11,6 +11,7 @@ mod engine;
 mod errors;
 mod event_ports;
 mod host;
+mod input_notes;
 mod instance;
 mod module;
 mod note_expression;

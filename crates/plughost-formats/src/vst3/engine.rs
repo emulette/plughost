@@ -34,6 +34,7 @@ use vst3::{ComPtr, ComWrapper};
 use super::buffers::AudioBuffers;
 use super::errors::Vst3Error;
 use super::host::{ComponentHandler, EventList, OutputEventList, ParameterChanges};
+use super::input_notes::InputNotes;
 use super::instance::{Instance, MidiAssignment, midi_assignments};
 use super::note_expression;
 use super::parameter_cache::ParameterCache;
@@ -65,6 +66,8 @@ pub(crate) struct Prepared {
     changes: ComWrapper<ParameterChanges>,
     output_changes: ComWrapper<ParameterChanges>,
     events: ComWrapper<EventList>,
+    /// The notes `events` started and have not ended.
+    notes: InputNotes,
     output_events: ComWrapper<OutputEventList>,
     /// Per event input port, whether it is active; events reach only active ports.
     pub event_inputs: Vec<bool>,
@@ -155,7 +158,9 @@ impl Engine {
         // the start of the block take a second point that holds the previous value until them.
         let changes = ComWrapper::new(ParameterChanges::new(2 * limit, 3 * limit)?);
         let output_changes = ComWrapper::new(ParameterChanges::latest(limit)?);
-        let events = ComWrapper::new(EventList::new(limit)?);
+        // A note off or an expression without an ID becomes one event per note on its key.
+        let events = ComWrapper::new(EventList::new(2 * limit)?);
+        let notes = InputNotes::new()?;
         let output_events = ComWrapper::new(OutputEventList::new()?);
         let automation = scratch(limit)?;
         let mut setup = ProcessSetup {
@@ -210,6 +215,7 @@ impl Engine {
             changes,
             output_changes,
             events,
+            notes,
             output_events,
             event_inputs,
             event_buses,
@@ -248,6 +254,7 @@ impl Engine {
         let tail = tail(&instance.processor);
         instance.handler.take_restart_flags();
         if let Some(prepared) = &mut self.prepared {
+            prepared.notes.clear();
             prepared.output_events.forget_notes();
             prepared.latency = latency;
             prepared.tail = tail;
@@ -501,8 +508,13 @@ impl Processor {
 
 enum NativeInput {
     Note(Event),
+    /// A note expression value without an ID, for the notes on this channel and key.
+    KeyExpression(Event, i16, i16),
     Parameter(ParamID, i32, f64),
 }
+
+const NOTE_ON: u32 = EventTypes_::kNoteOnEvent as u32;
+const NOTE_OFF: u32 = EventTypes_::kNoteOffEvent as u32;
 
 fn scratch<T>(limit: usize) -> Result<Vec<T>, Vst3Error> {
     let mut values = Vec::new();
@@ -592,7 +604,20 @@ impl Prepared {
                 staged += 1;
             }
             match self.translate(event) {
-                Some(NativeInput::Note(note)) => self.events.push(note),
+                Some(NativeInput::Note(note)) => self.push_note(note),
+                Some(NativeInput::KeyExpression(expression, channel, pitch)) => {
+                    for id in self.notes.ids(expression.busIndex, channel, pitch) {
+                        // SAFETY: `native` built this event as a note expression value.
+                        let mut value = unsafe { expression.__field0.noteExpressionValue };
+                        value.noteId = id;
+                        self.events.push(Event {
+                            __field0: Event__type0 {
+                                noteExpressionValue: value,
+                            },
+                            ..expression
+                        });
+                    }
+                }
                 Some(NativeInput::Parameter(id, offset, value)) => {
                     match self.parameters.index(u64::from(id)) {
                         Some(index) => self.push_point(index, offset, value),
@@ -605,6 +630,32 @@ impl Prepared {
         while let Some(&(index, offset, value)) = self.automation.get(staged) {
             self.push_point(index, offset, value);
             staged += 1;
+        }
+    }
+
+    /// Queues a note event, following the notes it starts and ends. A note off without an ID
+    /// ends each note on its key by that note's ID.
+    fn push_note(&mut self, event: Event) {
+        let (notes, events) = (&mut self.notes, &self.events);
+        // SAFETY: the union field read matches the event type set where the event was built.
+        match u32::from(event.r#type) {
+            NOTE_ON => {
+                let on = unsafe { event.__field0.noteOn };
+                notes.note_on(event.busIndex, on.channel, on.pitch, on.noteId);
+                events.push(event);
+            }
+            NOTE_OFF => {
+                let off = unsafe { event.__field0.noteOff };
+                notes.note_off(event.busIndex, off.channel, off.pitch, off.noteId, |id| {
+                    events.push(Event {
+                        __field0: Event__type0 {
+                            noteOff: NoteOffEvent { noteId: id, ..off },
+                        },
+                        ..event
+                    });
+                });
+            }
+            _ => events.push(event),
         }
     }
 
@@ -647,7 +698,7 @@ impl Prepared {
 
     /// The native form of an event. System exclusive data points into `event`, which outlives
     /// the process call. Notes keep their IDs; an expression other than pressure reaches a note
-    /// by its ID alone, so it is not delivered without one.
+    /// by its ID alone, so one without an ID goes to the notes on its key that have one.
     fn native(&self, event: &plughost_core::Event) -> Option<NativeInput> {
         let native = |kind, body| {
             Some(NativeInput::Note(note_event(
@@ -724,16 +775,26 @@ impl Prepared {
                 return poly_pressure(channel, key, expression.value as f32, id(expression.id));
             }
             EventData::Expression(expression) => {
-                return native(
+                let value = note_event(
+                    event.offset as i32,
+                    event.port as i32,
                     EventTypes_::kNoteExpressionValueEvent,
                     Event__type0 {
                         noteExpressionValue: NoteExpressionValueEvent {
                             typeId: note_expression::type_id(expression.kind)?,
-                            noteId: expression.id? as i32,
+                            noteId: id(expression.id),
                             value: note_expression::normalized(expression.kind, expression.value),
                         },
                     },
                 );
+                return Some(match expression.id {
+                    Some(_) => NativeInput::Note(value),
+                    None => NativeInput::KeyExpression(
+                        value,
+                        i16::from(expression.channel),
+                        i16::from(expression.key),
+                    ),
+                });
             }
             _ => {}
         }

@@ -26,6 +26,7 @@ pub struct RenderSession<'a, S: Sample, P: Process<S>> {
 
 impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
     pub fn new(processor: &'a mut P) -> Result<Self, P::Error> {
+        processor.begin_render()?;
         let latency = processor.latency()?;
         Ok(Self {
             processor,

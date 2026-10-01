@@ -233,10 +233,12 @@ pub enum Response {
     StateRestored {
         timing: Option<(u32, Tail)>,
     },
-    /// Latency and tail of the whole chain.
+    /// Latency and tail of the whole chain, and whether a plugin announced a latency that is
+    /// not applied yet.
     Timing {
         latency: u32,
         tail: Tail,
+        latency_changed: bool,
     },
     EditorOpen(bool),
     /// Invalid caller input; the helper remains usable and no mutation was attempted.

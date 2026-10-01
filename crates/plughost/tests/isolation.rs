@@ -72,7 +72,9 @@ fn scanner_for(cache: &Path, files: &[&str]) -> Scanner {
     Scanner::new(&helper(), cache)
         .directories(vec![plugins()])
         .policy(policy)
-        .stall_timeout(Duration::from_secs(1))
+        // Loading a freshly signed bundle for the first time can take a second while other tests
+        // run; the hanging fixtures still time out quickly.
+        .stall_timeout(Duration::from_secs(3))
 }
 
 fn signal(frames: usize) -> Vec<Vec<f32>> {

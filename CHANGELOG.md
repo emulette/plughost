@@ -18,6 +18,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   1.0 form of notes and pressure (`EventData::to_midi`); other expressions do not reach them.
 - Plugin output in a format's note events arrives as notes and expressions, at the next slot and
   at the application. It used to be counted in diagnostics as having no MIDI 1.0 form.
+- `Process::begin_render` runs once as a render starts, before the latency and tail are read;
+  its default does nothing.
+- `plughost` re-exports `RenderError`, so applications match `Error::Render` without depending on
+  `plughost-core`.
 - `EventPortInfo::note_expression` and `EventPortInfo::mpe` tell whether notes keep their IDs
   and expressions arrive at a port (the CLAP dialect, or a VST3 controller's
   `INoteExpressionController`) and whether it takes MPE (CLAP's MIDI dialect with MPE, or an
@@ -32,16 +36,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   a channel message's bytes. Move an event with `at(offset)` instead of struct update syntax.
 - VST3 plugins' notes and poly pressure arrive as `EventData::NoteOn`, `NoteOff` and pressure
   expressions instead of MIDI. `to_midi` gives the MIDI 1.0 messages that used to arrive.
-- MIDI input reaches plugins as before. MPE is MIDI 1.0 and is delivered as MIDI; it is not
-  converted into notes with IDs or note expressions.
+- MIDI input reaches plugins as before, and MIDI poly pressure now also reaches CLAP ports that
+  take no MIDI, as pressure. MPE is MIDI 1.0 and is delivered as MIDI; it is not converted into
+  notes with IDs or note expressions.
 - A chain's latency holds until it is prepared again or reset. A latency a VST3 plugin announces
   with `kLatencyChanged`, or an Audio Unit's changed latency, no longer stops processing or a
   render: the plugin keeps the latency it was activated with, and `take_changes` reports
-  `PluginTiming::latency_changed` until `reprepare` (or, for VST3, `reset`) applies it. Renders
-  used to fail with `RenderError::LatencyChanged` when the read latency changed.
+  `PluginTiming::latency_changed` until `reprepare` or `reset` applies it. Many plugins delay by
+  the new latency at once, so a render does not start while a change is pending: it fails with
+  the new `RenderError::LatencyNotApplied`. Renders used to fail with
+  `RenderError::LatencyChanged` when the read latency changed.
 - The helper reads VST3 latency and tail, which VST3 assigns to the UI thread, on its main thread
-  instead of after every block on the processing thread; CLAP tails are read after a block in
-  which the plugin reported a change. `PluginTiming` has the new field `latency_changed`.
+  instead of after every block on the processing thread; CLAP tails are read there too, and after
+  a block in which the plugin reported a change. `PluginTiming` has the new field
+  `latency_changed`.
 - `TailPolicy::Reported` plans the tail reported when the render starts, and a tail reported
   later no longer fails the render. `RenderError::TailChanged` is gone.
 - Types that later versions extend are `#[non_exhaustive]`, so additions do not break

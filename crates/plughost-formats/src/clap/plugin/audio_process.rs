@@ -127,6 +127,7 @@ impl Processor {
                 queue: &parameter_events,
             },
             events: produced,
+            sounding: &mut prepared.sounding,
             frames,
             sysex: 0,
             overflow: false,

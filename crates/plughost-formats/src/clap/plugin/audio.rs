@@ -380,6 +380,7 @@ impl Plugin {
         let buffers =
             buffers::AudioBuffers::new(&buses, config.sample_format, config.max_block_size)?;
         let input_events = input_events::InputBuffer::new()?;
+        let sounding = output_events::sounding()?;
         let event_inputs = self.event_inputs(events)?;
         let extensions = self.shared().extensions();
         let (render, latency_extension) = (extensions.render, extensions.latency);
@@ -445,6 +446,7 @@ impl Plugin {
             tail,
             steady_time: 0,
             parameters,
+            sounding,
         });
         Ok(())
     }

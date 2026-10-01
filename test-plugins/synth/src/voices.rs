@@ -87,9 +87,18 @@ impl Voices {
     }
 
     pub fn note_off(&mut self, target: Target) {
+        self.end(|voice| voice.matches(&target));
+    }
+
+    /// Ends the voices the target addresses that started without an ID.
+    pub fn note_off_without_id(&mut self, target: Target) {
+        self.end(|voice| voice.id.is_none() && voice.matches(&target));
+    }
+
+    fn end(&mut self, ends: impl Fn(&Voice) -> bool) {
         for slot in &mut self.voices {
             if let Some(voice) = slot
-                && voice.matches(&target)
+                && ends(voice)
             {
                 if self.sustain {
                     voice.released = true;

@@ -71,8 +71,9 @@ impl InputBuffer {
     }
     /// Queues `event` for its port, whose dialects decide the native form. Ports that take the
     /// CLAP dialect get notes and expressions as CLAP note and note expression events, and MIDI
-    /// notes as CLAP notes too; ports that take MIDI or MIDI with MPE get the other channel
-    /// messages, and the MIDI 1.0 form of notes and pressure where they have no CLAP dialect.
+    /// notes as CLAP notes too, as well as MIDI poly pressure as pressure when they take no MIDI;
+    /// ports that take MIDI or MIDI with MPE get the other channel messages, and the MIDI 1.0
+    /// form of notes and pressure where they have no CLAP dialect.
     /// System exclusive data goes to ports that take MIDI. The rest are not delivered.
     /// A system exclusive event refers to `event`'s bytes until the buffer is cleared.
     pub fn note(&mut self, event: &plughost_core::Event, dialects: NoteDialects) {
@@ -147,6 +148,18 @@ impl InputBuffer {
                     time,
                     pckn(channel, key, None),
                     f64::from(velocity) / 127.0,
+                )));
+            }
+            Some(Message::PolyPressure {
+                channel,
+                key,
+                pressure,
+            }) if clap_notes && !midi => {
+                self.push(NativeEvent::Expression(NoteExpressionEvent::new(
+                    time,
+                    pckn(channel, key, None),
+                    NoteExpressionType::Pressure,
+                    f64::from(pressure) / 127.0,
                 )));
             }
             _ if midi => {
@@ -270,5 +283,24 @@ mod tests {
             .collect();
         // Tuning has no MIDI 1.0 form.
         assert_eq!(midi, [[0x92, 64, 32], [0xA2, 64, 127]]);
+    }
+
+    #[test]
+    fn midi_poly_pressure_reaches_a_port_without_midi_as_pressure() {
+        let mut input = InputBuffer::new().unwrap();
+        input.note(
+            &Event::midi(3, [0xA2, 64, 127]).on_port(1),
+            NoteDialects::CLAP,
+        );
+        let Some(CoreEventSpace::NoteExpression(pressure)) = input.get(0).unwrap().as_core_event()
+        else {
+            panic!("expected a note expression");
+        };
+        assert_eq!(
+            pressure.expression_type(),
+            Some(NoteExpressionType::Pressure)
+        );
+        assert_eq!(pressure.value(), 1.0);
+        assert_eq!(pressure.pckn(), Pckn::new(1u16, 2u16, 64u16, Match::All));
     }
 }

@@ -40,7 +40,8 @@ fn expression(offset: usize, id: u32, kind: ExpressionKind, value: f64) -> Event
 
 /// What the synth fixture plays for `events` on its first port: each note a voice of
 /// `velocity × (1 + pressure) × cos(phase)` at its key plus its tuning, from the sample of its
-/// note on to the sample of its note off.
+/// note on to the sample of its note off. A note off or expression without an ID reaches every
+/// note.
 fn expected(events: &[Event]) -> Vec<f32> {
     struct Voice {
         id: u32,
@@ -62,9 +63,12 @@ fn expected(events: &[Event]) -> Vec<f32> {
                         pressure: 0.0,
                         phase: 0.0,
                     }),
-                    EventData::NoteOff(note) => voices.retain(|voice| Some(voice.id) != note.id),
+                    EventData::NoteOff(note) => {
+                        voices.retain(|voice| note.id.is_some_and(|id| id != voice.id))
+                    }
                     EventData::Expression(expression) => {
-                        for voice in voices.iter_mut().filter(|v| Some(v.id) == expression.id) {
+                        let addressed = |v: &&mut Voice| expression.id.is_none_or(|id| id == v.id);
+                        for voice in voices.iter_mut().filter(addressed) {
                             match expression.kind {
                                 ExpressionKind::Tuning => voice.tuning = expression.value,
                                 ExpressionKind::Pressure => voice.pressure = expression.value,
@@ -162,6 +166,29 @@ fn overlapping_notes_on_one_key_take_their_own_tuning_and_pressure() {
         assert_eq!(output[0], 0.5, "{format:?}");
         assert_plays(&output, &events, &format!("{format:?}"));
         assert!(output[320..].iter().all(|&s| s == 0.0), "{format:?}");
+    }
+}
+
+#[test]
+#[ignore = "needs helper and synth fixtures (.ps1 or .sh build scripts)"]
+fn a_note_off_or_expression_without_an_id_reaches_every_note_on_its_key() {
+    let tuning = NoteExpression::new(0, KEY, ExpressionKind::Tuning, 12.0);
+    let events = [
+        note_on(0, 1, 0.5),
+        note_on(64, 2, 0.25),
+        // Both notes go an octave up, and both end.
+        Event::new(128, EventData::Expression(tuning)),
+        Event::new(256, EventData::NoteOff(Note::new(0, KEY, 0.0))),
+    ];
+    for format in FORMATS {
+        let mut chain = spawn(&[synth(format)]);
+        let config = chain
+            .main_bus_config(SAMPLE_RATE, FRAMES, Layout::None, &[Layout::Stereo])
+            .unwrap();
+        chain.prepare_audio(&config).unwrap();
+        let (output, _) = run(&mut chain, &config, &events);
+        assert_plays(&output, &events, &format!("{format:?}"));
+        assert!(output[256..].iter().all(|&s| s == 0.0), "{format:?}");
     }
 }
 

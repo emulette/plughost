@@ -81,9 +81,15 @@ impl Synth {
                 }
                 NOTE_OFF => {
                     let off = event.__field0.noteOff;
+                    // Like the SDK's voice processor, a note off without an ID ends the notes its
+                    // key started without one, not those with an ID.
                     if let Some(target) = target(event.busIndex, off.channel, off.pitch, off.noteId)
                     {
-                        voices.note_off(target);
+                        if off.noteId == -1 {
+                            voices.note_off_without_id(target);
+                        } else {
+                            voices.note_off(target);
+                        }
                     }
                 }
                 POLY_PRESSURE => {

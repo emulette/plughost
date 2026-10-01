@@ -109,8 +109,8 @@ struct Prepared {
     transport_changed: Arc<AtomicBool>,
     /// The length of the last block rendered.
     last_frames: usize,
-    /// The latency as render resources were allocated, which holds until they are allocated
-    /// again, and whether the unit has reported another one since.
+    /// The latency as render resources were allocated or the unit was last reset, which holds
+    /// until either happens again, and whether the unit has reported another one since.
     latency: u32,
     latency_changed: bool,
     /// The tail the owning thread last read.
@@ -413,10 +413,14 @@ impl Plugin {
         Ok(())
     }
 
-    /// Clears the unit's internal audio state with its native `reset`, keeping its settings.
+    /// Clears the unit's internal audio state with its native `reset`, keeping its settings. A
+    /// prepared unit's latency is read again, and the host aligns to it from here on.
     pub(crate) fn reset(&mut self) -> Result<(), AuError> {
-        let engine = lock(&self.engine);
+        let mut engine = lock(&self.engine);
         unsafe { engine.unit()?.reset() };
+        if engine.prepared.is_some() {
+            engine.take_latency()?;
+        }
         Ok(())
     }
 }
@@ -716,8 +720,8 @@ impl Engine {
     }
 
     /// Reads the latency and tail again on the owning thread. A unit changes its latency
-    /// whenever it likes; the host keeps the alignment of the latency it was prepared with and
-    /// reports the change.
+    /// whenever it likes; the host keeps the alignment of the latency it was prepared or last
+    /// reset with and reports the change.
     fn refresh_timing(&mut self) -> Result<(), AuError> {
         let (unit, prepared) = self.parts()?;
         let sample_rate = prepared.config.sample_rate;
@@ -728,6 +732,16 @@ impl Engine {
         let prepared = self.prepared.as_mut().ok_or(AuError::NotPrepared)?;
         prepared.latency_changed |= latency != prepared.latency;
         prepared.tail = tail;
+        Ok(())
+    }
+
+    /// Takes the latency the unit reports now as the one the host aligns to.
+    fn take_latency(&mut self) -> Result<(), AuError> {
+        let (unit, prepared) = self.parts()?;
+        let latency = read_latency(unit, prepared.config.sample_rate);
+        let prepared = self.prepared.as_mut().ok_or(AuError::NotPrepared)?;
+        prepared.latency = latency;
+        prepared.latency_changed = false;
         Ok(())
     }
 

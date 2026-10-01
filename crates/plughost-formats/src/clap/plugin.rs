@@ -114,6 +114,8 @@ struct Prepared {
     tail: Tail,
     steady_time: u64,
     parameters: Arc<ParameterCache>,
+    /// The plugin's output notes with IDs.
+    sounding: output_events::Sounding,
 }
 
 fn lock(engine: &Mutex<Engine>) -> MutexGuard<'_, Engine> {
@@ -250,9 +252,20 @@ impl Plugin {
             .process(context, input, output, automation, events, produced)
     }
 
-    /// The prepared plugin's timing.
+    /// The prepared plugin's timing, with its tail read again: a plugin reports a changed tail
+    /// only from a block it processes, so a tail it changed since, for example with a state it
+    /// loaded, shows here before the next block.
     pub(crate) fn timing(&self) -> Result<PluginTiming, ClapError> {
-        self.processor().timing()
+        let mut engine = lock(&self.engine);
+        let Engine {
+            processor: Some(processor),
+            prepared: Some(prepared),
+        } = &mut *engine
+        else {
+            return Err(ClapError::NotPrepared);
+        };
+        prepared.tail = read_tail(processor);
+        Ok(timing(processor, prepared))
     }
 
     /// The cached parameter list, read again after the plugin rescanned its parameter info. The
@@ -437,6 +450,10 @@ impl Plugin {
         let mut engine = lock(&self.engine);
         let processor = engine.processor.as_mut().ok_or(ClapError::NotPrepared)?;
         in_audio_context(|| processor.reset());
+        if let Some(prepared) = &mut engine.prepared {
+            // Reset ended the plugin's notes.
+            prepared.sounding.clear();
+        }
         Ok(())
     }
 
@@ -770,7 +787,8 @@ fn timing(processor: &PluginAudioProcessor<Host>, prepared: &Prepared) -> Plugin
 }
 
 /// The tail the plugin reports, read as its audio thread under the engine lock: as it activates,
-/// and after a block in which it reported a change, which CLAP does from the audio thread.
+/// after a block in which it reported a change, which CLAP does from the audio thread, and when
+/// the owning thread reads the timing.
 fn read_tail(processor: &mut PluginAudioProcessor<Host>) -> Tail {
     let Some(extension) = processor.access_shared_handler(|shared| shared.extensions().tail) else {
         return Tail::Samples(0);
