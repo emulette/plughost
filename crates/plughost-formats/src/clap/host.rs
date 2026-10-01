@@ -61,7 +61,7 @@ pub struct Host;
 impl HostHandlers for Host {
     type Shared<'a> = Shared;
     type MainThread<'a> = MainThread<'a>;
-    type AudioProcessor<'a> = AudioThread;
+    type AudioProcessor<'a> = AudioThread<'a>;
 
     fn declare_extensions(builder: &mut HostExtensions<Self>, _shared: &Shared) {
         builder
@@ -114,6 +114,8 @@ pub struct Shared {
     pub restart_requested: AtomicBool,
     pub audio_ports_reset: AtomicBool,
     pub latency_changed: AtomicBool,
+    /// The plugin reported a changed tail from its audio thread, which reads it after the block.
+    pub tail_changed: AtomicBool,
     pub callback_requested: AtomicBool,
     pub flush_requested: AtomicBool,
     /// The plugin rescanned its parameter info; the cached parameter list is stale.
@@ -140,6 +142,7 @@ impl Shared {
             restart_requested: AtomicBool::new(false),
             audio_ports_reset: AtomicBool::new(false),
             latency_changed: AtomicBool::new(false),
+            tail_changed: AtomicBool::new(false),
             callback_requested: AtomicBool::new(false),
             flush_requested: AtomicBool::new(false),
             parameters_changed: AtomicBool::new(true),
@@ -432,11 +435,14 @@ impl HostAudioPortsImpl for MainThread<'_> {
     }
 }
 
-pub struct AudioThread;
-impl AudioProcessorHandler<'_> for AudioThread {}
-impl HostTailImpl for AudioThread {
-    // The tail is queried after every processed block.
-    fn changed(&mut self) {}
+pub struct AudioThread<'a> {
+    pub shared: &'a Shared,
+}
+impl<'a> AudioProcessorHandler<'a> for AudioThread<'a> {}
+impl HostTailImpl for AudioThread<'_> {
+    fn changed(&mut self) {
+        self.shared.tail_changed.store(true, Ordering::Relaxed);
+    }
 }
 
 impl HostAudioPortsConfigImpl for MainThread<'_> {

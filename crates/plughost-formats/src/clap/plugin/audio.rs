@@ -402,7 +402,7 @@ impl Plugin {
         let processor = self
             .instance
             .activate(
-                |_, _| super::super::host::AudioThread,
+                |shared, _| super::super::host::AudioThread { shared },
                 PluginAudioConfiguration {
                     sample_rate: config.sample_rate,
                     min_frames_count: 1,
@@ -426,7 +426,10 @@ impl Plugin {
             .map(|b| b.channels as usize)
             .collect();
         let mut engine = lock(&self.engine);
-        engine.processor = Some(processor.into());
+        let mut processor = processor.into();
+        self.shared().tail_changed.store(false, Ordering::Relaxed);
+        let tail = read_tail(&mut processor);
+        engine.processor = Some(processor);
         engine.prepared = Some(Prepared {
             input_events,
             buffers,
@@ -439,6 +442,7 @@ impl Plugin {
             main_output,
             event_inputs,
             latency,
+            tail,
             steady_time: 0,
             parameters,
         });

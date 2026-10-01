@@ -93,27 +93,20 @@ impl Host {
         let processor = candidate.processor();
         let mut retimed = None;
         if let Some(routing) = &routing {
-            let current = match audio_timing::plugin_timing(processor.as_ref()) {
+            let current = match candidate.timing() {
                 Ok(current) => current,
                 Err(error) => {
                     return self.reject_candidate(slot, candidate.as_ref(), slot, error.failure());
                 }
             };
             let calls = self.calls.clone();
+            let mut timings = match audio_timing::chain_timings(&self.slots, &calls) {
+                Ok(timings) => timings,
+                Err((index, error)) => {
+                    return self.reject_candidate(slot, candidate.as_ref(), index, error.failure());
+                }
+            };
             let pipeline = process::lock(&self.pipeline);
-            let mut timings =
-                match audio_timing::chain_timings(&pipeline.processors, &calls, Caller::Main) {
-                    Ok(timings) => timings,
-                    Err((index, error)) => {
-                        drop(pipeline);
-                        return self.reject_candidate(
-                            slot,
-                            candidate.as_ref(),
-                            index,
-                            error.failure(),
-                        );
-                    }
-                };
             // The active chain must still match its alignment before one slot is retimed.
             let checked = pipeline
                 .alignment

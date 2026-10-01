@@ -230,7 +230,6 @@ const SILENCE_THRESHOLD: &str = "silence threshold must be finite and non-negati
 const SILENCE_HOLD: &str = "silence hold seconds must be finite and non-negative";
 const RENDER_LENGTH: &str =
     "render duration or sample buffer length exceeds the representable range";
-const TAIL_CHANGED: &str = "the processor tail changed during rendering; re-plan the render";
 const SESSION_CLOSED: &str = "the render session is no longer active";
 pub(crate) const MESSAGE_TOO_LARGE: &str = "the message exceeds the maximum size";
 pub(crate) const MALFORMED_MESSAGE: &str = "the message could not be decoded";
@@ -240,7 +239,6 @@ pub(crate) const MALFORMED_MESSAGE: &str = "the message could not be decoded";
 #[non_exhaustive]
 pub enum RenderError {
     SessionClosed,
-    TailChanged,
     Input(InputError),
     TailDuration,
     SilenceThreshold,
@@ -255,7 +253,6 @@ pub enum RenderError {
 impl RenderError {
     pub fn kind(&self) -> FailureKind {
         match self {
-            Self::TailChanged => FailureKind::Configuration,
             Self::SessionClosed => FailureKind::NotPrepared,
             Self::Input(_)
             | Self::TailDuration
@@ -273,7 +270,6 @@ impl RenderError {
 impl fmt::Display for RenderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RenderError::TailChanged => f.write_str(TAIL_CHANGED),
             RenderError::SessionClosed => f.write_str(SESSION_CLOSED),
             RenderError::Input(error) => error.fmt(f),
             RenderError::TailDuration => f.write_str(TAIL_DURATION),

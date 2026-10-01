@@ -181,11 +181,11 @@ impl Process<f32> for Driver {
     }
 
     fn latency(&self) -> Result<u32, Error> {
-        self.plugin.latency()
+        self.plugin.timing().map(|timing| timing.latency)
     }
 
     fn tail(&self) -> Result<Tail, Error> {
-        self.plugin.tail()
+        self.plugin.timing().map(|timing| timing.tail)
     }
 
     fn validate_automation(
@@ -290,8 +290,8 @@ fn check(plugin: &PluginRef, info: &PluginInfo) -> Result<bool, Error> {
                 passed &= finite;
                 out!(
                     "rate {rate}: ok | latency {} | tail {:?} | peak {:.4}{}",
-                    driver.plugin.latency()?,
-                    driver.plugin.tail()?,
+                    driver.plugin.timing()?.latency,
+                    driver.plugin.timing()?.tail,
                     peak(&output),
                     if finite { "" } else { " | NON-FINITE" }
                 );

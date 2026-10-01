@@ -275,7 +275,11 @@ fn latency_is_read_for_the_prepared_sample_rate() {
     for rate in RATES {
         plugin.prepare(&config(rate)).unwrap();
         let latency = (rate / 100.0) as usize;
-        assert_eq!(plugin.latency(), Ok(latency as u32), "{rate} Hz");
+        assert_eq!(
+            plugin.timing().map(|timing| timing.latency),
+            Ok(latency as u32),
+            "{rate} Hz"
+        );
         let input = signal(latency + 4 * BLOCK);
         let output = run(&mut plugin, &input);
         assert!(
@@ -481,7 +485,10 @@ fn stepped_host_edits_reach_the_plugin_as_whole_values() {
     // The tail parameter is stepped over [0, 32]; 0.3 of its range is 9.6.
     plugin.set_parameter(TAIL, 0.3).unwrap();
     run(&mut plugin, &signal(BLOCK));
-    assert_eq!(plugin.tail(), Ok(plughost_core::render::Tail::Samples(10)));
+    assert_eq!(
+        plugin.timing().map(|timing| timing.tail),
+        Ok(plughost_core::render::Tail::Samples(10))
+    );
 }
 
 #[test]
@@ -516,7 +523,7 @@ fn a_restart_requested_while_processing_keeps_the_block_and_fails_the_next() {
     assert!(plugin.processor().restart_required());
     assert_eq!(process(&[]), Err(Error::Clap(ClapError::RestartRequired)));
     plugin.prepare(&config).unwrap();
-    assert_eq!(plugin.latency().unwrap(), 512);
+    assert_eq!(plugin.timing().map(|timing| timing.latency).unwrap(), 512);
     assert!(!plugin.processor().restart_required());
     assert!(process(&[]).is_ok());
     // In its last mode the plugin asks again while it activates; that request stands.
@@ -527,7 +534,7 @@ fn a_restart_requested_while_processing_keeps_the_block_and_fails_the_next() {
     assert!(process(&automation).is_ok());
     assert_eq!(process(&[]), Err(Error::Clap(ClapError::RestartRequired)));
     plugin.prepare(&config).unwrap();
-    assert_eq!(plugin.latency().unwrap(), 544);
+    assert_eq!(plugin.timing().map(|timing| timing.latency).unwrap(), 544);
     assert!(plugin.processor().restart_required());
     assert_eq!(process(&[]), Err(Error::Clap(ClapError::RestartRequired)));
 }

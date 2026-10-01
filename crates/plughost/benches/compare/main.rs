@@ -133,10 +133,10 @@ impl Process<f32> for Direct {
         2
     }
     fn latency(&self) -> std::result::Result<u32, Self::Error> {
-        self.processor.latency()
+        self.processor.timing().map(|timing| timing.latency)
     }
     fn tail(&self) -> std::result::Result<Tail, Self::Error> {
-        self.processor.tail()
+        self.processor.timing().map(|timing| timing.tail)
     }
     fn process(
         &mut self,

@@ -142,22 +142,7 @@ impl Host {
             } => self.load_discovered_preset(slot, &location, load_key.as_deref()),
             Request::Changes => {
                 self.tick();
-                let mut pipeline = process::lock(&self.pipeline);
-                for slot in 0..pipeline.processors.len() {
-                    let processor = pipeline.processors[slot].as_ref();
-                    let timing = {
-                        let _call = calls.enter(Caller::Main, slot);
-                        audio_timing::plugin_timing(processor)
-                    };
-                    match timing {
-                        Ok(timing) => pipeline.changes.observe(slot, timing),
-                        Err(error) if processor.restart_required() => {
-                            return failed(slot, &error);
-                        }
-                        Err(_) => {}
-                    }
-                }
-                Response::Changes(pipeline.changes.take())
+                Response::Changes(process::lock(&self.pipeline).changes.take())
             }
             Request::Diagnostics => {
                 let mut batch = std::mem::take(&mut self.retired_diagnostics);
@@ -288,6 +273,7 @@ impl Host {
     /// resized. A failure to open a requested editor is reported as a diagnostic.
     pub fn tick(&mut self) {
         self.collect_parameter_events();
+        self.observe_timing();
         let calls = self.calls.clone();
         for (slot, (plugin, editor)) in self.slots.iter_mut().zip(&mut self.editors).enumerate() {
             let _call = calls.enter(Caller::Main, slot);
@@ -311,6 +297,25 @@ impl Host {
                 && !window.tick(plugin.as_mut())
             {
                 *editor = None;
+            }
+        }
+    }
+
+    /// Reads every prepared slot's timing on this thread, which refreshes what its processor
+    /// reports while processing, and records changes for the application. A slot that cannot
+    /// report its timing now fails the next block or request that needs it.
+    fn observe_timing(&mut self) {
+        if process::lock(&self.pipeline).audio_config.is_none() {
+            return;
+        }
+        let calls = self.calls.clone();
+        for (slot, plugin) in self.slots.iter().enumerate() {
+            let timing = {
+                let _call = calls.enter(Caller::Main, slot);
+                plugin.timing()
+            };
+            if let Ok(timing) = timing {
+                process::lock(&self.pipeline).changes.observe(slot, timing);
             }
         }
     }
@@ -465,11 +470,11 @@ impl Host {
             // Native reset ended every note the chain forwarded.
             pipeline.resync = false;
             if let Some(config) = pipeline.audio_config.clone() {
-                let timings =
-                    match audio_timing::chain_timings(&pipeline.processors, &calls, Caller::Main) {
-                        Ok(timings) => timings,
-                        Err((slot, error)) => return failed(slot, &error),
-                    };
+                // Native reset activates the plugins again, which applies a latency they changed.
+                let timings = match audio_timing::chain_timings(&self.slots, &calls) {
+                    Ok(timings) => timings,
+                    Err((slot, error)) => return failed(slot, &error),
+                };
                 // Native reset discarded DSP history, so the previous alignment is unusable.
                 pipeline.alignment = None;
                 match AudioTiming::new(&config, &timings)
@@ -496,11 +501,10 @@ impl Host {
                 tail: Tail::Samples(0),
             };
         };
-        let timings =
-            match audio_timing::chain_timings(&pipeline.processors, &self.calls, Caller::Main) {
-                Ok(timings) => timings,
-                Err((slot, error)) => return failed(slot, &error),
-            };
+        let timings = match audio_timing::chain_timings(&self.slots, &self.calls) {
+            Ok(timings) => timings,
+            Err((slot, error)) => return failed(slot, &error),
+        };
         match AudioTiming::plan(config, &timings) {
             Ok((plan, tail)) => Response::Timing {
                 latency: plan.latency(),

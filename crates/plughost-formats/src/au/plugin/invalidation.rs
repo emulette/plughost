@@ -115,7 +115,7 @@ mod tests {
         assert!(!crate::BlockProcessor::restart_required(
             &healthy.processor()
         ));
-        assert!(healthy.latency().is_ok());
+        assert!(healthy.timing().is_ok());
         assert_eq!(
             invalid
                 .save_state(plughost_core::StatePurpose::Project)

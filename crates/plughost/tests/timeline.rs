@@ -59,10 +59,10 @@ impl Process<f32> for Native {
         self.config.output.channels()
     }
     fn latency(&self) -> Result<u32, NativeError> {
-        self.plugin.latency()
+        self.plugin.timing().map(|timing| timing.latency)
     }
     fn tail(&self) -> Result<Tail, NativeError> {
-        self.plugin.tail()
+        self.plugin.timing().map(|timing| timing.tail)
     }
     fn validate_automation(&mut self, events: &[AutomationEvent]) -> Result<(), NativeError> {
         let parameters = self.plugin.parameters();
@@ -425,8 +425,9 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
             value: 0.5,
         },
     }];
-    // The reported tail sets this render's length, so its change invalidates the plan.
-    let error = render_with_schedule(
+    // The reported tail sets this render's length when it starts; a tail the plugin reports
+    // during the render does not change it.
+    let rendered = render_with_schedule(
         &mut chain,
         &[&input, &input],
         32,
@@ -440,12 +441,13 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
             ..Default::default()
         },
     )
-    .unwrap_err();
-    assert_eq!(error.kind(), FailureKind::Configuration);
+    .unwrap();
+    assert_eq!(rendered.tail, 30);
     assert_eq!(
         chain.take_changes().unwrap().snapshot[0].unwrap().tail,
         Tail::Samples(16)
     );
+    assert_eq!(chain.tail(), Tail::Samples(16));
     chain.set_parameter(0, 0, 0.375).unwrap();
     for mode in [0.5, 1.0] {
         let automation = [AutomationEvent {

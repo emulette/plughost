@@ -6,7 +6,9 @@
 //! it for `setupProcessing`, `setActive`, `setProcessing`, bus negotiation, component state, and
 //! the flush that delivers pending edits. The edit controller is never called under this mutex
 //! nor from the processing thread: the owning thread calls it directly, and values the processor
-//! reports back reach it through [`ParameterCache`].
+//! reports back reach it through [`ParameterCache`]. The latency and tail getters are owning
+//! thread calls too: the latency is read as the plugin activates, the tail when the owning thread
+//! asks for the timing, and the processing thread reads both from [`Prepared`].
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -14,7 +16,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use plughost_core::render::Tail;
 use plughost_core::{
     AudioBusInfo, AudioConfig, AudioDirection, EventData, ExpressionKind, Layout, Message,
-    ParameterChange, ProcessConfig, ProcessMode, Sample, SampleFormat, events_fit,
+    ParameterChange, PluginTiming, ProcessConfig, ProcessMode, Sample, SampleFormat, events_fit,
 };
 use vst3::Steinberg::Vst::ControllerNumbers_::{kAfterTouch, kCtrlProgramChange, kPitchBend};
 use vst3::Steinberg::Vst::DataEvent_::DataTypes_;
@@ -49,6 +51,9 @@ pub(crate) struct Prepared {
     pub audio_config: AudioConfig,
     pub audio_buses: Vec<AudioBusInfo>,
     pub context_requirements: Option<u32>,
+    /// The latency the plugin reported as it activated, which holds until it activates again.
+    latency: u32,
+    tail: Tail,
     buffers: AudioBuffers,
     position: i64,
     parameters: Arc<ParameterCache>,
@@ -170,7 +175,8 @@ impl Engine {
         if result != kResultOk {
             return Err(Vst3Error::Activate(result));
         }
-        activated(processor);
+        let latency = activated(processor);
+        let tail = tail(processor);
         // Restart requests made while taking this configuration are about the configuration
         // itself; kept, they would ask for the same preparation again forever.
         instance.handler.take_restart_flags();
@@ -193,6 +199,8 @@ impl Engine {
                     .cast::<IProcessContextRequirements>()
                     .map(|requirements| unsafe { requirements.getProcessContextRequirements() })
             },
+            latency,
+            tail,
             buffers,
             position: 0,
             parameters: Arc::clone(parameters),
@@ -236,10 +244,13 @@ impl Engine {
             self.prepared = None;
             return Err(Vst3Error::Activate(result));
         }
-        activated(&instance.processor);
+        let latency = activated(&instance.processor);
+        let tail = tail(&instance.processor);
         instance.handler.take_restart_flags();
-        if let Some(prepared) = &self.prepared {
+        if let Some(prepared) = &mut self.prepared {
             prepared.output_events.forget_notes();
+            prepared.latency = latency;
+            prepared.tail = tail;
         }
         Ok(())
     }
@@ -340,17 +351,32 @@ impl Engine {
         Ok(())
     }
 
-    pub fn latency(&self) -> Result<u32, Vst3Error> {
-        Ok(unsafe { self.instance()?.processor.getLatencySamples() })
+    /// The timing read on the owning thread; no native call. A latency the plugin announced with
+    /// `kLatencyChanged` is valid once it activates again (VST3 asks the host to deactivate and
+    /// activate it), so it is pending until then.
+    pub fn timing(&self) -> Result<PluginTiming, Vst3Error> {
+        let flags = self.instance()?.handler.restart_flags();
+        let prepared = self.prepared.as_ref().ok_or(Vst3Error::NotPrepared)?;
+        Ok(PluginTiming {
+            latency: prepared.latency,
+            tail: prepared.tail,
+            restart_required: flags & RESTART_REQUIRED != 0,
+            latency_changed: flags & RestartFlags_::kLatencyChanged != 0,
+        })
     }
 
-    pub fn tail(&self) -> Result<Tail, Vst3Error> {
-        Ok(
-            match unsafe { self.instance()?.processor.getTailSamples() } {
-                samples if samples == kInfiniteTail => Tail::Infinite,
-                samples => Tail::Samples(samples),
-            },
-        )
+    /// Reads the tail again, on the owning thread. VST3 has no notification for it.
+    pub fn refresh_tail(&mut self) {
+        if let (Some(instance), Some(prepared)) = (&self.instance, &mut self.prepared) {
+            prepared.tail = tail(&instance.processor);
+        }
+    }
+}
+
+fn tail(processor: &ComPtr<IAudioProcessor>) -> Tail {
+    match unsafe { processor.getTailSamples() } {
+        samples if samples == kInfiniteTail => Tail::Infinite,
+        samples => Tail::Samples(samples),
     }
 }
 
@@ -411,13 +437,15 @@ fn flush_inactive(instance: &Instance) -> Result<(), Vst3Error> {
     Ok(())
 }
 
-/// Starts processing an activated plugin. The SDK's call sequence reads the latency after every
-/// `setActive(true)` and before the first process call, which may be a parameter flush.
-fn activated(processor: &ComPtr<IAudioProcessor>) {
+/// Starts processing an activated plugin and returns its latency. The SDK's call sequence reads
+/// the latency after every `setActive(true)` and before the first process call, which may be a
+/// parameter flush.
+fn activated(processor: &ComPtr<IAudioProcessor>) -> u32 {
     unsafe {
-        processor.getLatencySamples();
+        let latency = processor.getLatencySamples();
         // Plugins without a processing state return kNotImplemented, which is not an error.
         processor.setProcessing(1);
+        latency
     }
 }
 
@@ -461,8 +489,8 @@ impl Processor {
         lock(&self.engine).process(context, input, output, changes, events, produced)
     }
 
-    pub(crate) fn tail(&self) -> Result<Tail, Vst3Error> {
-        lock(&self.engine).tail()
+    pub(crate) fn timing(&self) -> Result<PluginTiming, Vst3Error> {
+        lock(&self.engine).timing()
     }
 
     /// The plugin asked to be prepared again (changed buses or a reload request).
@@ -470,10 +498,6 @@ impl Processor {
         lock(&self.engine)
             .instance()
             .is_ok_and(|instance| instance.handler.restart_flags() & RESTART_REQUIRED != 0)
-    }
-
-    pub(crate) fn latency(&self) -> Result<u32, Vst3Error> {
-        lock(&self.engine).latency()
     }
 }
 

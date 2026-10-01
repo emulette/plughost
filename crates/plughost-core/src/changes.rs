@@ -3,11 +3,18 @@ use serde::{Deserialize, Serialize};
 
 pub const CHANGE_CAPACITY: usize = 128;
 
+/// A plugin's timing as its owning thread last read it. The latency is the one the plugin was
+/// activated with: it changes only when the plugin is prepared again or reset, so processing and
+/// rendering keep one alignment in between. The tail follows the plugin's reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginTiming {
     pub latency: u32,
     pub tail: Tail,
+    /// The plugin asked to be prepared again; processing is refused until it is.
     pub restart_required: bool,
+    /// The plugin reported a new latency, which takes effect when it is prepared again or reset.
+    /// It keeps processing with `latency` until then.
+    pub latency_changed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,6 +86,7 @@ mod tests {
             latency,
             tail: Tail::Samples(latency),
             restart_required: false,
+            latency_changed: false,
         };
         for slot in 0..CHANGE_CAPACITY + 10 {
             events.observe(slot, timing(slot as u32));

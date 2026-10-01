@@ -49,6 +49,7 @@ fn native(latency: u32, tail: u32) -> PluginTiming {
         latency,
         tail: Tail::Samples(tail),
         restart_required: false,
+        latency_changed: false,
     }
 }
 

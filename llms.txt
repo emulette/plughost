@@ -303,8 +303,22 @@ contain exactly `frames` samples. For an instrument, use empty input and explici
 Rendering trims reported latency and appends a tail bounded by
 `RenderOptions::max_tail_seconds`. The default uses `TailPolicy::UntilSilence` with a
 linear peak threshold of `1.585e-5`, a one-second hold, and a 30-second maximum tail.
-`TailPolicy::Reported` uses the plugin-reported tail, capped by that maximum. A changed
-latency is an error; reported-tail rendering also rejects changes to its tail assumption.
+`TailPolicy::Reported` uses the tail the chain reports when the render starts, capped by that
+maximum; a tail reported during the render does not change its length.
+
+A chain's latency holds from one preparation to the next, so rendering removes one latency
+throughout. Each plugin's latency is read as it activates, on the helper's main thread. A latency
+a plugin announces while it processes (VST3 `kLatencyChanged`, an Audio Unit's changed latency
+property) does not stop processing or fail a render: the plugin keeps the latency it was
+activated with, as VST3 specifies, and `take_changes()` reports `PluginTiming::latency_changed`
+for its slot. `reprepare()` activates the plugins again and applies it; a VST3 plugin also takes
+it on `reset()`. An Audio Unit may already process with the new latency before then. CLAP
+plugins change their latency by asking for a restart, which refuses processing until the chain
+is prepared again. Tails follow the plugins: VST3 and Audio Unit tails are read on the helper's
+main thread while it idles and when asked for timing or changes, CLAP tails after the block in
+which the plugin reported a change. The processing thread never queries latency or tail natively.
+A generic `render::Process` whose latency changes during a render still fails it with
+`RenderError::LatencyChanged`.
 
 `render_with_schedule` accepts a `RenderSchedule` containing automation points, ramps,
 and transport changes. Offsets are render-relative. Transport changes and the combined
@@ -420,7 +434,8 @@ helper also terminates its scope when the application exits or disconnects, even
 dialog or stuck native call blocks its main thread. An invalidated Audio Unit extension instance
 fails later calls with `RestartRequired`; it is not recreated automatically.
 
-`take_changes()` drains coalesced timing/restart notifications. `take_diagnostics()` drains
+`take_changes()` drains coalesced `PluginTiming` notifications per slot: the latency the plugin
+was activated with, its tail, a restart request, and a pending latency change. `take_diagnostics()` drains
 bounded structured plugin logs and helper failures. Unread helper-local diagnostics are lost
 when that helper exits. Startup errors and arbitrary plugin stderr remain on stderr; plugin
 stdout is discarded. Applications own recovery decisions and user-facing reporting.

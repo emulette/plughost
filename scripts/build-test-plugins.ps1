@@ -8,7 +8,7 @@ New-Item -ItemType Directory -Force $out | Out-Null
 # One binary; the plugin picks its variant from the name of the module the host loads.
 & cargo build --release --locked -p plughost-test-delay --manifest-path "$root/Cargo.toml" --target-dir "$root/target"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-foreach ($variant in @('delay', 'crash-in-process', 'hang-in-process', 'crash-on-scan', 'hang-on-scan', 'noop-reset', 'latency-overflow', 'large-state', 'stall-main-thread', 'arrangement-false', 'restart-on-activate', 'timers')) {
+foreach ($variant in @('delay', 'crash-in-process', 'hang-in-process', 'crash-on-scan', 'hang-on-scan', 'noop-reset', 'latency-overflow', 'large-state', 'stall-main-thread', 'arrangement-false', 'restart-on-activate', 'timers', 'latency-change')) {
     foreach ($extension in @('vst3', 'clap')) {
         Copy-Item -LiteralPath "$root/target/release/plughost_test_delay.dll" -Destination "$out/plughost-test-$variant.$extension"
     }

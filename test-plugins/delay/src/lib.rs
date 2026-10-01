@@ -16,6 +16,10 @@
 //! `editor` gives the CLAP side an editor inside the host's window (see `editor.rs`).
 //! `restart-on-activate` makes the VST3 side report changed buses each time it activates.
 //! `timers` gives the CLAP side two timers, the first of which removes the second (`timers.rs`).
+//! `latency-change` makes the VST3 side announce a doubled latency with `kLatencyChanged` from
+//! the process call that reaches [`LATENCY_CHANGE_AFTER`] frames, and take it, as VST3 has it, the
+//! next time it activates; its latency and tail getters, which VST3 lets only the thread that
+//! created the plugin call, answer 0 and an infinite tail on any other thread.
 
 #![allow(non_snake_case)]
 // VST3 enum constants are i32 on Windows and u32 elsewhere, so a cast needed on one platform is
@@ -61,6 +65,8 @@ use variant::{Variant, variant};
 pub const LATENCY: usize = 480;
 /// How long the `stall-main-thread` variant holds up the host's main thread.
 pub const MAIN_THREAD_STALL: std::time::Duration = std::time::Duration::from_secs(3);
+/// The frames the `latency-change` variant processes before it announces its new latency.
+pub const LATENCY_CHANGE_AFTER: usize = 2400;
 /// VST3 parameters: the output gain, whether the last restored state was marked as project
 /// state (read-only), and the MIDI controller mapped to the gain (0: volume, 1: expression).
 const GAIN: ParamID = 0;
@@ -149,6 +155,9 @@ struct Delay {
     handler: Mutex<Option<ComPtr<IComponentHandler>>>,
     /// The main buses' arrangement: stereo, or 6.0 after a six-channel proposal.
     arrangement: Mutex<SpeakerArrangement>,
+    /// The delay since the plugin last activated, and the frames processed so far; the
+    /// `latency-change` variant doubles the delay once those reach `LATENCY_CHANGE_AFTER`.
+    latency: Mutex<(usize, usize)>,
     /// The thread that created the plugin, the only one VST3 lets call the edit controller.
     owner: std::thread::ThreadId,
 }
@@ -166,6 +175,7 @@ impl Delay {
             values: Mutex::new(PARAMETERS.map(|(_, _, default, _)| default)),
             handler: Mutex::new(None),
             arrangement: Mutex::new(SpeakerArr::kStereo),
+            latency: Mutex::new((LATENCY, 0)),
             owner: std::thread::current().id(),
         }
     }
@@ -368,8 +378,13 @@ impl IComponentTrait for Delay {
 
     unsafe fn setActive(&self, state: TBool) -> tresult {
         if state != 0 {
+            let mut latency = lock(&self.latency);
+            if variant() == Variant::LatencyChange && latency.1 >= LATENCY_CHANGE_AFTER {
+                latency.0 = 2 * LATENCY;
+            }
             for line in lock(&self.lines).iter_mut() {
-                line.iter_mut().for_each(|sample| *sample = 0.0);
+                line.clear();
+                line.resize(latency.0, 0.0);
             }
             // Some plugins announce the buses they settle on as they activate.
             if variant() == Variant::RestartOnActivate
@@ -471,10 +486,10 @@ impl IAudioProcessorTrait for Delay {
     }
 
     unsafe fn getLatencySamples(&self) -> u32 {
-        if variant() == Variant::LatencyOverflow {
-            u32::MAX
-        } else {
-            LATENCY as u32
+        match variant() {
+            Variant::LatencyOverflow => u32::MAX,
+            Variant::LatencyChange if std::thread::current().id() != self.owner => 0,
+            _ => lock(&self.latency).0 as u32,
         }
     }
 
@@ -527,6 +542,19 @@ impl IAudioProcessorTrait for Delay {
             }
         }
         lock(&self.values)[5] += f64::from(data.numSamples) / 1_000_000.0;
+        if variant() == Variant::LatencyChange {
+            let mut latency = lock(&self.latency);
+            let before = latency.1;
+            latency.1 += data.numSamples as usize;
+            // Plugins commonly announce a latency change from their process call.
+            if before < LATENCY_CHANGE_AFTER
+                && latency.1 >= LATENCY_CHANGE_AFTER
+                && let Some(handler) = lock(&self.handler).clone()
+            {
+                use vst3::Steinberg::Vst::RestartFlags_::kLatencyChanged;
+                unsafe { handler.restartComponent(kLatencyChanged as int32) };
+            }
+        }
         if data.numSamples == 0 || data.numInputs < 1 || data.numOutputs < 1 {
             return kResultOk;
         }
@@ -563,7 +591,11 @@ impl IAudioProcessorTrait for Delay {
     }
 
     unsafe fn getTailSamples(&self) -> u32 {
-        0
+        if variant() == Variant::LatencyChange && std::thread::current().id() != self.owner {
+            vst3::Steinberg::Vst::kInfiniteTail
+        } else {
+            0
+        }
     }
 }
 

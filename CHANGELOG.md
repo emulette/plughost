@@ -34,6 +34,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   expressions instead of MIDI. `to_midi` gives the MIDI 1.0 messages that used to arrive.
 - MIDI input reaches plugins as before. MPE is MIDI 1.0 and is delivered as MIDI; it is not
   converted into notes with IDs or note expressions.
+- A chain's latency holds until it is prepared again or reset. A latency a VST3 plugin announces
+  with `kLatencyChanged`, or an Audio Unit's changed latency, no longer stops processing or a
+  render: the plugin keeps the latency it was activated with, and `take_changes` reports
+  `PluginTiming::latency_changed` until `reprepare` (or, for VST3, `reset`) applies it. Renders
+  used to fail with `RenderError::LatencyChanged` when the read latency changed.
+- The helper reads VST3 latency and tail, which VST3 assigns to the UI thread, on its main thread
+  instead of after every block on the processing thread; CLAP tails are read after a block in
+  which the plugin reported a change. `PluginTiming` has the new field `latency_changed`.
+- `TailPolicy::Reported` plans the tail reported when the render starts, and a tail reported
+  later no longer fails the render. `RenderError::TailChanged` is gone.
+- In `plughost-formats`, `HostedPlugin::latency` and `tail` are `HostedPlugin::timing`, which
+  reads the timing on the plugin's thread, and `BlockProcessor::latency` and `tail` are
+  `BlockProcessor::timing`, which returns what was last read there without calling the plugin.
 
 ## [0.0.5] - 2026-10-01
 

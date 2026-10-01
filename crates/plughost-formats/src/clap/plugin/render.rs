@@ -16,10 +16,10 @@ impl<S: Sample> Process<S> for Plugin {
         channel_count(self, AudioDirection::Output)
     }
     fn latency(&self) -> Result<u32, ClapError> {
-        Plugin::latency(self)
+        Ok(Plugin::timing(self)?.latency)
     }
     fn tail(&self) -> Result<Tail, ClapError> {
-        Plugin::tail(self)
+        Ok(Plugin::timing(self)?.tail)
     }
     fn validate_automation(&mut self, automation: &[AutomationEvent]) -> Result<(), ClapError> {
         let parameters = self.parameter_cache();

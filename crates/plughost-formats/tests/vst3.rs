@@ -340,7 +340,10 @@ fn latency_is_removed_when_rendering() {
     plugin
         .prepare(&config(48_000.0, SampleFormat::F32))
         .unwrap();
-    assert_eq!(plugin.latency(), Ok(TEST_DELAY_LATENCY));
+    assert_eq!(
+        plugin.timing().map(|timing| timing.latency),
+        Ok(TEST_DELAY_LATENCY)
+    );
     let input = signal(4800, |v| v as f32);
     assert_eq!(run(&mut plugin, &input), input);
 }

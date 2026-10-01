@@ -22,7 +22,8 @@ pub enum Tail {
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TailPolicy {
-    /// Render the tail length the processor reports. An infinite tail renders up to the maximum.
+    /// Render the tail length the processor reports when the render starts. An infinite tail
+    /// renders up to the maximum. A tail the processor reports later does not change the plan.
     Reported,
     /// Render until the output has stayed at or below `threshold` (linear peak) for
     /// `hold_seconds`, then cut after the last sample above it. Both values must be finite and
@@ -80,6 +81,9 @@ pub trait Process<S: Sample> {
     fn max_block_size(&self) -> usize;
     fn input_channels(&self) -> usize;
     fn output_channels(&self) -> usize;
+    /// The latency the processor's output has. It must not change while a render runs, so that
+    /// one alignment holds; plughost's processors keep the latency they were prepared with until
+    /// they are prepared again or reset.
     fn latency(&self) -> Result<u32, Self::Error>;
     fn tail(&self) -> Result<Tail, Self::Error>;
     /// Validate all scheduled targets before the render advances DSP state. Implementors with
@@ -138,9 +142,8 @@ pub struct Rendered<S> {
 /// order and before `frames`.
 ///
 /// The latency is read before rendering and after every block; a change is an error because the
-/// alignment would no longer hold. Under [`TailPolicy::Reported`], a change that alters the
-/// planned tail length is an error for the same reason; [`TailPolicy::UntilSilence`] ignores the
-/// reported tail.
+/// alignment would no longer hold. [`TailPolicy::Reported`] plans the tail length from the tail
+/// reported when the render starts; [`TailPolicy::UntilSilence`] ignores the reported tail.
 /// Options, processor timing, sample conversion and buffer lengths are validated before calling
 /// `process`. Durations round to the nearest sample. Invalid or unrepresentable values are errors,
 /// not clamped limits. Representable lengths do not guarantee enough memory is available.
@@ -377,10 +380,6 @@ pub fn render_stream<S: Sample, P: Process<S>>(
                 after: now,
             }
             .into());
-        }
-        // Only a reported tail sets the render length; silence detection ignores it.
-        if reported && reported_tail(processor.tail()?) != tail {
-            return Err(RenderError::TailChanged.into());
         }
         let done = output.accept(&output_block, count, position, latency as usize, body);
         position += count;

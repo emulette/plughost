@@ -171,6 +171,11 @@ impl Processor {
                 .map_err(|error| ClapError::Process(error.to_string()))
         });
         prepared.steady_time = next_time;
+        if processor
+            .access_shared_handler(|shared| shared.tail_changed.swap(false, Ordering::Relaxed))
+        {
+            prepared.tail = read_tail(processor);
+        }
         let (overflow, unconvertible) = (
             output_events_buffer.overflow,
             output_events_buffer.unconvertible,

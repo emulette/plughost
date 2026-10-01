@@ -290,7 +290,7 @@ fn run<S: WireSample>(
         .enumerate()
     {
         let _call = state.calls.enter(Caller::Processing, slot);
-        *timing = match audio_timing::plugin_timing(processor.as_ref()) {
+        *timing = match processor.timing() {
             Ok(timing) => timing,
             Err(error) => return responder.fail(Some(slot), error.failure()),
         };

@@ -36,7 +36,7 @@ use plughost_core::render::Tail;
 use plughost_core::{DiagnosticBatch, DiagnosticBuffer};
 use plughost_core::{
     Event, HostIdentity, Layout, Message, ParameterInfo, PluginFormat, PluginInfo, PluginKind,
-    PluginState, ProcessConfig, ProcessMode, SampleFormat, events_fit,
+    PluginState, PluginTiming, ProcessConfig, ProcessMode, SampleFormat, events_fit,
 };
 
 use super::errors::ClapError;
@@ -105,7 +105,10 @@ struct Prepared {
     /// Per note input port index, the dialects of a port the routing uses; events reach only
     /// those ports.
     event_inputs: Vec<Option<NoteDialects>>,
+    /// The latency the plugin reported as it activated; CLAP changes it only by a restart.
     latency: u32,
+    /// The tail read at activation and after each block in which the plugin reported a change.
+    tail: Tail,
     steady_time: u64,
     parameters: Arc<ParameterCache>,
 }
@@ -244,27 +247,9 @@ impl Plugin {
             .process(context, input, output, automation, events, produced)
     }
 
-    pub(crate) fn latency(&self) -> Result<u32, ClapError> {
-        lock(&self.engine)
-            .prepared
-            .as_ref()
-            .map(|prepared| prepared.latency)
-            .ok_or(ClapError::NotPrepared)
-    }
-
-    pub(crate) fn tail(&self) -> Result<Tail, ClapError> {
-        let tail = self.shared().extensions().tail;
-        let mut engine = lock(&self.engine);
-        let processor = engine.processor.as_mut().ok_or(ClapError::NotPrepared)?;
-        let Some(tail) = tail else {
-            return Ok(Tail::Samples(0));
-        };
-        let length = in_audio_context(|| tail.get(&processor.plugin_handle()));
-        Ok(if length.is_infinite() {
-            Tail::Infinite
-        } else {
-            Tail::Samples(length.to_raw())
-        })
+    /// The prepared plugin's timing.
+    pub(crate) fn timing(&self) -> Result<PluginTiming, ClapError> {
+        self.processor().timing()
     }
 
     /// The cached parameter list, read again after the plugin rescanned its parameter info. The
@@ -769,27 +754,42 @@ impl Processor {
             })
     }
 
-    pub(crate) fn tail(&self) -> Result<Tail, ClapError> {
-        let mut engine = lock(&self.engine);
-        let processor = engine.processor.as_mut().ok_or(ClapError::NotPrepared)?;
-        let extension = processor.access_shared_handler(|shared| shared.extensions().tail);
-        let Some(extension) = extension else {
-            return Ok(Tail::Samples(0));
-        };
-        let tail = in_audio_context(|| extension.get(&processor.plugin_handle()));
-        Ok(if tail.is_infinite() {
-            Tail::Infinite
-        } else {
-            Tail::Samples(tail.to_raw())
-        })
+    /// The latency read as the plugin activated and the tail last read; no call into the plugin.
+    pub(crate) fn timing(&self) -> Result<PluginTiming, ClapError> {
+        let engine = lock(&self.engine);
+        match (&engine.processor, &engine.prepared) {
+            (Some(processor), Some(prepared)) => Ok(timing(processor, prepared)),
+            _ => Err(ClapError::NotPrepared),
+        }
     }
+}
 
-    pub(crate) fn latency(&self) -> Result<u32, ClapError> {
-        lock(&self.engine)
-            .prepared
-            .as_ref()
-            .map(|prepared| prepared.latency)
-            .ok_or(ClapError::NotPrepared)
+/// A restart request stops processing until the plugin is prepared again, which is also how a
+/// CLAP plugin changes its latency.
+fn timing(processor: &PluginAudioProcessor<Host>, prepared: &Prepared) -> PluginTiming {
+    let restart_required = processor.access_shared_handler(|shared| {
+        shared.restart_requested.load(Ordering::Relaxed)
+            || shared.latency_changed.load(Ordering::Relaxed)
+    });
+    PluginTiming {
+        latency: prepared.latency,
+        tail: prepared.tail,
+        restart_required,
+        latency_changed: false,
+    }
+}
+
+/// The tail the plugin reports, read as its audio thread under the engine lock: as it activates,
+/// and after a block in which it reported a change, which CLAP does from the audio thread.
+fn read_tail(processor: &mut PluginAudioProcessor<Host>) -> Tail {
+    let Some(extension) = processor.access_shared_handler(|shared| shared.extensions().tail) else {
+        return Tail::Samples(0);
+    };
+    let tail = in_audio_context(|| extension.get(&processor.plugin_handle()));
+    if tail.is_infinite() {
+        Tail::Infinite
+    } else {
+        Tail::Samples(tail.to_raw())
     }
 }
 

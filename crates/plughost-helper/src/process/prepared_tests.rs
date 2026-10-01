@@ -41,6 +41,7 @@ fn timing() -> PluginTiming {
         latency: 0,
         tail: plughost_core::render::Tail::Samples(0),
         restart_required: false,
+        latency_changed: false,
     }
 }
 

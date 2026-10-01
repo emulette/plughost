@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use plughost_core::render::{Process, Tail};
 use plughost_core::{
     Event, HostIdentity, ParameterChange, ParameterEvent, ParameterFlags, ParameterInfo,
-    PluginFormat, PluginInfo, PluginState, ProcessConfig, Sample,
+    PluginFormat, PluginInfo, PluginState, PluginTiming, ProcessConfig, Sample,
 };
 use vst3::Steinberg::Vst::ParameterInfo_::ParameterFlags_;
 use vst3::Steinberg::Vst::{
@@ -157,12 +157,11 @@ impl Plugin {
         Ok(())
     }
 
-    pub(crate) fn latency(&self) -> Result<u32, Vst3Error> {
-        lock(&self.engine).latency()
-    }
-
-    pub(crate) fn tail(&self) -> Result<Tail, Vst3Error> {
-        lock(&self.engine).tail()
+    /// The prepared plugin's timing, with the tail read again on this thread.
+    pub(crate) fn timing(&self) -> Result<PluginTiming, Vst3Error> {
+        let mut engine = lock(&self.engine);
+        engine.refresh_tail();
+        engine.timing()
     }
 
     /// The optional VST3 processor's requested context flags, queried on the owning thread
@@ -478,11 +477,11 @@ impl<S: Sample> Process<S> for Plugin {
     }
 
     fn latency(&self) -> Result<u32, Vst3Error> {
-        Plugin::latency(self)
+        Ok(Plugin::timing(self)?.latency)
     }
 
     fn tail(&self) -> Result<Tail, Vst3Error> {
-        Plugin::tail(self)
+        Ok(Plugin::timing(self)?.tail)
     }
 
     fn validate_automation(

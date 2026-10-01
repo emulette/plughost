@@ -215,7 +215,7 @@ fn latency_change_during_rendering_is_an_error() {
 }
 
 #[test]
-fn tail_change_fails_only_when_it_changes_the_reported_render_length() {
+fn a_reported_tail_is_planned_when_the_render_starts() {
     let input = signal(1000);
     let changing = || {
         let mut processor = Echo::new(0, 0, Tail::Samples(2400));
@@ -224,11 +224,9 @@ fn tail_change_fails_only_when_it_changes_the_reported_render_length() {
     };
     let rendered = run(&mut changing(), &input, RenderOptions::default()).unwrap();
     assert_eq!(rendered.channels, input);
-    assert_eq!(
-        run(&mut changing(), &input, reported(1.0)).unwrap_err(),
-        RenderError::TailChanged
-    );
-    // Both tails exceed the maximum, so the planned length is unchanged.
+    // The tail the processor reports after the first block does not change the plan.
+    let rendered = run(&mut changing(), &input, reported(1.0)).unwrap();
+    assert_eq!(rendered.tail, 2400);
     let rendered = run(&mut changing(), &input, reported(0.01)).unwrap();
     assert_eq!(rendered.tail, 480);
 }

@@ -6,8 +6,9 @@ use std::ffi::c_void;
 
 use plughost_core::Capabilities;
 use plughost_core::PluginRef;
-use plughost_core::render::Tail;
-use plughost_core::{Event, HostIdentity, ParameterInfo, PluginInfo, PluginState, ProcessConfig};
+use plughost_core::{
+    Event, HostIdentity, ParameterInfo, PluginInfo, PluginState, PluginTiming, ProcessConfig,
+};
 
 #[cfg(all(feature = "au", target_os = "macos"))]
 use crate::au;
@@ -80,8 +81,10 @@ pub trait HostedPlugin {
     fn prepare(&mut self, config: &ProcessConfig) -> Result<(), Error>;
     /// A handle that processes this plugin from another thread.
     fn processor(&self) -> Box<dyn BlockProcessor>;
-    fn latency(&self) -> Result<u32, Error>;
-    fn tail(&self) -> Result<Tail, Error>;
+    /// Reads the prepared plugin's timing on this thread, which is what its processor reports
+    /// until the next read: the tail the plugin reports now, and the latency it was activated
+    /// with, with a change it announced pending until it is prepared again or reset.
+    fn timing(&self) -> Result<PluginTiming, Error>;
     /// Each parameter with its current normalized value.
     fn parameters(&mut self) -> Vec<(ParameterInfo, f64)>;
     fn parameter_details(&mut self, id: u64) -> Result<plughost_core::ParameterDetails, Error>;
@@ -170,8 +173,9 @@ pub trait BlockProcessor: Send {
         events: &[Event],
         produced: &mut Vec<Event>,
     ) -> Result<(), Error>;
-    fn latency(&self) -> Result<u32, Error>;
-    fn tail(&self) -> Result<Tail, Error>;
+    /// The timing the owning thread last read (see [`HostedPlugin::timing`]), without calling the
+    /// plugin.
+    fn timing(&self) -> Result<PluginTiming, Error>;
     fn restart_required(&self) -> bool {
         false
     }
@@ -258,12 +262,8 @@ impl HostedPlugin for vst3::Plugin {
         Box::new(vst3::Plugin::processor(self))
     }
 
-    fn latency(&self) -> Result<u32, Error> {
-        Ok(vst3::Plugin::latency(self)?)
-    }
-
-    fn tail(&self) -> Result<Tail, Error> {
-        Ok(vst3::Plugin::tail(self)?)
+    fn timing(&self) -> Result<PluginTiming, Error> {
+        Ok(vst3::Plugin::timing(self)?)
     }
 
     fn parameters(&mut self) -> Vec<(ParameterInfo, f64)> {
@@ -380,11 +380,8 @@ impl BlockProcessor for vst3::Processor {
         )?)
     }
 
-    fn latency(&self) -> Result<u32, Error> {
-        Ok(vst3::Processor::latency(self)?)
-    }
-    fn tail(&self) -> Result<Tail, Error> {
-        Ok(vst3::Processor::tail(self)?)
+    fn timing(&self) -> Result<PluginTiming, Error> {
+        Ok(vst3::Processor::timing(self)?)
     }
     fn restart_required(&self) -> bool {
         vst3::Processor::restart_required(self)
@@ -446,12 +443,8 @@ impl HostedPlugin for au::Plugin {
         Box::new(au::Plugin::processor(self))
     }
 
-    fn latency(&self) -> Result<u32, Error> {
-        Ok(au::Plugin::latency(self)?)
-    }
-
-    fn tail(&self) -> Result<Tail, Error> {
-        Ok(au::Plugin::tail(self)?)
+    fn timing(&self) -> Result<PluginTiming, Error> {
+        Ok(au::Plugin::timing(self)?)
     }
 
     fn parameters(&mut self) -> Vec<(ParameterInfo, f64)> {
@@ -549,11 +542,8 @@ impl BlockProcessor for au::Processor {
         )))
     }
 
-    fn latency(&self) -> Result<u32, Error> {
-        Ok(au::Processor::latency(self)?)
-    }
-    fn tail(&self) -> Result<Tail, Error> {
-        Ok(au::Processor::tail(self)?)
+    fn timing(&self) -> Result<PluginTiming, Error> {
+        Ok(au::Processor::timing(self)?)
     }
 }
 
@@ -612,12 +602,8 @@ impl HostedPlugin for clap::Plugin {
         Box::new(clap::Plugin::processor(self))
     }
 
-    fn latency(&self) -> Result<u32, Error> {
-        Ok(clap::Plugin::latency(self)?)
-    }
-
-    fn tail(&self) -> Result<Tail, Error> {
-        Ok(clap::Plugin::tail(self)?)
+    fn timing(&self) -> Result<PluginTiming, Error> {
+        Ok(clap::Plugin::timing(self)?)
     }
 
     fn parameters(&mut self) -> Vec<(ParameterInfo, f64)> {
@@ -740,11 +726,8 @@ impl BlockProcessor for clap::Processor {
         )?)
     }
 
-    fn latency(&self) -> Result<u32, Error> {
-        Ok(clap::Processor::latency(self)?)
-    }
-    fn tail(&self) -> Result<Tail, Error> {
-        Ok(clap::Processor::tail(self)?)
+    fn timing(&self) -> Result<PluginTiming, Error> {
+        Ok(clap::Processor::timing(self)?)
     }
     fn restart_required(&self) -> bool {
         clap::Processor::restart_required(self)

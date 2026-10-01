@@ -42,7 +42,8 @@ pub fn prepare(case: Case, plugin: &PluginRef) -> Result<Prepared> {
                     mode: ProcessMode::Offline,
                 })?;
             }
-            if plugin.latency()? != 0 || plugin.tail()? != Tail::Samples(0) {
+            let timing = plugin.timing()?;
+            if timing.latency != 0 || timing.tail != Tail::Samples(0) {
                 return Err(errors::fail(errors::TIMING));
             }
         }
@@ -101,11 +102,11 @@ impl Process<f32> for Direct {
     fn latency(&self) -> Result<u32> {
         self.processors
             .iter()
-            .try_fold(0, |sum, p| Ok(sum + p.latency()?))
+            .try_fold(0, |sum, p| Ok(sum + p.timing()?.latency))
     }
     fn tail(&self) -> Result<Tail> {
         for p in &self.processors {
-            if p.tail()? != Tail::Samples(0) {
+            if p.timing()?.tail != Tail::Samples(0) {
                 return Err(errors::fail(errors::TIMING));
             }
         }

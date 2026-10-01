@@ -6,32 +6,23 @@ use std::collections::VecDeque;
 use plughost_core::ipc::shared::Caller;
 use plughost_core::render::Tail;
 use plughost_core::{AudioSource, Failure, FailureKind, PluginTiming, RoutedChainConfig, Sample};
-use plughost_formats::{BlockProcessor, Error};
+use plughost_formats::{Error, HostedPlugin};
 
 use crate::calls::Calls;
 
-/// One slot's native latency, tail and restart request. Every timing query in the helper goes
-/// through here; chain totals come only from [`AudioTiming`].
-pub(crate) fn plugin_timing(processor: &dyn BlockProcessor) -> Result<PluginTiming, Error> {
-    Ok(PluginTiming {
-        latency: processor.latency()?,
-        tail: processor.tail()?,
-        restart_required: processor.restart_required(),
-    })
-}
-
-/// Every slot's timing, queried as `caller`. A failure names its slot.
+/// Every slot's timing, read on the main thread, which also refreshes what the slots' processors
+/// report to the processing thread. A failure names its slot. Chain totals come only from
+/// [`AudioTiming`].
 pub(crate) fn chain_timings(
-    processors: &[Box<dyn BlockProcessor>],
+    plugins: &[Box<dyn HostedPlugin>],
     calls: &Calls,
-    caller: Caller,
 ) -> Result<Vec<PluginTiming>, (usize, Error)> {
-    processors
+    plugins
         .iter()
         .enumerate()
-        .map(|(slot, processor)| {
-            let _call = calls.enter(caller, slot);
-            plugin_timing(processor.as_ref()).map_err(|error| (slot, error))
+        .map(|(slot, plugin)| {
+            let _call = calls.enter(Caller::Main, slot);
+            plugin.timing().map_err(|error| (slot, error))
         })
         .collect()
 }
@@ -97,8 +88,9 @@ impl AudioTiming {
     }
 
     /// Re-evaluates current tails along the planned paths; a tail that overflows is infinite.
-    /// Changed native latency requires a new configuration and fresh delay lines; silently keeping
-    /// old alignment would corrupt audio.
+    /// A plugin keeps the latency it was activated with until it is prepared again or reset, and
+    /// every activation plans the chain again; a latency the plan does not have, like a restart
+    /// request, needs a new configuration and fresh delay lines.
     pub fn tail(&self, native: &[PluginTiming]) -> Result<Tail, Failure> {
         if native
             .iter()

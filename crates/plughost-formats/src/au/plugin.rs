@@ -33,7 +33,7 @@ use plughost_core::render::Tail;
 use plughost_core::{Capabilities, Support};
 use plughost_core::{
     Event, EventData, ParameterFlags, ParameterInfo, PluginFormat, PluginInfo, PluginState,
-    ProcessConfig, ProcessMode, SampleFormat, events_fit,
+    PluginTiming, ProcessConfig, ProcessMode, SampleFormat, events_fit,
 };
 
 use super::components::{components, parse_class_id};
@@ -109,6 +109,12 @@ struct Prepared {
     transport_changed: Arc<AtomicBool>,
     /// The length of the last block rendered.
     last_frames: usize,
+    /// The latency as render resources were allocated, which holds until they are allocated
+    /// again, and whether the unit has reported another one since.
+    latency: u32,
+    latency_changed: bool,
+    /// The tail the owning thread last read.
+    tail: Tail,
     _context: RcBlock<MusicalContext>,
     _transport: RcBlock<Transport>,
 }
@@ -275,19 +281,11 @@ impl Plugin {
         }
     }
 
-    pub(crate) fn latency(&self) -> Result<u32, AuError> {
-        lock(&self.engine).latency()
-    }
-
-    pub(crate) fn tail(&self) -> Result<Tail, AuError> {
-        let engine = lock(&self.engine);
-        let (unit, prepared) = engine.parts()?;
-        let seconds = unsafe { unit.tailTime() };
-        Ok(if !seconds.is_finite() || seconds > MAX_TAIL_SECONDS {
-            Tail::Infinite
-        } else {
-            Tail::Samples((seconds * prepared.config.sample_rate).round() as u32)
-        })
+    /// The prepared unit's timing, with its latency and tail read again on this thread.
+    pub(crate) fn timing(&self) -> Result<PluginTiming, AuError> {
+        let mut engine = lock(&self.engine);
+        engine.refresh_timing()?;
+        engine.timing()
     }
 
     /// Each parameter with its current value, normalized over its range.
@@ -675,6 +673,8 @@ impl Engine {
                 .map_err(|error| AuError::Allocate(describe(&error)))?;
         }
         let ranges = ranges(unit);
+        let latency = read_latency(unit, audio_config.sample_rate);
+        let tail = read_tail(unit, audio_config.sample_rate);
         // SAFETY: the getters return valid blocks of these types, or null.
         let (render, schedule, schedule_midi) = unsafe {
             (
@@ -697,6 +697,9 @@ impl Engine {
             timeline,
             transport_changed,
             last_frames: 0,
+            latency,
+            latency_changed: false,
+            tail,
             _context: context,
             _transport: transport,
         });
@@ -709,9 +712,31 @@ impl Engine {
         }
     }
 
-    fn latency(&self) -> Result<u32, AuError> {
+    /// The timing read on the owning thread; no call into the unit.
+    fn timing(&self) -> Result<PluginTiming, AuError> {
+        let (_, prepared) = self.parts()?;
+        Ok(PluginTiming {
+            latency: prepared.latency,
+            tail: prepared.tail,
+            restart_required: self.invalidated.load(Ordering::Acquire),
+            latency_changed: prepared.latency_changed,
+        })
+    }
+
+    /// Reads the latency and tail again on the owning thread. A unit changes its latency
+    /// whenever it likes; the host keeps the alignment of the latency it was prepared with and
+    /// reports the change.
+    fn refresh_timing(&mut self) -> Result<(), AuError> {
         let (unit, prepared) = self.parts()?;
-        Ok((unsafe { unit.latency() } * prepared.config.sample_rate).round() as u32)
+        let sample_rate = prepared.config.sample_rate;
+        let (latency, tail) = (
+            read_latency(unit, sample_rate),
+            read_tail(unit, sample_rate),
+        );
+        let prepared = self.prepared.as_mut().ok_or(AuError::NotPrepared)?;
+        prepared.latency_changed |= latency != prepared.latency;
+        prepared.tail = tail;
+        Ok(())
     }
 
     fn process(
@@ -875,19 +900,22 @@ impl Processor {
         lock(&self.engine).schedule(id, offset, value)
     }
 
-    pub(crate) fn tail(&self) -> Result<Tail, AuError> {
-        let engine = lock(&self.engine);
-        let (unit, prepared) = engine.parts()?;
-        let seconds = unsafe { unit.tailTime() };
-        Ok(if !seconds.is_finite() || seconds > MAX_TAIL_SECONDS {
-            Tail::Infinite
-        } else {
-            Tail::Samples((seconds * prepared.config.sample_rate).round() as u32)
-        })
+    /// The timing the owning thread last read; no call into the unit.
+    pub(crate) fn timing(&self) -> Result<PluginTiming, AuError> {
+        lock(&self.engine).timing()
     }
+}
 
-    pub(crate) fn latency(&self) -> Result<u32, AuError> {
-        lock(&self.engine).latency()
+fn read_latency(unit: &AUAudioUnit, sample_rate: f64) -> u32 {
+    (unsafe { unit.latency() } * sample_rate).round() as u32
+}
+
+fn read_tail(unit: &AUAudioUnit, sample_rate: f64) -> Tail {
+    let seconds = unsafe { unit.tailTime() };
+    if !seconds.is_finite() || seconds > MAX_TAIL_SECONDS {
+        Tail::Infinite
+    } else {
+        Tail::Samples((seconds * sample_rate).round() as u32)
     }
 }
 

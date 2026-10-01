@@ -134,15 +134,10 @@ impl Host {
                 .map(|candidate| candidate.processor())
                 .collect()
         });
-        let timings = {
-            let pipeline = process::lock(&self.pipeline);
-            let processors = candidate_processors
-                .as_deref()
-                .unwrap_or(pipeline.processors.as_slice());
-            match audio_timing::chain_timings(processors, &calls, Caller::Main) {
-                Ok(timings) => timings,
-                Err((slot, error)) => return failed(slot, &error),
-            }
+        let prepared = if staged { &candidates } else { &self.slots };
+        let timings = match audio_timing::chain_timings(prepared, &calls) {
+            Ok(timings) => timings,
+            Err((slot, error)) => return failed(slot, &error),
         };
         let prepared_slots = if staged {
             &mut candidates
