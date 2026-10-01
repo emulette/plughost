@@ -257,7 +257,11 @@ rounded to 7 bits, a note on at least 1) and pressure (poly pressure). MIDI 2.0 
 implemented.
 
 `event_ports(slot)` lists a plugin's native event ports as `EventPortInfo` (native ID, index,
-name, direction, MIDI and system exclusive support). `SlotAudioConfig::events` is a
+name, direction, and support for MIDI, system exclusive data, note expression and MPE). Note
+expression support means notes keep their IDs and expressions arrive (CLAP ports with the CLAP
+dialect, VST3 buses whose controller lists note expressions through INoteExpressionController);
+MPE support is a CLAP port's MIDI dialect with MPE or an Audio Unit's `supportsMPE`, and VST3
+declares none. `SlotAudioConfig::events` is a
 `SlotEventConfig`: `inputs` route `EventSource::External { port }` or
 `EventSource::Previous { port }` (a native output ID of the previous slot) to native input
 ports, merging several routes to one port in offset order, and `outputs` names the native

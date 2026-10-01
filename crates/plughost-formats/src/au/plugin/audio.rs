@@ -63,7 +63,12 @@ impl Plugin {
 
     /// The unit's MIDI input, which instruments, music effects and MIDI processors have, and
     /// its MIDI outputs, one per cable. Output IDs are cable numbers.
+    /// The MIDI input and the MIDI output cables. Units take MIDI 1.0 alone, so expressions other
+    /// than pressure do not reach them; a unit declares whether it takes MPE.
     pub(crate) fn event_ports(&self) -> Result<Vec<plughost_core::EventPortInfo>, AuError> {
+        let engine = lock(&self.engine);
+        let unit = engine.unit()?;
+        let mpe = Support::from(unsafe { unit.supportsMPE() });
         let port = |index: u32, name: String, direction| plughost_core::EventPortInfo {
             id: u64::from(index),
             index,
@@ -71,8 +76,14 @@ impl Plugin {
             direction,
             midi: Support::Supported,
             sysex: Support::Supported,
+            note_expression: Support::Unsupported,
+            mpe: match direction {
+                AudioDirection::Input => mpe,
+                AudioDirection::Output => Support::Unknown,
+            },
         };
-        let outputs = midi_output_names(lock(&self.engine).unit()?);
+        let outputs = midi_output_names(unit);
+        drop(engine);
         Ok(self
             .midi_input()?
             .then(|| port(0, String::new(), AudioDirection::Input))

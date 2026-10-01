@@ -21,6 +21,13 @@ pub struct EventPortInfo {
     pub midi: Support,
     /// System exclusive messages.
     pub sysex: Support,
+    /// Notes keep their IDs and the expressions of single notes arrive: CLAP ports that take the
+    /// CLAP dialect, and VST3 buses whose controller lists note expressions for them. Pressure
+    /// also reaches ports without it, as poly pressure.
+    pub note_expression: Support,
+    /// MPE: MIDI 1.0 with each note on its own channel, whose pitch bend, channel pressure and
+    /// controller 74 shape that note. plughost delivers it as MIDI either way.
+    pub mpe: Support,
 }
 
 /// Where a slot's event input port takes events from.

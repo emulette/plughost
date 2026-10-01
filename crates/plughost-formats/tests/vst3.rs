@@ -750,6 +750,32 @@ fn instruments_start_notes_at_their_sample_offsets() {
     assert_eq!(first, Some(101));
 }
 
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
+fn event_buses_report_the_note_expressions_their_controller_lists() {
+    let _serial = serial();
+    let module = module("note-expression-synth");
+    let class = module
+        .classes()
+        .into_iter()
+        .find(|c| c.kind == PluginKind::Instrument)
+        .unwrap();
+    let mut plugin = Plugin::new(
+        &module,
+        &class.class_id,
+        &plughost_core::HostIdentity::default(),
+    )
+    .unwrap();
+    let input = plugin
+        .event_ports()
+        .unwrap()
+        .into_iter()
+        .find(|port| port.direction == plughost_core::AudioDirection::Input)
+        .unwrap();
+    assert_eq!(input.note_expression, plughost_core::Support::Supported);
+    assert_eq!(input.mpe, plughost_core::Support::Unknown);
+}
+
 /// The test delay's parameters: gain, whether the last restored state was project state, and
 /// the MIDI controller mapped to the gain (0: volume, 1: expression).
 const TEST_DELAY_PROJECT_STATE: u64 = 1;

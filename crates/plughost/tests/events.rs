@@ -5,7 +5,7 @@ use plughost::{
     AudioBusConfig, AudioDirection, AudioInputRoute, AudioSource, BlockContext, Chain,
     ChannelAdaptation, Error, Event, EventData, EventInputRoute, EventPortInfo, EventSource,
     FailureKind, Layout, PluginFormat, PluginRef, ProcessMode, RenderOptions, RoutedChainConfig,
-    SampleFormat, SlotAudioConfig, SlotEventConfig, TailPolicy, render,
+    SampleFormat, SlotAudioConfig, SlotEventConfig, Support, TailPolicy, render,
 };
 
 mod support;
@@ -142,6 +142,32 @@ fn event_ports_describe_native_buses_in_order() {
             "{format:?}"
         );
     }
+}
+
+#[test]
+#[ignore = "needs helper, routing and synth fixtures (.ps1 or .sh build scripts)"]
+fn event_ports_tell_where_note_expressions_and_mpe_arrive() {
+    let inputs = |plugin: PluginRef| -> Vec<(Support, Support)> {
+        spawn(&[plugin])
+            .event_ports(0)
+            .unwrap()
+            .into_iter()
+            .filter(|port| port.direction == AudioDirection::Input)
+            .map(|port| (port.note_expression, port.mpe))
+            .collect()
+    };
+    use Support::{Supported, Unknown, Unsupported};
+    // The CLAP routing fixture's second input takes MIDI with MPE, its first plain MIDI.
+    assert_eq!(
+        inputs(routing(PluginFormat::Clap))[..2],
+        [(Unsupported, Unsupported), (Unsupported, Supported)]
+    );
+    // Its VST3 controller lists no note expressions, and VST3 declares no MPE.
+    assert_eq!(
+        inputs(routing(PluginFormat::Vst3))[..2],
+        [(Unsupported, Unknown), (Unsupported, Unknown)]
+    );
+    assert_eq!(inputs(synth())[0], (Supported, Unsupported));
 }
 
 #[test]

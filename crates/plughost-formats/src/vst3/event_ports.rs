@@ -3,7 +3,10 @@
 use super::audio::direction;
 use super::{errors::Vst3Error, host::wide_string, instance::Instance};
 use plughost_core::{AudioDirection, EventConfig, EventPortInfo, Support};
-use vst3::Steinberg::Vst::{BusInfo, IComponentTrait, IMidiMapping, MediaTypes_};
+use vst3::Steinberg::Vst::{
+    BusInfo, IComponentTrait, IMidiMapping, INoteExpressionController,
+    INoteExpressionControllerTrait, MediaTypes_,
+};
 use vst3::Steinberg::kResultOk;
 
 const EVENT: i32 = MediaTypes_::kEvent as i32;
@@ -25,9 +28,19 @@ impl Instance {
         self.event_count(AudioDirection::Input) as usize
     }
 
-    /// The component's event buses, inputs first. VST3 events carry notes, poly pressure and
-    /// system exclusive data; other channel messages reach inputs through the controller's MIDI
-    /// mapping, and outputs send them as legacy controller events.
+    /// Whether the controller lists note expressions for an event input bus. Controllers list
+    /// them per channel; the SDK's samples list them for channel 0 alone.
+    fn note_expressions(&self, bus: u64) -> Support {
+        let Some(controller) = self.controller.cast::<INoteExpressionController>() else {
+            return Support::Unsupported;
+        };
+        Support::from(unsafe { controller.getNoteExpressionCount(bus as i32, 0) } > 0)
+    }
+
+    /// The component's event buses, inputs first. VST3 events carry notes, poly pressure, note
+    /// expression values and system exclusive data; other channel messages reach inputs through
+    /// the controller's MIDI mapping, and outputs send them as legacy controller events. VST3 has
+    /// no MPE declaration.
     pub fn event_ports(&self) -> Result<Vec<EventPortInfo>, Vst3Error> {
         let mut ports = Vec::new();
         if self.controllers_only() {
@@ -38,6 +51,8 @@ impl Instance {
                 direction: AudioDirection::Input,
                 midi: Support::Supported,
                 sysex: Support::Unsupported,
+                note_expression: Support::Unsupported,
+                mpe: Support::Unknown,
             });
         }
         for dir in [AudioDirection::Input, AudioDirection::Output] {
@@ -59,6 +74,11 @@ impl Instance {
                     midi: Support::Supported,
                     // Data events are part of the format; a plugin's use of them is not queryable.
                     sysex: Support::Unknown,
+                    note_expression: match dir {
+                        AudioDirection::Input => self.note_expressions(index),
+                        AudioDirection::Output => Support::Unknown,
+                    },
+                    mpe: Support::Unknown,
                 });
             }
         }

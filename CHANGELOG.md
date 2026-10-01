@@ -18,6 +18,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   1.0 form of notes and pressure (`EventData::to_midi`); other expressions do not reach them.
 - Plugin output in a format's note events arrives as notes and expressions, at the next slot and
   at the application. It used to be counted in diagnostics as having no MIDI 1.0 form.
+- `EventPortInfo::note_expression` and `EventPortInfo::mpe` tell whether notes keep their IDs
+  and expressions arrive at a port (the CLAP dialect, or a VST3 controller's
+  `INoteExpressionController`) and whether it takes MPE (CLAP's MIDI dialect with MPE, or an
+  Audio Unit's `supportsMPE`).
 
 ### Changed
 

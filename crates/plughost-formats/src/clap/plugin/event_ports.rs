@@ -38,7 +38,8 @@ impl Plugin {
     }
 
     /// Note ports in both directions, inputs first. Channel messages need the CLAP or a MIDI
-    /// dialect; system exclusive messages need the MIDI dialect.
+    /// dialect; system exclusive messages need the MIDI dialect, note expressions the CLAP dialect,
+    /// and MPE the MIDI dialect with MPE.
     pub(crate) fn event_ports(&mut self) -> Result<Vec<EventPortInfo>, ClapError> {
         let mut ports = Vec::new();
         for (input, direction) in [
@@ -57,6 +58,8 @@ impl Plugin {
                             || port.dialects.supports(NoteDialect::MidiMpe),
                     ),
                     sysex: Support::from(midi),
+                    note_expression: Support::from(port.dialects.supports(NoteDialect::Clap)),
+                    mpe: Support::from(port.dialects.supports(NoteDialect::MidiMpe)),
                 });
             }
         }
