@@ -2,7 +2,7 @@
 
 #![cfg(target_os = "macos")]
 
-use plughost_core::{Layout, MidiEvent, PluginKind, ProcessConfig, ProcessMode, SampleFormat};
+use plughost_core::{Event, Layout, PluginKind, ProcessConfig, ProcessMode, SampleFormat};
 use plughost_formats::HostedPlugin;
 use plughost_formats::au::{self, Plugin};
 
@@ -175,7 +175,7 @@ fn an_instrument_plays_notes_from_their_offset() {
         .class_id;
     let mut plugin = Plugin::new(&class).unwrap();
     plugin.prepare(&config(Layout::None)).unwrap();
-    let mut block = |events: &[MidiEvent]| {
+    let mut block = |events: &[Event]| {
         let mut output = vec![vec![1.0f32; 512]; 2];
         let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
         plugin
@@ -199,7 +199,7 @@ fn an_instrument_plays_notes_from_their_offset() {
             .fold(0.0f32, |p, s| p.max(s.abs()))
     };
     assert!(peak(&block(&[]), 0..512) < 1e-6);
-    let played = block(&[MidiEvent::note_on(100, 0, 60, 127)]);
+    let played = block(&[Event::note_on(100, 0, 60, 127)]);
     // DLSMusicDevice's attack starts a few samples after the note.
     assert!(peak(&played, 0..100) < 1e-6);
     assert!(peak(&played, 100..132) > 1e-6);

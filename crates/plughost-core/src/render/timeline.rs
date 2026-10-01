@@ -107,7 +107,7 @@ impl RenderSchedule<'_> {
     }
 
     /// A timestamp is indivisible: reject an impossible group before rendering earlier audio.
-    pub(super) fn validate_capacity(&self, midi: &[crate::MidiEvent]) -> Result<(), InputError> {
+    pub(super) fn validate_capacity(&self, midi: &[crate::Event]) -> Result<(), InputError> {
         let mut times: Vec<_> = self
             .automation
             .iter()
@@ -140,7 +140,7 @@ impl RenderSchedule<'_> {
         &self,
         start: usize,
         end: usize,
-        midi: &[crate::MidiEvent],
+        midi: &[crate::Event],
         output: &mut Vec<AutomationEvent>,
     ) -> usize {
         output.clear();

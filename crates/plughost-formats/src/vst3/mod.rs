@@ -13,6 +13,7 @@ mod event_ports;
 mod host;
 mod instance;
 mod module;
+mod note_expression;
 mod parameter_cache;
 mod plugin;
 mod preset;

@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use super::Delivery;
-use crate::{MidiEvent, Sample};
+use crate::{Event, Sample};
 
 /// A bounded output stage. Only the unconfirmed silence hold is retained between blocks.
 pub(super) struct Output<S> {
@@ -86,11 +86,7 @@ impl<S: Sample> Output<S> {
     }
 
     /// Delivers the ready audio with `events`, when either has something, and clears both.
-    pub fn deliver(
-        &mut self,
-        events: &mut Vec<MidiEvent>,
-        consume: &mut impl FnMut(Delivery<'_, S>),
-    ) {
+    pub fn deliver(&mut self, events: &mut Vec<Event>, consume: &mut impl FnMut(Delivery<'_, S>)) {
         if self.ready.iter().any(|channel| !channel.is_empty()) || !events.is_empty() {
             consume(Delivery {
                 audio: &self.ready.iter().map(Vec::as_slice).collect::<Vec<_>>(),

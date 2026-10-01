@@ -5,6 +5,32 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Notes with IDs and per-note expression. `EventData::NoteOn` and `EventData::NoteOff` carry a
+  `Note` (channel, key, velocity in 0..=1, and an optional ID that tells overlapping notes on
+  one key apart), and `EventData::Expression` a `NoteExpression` of the volume, pan, tuning,
+  vibrato, expression, brightness or pressure of a note. CLAP plugins receive and send them as
+  CLAP note and note expression events, and VST3 plugins as note events with their IDs, note
+  expression values and poly pressure. Ports and formats that take only MIDI receive the MIDI
+  1.0 form of notes and pressure (`EventData::to_midi`); other expressions do not reach them.
+- Plugin output in a format's note events arrives as notes and expressions, at the next slot and
+  at the application. It used to be counted in diagnostics as having no MIDI 1.0 form.
+
+### Changed
+
+- `MidiEvent` is now `Event`, and `MidiData` is `EventData`. `MidiData::Channel` is
+  `EventData::Midi` and `MidiEvent::channel` is `Event::midi`; `note_on`, `note_off`,
+  `control_change`, `sysex` and `on_port` still build MIDI 1.0 events. `Event` is no longer
+  `Eq`, and `bytes` and `byte_count` are gone: match on `EventData`, or use `to_midi` for
+  a channel message's bytes. Move an event with `at(offset)` instead of struct update syntax.
+- VST3 plugins' notes and poly pressure arrive as `EventData::NoteOn`, `NoteOff` and pressure
+  expressions instead of MIDI. `to_midi` gives the MIDI 1.0 messages that used to arrive.
+- MIDI input reaches plugins as before. MPE is MIDI 1.0 and is delivered as MIDI; it is not
+  converted into notes with IDs or note expressions.
+
 ## [0.0.5] - 2026-10-01
 
 ### Added

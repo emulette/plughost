@@ -1,6 +1,6 @@
 //! Exercise caller-supplied render options through the public rendering boundary.
 use plughost_core::render::{Process, RenderOptions, Tail, TailPolicy, render};
-use plughost_core::{FailureKind, MidiEvent, RenderError};
+use plughost_core::{Event, FailureKind, RenderError};
 
 #[derive(Default)]
 struct Instrument {
@@ -33,8 +33,8 @@ impl Process<f32> for Instrument {
         _: &[&[f32]],
         output: &mut [&mut [f32]],
         _: &[plughost_core::AutomationEvent],
-        _: &[MidiEvent],
-        _produced: &mut Vec<MidiEvent>,
+        _: &[Event],
+        _produced: &mut Vec<Event>,
     ) -> Result<(), RenderError> {
         self.calls += 1;
         output[0].fill(0.25);

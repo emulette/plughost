@@ -44,11 +44,17 @@ fn fixed_slots_preserve_precision_event_order_and_variable_frames() {
     let mut edits = Vec::with_capacity(MAX_BLOCK_EVENTS);
     let mut notes = Vec::with_capacity(MAX_BLOCK_EVENTS);
     let expected_edits = automation();
+    let note = Note::new(15, 127, 1.0 / 3.0);
+    let expression = NoteExpression::new(3, 64, ExpressionKind::Tuning, -0.1);
     let expected_notes = [
-        MidiEvent::note_on(0, 0, 64, 100),
-        MidiEvent::sysex(0, vec![0xF0, 0x7D, 0x12, 0x34, 0xF7]).on_port(3),
-        MidiEvent::note_off(0, 0, 64, 32).on_port(1),
-        MidiEvent::sysex(0, vec![0xF0, 0xF7]),
+        Event::note_on(0, 0, 64, 100),
+        Event::sysex(0, vec![0xF0, 0x7D, 0x12, 0x34, 0xF7]).on_port(3),
+        Event::new(0, EventData::NoteOn(note.with_id(crate::MAX_NOTE_ID))).on_port(2),
+        Event::new(0, EventData::Expression(expression.with_id(0))),
+        Event::new(0, EventData::Expression(expression)).on_port(15),
+        Event::note_off(0, 0, 64, 32).on_port(1),
+        Event::new(0, EventData::NoteOff(note)),
+        Event::sysex(0, vec![0xF0, 0xF7]),
     ];
     let mut produced = Vec::with_capacity(MAX_BLOCK_EVENTS);
     for (index, frames) in [8, 3, 0, 1, 8].into_iter().enumerate() {
@@ -77,7 +83,7 @@ fn fixed_slots_preserve_precision_event_order_and_variable_frames() {
             }
         }
         // The output events are the input events in reverse, echoed back.
-        let echoed: Vec<MidiEvent> = notes.iter().rev().cloned().collect();
+        let echoed: Vec<Event> = notes.iter().rev().cloned().collect();
         peer.write_output_f64(submission, &[&audio[0], &audio[1]], &echoed)
             .unwrap();
         returned
@@ -166,7 +172,7 @@ fn invalid_shape_precision_and_event_budget_do_not_replace_valid_input() {
             .write_input_f32(2, 2, &[&[1.0], &[1.0]], &[], &[])
             .is_err()
     );
-    let too_many = vec![MidiEvent::note_on(0, 0, 60, 127); MAX_BLOCK_EVENTS];
+    let too_many = vec![Event::note_on(0, 0, 60, 127); MAX_BLOCK_EVENTS];
     assert!(
         owner
             .write_input_f32(2, 1, &[&[1.0], &[1.0]], &automation(), &too_many)
@@ -209,7 +215,7 @@ fn insufficient_scratch_is_rejected_before_dsp() {
             1,
             &[&[1.0], &[1.0]],
             &[],
-            &[MidiEvent::note_on(0, 0, 60, 127)],
+            &[Event::note_on(0, 0, 60, 127)],
         )
         .unwrap();
     let mut audio = vec![vec![0.0; 8]; 2];
@@ -225,7 +231,7 @@ fn insufficient_scratch_is_rejected_before_dsp() {
     );
     peer.read_input_f32(submission, &mut audio, &mut edits, &mut notes)
         .unwrap();
-    assert_eq!(notes, [MidiEvent::note_on(0, 0, 60, 127)]);
+    assert_eq!(notes, [Event::note_on(0, 0, 60, 127)]);
 }
 
 #[test]
@@ -263,7 +269,7 @@ fn zero_audio_input_carries_the_full_event_budget_and_preserves_float_bits() {
     };
     let mut owner = SharedAudio::new(descriptor).unwrap();
     let mut peer = SharedAudio::from_file(owner.file.try_clone().unwrap(), descriptor).unwrap();
-    let notes = vec![MidiEvent::note_off(0, 0, 60, 0); MAX_BLOCK_EVENTS - 1];
+    let notes = vec![Event::note_off(0, 0, 60, 0); MAX_BLOCK_EVENTS - 1];
     let changes = automation();
     let submission = owner
         .write_input_f32(1, 2, &[], &changes[..1], &notes)

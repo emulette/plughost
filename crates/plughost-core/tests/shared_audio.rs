@@ -11,7 +11,7 @@ use interprocess::local_socket::{
 };
 use plughost_core::ipc::shared::{Descriptor, SharedAudio, SlotConfig, Submission, transfer};
 use plughost_core::ipc::{MessageReader, MessageWriter};
-use plughost_core::{AutomationEvent, MAX_BLOCK_EVENTS, MidiEvent, ParameterChange, SampleFormat};
+use plughost_core::{AutomationEvent, Event, MAX_BLOCK_EVENTS, ParameterChange, SampleFormat};
 
 const CHILD_SOCKET: &str = "PLUGHOST_SHARED_TEST_SOCKET";
 
@@ -191,10 +191,7 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
             let notes = if frames == 0 {
                 vec![]
             } else {
-                vec![
-                    MidiEvent::note_on(0, 1, 64, 100),
-                    MidiEvent::note_off(0, 1, 64, 0),
-                ]
+                vec![Event::note_on(0, 1, 64, 100), Event::note_off(0, 1, 64, 0)]
             };
             let input32 = vec![0.25f32; frames];
             let input64 = vec![1.0 + f64::EPSILON; frames];
@@ -216,7 +213,7 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
             })
             .unwrap();
             write.write(&Some(submission)).unwrap();
-            let received: (Vec<AutomationEvent>, Vec<MidiEvent>) = read.read().unwrap();
+            let received: (Vec<AutomationEvent>, Vec<Event>) = read.read().unwrap();
             assert_eq!(received, (edits, notes));
             if index == 3 {
                 // Terminate without Drop/Shutdown in the peer. The owner's map remains readable.

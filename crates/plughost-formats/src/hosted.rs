@@ -7,9 +7,7 @@ use std::ffi::c_void;
 use plughost_core::Capabilities;
 use plughost_core::PluginRef;
 use plughost_core::render::Tail;
-use plughost_core::{
-    HostIdentity, MidiEvent, ParameterInfo, PluginInfo, PluginState, ProcessConfig,
-};
+use plughost_core::{Event, HostIdentity, ParameterInfo, PluginInfo, PluginState, ProcessConfig};
 
 #[cfg(all(feature = "au", target_os = "macos"))]
 use crate::au;
@@ -160,8 +158,8 @@ pub trait BlockProcessor: Send {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Error>;
     fn process_audio_f64(
         &self,
@@ -169,8 +167,8 @@ pub trait BlockProcessor: Send {
         input: &[&[f64]],
         output: &mut [&mut [f64]],
         automation: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Error>;
     fn latency(&self) -> Result<u32, Error>;
     fn tail(&self) -> Result<Tail, Error>;
@@ -360,8 +358,8 @@ impl BlockProcessor for vst3::Processor {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Error> {
         Ok(vst3::Processor::process(
             self, context, input, output, automation, events, produced,
@@ -374,8 +372,8 @@ impl BlockProcessor for vst3::Processor {
         input: &[&[f64]],
         output: &mut [&mut [f64]],
         automation: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Error> {
         Ok(vst3::Processor::process(
             self, context, input, output, automation, events, produced,
@@ -528,8 +526,8 @@ impl BlockProcessor for au::Processor {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Error> {
         Ok(au::Processor::process(
             self, context, input, output, automation, events, produced,
@@ -542,8 +540,8 @@ impl BlockProcessor for au::Processor {
         input: &[&[f64]],
         output: &mut [&mut [f64]],
         automation: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Error> {
         let _ = (context, input, output, automation, events, produced);
         Err(Error::Au(au::AuError::SampleFormatUnsupported(
@@ -720,8 +718,8 @@ impl BlockProcessor for clap::Processor {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Error> {
         Ok(clap::Processor::process(
             self, context, input, output, automation, events, produced,
@@ -734,8 +732,8 @@ impl BlockProcessor for clap::Processor {
         input: &[&[f64]],
         output: &mut [&mut [f64]],
         automation: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Error> {
         Ok(clap::Processor::process(
             self, context, input, output, automation, events, produced,

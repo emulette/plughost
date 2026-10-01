@@ -96,8 +96,7 @@ const HOST_IDENTITY: &str =
 pub const MAIN_BUS: &str = "the plugin has no main audio bus for the requested layout";
 pub const OUTPUT_EVENT_CAPACITY: &str = "the plugin produced more events or system exclusive bytes in one block than MAX_BLOCK_EVENTS or MAX_BLOCK_SYSEX_BYTES allow; reset before processing again";
 pub const UNKNOWN_EVENT_PORT: &str = "the plugin has no event port with this ID";
-pub const UNCONVERTIBLE_OUTPUT_EVENTS: &str =
-    "output events with no MIDI 1.0 form (note expression, chords, scales) were not delivered:";
+pub const UNCONVERTIBLE_OUTPUT_EVENTS: &str = "output events with no portable form (chords, scales, choke, text expression, MIDI 2.0) were not delivered:";
 pub const STATE_MISMATCH: &str = "the state belongs to a different plugin class";
 pub const BUFFERS: &str = "the buffers do not match the prepared layout or block size";
 pub const CHAIN_NOT_PREPARED: &str = "the chain is not prepared";

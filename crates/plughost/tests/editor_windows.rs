@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use plughost::{BlockContext, Chain, Layout, MidiEvent, PluginFormat};
+use plughost::{BlockContext, Chain, Event, Layout, PluginFormat};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GA_ROOT, GUITHREADINFO, GetAncestor, GetClassNameW, GetForegroundWindow,
     GetGUIThreadInfo, IsWindowVisible,
@@ -49,7 +49,7 @@ fn request(chain: &mut Chain, key: u8) {
             &[],
             &mut [&mut left, &mut right],
             &[],
-            &[MidiEvent::note_on(0, 0, key, 127)],
+            &[Event::note_on(0, 0, key, 127)],
             &mut Vec::new(),
         )
         .unwrap();

@@ -13,7 +13,7 @@ use plughost::{
     ScanOutcome, Scanner, StatePurpose, TailPolicy, Timeouts, render,
 };
 use plughost_core::render::{Process, Tail};
-use plughost_core::{AutomationEvent, BlockContext, MidiEvent, ProcessConfig};
+use plughost_core::{AutomationEvent, BlockContext, Event, ProcessConfig};
 use plughost_formats::{BlockProcessor, HostedPlugin};
 
 use errors::Result;
@@ -144,8 +144,8 @@ impl Process<f32> for Direct {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         _automation: &[AutomationEvent],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> std::result::Result<(), Self::Error> {
         self.processor
             .process_audio_f32(context, input, output, &[], events, produced)

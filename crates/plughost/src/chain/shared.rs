@@ -59,8 +59,8 @@ macro_rules! process {
                 input: &[&[$sample]],
                 output: &mut [&mut [$sample]],
                 automation: &[AutomationEvent],
-                events: &[MidiEvent],
-                produced: &mut Vec<MidiEvent>,
+                events: &[Event],
+                produced: &mut Vec<Event>,
             ) -> Result<(), Error> {
                 let mut transport = self.shared.take().ok_or(Error::NotPrepared)?;
                 let result = (|| {

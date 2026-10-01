@@ -16,7 +16,7 @@ use crate::render::Tail;
 use crate::state::{PluginState, PresetInfo, StatePurpose};
 use crate::{CapabilityReport, DiagnosticBatch, Failure, HostIdentity};
 
-pub const PROTOCOL_VERSION: u32 = 22;
+pub const PROTOCOL_VERSION: u32 = 23;
 /// Upper bound on one message. A helper whose memory a plugin corrupted could send anything.
 pub const MAX_MESSAGE_BYTES: usize = 256 << 20;
 

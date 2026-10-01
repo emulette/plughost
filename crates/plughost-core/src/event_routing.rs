@@ -9,7 +9,7 @@ use crate::{AudioDirection, InputError, Support};
 pub const MAX_EVENT_PORTS: usize = 16;
 
 /// A native event port. IDs are scoped to a direction; `index` is the native position that
-/// directly hosted plugins use as a [`MidiEvent::port`](crate::MidiEvent::port).
+/// directly hosted plugins use as a [`Event::port`](crate::Event::port).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventPortInfo {
     pub id: u64,

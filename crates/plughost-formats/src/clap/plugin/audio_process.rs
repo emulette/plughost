@@ -8,8 +8,8 @@ impl Processor {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), ClapError> {
         produced.clear();
         let mut engine = lock(&self.engine);

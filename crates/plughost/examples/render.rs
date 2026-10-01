@@ -10,9 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use plughost::{
-    Chain, Error, FailureKind, HostIdentity, Layout, MidiEvent, PluginFormat, PluginInfo,
-    PluginKind, PluginRef, RenderOptions, Rendered, ScanOutcome, Scanner, StatePurpose, Timeouts,
-    render,
+    Chain, Error, Event, FailureKind, HostIdentity, Layout, PluginFormat, PluginInfo, PluginKind,
+    PluginRef, RenderOptions, Rendered, ScanOutcome, Scanner, StatePurpose, Timeouts, render,
 };
 
 const USAGE: &str = "usage: render <helper executable> <bundle.vst3 | bundle.clap | Audio Unit class ID> [class index]";
@@ -77,8 +76,8 @@ fn job(chain: &mut Chain, instrument: bool, key: u8) -> Result<Rendered<f32>, Er
     let options = RenderOptions::default();
     if instrument {
         let notes = [
-            MidiEvent::note_on(0, 0, key, 100),
-            MidiEvent::note_off(frames / 2, 0, key, 0),
+            Event::note_on(0, 0, key, 100),
+            Event::note_off(frames / 2, 0, key, 0),
         ];
         return render::<f32, _>(chain, &[], frames, &notes, &options);
     }

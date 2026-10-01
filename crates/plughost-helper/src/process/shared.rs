@@ -4,9 +4,7 @@ use std::io;
 
 use plughost_core::ipc::shared::{Descriptor, SharedAudio, Submission, transfer};
 use plughost_core::ipc::{AudioSamples, Response};
-use plughost_core::{
-    AutomationEvent, BlockContext, Failure, FailureKind, MAX_BLOCK_EVENTS, MidiEvent,
-};
+use plughost_core::{AutomationEvent, BlockContext, Event, Failure, FailureKind, MAX_BLOCK_EVENTS};
 
 use super::{Pipeline, audio, prepared};
 use crate::Responder;
@@ -15,7 +13,7 @@ pub(crate) struct Transport {
     memory: SharedAudio,
     input: AudioSamples,
     automation: Vec<AutomationEvent>,
-    events: Vec<MidiEvent>,
+    events: Vec<Event>,
 }
 
 impl Transport {
@@ -104,7 +102,7 @@ macro_rules! complete {
             pub fn $name(
                 &mut self,
                 output: &[Vec<$sample>],
-                events: &[MidiEvent],
+                events: &[Event],
                 latency: u32,
                 tail: plughost_core::render::Tail,
             ) -> io::Result<()> {

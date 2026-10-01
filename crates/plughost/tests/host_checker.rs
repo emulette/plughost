@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use plughost::{
-    AutomationEvent, BlockContext, Chain, Layout, MidiEvent, ParameterChange, ParameterEvent,
+    AutomationEvent, BlockContext, Chain, Event, Layout, ParameterChange, ParameterEvent,
     PluginFormat, ProcessMode, StatePurpose, TimeSignature, Transport,
 };
 
@@ -95,8 +95,8 @@ fn play(chain: &mut Chain, blocks: usize, frames: usize, rate: f64, automated: u
         }];
         let notes = if block % 8 == 0 {
             vec![
-                MidiEvent::note_on(0, 0, 60, 100),
-                MidiEvent::note_off(frames - 1, 0, 60, 0),
+                Event::note_on(0, 0, 60, 100),
+                Event::note_off(frames - 1, 0, 60, 0),
             ]
         } else {
             Vec::new()

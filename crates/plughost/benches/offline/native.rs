@@ -1,7 +1,7 @@
 //! Minimal fixture-specific chain adapter; it is not a second general routing engine.
 use plughost::{HostIdentity, Layout, PluginRef, ProcessMode, SampleFormat};
 use plughost_core::render::{Process, Tail};
-use plughost_core::{AutomationEvent, BlockContext, MidiEvent, ParameterChange, ProcessConfig};
+use plughost_core::{AutomationEvent, BlockContext, Event, ParameterChange, ProcessConfig};
 use plughost_formats::{BlockProcessor, HostedPlugin};
 
 use crate::cases::Case;
@@ -126,8 +126,8 @@ impl Process<f32> for Direct {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[AutomationEvent],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<()> {
         let frames = context.frames;
         self.changes.clear();

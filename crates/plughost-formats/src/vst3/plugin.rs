@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use plughost_core::render::{Process, Tail};
 use plughost_core::{
-    HostIdentity, MidiEvent, ParameterChange, ParameterEvent, ParameterFlags, ParameterInfo,
+    Event, HostIdentity, ParameterChange, ParameterEvent, ParameterFlags, ParameterInfo,
     PluginFormat, PluginInfo, PluginState, ProcessConfig, Sample,
 };
 use vst3::Steinberg::Vst::ParameterInfo_::ParameterFlags_;
@@ -138,8 +138,8 @@ impl Plugin {
         input: &[&[S]],
         output: &mut [&mut [S]],
         changes: &[ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Vst3Error> {
         lock(&self.engine).process(context, input, output, changes, events, produced)
     }
@@ -513,8 +513,8 @@ impl<S: Sample> Process<S> for Plugin {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[plughost_core::AutomationEvent],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Vst3Error> {
         if automation.iter().any(|event| event.slot != 0) {
             return Err(Vst3Error::Input(plughost_core::InputError::Slot));

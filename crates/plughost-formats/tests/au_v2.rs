@@ -41,7 +41,7 @@ use objc2_core_audio_types::{
 };
 use objc2_core_foundation::{CFArray, CFRetained, CFString};
 use plughost_core::{
-    AudioBusConfig, AudioConfig, AudioDirection, EventConfig, Layout, MidiEvent, ParameterEvent,
+    AudioBusConfig, AudioConfig, AudioDirection, Event, EventConfig, Layout, ParameterEvent,
     ProcessMode, SampleFormat,
 };
 use plughost_formats::HostedPlugin;
@@ -691,7 +691,7 @@ fn prepared() -> Plugin {
     plugin
 }
 
-fn block(plugin: &mut Plugin, events: &[MidiEvent]) -> Vec<MidiEvent> {
+fn block(plugin: &mut Plugin, events: &[Event]) -> Vec<Event> {
     let mut output = vec![vec![0.0f32; 512]; 2];
     let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
     let mut produced = Vec::new();
@@ -712,14 +712,14 @@ fn block(plugin: &mut Plugin, events: &[MidiEvent]) -> Vec<MidiEvent> {
 fn midi_a_v2_unit_sends_arrives_through_the_bridge_at_its_offsets() {
     let mut plugin = prepared();
     let events = [
-        MidiEvent::note_on(100, 0, 60, 100),
-        MidiEvent::control_change(300, 1, 7, 64),
+        Event::note_on(100, 0, 60, 100),
+        Event::control_change(300, 1, 7, 64),
     ];
     assert_eq!(block(&mut plugin, &events), events);
-    let sysex = MidiEvent::sysex(200, vec![0xF0, 0x7D, 0x01, 0x02, 0xF7]);
+    let sysex = Event::sysex(200, vec![0xF0, 0x7D, 0x01, 0x02, 0xF7]);
     assert_eq!(
         block(&mut plugin, std::slice::from_ref(&sysex)),
-        [MidiEvent { offset: 0, ..sysex }]
+        [sysex.clone().at(0)]
     );
     assert_eq!(block(&mut plugin, &[]), []);
 }
@@ -777,7 +777,7 @@ fn a_failed_render_still_moves_the_timeline_on() {
     plugin
         .set_parameter(u64::from(STEPS), f64::from(TIMED) / 22.0)
         .unwrap();
-    let mut render = |events: &[MidiEvent]| {
+    let mut render = |events: &[Event]| {
         let mut output = vec![vec![0.0f32; 512]; 2];
         let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
         plugin.process(
@@ -790,7 +790,7 @@ fn a_failed_render_still_moves_the_timeline_on() {
         )
     };
     render(&[]).unwrap();
-    render(&[MidiEvent::note_on(0, 0, FAIL_KEY, 1)]).unwrap_err();
+    render(&[Event::note_on(0, 0, FAIL_KEY, 1)]).unwrap_err();
     render(&[]).unwrap();
     assert_eq!(*RENDER_TIMES.lock().unwrap(), [0.0, 512.0, 1024.0]);
 }

@@ -10,9 +10,7 @@ use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
 
 use plughost_core::render::{RenderOptions, TailPolicy, render};
-use plughost_core::{
-    Layout, MidiEvent, PluginKind, ProcessConfig, ProcessMode, Sample, SampleFormat,
-};
+use plughost_core::{Event, Layout, PluginKind, ProcessConfig, ProcessMode, Sample, SampleFormat};
 use plughost_formats::vst3::{Module, Plugin, Preset, Vst3Error};
 use plughost_formats::{Error, HostedPlugin};
 
@@ -665,7 +663,7 @@ fn processors_fail_once_the_plugin_is_dropped() {
 }
 
 /// One block of `again` with `events`; again applies note velocity and gain per block.
-fn again_block(plugin: &mut Plugin, input: &[Vec<f32>], events: &[MidiEvent]) -> Vec<Vec<f32>> {
+fn again_block(plugin: &mut Plugin, input: &[Vec<f32>], events: &[Event]) -> Vec<Vec<f32>> {
     let inputs: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
     let mut output = vec![vec![0.0f32; input[0].len()]; 2];
     let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
@@ -692,9 +690,9 @@ fn notes_reach_the_event_input() {
         .unwrap();
     let input = signal(512, |v| v as f32);
     // again lowers its gain by the velocity of the held note.
-    let held = again_block(&mut plugin, &input, &[MidiEvent::note_on(0, 0, 60, 64)]);
+    let held = again_block(&mut plugin, &input, &[Event::note_on(0, 0, 60, 64)]);
     assert!(max_difference(&held, &input, 1.0 - 64.0 / 127.0) < 1e-6);
-    let released = again_block(&mut plugin, &input, &[MidiEvent::note_off(0, 0, 60, 0)]);
+    let released = again_block(&mut plugin, &input, &[Event::note_off(0, 0, 60, 0)]);
     assert!(max_difference(&released, &input, 1.0) < 1e-6);
 }
 
@@ -708,11 +706,7 @@ fn midi_controllers_reach_the_parameters_the_controller_maps() {
         .unwrap();
     let input = signal(512, |v| v as f32);
     // again maps MIDI volume (controller 7) to its gain.
-    let output = again_block(
-        &mut plugin,
-        &input,
-        &[MidiEvent::control_change(0, 0, 7, 32)],
-    );
+    let output = again_block(&mut plugin, &input, &[Event::control_change(0, 0, 7, 32)]);
     assert!(max_difference(&output, &input, 32.0 / 127.0) < 1e-6);
     assert!((plugin.parameter_value(AGAIN_GAIN) - 32.0 / 127.0).abs() < 1e-6);
 }
@@ -747,7 +741,7 @@ fn instruments_start_notes_at_their_sample_offsets() {
             &[],
             &mut outputs,
             &[],
-            &[MidiEvent::note_on(100, 0, 60, 127)],
+            &[Event::note_on(100, 0, 60, 127)],
             &mut Vec::new(),
         )
         .unwrap();
@@ -793,7 +787,7 @@ fn changed_midi_controller_assignments_are_followed() {
     let input = vec![vec![0.5f32; 512]; 2];
     let inputs: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
     let mut output = vec![vec![0.0f32; 512]; 2];
-    for events in [&[MidiEvent::control_change(0, 0, 11, 64)][..], &[]] {
+    for events in [&[Event::control_change(0, 0, 11, 64)][..], &[]] {
         let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
         plugin
             .process(

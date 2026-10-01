@@ -14,12 +14,12 @@ trait WireSample: Sample + Add<Output = Self> + Mul<Output = Self> + From<f32> {
         input: &[&[Self]],
         output: &mut [&mut [Self]],
         changes: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), plughost_formats::Error>;
     fn respond(
         output: &[Vec<Self>],
-        events: &[MidiEvent],
+        events: &[Event],
         latency: u32,
         tail: plughost_core::render::Tail,
         completion: &mut shared::Completion<'_>,
@@ -34,14 +34,14 @@ macro_rules! wire_sample {
                 i: &[&[Self]],
                 o: &mut [&mut [Self]],
                 a: &[plughost_core::ParameterChange],
-                e: &[MidiEvent],
-                produced: &mut Vec<MidiEvent>,
+                e: &[Event],
+                produced: &mut Vec<Event>,
             ) -> Result<(), plughost_formats::Error> {
                 p.$method(c, i, o, a, e, produced)
             }
             fn respond(
                 output: &[Vec<Self>],
-                events: &[MidiEvent],
+                events: &[Event],
                 latency: u32,
                 tail: plughost_core::render::Tail,
                 completion: &mut shared::Completion<'_>,
@@ -59,7 +59,7 @@ pub(super) fn process(
     input: &AudioSamples,
     context: &plughost_core::BlockContext,
     automation: &[plughost_core::AutomationEvent],
-    events: &[MidiEvent],
+    events: &[Event],
     responder: &Responder,
     completion: &mut shared::Completion<'_>,
 ) -> io::Result<()> {
@@ -155,7 +155,7 @@ fn validate<S: WireSample>(
     input: &[Vec<S>],
     context: &plughost_core::BlockContext,
     automation: &[plughost_core::AutomationEvent],
-    events: &[MidiEvent],
+    events: &[Event],
 ) -> Result<(), InputError> {
     context.validate()?;
     plughost_core::validate_event_budget(automation.len(), events)?;
@@ -208,7 +208,7 @@ fn run<S: WireSample>(
     input: &[Vec<S>],
     context: &plughost_core::BlockContext,
     automation: &[plughost_core::AutomationEvent],
-    events: &[MidiEvent],
+    events: &[Event],
     responder: &Responder,
     completion: &mut shared::Completion<'_>,
 ) -> io::Result<()> {

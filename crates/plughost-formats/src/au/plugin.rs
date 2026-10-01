@@ -32,8 +32,8 @@ use objc2_foundation::{NSError, NSInteger, NSPropertyListFormat};
 use plughost_core::render::Tail;
 use plughost_core::{Capabilities, Support};
 use plughost_core::{
-    MidiEvent, ParameterFlags, ParameterInfo, PluginFormat, PluginInfo, PluginState, ProcessConfig,
-    ProcessMode, SampleFormat, events_fit,
+    Event, EventData, ParameterFlags, ParameterInfo, PluginFormat, PluginInfo, PluginState,
+    ProcessConfig, ProcessMode, SampleFormat, events_fit,
 };
 
 use super::components::{components, parse_class_id};
@@ -262,8 +262,8 @@ impl Plugin {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), AuError> {
         produced.clear();
         lock(&self.engine).process(context, input, output, automation, events, produced)
@@ -720,8 +720,8 @@ impl Engine {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), AuError> {
         let (_, prepared) = self.parts()?;
         context.validate().map_err(AuError::Input)?;
@@ -790,7 +790,14 @@ impl Engine {
         if let Some(schedule) = &prepared.schedule_midi {
             for event in events {
                 // The block takes complete MIDI messages of any length, system exclusive included.
-                let bytes = event.bytes();
+                // Notes and pressure go in their MIDI 1.0 form; other expressions have none.
+                let midi = event.data.to_midi();
+                let bytes = match (&event.data, &midi) {
+                    (EventData::SysEx(bytes), _) => bytes.as_slice(),
+                    (_, Some(midi)) if matches!(midi[0] & 0xF0, 0xC0 | 0xD0) => &midi[..2],
+                    (_, Some(midi)) => midi.as_slice(),
+                    (_, None) => continue,
+                };
                 schedule.call((
                     position as AUEventSampleTime + event.offset as AUEventSampleTime,
                     0,
@@ -856,8 +863,8 @@ impl Processor {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), AuError> {
         produced.clear();
         lock(&self.engine).process(context, input, output, automation, events, produced)

@@ -1,6 +1,6 @@
 use super::{ClapError, Plugin, lock};
 use plughost_core::render::{Process, Tail};
-use plughost_core::{AudioDirection, AutomationEvent, BlockContext, InputError, MidiEvent, Sample};
+use plughost_core::{AudioDirection, AutomationEvent, BlockContext, Event, InputError, Sample};
 impl<S: Sample> Process<S> for Plugin {
     type Error = ClapError;
     fn sample_rate(&self) -> f64 {
@@ -45,8 +45,8 @@ impl<S: Sample> Process<S> for Plugin {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[AutomationEvent],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), ClapError> {
         if automation.iter().any(|event| event.slot != 0) {
             return Err(ClapError::Input(InputError::Slot));

@@ -3,8 +3,8 @@
 
 use plughost::{
     AudioBusConfig, AudioDirection, AudioInputRoute, AudioSource, BlockContext, Chain,
-    ChannelAdaptation, Error, EventInputRoute, EventPortInfo, EventSource, FailureKind, Layout,
-    MidiEvent, PluginFormat, PluginRef, ProcessMode, RenderOptions, RoutedChainConfig,
+    ChannelAdaptation, Error, Event, EventData, EventInputRoute, EventPortInfo, EventSource,
+    FailureKind, Layout, PluginFormat, PluginRef, ProcessMode, RenderOptions, RoutedChainConfig,
     SampleFormat, SlotAudioConfig, SlotEventConfig, TailPolicy, render,
 };
 
@@ -54,14 +54,40 @@ fn two_inputs(chain: &mut Chain, config: &mut RoutedChainConfig, slot: usize) {
         .collect();
 }
 
+/// The events in their MIDI 1.0 form, as a MIDI consumer sees them. The routing fixture's VST3
+/// side sends its notes as VST3 note events, which arrive as notes; its CLAP side sends MIDI.
+fn as_midi(format: PluginFormat, events: &[Event]) -> Vec<Event> {
+    events
+        .iter()
+        .map(|event| match (&event.data, event.data.to_midi()) {
+            (EventData::NoteOn(_) | EventData::NoteOff(_), Some(bytes)) => {
+                assert_eq!(format, PluginFormat::Vst3);
+                Event::midi(event.offset, bytes).on_port(event.port)
+            }
+            (EventData::Midi(_), _)
+                if event.message().is_some_and(|message| {
+                    matches!(
+                        message,
+                        plughost::Message::NoteOn { .. } | plughost::Message::NoteOff { .. }
+                    )
+                }) =>
+            {
+                assert_eq!(format, PluginFormat::Clap);
+                event.clone()
+            }
+            _ => event.clone(),
+        })
+        .collect()
+}
+
 /// Processes one block of silence, returning the last slot's left channel and the chain's output
 /// events.
 fn run(
     chain: &mut Chain,
     config: &RoutedChainConfig,
     frames: usize,
-    events: &[MidiEvent],
-) -> Result<(Vec<f32>, Vec<MidiEvent>), Error> {
+    events: &[Event],
+) -> Result<(Vec<f32>, Vec<Event>), Error> {
     let input = vec![0.0; frames];
     let inputs = vec![input.as_slice(); config.inputs.len() * 2];
     let (mut left, mut right) = (vec![0.0; frames], vec![0.0; frames]);
@@ -174,8 +200,8 @@ fn midi_effect_output_plays_an_instrument_before_an_audio_effect() {
         chain.prepare_audio(&config).unwrap();
         // The effect moves key 57 up an octave, so the instrument plays A4 from frame 1000.
         let events = [
-            MidiEvent::note_on(1000, 0, 57, 127),
-            MidiEvent::note_off(2000, 0, 57, 0),
+            Event::note_on(1000, 0, 57, 127),
+            Event::note_off(2000, 0, 57, 0),
         ];
         let options = RenderOptions {
             tail: TailPolicy::Reported,
@@ -203,9 +229,9 @@ fn the_same_note_on_two_ports_sounds_twice() {
         &config,
         64,
         &[
-            MidiEvent::note_on(0, 0, 69, 127),
-            MidiEvent::note_on(0, 0, 69, 127).on_port(1),
-            MidiEvent::note_off(32, 0, 69, 0),
+            Event::note_on(0, 0, 69, 127),
+            Event::note_on(0, 0, 69, 127).on_port(1),
+            Event::note_off(32, 0, 69, 0),
         ],
     )
     .unwrap();
@@ -217,7 +243,7 @@ fn the_same_note_on_two_ports_sounds_twice() {
         &mut chain,
         &config,
         64,
-        &[MidiEvent::note_off(0, 0, 69, 0).on_port(1)],
+        &[Event::note_off(0, 0, 69, 0).on_port(1)],
     )
     .unwrap();
     assert!(output.iter().all(|&s| s == 0.0));
@@ -233,11 +259,11 @@ fn system_exclusive_sustain_and_reset_reach_the_instrument() {
         &config,
         64,
         &[
-            MidiEvent::sysex(0, vec![0xF0, 0x7D, 0x01, 64, 0xF7]),
-            MidiEvent::control_change(0, 0, 64, 127),
-            MidiEvent::note_on(10, 0, 69, 127),
-            MidiEvent::note_off(20, 0, 69, 0),
-            MidiEvent::control_change(40, 0, 64, 0),
+            Event::sysex(0, vec![0xF0, 0x7D, 0x01, 64, 0xF7]),
+            Event::control_change(0, 0, 64, 127),
+            Event::note_on(10, 0, 69, 127),
+            Event::note_off(20, 0, 69, 0),
+            Event::control_change(40, 0, 64, 0),
         ],
     )
     .unwrap();
@@ -245,13 +271,7 @@ fn system_exclusive_sustain_and_reset_reach_the_instrument() {
     // The pedal holds the note past its note off until the pedal is released.
     assert!(output[10..40].iter().all(|&s| s != 0.0));
     assert!(output[40..].iter().all(|&s| s == 0.0));
-    run(
-        &mut chain,
-        &config,
-        64,
-        &[MidiEvent::note_on(0, 0, 69, 127)],
-    )
-    .unwrap();
+    run(&mut chain, &config, 64, &[Event::note_on(0, 0, 69, 127)]).unwrap();
     chain.reset().unwrap();
     let (output, _) = run(&mut chain, &config, 64, &[]).unwrap();
     assert!(output.iter().all(|&s| s == 0.0));
@@ -268,22 +288,22 @@ fn last_slot_events_leave_the_chain_in_offset_order() {
             &config,
             64,
             &[
-                MidiEvent::note_on(5, 0, 60, 100),
-                MidiEvent::note_on(7, 3, 60, 90).on_port(1),
-                MidiEvent::sysex(9, sysex.clone()),
-                MidiEvent::note_off(11, 3, 60, 0).on_port(1),
+                Event::note_on(5, 0, 60, 100),
+                Event::note_on(7, 3, 60, 90).on_port(1),
+                Event::sysex(9, sysex.clone()),
+                Event::note_off(11, 3, 60, 0).on_port(1),
             ],
         )
         .unwrap();
         assert_eq!(
-            produced,
+            as_midi(format, &produced),
             [
-                MidiEvent::note_on(5, 0, 72, 100),
-                MidiEvent::control_change(5, 0, KEY_CONTROLLER, 60),
-                MidiEvent::note_on(7, 3, 84, 90),
-                MidiEvent::control_change(7, 3, KEY_CONTROLLER, 60),
-                MidiEvent::sysex(9, sysex),
-                MidiEvent::note_off(11, 3, 84, 0),
+                Event::note_on(5, 0, 72, 100),
+                Event::control_change(5, 0, KEY_CONTROLLER, 60),
+                Event::note_on(7, 3, 84, 90),
+                Event::control_change(7, 3, KEY_CONTROLLER, 60),
+                Event::sysex(9, sysex),
+                Event::note_off(11, 3, 84, 0),
             ],
             "{format:?}"
         );
@@ -297,9 +317,12 @@ fn events_a_plugin_sends_past_the_block_land_on_its_last_frame() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let (mut chain, config) = routing_chain(format);
         chain.take_diagnostics().unwrap();
-        let (_, produced) =
-            run(&mut chain, &config, 64, &[MidiEvent::note_off(10, 0, 0, 0)]).unwrap();
-        assert_eq!(produced, [MidiEvent::note_off(63, 0, 12, 0)], "{format:?}");
+        let (_, produced) = run(&mut chain, &config, 64, &[Event::note_off(10, 0, 0, 0)]).unwrap();
+        assert_eq!(
+            as_midi(format, &produced),
+            [Event::note_off(63, 0, 12, 0)],
+            "{format:?}"
+        );
         let (_, produced) = run(&mut chain, &config, 64, &[]).unwrap();
         assert_eq!(produced, [], "{format:?}");
         let diagnostics = chain.take_diagnostics().unwrap();
@@ -315,13 +338,7 @@ fn events_a_plugin_sends_past_the_block_land_on_its_last_frame() {
 fn exceeding_the_output_budget_stops_processing_until_reset() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let (mut chain, config) = routing_chain(format);
-        let error = run(
-            &mut chain,
-            &config,
-            64,
-            &[MidiEvent::sysex(0, FLOOD.to_vec())],
-        )
-        .unwrap_err();
+        let error = run(&mut chain, &config, 64, &[Event::sysex(0, FLOOD.to_vec())]).unwrap_err();
         assert_eq!(error.kind(), FailureKind::Processing, "{format:?}");
         assert!(matches!(error, Error::Operation { slot: Some(0), .. }));
         // Events already delivered to the plugin may be lost, so the stream is out of sync.
@@ -329,13 +346,11 @@ fn exceeding_the_output_budget_stops_processing_until_reset() {
         assert!(matches!(error, Error::Operation { slot: None, .. }));
         assert_eq!(error.kind(), FailureKind::Processing);
         chain.reset().unwrap();
-        let (_, produced) = run(
-            &mut chain,
-            &config,
-            64,
-            &[MidiEvent::note_on(0, 0, 60, 100)],
-        )
-        .unwrap();
-        assert_eq!(produced[0], MidiEvent::note_on(0, 0, 72, 100), "{format:?}");
+        let (_, produced) = run(&mut chain, &config, 64, &[Event::note_on(0, 0, 60, 100)]).unwrap();
+        assert_eq!(
+            as_midi(format, &produced[..1]),
+            [Event::note_on(0, 0, 72, 100)],
+            "{format:?}"
+        );
     }
 }

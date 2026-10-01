@@ -10,7 +10,7 @@ pub(crate) mod shared;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use plughost_core::ipc::shared::Submission;
-use plughost_core::{BlockContext, MidiEvent};
+use plughost_core::{BlockContext, Event};
 use plughost_formats::BlockProcessor;
 
 use crate::Responder;

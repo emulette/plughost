@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use plughost_core::{
-    Layout, MidiEvent, PluginKind, ProcessConfig, ProcessMode, SampleFormat, StatePurpose,
+    Event, Layout, PluginKind, ProcessConfig, ProcessMode, SampleFormat, StatePurpose,
 };
 use plughost_formats::clap::{self, ClapError, Plugin};
 use plughost_formats::{BlockProcessor, Error, HostedPlugin};
@@ -114,7 +114,7 @@ fn synth() -> Plugin {
 }
 
 /// One block of the synth's first output channel.
-fn play(synth: &mut Plugin, events: &[MidiEvent]) -> Vec<f32> {
+fn play(synth: &mut Plugin, events: &[Event]) -> Vec<f32> {
     let mut output = vec![vec![1.0f32; BLOCK]; 2];
     let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
     synth
@@ -354,14 +354,14 @@ fn reset_without_state_extension_stops_notes_and_keeps_controls() {
     play(
         &mut synth,
         &[
-            MidiEvent::control_change(0, 0, 7, 64),
-            MidiEvent::note_on(0, 0, 69, 127),
+            Event::control_change(0, 0, 7, 64),
+            Event::note_on(0, 0, 69, 127),
         ],
     );
     synth.reset().unwrap();
     assert!(play(&mut synth, &[]).iter().all(|&sample| sample == 0.0));
     assert_eq!(
-        play(&mut synth, &[MidiEvent::note_on(0, 0, 69, 127)])[0],
+        play(&mut synth, &[Event::note_on(0, 0, 69, 127)])[0],
         64.0 / 127.0
     );
 }
@@ -429,8 +429,8 @@ fn notes_start_and_stop_at_their_sample_offsets() {
     let output = play(
         &mut synth,
         &[
-            MidiEvent::note_on(100, 0, 69, 127),
-            MidiEvent::note_off(300, 0, 69, 0),
+            Event::note_on(100, 0, 69, 127),
+            Event::note_off(300, 0, 69, 0),
         ],
     );
     assert!(output[..100].iter().all(|&s| s == 0.0));
@@ -448,8 +448,8 @@ fn other_midi_messages_reach_a_port_that_takes_midi() {
     let output = play(
         &mut synth,
         &[
-            MidiEvent::control_change(0, 0, 7, 64),
-            MidiEvent::note_on(0, 0, 69, 127),
+            Event::control_change(0, 0, 7, 64),
+            Event::note_on(0, 0, 69, 127),
         ],
     );
     assert_eq!(output[0], 64.0 / 127.0);

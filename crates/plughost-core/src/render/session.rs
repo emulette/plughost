@@ -2,7 +2,7 @@ use super::{
     Delivery, Process, RenderInput, RenderOptions, RenderProgress, RenderSchedule, RenderStatus,
     Tail, TailPolicy, TransportChange, render_stream,
 };
-use crate::{AutomationEvent, BlockContext, MidiEvent, RenderError, Sample, Transport};
+use crate::{AutomationEvent, BlockContext, Event, RenderError, Sample, Transport};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionState {
@@ -213,8 +213,8 @@ impl<S: Sample, P: Process<S>> Process<S> for Segment<'_, S, P> {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[AutomationEvent],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Self::Error> {
         if let Some(zeros) = &self.silent {
             let input = vec![&zeros[..context.frames]; self.processor.input_channels()];

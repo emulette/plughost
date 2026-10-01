@@ -15,7 +15,7 @@ struct Echo {
     tail_after_blocks: Option<(usize, Tail)>,
     blocks: usize,
     /// The events each block received, by block number.
-    events: Vec<(usize, Vec<MidiEvent>)>,
+    events: Vec<(usize, Vec<Event>)>,
 }
 
 impl Echo {
@@ -73,13 +73,13 @@ impl Process<f32> for Echo {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         _automation: &[crate::AutomationEvent],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), RenderError> {
         self.events.push((self.blocks, events.to_vec()));
         // The events come back out on port 1, one sample later where the block allows.
         produced.clear();
-        produced.extend(events.iter().map(|event| MidiEvent {
+        produced.extend(events.iter().map(|event| Event {
             offset: (event.offset + 1).min(input[0].len() - 1),
             port: 1,
             ..event.clone()
@@ -256,8 +256,8 @@ fn events_reach_the_block_they_fall_in_with_block_offsets() {
     let input = signal(1000);
     let slices: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
     let mut processor = Echo::new(0, 0, Tail::Samples(0));
-    let on = MidiEvent::note_on(10, 0, 60, 100);
-    let off = MidiEvent::note_off(300, 0, 60, 0);
+    let on = Event::note_on(10, 0, 60, 100);
+    let off = Event::note_off(300, 0, 60, 0);
     render(
         &mut processor,
         &slices,
@@ -266,12 +266,12 @@ fn events_reach_the_block_they_fall_in_with_block_offsets() {
         &reported(1.0),
     )
     .unwrap();
-    let received: Vec<(usize, Vec<MidiEvent>)> = processor
+    let received: Vec<(usize, Vec<Event>)> = processor
         .events
         .into_iter()
         .filter(|(_, events)| !events.is_empty())
         .collect();
-    let moved = MidiEvent {
+    let moved = Event {
         offset: 44,
         ..off.clone()
     };
@@ -287,7 +287,7 @@ fn events_reach_the_block_they_fall_in_with_block_offsets() {
     .unwrap();
     assert_eq!(
         rendered.events,
-        [on.clone().on_port(1), off.clone().on_port(1)].map(|event| MidiEvent {
+        [on.clone().on_port(1), off.clone().on_port(1)].map(|event| Event {
             offset: event.offset + 1,
             ..event
         })

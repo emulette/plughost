@@ -21,7 +21,7 @@ use objc2_avf_audio::AVAudioFormat;
 use objc2_core_audio_types::AudioBufferList;
 use objc2_foundation::{NSArray, NSError, NSInteger, NSString};
 use plughost_core::{
-    AudioBusConfig, AudioConfig, AudioDirection, EventConfig, Layout, MAX_BLOCK_EVENTS, MidiEvent,
+    AudioBusConfig, AudioConfig, AudioDirection, Event, EventConfig, Layout, MAX_BLOCK_EVENTS,
     ProcessMode, SampleFormat,
 };
 use plughost_formats::au::{self, Plugin};
@@ -278,7 +278,7 @@ fn prepared(outputs: Vec<u64>) -> Plugin {
     plugin
 }
 
-fn block(plugin: &mut Plugin, events: &[MidiEvent]) -> Result<Vec<MidiEvent>, Error> {
+fn block(plugin: &mut Plugin, events: &[Event]) -> Result<Vec<Event>, Error> {
     let mut output = vec![vec![0.0f32; 512]; 2];
     let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
     let mut produced = Vec::new();
@@ -316,20 +316,20 @@ fn sent_midi_arrives_at_its_block_offset_as_separate_messages() {
     let produced = block(
         &mut plugin,
         &[
-            MidiEvent::note_on(100, 0, 60, 100),
-            MidiEvent::sysex(200, sysex.clone()),
-            MidiEvent::control_change(300, 0, 127, 0),
+            Event::note_on(100, 0, 60, 100),
+            Event::sysex(200, sysex.clone()),
+            Event::control_change(300, 0, 127, 0),
         ],
     )
     .unwrap();
     assert_eq!(
         produced,
         [
-            MidiEvent::note_on(100, 0, 60, 100),
-            MidiEvent::sysex(200, sysex),
-            MidiEvent::channel(300, [0x90, 1, 2]),
-            MidiEvent::channel(300, [0x90, 3, 4]),
-            MidiEvent::sysex(300, vec![0xF0, 0x7D, 0x01, 0xF7]),
+            Event::note_on(100, 0, 60, 100),
+            Event::sysex(200, sysex),
+            Event::midi(300, [0x90, 1, 2]),
+            Event::midi(300, [0x90, 3, 4]),
+            Event::sysex(300, vec![0xF0, 0x7D, 0x01, 0xF7]),
         ]
     );
     // The clock has no event form; it is reported, not delivered.
@@ -338,20 +338,20 @@ fn sent_midi_arrives_at_its_block_offset_as_separate_messages() {
     assert!(diagnostics[0].message.ends_with(" 1"), "{diagnostics:?}");
 
     // Offsets are relative to each block.
-    let produced = block(&mut plugin, &[MidiEvent::note_off(5, 0, 60, 0)]).unwrap();
-    assert_eq!(produced, [MidiEvent::note_off(5, 0, 60, 0)]);
+    let produced = block(&mut plugin, &[Event::note_off(5, 0, 60, 0)]).unwrap();
+    assert_eq!(produced, [Event::note_off(5, 0, 60, 0)]);
 }
 
 #[test]
 fn only_prepared_outputs_deliver_their_messages() {
-    let second = [MidiEvent::control_change(10, 0, 126, 42)];
+    let second = [Event::control_change(10, 0, 126, 42)];
     let mut first_only = prepared(vec![0]);
     assert_eq!(block(&mut first_only, &second).unwrap(), []);
 
     let mut both = prepared(vec![0, 1]);
     assert_eq!(
         block(&mut both, &second).unwrap(),
-        [MidiEvent::control_change(10, 0, 126, 42).on_port(1)]
+        [Event::control_change(10, 0, 126, 42).on_port(1)]
     );
 
     let mut plugin = Plugin::new(&class_id()).unwrap();
@@ -363,11 +363,11 @@ fn only_prepared_outputs_deliver_their_messages() {
 #[test]
 fn a_block_with_too_many_events_fails_and_the_next_one_delivers() {
     let mut plugin = prepared(vec![0]);
-    let error = block(&mut plugin, &[MidiEvent::note_on(0, 0, 127, 1)]).unwrap_err();
+    let error = block(&mut plugin, &[Event::note_on(0, 0, 127, 1)]).unwrap_err();
     assert!(error.is_output_event_overflow(), "{error}");
     assert_eq!(
-        block(&mut plugin, &[MidiEvent::note_on(7, 0, 60, 1)]).unwrap(),
-        [MidiEvent::note_on(7, 0, 60, 1)]
+        block(&mut plugin, &[Event::note_on(7, 0, 60, 1)]).unwrap(),
+        [Event::note_on(7, 0, 60, 1)]
     );
 }
 
@@ -384,6 +384,6 @@ fn the_main_configuration_prepares_the_first_output() {
             mode: ProcessMode::Offline,
         })
         .unwrap();
-    let produced = block(&mut plugin, &[MidiEvent::note_on(3, 0, 64, 90)]).unwrap();
-    assert_eq!(produced, [MidiEvent::note_on(3, 0, 64, 90)]);
+    let produced = block(&mut plugin, &[Event::note_on(3, 0, 64, 90)]).unwrap();
+    assert_eq!(produced, [Event::note_on(3, 0, 64, 90)]);
 }

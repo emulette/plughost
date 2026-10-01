@@ -11,7 +11,7 @@ use plughost_core::CapabilityReport;
 use plughost_core::PluginRef;
 use plughost_core::ipc::{Request, Response};
 use plughost_core::render::Tail;
-use plughost_core::{HostIdentity, MidiEvent, ParameterInfo, PluginInfo, PluginState, events_fit};
+use plughost_core::{Event, HostIdentity, ParameterInfo, PluginInfo, PluginState, events_fit};
 
 use crate::errors::Error;
 use crate::helper::{Helper, Mode};

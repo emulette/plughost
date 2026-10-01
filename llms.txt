@@ -212,8 +212,9 @@ instance before failing. A native crash or timeout can terminate the shared help
 processes one block and appends the chain's output events to `produced`. All channel slices must have `context.frames` samples,
 no more than the prepared maximum block size. `BlockContext::new(frames)` supplies frame
 count without transport. The helper's reply is validated before it modifies output buffers.
-Automation and MIDI together are limited to `MAX_BLOCK_EVENTS` (4,096) per call across the
-chain, and system exclusive data to `MAX_BLOCK_SYSEX_BYTES` (64 KiB); excess input fails with
+Automation points and events are fixed-size records: together they are limited to
+`MAX_BLOCK_EVENTS` (4,096) per call across the chain, and system exclusive data, kept apart
+from the records, to `MAX_BLOCK_SYSEX_BYTES` (64 KiB); excess input fails with
 `InputError::EventCapacity` before DSP advances. Pending
 control edits have a separate 4,096-entry budget (VST3 coalesces by parameter ID). Prepared
 host event storage is reused. Native VST3 output-queue overflow requires re-preparation.
@@ -235,12 +236,25 @@ The caller owns seeks and loop wrapping. Moving transport does not implicitly re
 Values must be finite and in `0..=1`. Events are ordered by offset and lie inside the block.
 Read-only or non-automatable targets are rejected when appropriate.
 
-`MidiEvent { offset, port, data }` carries a MIDI 1.0 channel message
-(`MidiData::Channel`) or a complete system exclusive message from `F0` to `F7`
-(`MidiData::SysEx`). Constructors include `note_on`, `note_off`, `control_change` and `sysex`;
-`on_port(port)` selects one of the chain's external event inputs. Offsets are block-relative
-for direct processing and render-relative for rendering. MIDI 2.0, MPE and note expression are
-not implemented.
+`Event { offset, port, data }` carries `EventData`: a MIDI 1.0 channel message
+(`EventData::Midi`), a complete system exclusive message from `F0` to `F7`
+(`EventData::SysEx`), a note on or off (`EventData::NoteOn` / `NoteOff` with a `Note`), or
+the expression of single notes (`EventData::Expression` with a `NoteExpression`).
+`Event::new(offset, data)` builds any of them; `midi`, `note_on`, `note_off`,
+`control_change` and `sysex` build MIDI 1.0 messages. `on_port(port)` selects one of the
+chain's external event inputs and `at(offset)` moves the event. Offsets are block-relative for
+direct processing and render-relative for rendering.
+
+A `Note` has a channel (0..=15), key (0..=127), velocity (0..=1; release velocity for a note
+off) and an optional ID of at most `MAX_NOTE_ID` (`Note::new(channel, key, velocity)`,
+`.with_id(id)`). IDs tell overlapping notes on one key apart; a note off or expression without
+an ID addresses every note on its port, channel and key. A `NoteExpression` names its note the
+same way and holds an `ExpressionKind` and a value that applies until the next value of that
+expression: volume is linear gain 0..=4 (1 leaves the level), pan 0..=1 (0.5 center), tuning
+-120..=120 semitones relative to the key, and vibrato, expression, brightness and pressure
+0..=1. `EventData::to_midi()` gives the MIDI 1.0 form of MIDI messages, notes (velocity
+rounded to 7 bits, a note on at least 1) and pressure (poly pressure). MIDI 2.0 is not
+implemented.
 
 `event_ports(slot)` lists a plugin's native event ports as `EventPortInfo` (native ID, index,
 name, direction, MIDI and system exclusive support). `SlotAudioConfig::events` is a
@@ -253,14 +267,25 @@ event outputs; `RoutedChainConfig::event_inputs` counts its external event input
 event input and each slot's first event output to the next slot's first event input.
 
 A VST3 plugin without event input buses that maps MIDI controllers through IMidiMapping has
-one input port that takes controller messages only. CLAP delivers notes as CLAP note events
-where a port prefers them and other messages as MIDI, also to ports that take only MIDI with
-MPE; system exclusive data goes only to ports that take MIDI. Output notes, legacy VST3
-controller output and system exclusive data become MIDI events; events with no MIDI 1.0 form
-are counted in diagnostics, not delivered (a CLAP note end, which only reports a voice that
-ended, is neither). Output events a plugin places past the end of the block land on its last
-frame. Audio Units take events on port 0 only and send MIDI on one
-output port per MIDI output cable they name. When a plugin produces more than one block's event budget, the block fails and
+one input port that takes controller messages only. VST3 receives notes as note events with
+their IDs, pressure as poly pressure, and the other expressions as note expression values of the
+standard types, which reach a note by ID alone: such an expression without an ID is not
+delivered. CLAP ports that take the CLAP dialect receive notes, MIDI notes and expressions as
+CLAP note and note expression events; other channel messages go as MIDI to ports that take MIDI
+or MIDI with MPE, which receive notes and pressure in their MIDI 1.0 form where they have no
+CLAP dialect. System exclusive data goes only to ports that take MIDI. Audio Units take events on
+port 0 only, in their MIDI 1.0 form. An expression other than pressure has no MIDI 1.0 form and
+does not reach MIDI-only ports. MPE is MIDI 1.0 on member channels: it is delivered as MIDI,
+never converted into notes with IDs or note expressions.
+
+Plugin output in a format's note events becomes notes and expressions: CLAP note and note
+expression events, and VST3 notes, poly pressure and standard note expression values (named by
+an ID the plugin's own note on gave). A VST3 note on with a tuning is followed by a tuning
+expression. MIDI output, legacy VST3 controller output and system exclusive data stay MIDI.
+Events with no portable form are counted in diagnostics, not delivered (a CLAP note end, which
+only reports a voice that ended, is neither). Output events a plugin places past the end of the
+block land on its last frame. Audio Units send MIDI on one output port per MIDI output cable they
+name. When a plugin produces more than one block's event budget, the block fails and
 the chain refuses to process until `reset`, since events already delivered may be lost.
 
 ## Offline rendering

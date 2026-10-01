@@ -73,7 +73,8 @@ chain from a state snapshot when the plugin crashes or hangs.
 
 - VST3 and CLAP on both supported platforms; Audio Units on macOS.
 - Block timing, caller transport, automation, parameters, state, and presets.
-- MIDI 1.0 and system exclusive input and output on multiple event ports, routed between slots.
+- Notes with IDs, per-note expression, MIDI 1.0, and system exclusive input and output on
+  multiple event ports, routed between slots.
 - Bus configuration, sidechains, multiple output buses, and explicit mono/stereo adaptation.
 - Channel layouts from mono to 7.1.4 and 9.1.6, and first- to fourth-order ambisonics, each in
   one channel order across formats; 9.1.6 is not available to CLAP plugins.

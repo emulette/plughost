@@ -88,8 +88,8 @@ impl Process<f32> for Native {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[AutomationEvent],
-        midi: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        midi: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), NativeError> {
         let changes: Vec<_> = automation.iter().map(|point| point.change).collect();
         self.plugin

@@ -6,9 +6,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use plughost::{
-    Chain, Error, HostIdentity, InputError, Layout, MidiEvent, PluginFormat, PluginRef,
-    RenderOptions, RoutedChainConfig, ScanAction, ScanOutcome, ScanPolicy, Scanner, Source,
-    TailPolicy, Timeouts, render,
+    Chain, Error, Event, HostIdentity, InputError, Layout, PluginFormat, PluginRef, RenderOptions,
+    RoutedChainConfig, ScanAction, ScanOutcome, ScanPolicy, Scanner, Source, TailPolicy, Timeouts,
+    render,
 };
 
 mod support;
@@ -642,8 +642,8 @@ fn notes_render_through_a_chain_in_time() {
         .unwrap();
     chain.prepare_audio(&config).unwrap();
     let events = [
-        MidiEvent::note_on(1000, 0, 69, 127),
-        MidiEvent::note_off(2000, 0, 69, 0),
+        Event::note_on(1000, 0, 69, 127),
+        Event::note_off(2000, 0, 69, 0),
     ];
     let options = RenderOptions {
         tail: TailPolicy::Reported,

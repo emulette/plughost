@@ -21,7 +21,7 @@ use std::time::Instant;
 use plughost_core::PluginRef;
 use plughost_core::render::{Process, RenderOptions, Tail, TailPolicy, render};
 use plughost_core::{
-    AudioBusRole, AudioDirection, Layout, MidiEvent, ParameterInfo, PluginFormat, PluginInfo,
+    AudioBusRole, AudioDirection, Event, Layout, ParameterInfo, PluginFormat, PluginInfo,
     PluginKind, ProcessConfig, ProcessMode, SampleFormat,
 };
 use plughost_formats::{BlockProcessor, Error, HostedPlugin};
@@ -219,8 +219,8 @@ impl Process<f32> for Driver {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::AutomationEvent],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Error> {
         if automation.iter().any(|event| event.slot != 0) {
             return Err(plughost_formats::Error::from(
@@ -417,8 +417,8 @@ fn render_signal(driver: &mut Driver, rate: f64, seconds: f64) -> Result<Vec<Vec
     // Instruments play middle C for the first half instead.
     let notes = if signal.is_empty() {
         vec![
-            MidiEvent::note_on(0, 0, 60, 100),
-            MidiEvent::note_off(frames / 2, 0, 60, 0),
+            Event::note_on(0, 0, 60, 100),
+            Event::note_off(frames / 2, 0, 60, 0),
         ]
     } else {
         Vec::new()
@@ -439,7 +439,7 @@ fn render_input(
     driver: &mut Driver,
     input: &[Vec<f32>],
     frames: usize,
-    events: &[MidiEvent],
+    events: &[Event],
 ) -> Result<Vec<Vec<f32>>, Error> {
     let slices: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
     let options = RenderOptions {

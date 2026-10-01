@@ -220,7 +220,7 @@ impl Chain {
         input: &[&[S]],
         output: &[&mut [S]],
         automation: &[AutomationEvent],
-        events: &[MidiEvent],
+        events: &[Event],
     ) -> Result<(), Error> {
         self.validate_render_precision(S::FORMAT)?;
         let config = self.config.as_ref().ok_or(Error::NotPrepared)?;
@@ -333,8 +333,8 @@ macro_rules! audio_process {
                 input: &[&[$sample]],
                 output: &mut [&mut [$sample]],
                 automation: &[AutomationEvent],
-                events: &[MidiEvent],
-                produced: &mut Vec<MidiEvent>,
+                events: &[Event],
+                produced: &mut Vec<Event>,
             ) -> Result<(), Error> {
                 self.validate_audio_block(context, input, output, automation, events)?;
                 self.$shared(context, input, output, automation, events, produced)
@@ -385,8 +385,8 @@ macro_rules! render_process {
                 input: &[&[$sample]],
                 output: &mut [&mut [$sample]],
                 automation: &[AutomationEvent],
-                events: &[MidiEvent],
-                produced: &mut Vec<MidiEvent>,
+                events: &[Event],
+                produced: &mut Vec<Event>,
             ) -> Result<(), Error> {
                 Chain::$method(self, context, input, output, automation, events, produced)
             }

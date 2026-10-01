@@ -83,21 +83,21 @@ impl SharedAudio {
         frames: usize,
         input: &[&[T]],
         automation: &[AutomationEvent],
-        midi: &[MidiEvent],
+        events: &[Event],
     ) -> io::Result<Submission> {
         self.check_source(input, self.descriptor.config.input_channels, frames)?;
-        if crate::validate_event_budget(automation.len(), midi).is_err() {
+        if crate::validate_event_budget(automation.len(), events).is_err() {
             return Err(invalid(BLOCK));
         }
         self.write_pcm(self.layout.input, input);
         self.write_automation(automation);
-        self.write_midi(self.layout.input_events, midi);
+        self.write_events(self.layout.input_events, events);
         Ok(Submission {
             generation: self.descriptor.generation,
             sequence,
             frames,
             automation: automation.len(),
-            midi: midi.len(),
+            events: events.len(),
         })
     }
 
@@ -106,7 +106,7 @@ impl SharedAudio {
         submission: Submission,
         scratch: &mut [Vec<T>],
         automation: &mut Vec<AutomationEvent>,
-        midi: &mut Vec<MidiEvent>,
+        events: &mut Vec<Event>,
     ) -> io::Result<()> {
         self.check_submission(submission)?;
         self.read_pcm(
@@ -116,14 +116,14 @@ impl SharedAudio {
             scratch,
         )?;
         self.read_automation(submission.automation, automation)?;
-        self.read_midi(self.layout.input_events, submission.midi, midi)
+        self.read_events(self.layout.input_events, submission.events, events)
     }
 
     fn write_output<T: WireSample>(
         &mut self,
         submission: Submission,
         output: &[&[T]],
-        events: &[MidiEvent],
+        events: &[Event],
     ) -> io::Result<()> {
         self.check_submission(submission)?;
         self.check_source(
@@ -135,7 +135,7 @@ impl SharedAudio {
             return Err(invalid(BLOCK));
         }
         self.write_pcm(self.layout.output, output);
-        self.write_midi(self.layout.output_events, events);
+        self.write_events(self.layout.output_events, events);
         Ok(())
     }
 
@@ -144,10 +144,10 @@ impl SharedAudio {
         submission: Submission,
         output: &mut [&mut [T]],
         event_count: usize,
-        events: &mut Vec<MidiEvent>,
+        events: &mut Vec<Event>,
     ) -> io::Result<()> {
         self.check_submission(submission)?;
-        self.read_midi(self.layout.output_events, event_count, events)?;
+        self.read_events(self.layout.output_events, event_count, events)?;
         if self.descriptor.config.sample_format != T::FORMAT
             || output.len() != self.descriptor.config.output_channels
             || output
@@ -182,9 +182,9 @@ macro_rules! samples {
                 frames: usize,
                 input: &[&[$sample]],
                 automation: &[AutomationEvent],
-                midi: &[MidiEvent],
+                events: &[Event],
             ) -> io::Result<Submission> {
-                self.write_input(sequence, frames, input, automation, midi)
+                self.write_input(sequence, frames, input, automation, events)
             }
             /// Copies a received input into preallocated local storage. Events are decoded, not
             /// validated. Scratch may be modified on error and must not be passed to DSP unless
@@ -194,9 +194,9 @@ macro_rules! samples {
                 submission: Submission,
                 scratch: &mut [Vec<$sample>],
                 automation: &mut Vec<AutomationEvent>,
-                midi: &mut Vec<MidiEvent>,
+                events: &mut Vec<Event>,
             ) -> io::Result<()> {
-                self.read_input(submission, scratch, automation, midi)
+                self.read_input(submission, scratch, automation, events)
             }
             /// Writes the complete output and output events for a received submission before
             /// the peer is answered; the answer carries the event count.
@@ -204,7 +204,7 @@ macro_rules! samples {
                 &mut self,
                 submission: Submission,
                 output: &[&[$sample]],
-                events: &[MidiEvent],
+                events: &[Event],
             ) -> io::Result<()> {
                 self.write_output(submission, output, events)
             }
@@ -216,7 +216,7 @@ macro_rules! samples {
                 submission: Submission,
                 output: &mut [&mut [$sample]],
                 event_count: usize,
-                events: &mut Vec<MidiEvent>,
+                events: &mut Vec<Event>,
             ) -> io::Result<()> {
                 self.read_output(submission, output, event_count, events)
             }

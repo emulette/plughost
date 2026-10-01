@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use block2::RcBlock;
 use objc2_audio_toolbox::{AUAudioUnit, AUEventSampleTime};
 use objc2_foundation::NSInteger;
-use plughost_core::{MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES, MidiData, MidiEvent};
+use plughost_core::{Event, EventData, MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES};
 
 use super::super::errors::AuError;
 
@@ -19,17 +19,17 @@ struct Collected {
     frames: usize,
     /// The cables prepared for delivery; events on other cables are dropped.
     cables: Vec<u64>,
-    events: Vec<MidiEvent>,
+    events: Vec<Event>,
     sysex: usize,
     /// The unit sent more events or system exclusive bytes than the block allows.
     overflow: bool,
 }
 
 impl Collected {
-    fn push(&mut self, event: MidiEvent) {
+    fn push(&mut self, event: Event) {
         let sysex = match &event.data {
-            MidiData::SysEx(bytes) => bytes.len(),
-            MidiData::Channel(_) => 0,
+            EventData::SysEx(bytes) => bytes.len(),
+            _ => 0,
         };
         if self.overflow
             || self.events.len() == MAX_BLOCK_EVENTS
@@ -92,11 +92,7 @@ impl Output {
                     .unwrap_or(0)
                     .min(last);
                 let skipped = split(bytes, |data| {
-                    collected.push(MidiEvent {
-                        offset,
-                        port: usize::from(cable),
-                        data,
-                    })
+                    collected.push(Event::new(offset, data).on_port(usize::from(cable)))
                 });
                 if skipped > 0 {
                     unconvertible.fetch_add(skipped, Ordering::Relaxed);
@@ -123,7 +119,7 @@ impl Output {
 
     /// Moves the block's events into `into` in offset order, keeping the unit's order at equal
     /// offsets; fails when the unit exceeded the block's budgets, whose events are discarded.
-    pub fn take(&self, into: &mut Vec<MidiEvent>) -> Result<(), AuError> {
+    pub fn take(&self, into: &mut Vec<Event>) -> Result<(), AuError> {
         let mut collected = lock(&self.collected);
         if collected.overflow {
             collected.events.clear();
@@ -138,7 +134,7 @@ impl Output {
 /// Splits a MIDI byte stream into channel and complete system exclusive messages, following
 /// running status. Returns how many messages had no such form (system common and real-time
 /// messages, or malformed bytes, which end the stream).
-fn split(mut bytes: &[u8], mut each: impl FnMut(MidiData)) -> u64 {
+fn split(mut bytes: &[u8], mut each: impl FnMut(EventData)) -> u64 {
     let mut unconvertible = 0;
     let mut running = None;
     while let Some(&first) = bytes.first() {
@@ -158,7 +154,7 @@ fn split(mut bytes: &[u8], mut each: impl FnMut(MidiData)) -> u64 {
                 let mut message = Vec::with_capacity(end + 2);
                 message.push(status);
                 message.extend_from_slice(&rest[..=end]);
-                each(MidiData::SysEx(message));
+                each(EventData::SysEx(message));
                 running = None;
                 bytes = &rest[end + 1..];
             }
@@ -176,7 +172,7 @@ fn split(mut bytes: &[u8], mut each: impl FnMut(MidiData)) -> u64 {
                 };
                 let mut message = [status, 0, 0];
                 message[1..=length].copy_from_slice(data);
-                each(MidiData::Channel(message));
+                each(EventData::Midi(message));
                 running = Some(status);
                 bytes = &rest[length..];
             }
@@ -202,7 +198,7 @@ fn split(mut bytes: &[u8], mut each: impl FnMut(MidiData)) -> u64 {
 mod tests {
     use super::*;
 
-    fn messages(bytes: &[u8]) -> (Vec<MidiData>, u64) {
+    fn messages(bytes: &[u8]) -> (Vec<EventData>, u64) {
         let mut found = Vec::new();
         let skipped = split(bytes, |data| found.push(data));
         (found, skipped)
@@ -220,11 +216,11 @@ mod tests {
         assert_eq!(
             found,
             [
-                MidiData::Channel([0x90, 60, 100]),
-                MidiData::Channel([0x90, 62, 90]),
-                MidiData::Channel([0xC1, 5, 0]),
-                MidiData::SysEx(vec![0xF0, 1, 2, 3, 0xF7]),
-                MidiData::Channel([0xB0, 7, 99]),
+                EventData::Midi([0x90, 60, 100]),
+                EventData::Midi([0x90, 62, 90]),
+                EventData::Midi([0xC1, 5, 0]),
+                EventData::SysEx(vec![0xF0, 1, 2, 3, 0xF7]),
+                EventData::Midi([0xB0, 7, 99]),
             ]
         );
         assert_eq!(skipped, 1);
@@ -244,7 +240,7 @@ mod tests {
             assert_eq!(skipped, 1, "{bytes:?}");
         }
         let (found, skipped) = messages(&[0xB0, 1, 2, 0xF2]);
-        assert_eq!(found, [MidiData::Channel([0xB0, 1, 2])]);
+        assert_eq!(found, [EventData::Midi([0xB0, 1, 2])]);
         assert_eq!(skipped, 1);
     }
 }

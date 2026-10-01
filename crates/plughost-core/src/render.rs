@@ -10,7 +10,7 @@ pub use timeline::{AutomationRamp, RenderSchedule, TransportChange};
 use serde::{Deserialize, Serialize};
 
 use crate::errors::RenderError;
-use crate::event::{MidiEvent, events_fit};
+use crate::event::{Event, events_fit};
 use crate::sample::Sample;
 
 /// The tail length a processor reports.
@@ -105,8 +105,8 @@ pub trait Process<S: Sample> {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[crate::AutomationEvent],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> Result<(), Self::Error>;
 }
 
@@ -117,7 +117,7 @@ pub trait Process<S: Sample> {
 pub struct Delivery<'a, S> {
     /// One slice per output channel, all of one length, which may be zero.
     pub audio: &'a [&'a [S]],
-    pub events: &'a [MidiEvent],
+    pub events: &'a [Event],
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -126,7 +126,7 @@ pub struct Rendered<S> {
     pub channels: Vec<Vec<S>>,
     /// Output events in offset order, counted from the start of the input without latency
     /// alignment, including events processed during the tail.
-    pub events: Vec<MidiEvent>,
+    pub events: Vec<Event>,
     /// The latency that was removed, in samples.
     pub latency: u32,
     /// Samples rendered after the end of the input.
@@ -148,7 +148,7 @@ pub fn render<S: Sample, P: Process<S>>(
     processor: &mut P,
     input: &[&[S]],
     frames: usize,
-    events: &[MidiEvent],
+    events: &[Event],
     options: &RenderOptions,
 ) -> Result<Rendered<S>, P::Error> {
     render_with_schedule(
@@ -169,7 +169,7 @@ pub fn render_with_schedule<S: Sample, P: Process<S>>(
     processor: &mut P,
     input: &[&[S]],
     frames: usize,
-    events: &[MidiEvent],
+    events: &[Event],
     options: &RenderOptions,
     schedule: &RenderSchedule<'_>,
 ) -> Result<Rendered<S>, P::Error> {
@@ -204,7 +204,7 @@ pub fn render_with_schedule<S: Sample, P: Process<S>>(
 pub struct RenderInput<'a, S> {
     pub audio: &'a [&'a [S]],
     pub frames: usize,
-    pub events: &'a [MidiEvent],
+    pub events: &'a [Event],
     pub schedule: RenderSchedule<'a>,
 }
 
@@ -347,7 +347,7 @@ pub fn render_stream<S: Sample, P: Process<S>>(
             .take_while(|event| event.offset < position + count)
             .count();
         block_events.clear();
-        block_events.extend(pending[..due].iter().map(|event| MidiEvent {
+        block_events.extend(pending[..due].iter().map(|event| Event {
             offset: event.offset - position,
             ..event.clone()
         }));
@@ -366,7 +366,7 @@ pub fn render_stream<S: Sample, P: Process<S>>(
             &block_events,
             &mut produced,
         )?;
-        produced_since.extend(produced.drain(..).map(|event| MidiEvent {
+        produced_since.extend(produced.drain(..).map(|event| Event {
             offset: event.offset + position,
             ..event
         }));

@@ -2,7 +2,7 @@
 //! resolves native port IDs to the indices processors use, on the control thread; blocks reuse
 //! storage reserved with it.
 use plughost_core::{
-    AudioDirection, EventPortInfo, EventSource, InputError, MAX_BLOCK_EVENTS, MidiEvent,
+    AudioDirection, Event, EventPortInfo, EventSource, InputError, MAX_BLOCK_EVENTS,
     RoutedChainConfig, validate_event_budget,
 };
 
@@ -28,9 +28,9 @@ pub(crate) struct EventPlan {
 /// Per-slot events of one block: what each slot receives and what it produced, and the chain's
 /// output. Capacity for a full block is reserved when the plan is made.
 pub(crate) struct EventBuffers {
-    pub inputs: Vec<Vec<MidiEvent>>,
-    pub produced: Vec<Vec<MidiEvent>>,
-    pub output: Vec<MidiEvent>,
+    pub inputs: Vec<Vec<Event>>,
+    pub produced: Vec<Vec<Event>>,
+    pub output: Vec<Event>,
 }
 
 impl EventPlan {
@@ -89,9 +89,9 @@ impl EventPlan {
     pub fn gather(
         &self,
         slot: usize,
-        chain: &[MidiEvent],
-        previous: &[MidiEvent],
-        into: &mut Vec<MidiEvent>,
+        chain: &[Event],
+        previous: &[Event],
+        into: &mut Vec<Event>,
     ) -> Result<(), InputError> {
         into.clear();
         for (native, source) in &self.slots[slot].inputs {
@@ -113,7 +113,7 @@ impl EventPlan {
 
     /// The chain's output events: the last slot's collected outputs, numbered by their position
     /// in the requested outputs.
-    pub fn output(&self, produced: &[MidiEvent], into: &mut Vec<MidiEvent>) {
+    pub fn output(&self, produced: &[Event], into: &mut Vec<Event>) {
         into.clear();
         let outputs = &self.slots[self.slots.len() - 1].outputs;
         into.extend(produced.iter().filter_map(|event| {

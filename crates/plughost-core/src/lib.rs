@@ -43,8 +43,9 @@ pub mod messages {
     };
 }
 pub use event::{
-    MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES, Message, MidiData, MidiEvent, events_fit, sysex_bytes,
-    validate_event_budget, validate_event_count,
+    Event, EventData, ExpressionKind, MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES, MAX_NOTE_ID,
+    Message, Note, NoteExpression, events_fit, sysex_bytes, validate_event_budget,
+    validate_event_count,
 };
 pub use event_routing::{
     EventConfig, EventInputRoute, EventPortInfo, EventSource, MAX_EVENT_PORTS, SlotEventConfig,

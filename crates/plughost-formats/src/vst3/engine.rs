@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use plughost_core::render::Tail;
 use plughost_core::{
-    AudioBusInfo, AudioConfig, AudioDirection, Layout, Message, MidiData, MidiEvent,
+    AudioBusInfo, AudioConfig, AudioDirection, EventData, ExpressionKind, Layout, Message,
     ParameterChange, ProcessConfig, ProcessMode, Sample, SampleFormat, events_fit,
 };
 use vst3::Steinberg::Vst::ControllerNumbers_::{kAfterTouch, kCtrlProgramChange, kPitchBend};
@@ -22,8 +22,9 @@ use vst3::Steinberg::Vst::Event_::{EventTypes, EventTypes_};
 use vst3::Steinberg::Vst::ProcessContext_::StatesAndFlags_;
 use vst3::Steinberg::Vst::{
     AudioBusBuffers, DataEvent, Event, Event__type0, IAudioProcessor, IAudioProcessorTrait,
-    IComponentTrait, NoteOffEvent, NoteOnEvent, ParamID, PolyPressureEvent, ProcessContext,
-    ProcessData, ProcessModes_, ProcessSetup, RestartFlags_, SymbolicSampleSizes_, kInfiniteTail,
+    IComponentTrait, NoteExpressionValueEvent, NoteOffEvent, NoteOnEvent, ParamID,
+    PolyPressureEvent, ProcessContext, ProcessData, ProcessModes_, ProcessSetup, RestartFlags_,
+    SymbolicSampleSizes_, kInfiniteTail,
 };
 use vst3::Steinberg::kResultOk;
 use vst3::{ComPtr, ComWrapper};
@@ -32,6 +33,7 @@ use super::buffers::AudioBuffers;
 use super::errors::Vst3Error;
 use super::host::{ComponentHandler, EventList, OutputEventList, ParameterChanges};
 use super::instance::{Instance, MidiAssignment, midi_assignments};
+use super::note_expression;
 use super::parameter_cache::ParameterCache;
 
 const RESTART_REQUIRED: i32 = RestartFlags_::kIoChanged | RestartFlags_::kReloadComponent;
@@ -236,6 +238,9 @@ impl Engine {
         }
         activated(&instance.processor);
         instance.handler.take_restart_flags();
+        if let Some(prepared) = &self.prepared {
+            prepared.output_events.forget_notes();
+        }
         Ok(())
     }
 
@@ -247,8 +252,8 @@ impl Engine {
         input: &[&[S]],
         output: &mut [&mut [S]],
         changes: &[ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[plughost_core::Event],
+        produced: &mut Vec<plughost_core::Event>,
     ) -> Result<(), Vst3Error> {
         produced.clear();
         let instance = self.instance.as_ref().ok_or(Vst3Error::Closed)?;
@@ -450,8 +455,8 @@ impl Processor {
         input: &[&[S]],
         output: &mut [&mut [S]],
         changes: &[ParameterChange],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[plughost_core::Event],
+        produced: &mut Vec<plughost_core::Event>,
     ) -> Result<(), Vst3Error> {
         lock(&self.engine).process(context, input, output, changes, events, produced)
     }
@@ -555,7 +560,7 @@ impl Prepared {
 
     /// Queues the staged automation and `events` in offset order; automation goes first at equal
     /// offsets.
-    fn push_inputs(&mut self, events: &[MidiEvent]) {
+    fn push_inputs(&mut self, events: &[plughost_core::Event]) {
         let mut staged = 0;
         for event in events {
             while let Some(&(index, offset, value)) = self.automation.get(staged)
@@ -612,92 +617,120 @@ impl Prepared {
 
     /// The native form of a validated event on an active port. A controller-only port passes
     /// mapped controllers alone, since it has no bus to carry notes or data.
-    fn translate(&self, event: &MidiEvent) -> Option<NativeInput> {
+    fn translate(&self, event: &plughost_core::Event) -> Option<NativeInput> {
         let native = self.native(event)?;
         (event.port < self.event_buses || matches!(native, NativeInput::Parameter(..)))
             .then_some(native)
     }
 
     /// The native form of an event. System exclusive data points into `event`, which outlives
-    /// the process call.
-    fn native(&self, event: &MidiEvent) -> Option<NativeInput> {
-        let offset = event.offset as i32;
-        let bus = event.port as i32;
-        if let MidiData::SysEx(bytes) = &event.data {
-            return Some(NativeInput::Note(note_event(
-                offset,
-                bus,
-                EventTypes_::kDataEvent,
+    /// the process call. Notes keep their IDs; an expression other than pressure reaches a note
+    /// by its ID alone, so it is not delivered without one.
+    fn native(&self, event: &plughost_core::Event) -> Option<NativeInput> {
+        let native = |kind, body| {
+            Some(NativeInput::Note(note_event(
+                event.offset as i32,
+                event.port as i32,
+                kind,
+                body,
+            )))
+        };
+        let id = |id: Option<u32>| id.map_or(-1, |id| id as i32);
+        let note_on = |channel: u8, key: u8, velocity: f32, id: i32| {
+            native(
+                EventTypes_::kNoteOnEvent,
                 Event__type0 {
-                    data: DataEvent {
-                        size: bytes.len() as u32,
-                        r#type: DataTypes_::kMidiSysEx as u32,
-                        bytes: bytes.as_ptr(),
+                    noteOn: NoteOnEvent {
+                        channel: i16::from(channel),
+                        pitch: i16::from(key),
+                        tuning: 0.0,
+                        velocity,
+                        length: 0,
+                        noteId: id,
                     },
                 },
-            )));
+            )
+        };
+        let note_off = |channel: u8, key: u8, velocity: f32, id: i32| {
+            native(
+                EventTypes_::kNoteOffEvent,
+                Event__type0 {
+                    noteOff: NoteOffEvent {
+                        channel: i16::from(channel),
+                        pitch: i16::from(key),
+                        velocity,
+                        noteId: id,
+                        tuning: 0.0,
+                    },
+                },
+            )
+        };
+        let poly_pressure = |channel: u8, key: u8, pressure: f32, id: i32| {
+            native(
+                EventTypes_::kPolyPressureEvent,
+                Event__type0 {
+                    polyPressure: PolyPressureEvent {
+                        channel: i16::from(channel),
+                        pitch: i16::from(key),
+                        pressure,
+                        noteId: id,
+                    },
+                },
+            )
+        };
+        match &event.data {
+            EventData::SysEx(bytes) => {
+                return native(
+                    EventTypes_::kDataEvent,
+                    Event__type0 {
+                        data: DataEvent {
+                            size: bytes.len() as u32,
+                            r#type: DataTypes_::kMidiSysEx as u32,
+                            bytes: bytes.as_ptr(),
+                        },
+                    },
+                );
+            }
+            EventData::NoteOn(note) => {
+                return note_on(note.channel, note.key, note.velocity as f32, id(note.id));
+            }
+            EventData::NoteOff(note) => {
+                return note_off(note.channel, note.key, note.velocity as f32, id(note.id));
+            }
+            EventData::Expression(expression) if expression.kind == ExpressionKind::Pressure => {
+                let (channel, key) = (expression.channel, expression.key);
+                return poly_pressure(channel, key, expression.value as f32, id(expression.id));
+            }
+            EventData::Expression(expression) => {
+                return native(
+                    EventTypes_::kNoteExpressionValueEvent,
+                    Event__type0 {
+                        noteExpressionValue: NoteExpressionValueEvent {
+                            typeId: note_expression::type_id(expression.kind)?,
+                            noteId: expression.id? as i32,
+                            value: note_expression::normalized(expression.kind, expression.value),
+                        },
+                    },
+                );
+            }
+            _ => {}
         }
         let (channel, controller, value) = match event.message() {
             Some(Message::NoteOn {
                 channel,
                 key,
                 velocity,
-            }) => {
-                return Some(NativeInput::Note(note_event(
-                    offset,
-                    bus,
-                    EventTypes_::kNoteOnEvent,
-                    Event__type0 {
-                        noteOn: NoteOnEvent {
-                            channel: i16::from(channel),
-                            pitch: i16::from(key),
-                            tuning: 0.0,
-                            velocity: f32::from(velocity) / 127.0,
-                            length: 0,
-                            noteId: -1,
-                        },
-                    },
-                )));
-            }
+            }) => return note_on(channel, key, f32::from(velocity) / 127.0, -1),
             Some(Message::NoteOff {
                 channel,
                 key,
                 velocity,
-            }) => {
-                return Some(NativeInput::Note(note_event(
-                    offset,
-                    bus,
-                    EventTypes_::kNoteOffEvent,
-                    Event__type0 {
-                        noteOff: NoteOffEvent {
-                            channel: i16::from(channel),
-                            pitch: i16::from(key),
-                            velocity: f32::from(velocity) / 127.0,
-                            noteId: -1,
-                            tuning: 0.0,
-                        },
-                    },
-                )));
-            }
+            }) => return note_off(channel, key, f32::from(velocity) / 127.0, -1),
             Some(Message::PolyPressure {
                 channel,
                 key,
                 pressure,
-            }) => {
-                return Some(NativeInput::Note(note_event(
-                    offset,
-                    bus,
-                    EventTypes_::kPolyPressureEvent,
-                    Event__type0 {
-                        polyPressure: PolyPressureEvent {
-                            channel: i16::from(channel),
-                            pitch: i16::from(key),
-                            pressure: f32::from(pressure) / 127.0,
-                            noteId: -1,
-                        },
-                    },
-                )));
-            }
+            }) => return poly_pressure(channel, key, f32::from(pressure) / 127.0, -1),
             Some(Message::ControlChange {
                 channel,
                 controller,
@@ -716,7 +749,7 @@ impl Prepared {
             .get(&(event.port as u8, channel, controller))
             .map(|assignment| {
                 let normalized = (f64::from(value) / assignment.full_scale).clamp(0.0, 1.0);
-                NativeInput::Parameter(assignment.id, offset, normalized)
+                NativeInput::Parameter(assignment.id, event.offset as i32, normalized)
             })
     }
 }

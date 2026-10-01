@@ -1,6 +1,6 @@
 use plughost_core::render::*;
 use plughost_core::{
-    AutomationEvent, BlockContext, InputError, MidiEvent, ParameterChange, RenderError, Transport,
+    AutomationEvent, BlockContext, Event, InputError, ParameterChange, RenderError, Transport,
 };
 use std::cell::Cell;
 
@@ -9,7 +9,7 @@ struct Instrument {
     gain: f64,
     processed: usize,
     contexts: Vec<BlockContext>,
-    midi: Vec<MidiEvent>,
+    midi: Vec<Event>,
 }
 impl Instrument {
     fn new(block: usize) -> Self {
@@ -54,16 +54,16 @@ impl Process<f32> for Instrument {
         _: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[AutomationEvent],
-        midi: &[MidiEvent],
-        _produced: &mut Vec<MidiEvent>,
+        midi: &[Event],
+        _produced: &mut Vec<Event>,
     ) -> Result<(), RenderError> {
         self.contexts.push(*context);
         plughost_core::validate_event_count(automation.len(), midi.len())
             .map_err(RenderError::Input)?;
-        self.midi.extend(midi.iter().map(|event| MidiEvent {
-            offset: event.offset + self.processed,
-            ..event.clone()
-        }));
+        self.midi.extend(
+            midi.iter()
+                .map(|event| event.clone().at(event.offset + self.processed)),
+        );
         let mut points = automation.iter().peekable();
         for (offset, sample) in output[0].iter_mut().enumerate() {
             while points
@@ -341,8 +341,8 @@ fn long_ramp_and_midi_are_batched_without_splitting_same_sample_events() {
         to: 1.0,
     }];
     let midi = [
-        MidiEvent::note_on(4095, 0, 60, 100),
-        MidiEvent::note_off(4095, 0, 60, 0),
+        Event::note_on(4095, 0, 60, 100),
+        Event::note_off(4095, 0, 60, 0),
     ];
     let output = render_with_schedule(
         &mut processor,
@@ -414,7 +414,7 @@ fn excessive_same_sample_events_are_rejected_before_any_audio_advances() {
         from: 0.0,
         to: 1.0,
     }];
-    let midi = vec![MidiEvent::note_off(12, 0, 60, 0); plughost_core::MAX_BLOCK_EVENTS];
+    let midi = vec![Event::note_off(12, 0, 60, 0); plughost_core::MAX_BLOCK_EVENTS];
     let error = render_with_schedule(
         &mut processor,
         &[],

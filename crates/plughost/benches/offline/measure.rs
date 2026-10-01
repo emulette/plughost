@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use plughost::{RenderOptions, TailPolicy};
 use plughost_core::render::{Process, RenderSchedule, Tail, render_with_schedule};
-use plughost_core::{AutomationEvent, BlockContext, MidiEvent};
+use plughost_core::{AutomationEvent, BlockContext, Event};
 use serde::Serialize;
 
 use crate::cases::Case;
@@ -65,8 +65,8 @@ impl<P: Process<f32>> Process<f32> for Counted<P> {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[AutomationEvent],
-        events: &[MidiEvent],
-        produced: &mut Vec<MidiEvent>,
+        events: &[Event],
+        produced: &mut Vec<Event>,
     ) -> std::result::Result<(), Self::Error> {
         self.calls += 1;
         self.frames += context.frames;

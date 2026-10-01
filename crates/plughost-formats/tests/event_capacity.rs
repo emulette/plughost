@@ -6,7 +6,7 @@
 ))]
 use plughost_core::PluginRef;
 use plughost_core::{
-    BlockContext, HostIdentity, Layout, MAX_BLOCK_EVENTS, MidiEvent, ParameterChange, PluginFormat,
+    BlockContext, Event, HostIdentity, Layout, MAX_BLOCK_EVENTS, ParameterChange, PluginFormat,
     ProcessConfig, ProcessMode, SampleFormat,
 };
 use plughost_formats::{Error, HostedPlugin};
@@ -38,7 +38,7 @@ fn check(reference: PluginRef) {
         value: dry,
     };
     let automation = vec![point; MAX_BLOCK_EVENTS + 1];
-    let notes = vec![MidiEvent::note_off(0, 0, 60, 0); MAX_BLOCK_EVENTS + 1];
+    let notes = vec![Event::note_off(0, 0, 60, 0); MAX_BLOCK_EVENTS + 1];
     let (mut left, mut right) = ([99.0f32; 8], [99.0f32; 8]);
     let input = [0.25f32; 8];
     for (changes, events) in [
@@ -151,7 +151,7 @@ fn clap_pending_edits_are_bounded_and_survive_a_rejected_audio_block() {
     let processor = plugin.processor();
     let input = [1.0f32; 8];
     let (mut left, mut right) = ([99.0; 8], [99.0; 8]);
-    let notes = vec![MidiEvent::note_off(0, 0, 60, 0); MAX_BLOCK_EVENTS + 1];
+    let notes = vec![Event::note_off(0, 0, 60, 0); MAX_BLOCK_EVENTS + 1];
     assert!(
         processor
             .process_audio_f32(
