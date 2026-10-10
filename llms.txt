@@ -127,7 +127,8 @@ Native scans/retries save each changed bundle result before its `BundleFinished`
 An interrupted scan retains completed results and existing entries for unprocessed paths.
 Cancelled/skipped items and unchanged cache hits do not rewrite the snapshot; if nothing has
 been saved, cancellation need not create a cache JSON file. Use `retry_controlled` for chosen
-paths after cancellation; it preserves other entries. ClassFound notifications are provisional
+paths after cancellation; it preserves other entries. A native scan or retry first drops the
+entries of bundles that are no longer on disk. ClassFound notifications are provisional
 until the bundle finishes. No failure or timeout is interpreted as a license diagnosis.
 
 The writer publishes each snapshot as compact JSON through a unique sibling temporary file and

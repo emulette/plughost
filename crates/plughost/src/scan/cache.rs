@@ -87,19 +87,26 @@ impl Writer {
             .open(lock_path)?;
         lock.try_lock().map_err(io::Error::from)?;
         let (library, architecture) = current();
-        let cache = Cache {
-            schema: 2,
-            library,
-            architecture,
-            bundles: read(path)?.bundles,
-        };
-        Ok(Self {
+        let mut bundles = read(path)?.bundles;
+        let cached = bundles.len();
+        // Entries of bundles gone from disk would go into every snapshot from here on.
+        bundles.retain(|bundle, _| bundle.try_exists().is_ok_and(|exists| exists));
+        let mut writer = Self {
             path: path.to_path_buf(),
             parent: parent.to_path_buf(),
-            cache,
+            cache: Cache {
+                schema: 2,
+                library,
+                architecture,
+                bundles,
+            },
             unsynced: false,
             _lock: lock,
-        })
+        };
+        if writer.cache.bundles.len() != cached {
+            writer.publish()?;
+        }
+        Ok(writer)
     }
 
     pub fn entry(&self, path: &Path) -> Option<&Entry> {
@@ -116,6 +123,11 @@ impl Writer {
             Some(entry) => self.cache.bundles.insert(path.to_path_buf(), entry),
             None => self.cache.bundles.remove(path),
         };
+        self.publish()
+    }
+
+    /// Replaces the snapshot on disk with this writer's cache.
+    fn publish(&mut self) -> io::Result<()> {
         let mut temporary = tempfile::Builder::new()
             .prefix(".plughost-cache-")
             .tempfile_in(&self.parent)?;

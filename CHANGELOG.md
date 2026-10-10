@@ -28,6 +28,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   the earlier slots had already processed it.
 - `take_changes` waits for the helper as long as other control requests (`Timeouts::control`)
   instead of the load timeout.
+- A native scan or retry drops the cache entries of bundles that are no longer on disk; they
+  used to stay and be written again with every saved result.
 - The shared memory between an application and its helper is anonymous shared memory of a
   fixed size: a POSIX shared memory object on macOS and a section backed by the paging file on
   Windows. It used to be a temporary file, which a process that truncated it could make the

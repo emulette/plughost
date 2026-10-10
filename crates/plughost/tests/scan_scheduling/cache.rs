@@ -9,6 +9,7 @@ pub(super) fn run() {
     interrupted_snapshot_write_preserves_the_previous_cache();
     parallel_completions_publish_valid_snapshots();
     another_process_cannot_overwrite_an_active_writer();
+    removed_bundles_leave_the_cache();
     #[cfg(unix)]
     failed_save_aborts_active_helpers_without_losing_previous_results();
 }
@@ -293,4 +294,25 @@ fn failed_save_aborts_active_helpers_without_losing_previous_results() {
     let retried = scanner.retry(&plugins.join("c.clap")).unwrap();
     assert!(matches!(retried.outcome, ScanOutcome::Found(_)));
     assert_eq!(directory.read()["bundles"].as_object().unwrap().len(), 2);
+}
+
+fn removed_bundles_leave_the_cache() {
+    let directory = Directory::new();
+    let root = directory.path();
+    let kept = bundle(root, "kept");
+    let removed = bundle(root, "removed");
+    fs::write(root.join("release"), []).unwrap();
+    let scanner = directory.scanner();
+    scanner.scan(&|_| {}).unwrap();
+    assert!(directory.read()["bundles"][removed.to_str().unwrap()].is_object());
+    if removed.is_dir() {
+        fs::remove_dir_all(&removed).unwrap();
+    } else {
+        fs::remove_file(&removed).unwrap();
+    }
+    // The bundle that is left has not changed, so this scan has no result of its own to save.
+    scanner.scan(&|_| {}).unwrap();
+    let saved = directory.read();
+    assert!(saved["bundles"].get(removed.to_str().unwrap()).is_none());
+    assert!(saved["bundles"][kept.to_str().unwrap()].is_object());
 }
