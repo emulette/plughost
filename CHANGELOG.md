@@ -7,15 +7,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ## [Unreleased]
 
-### Changed
-
-- The helper processes blocks on a thread of its own instead of the thread that reads the
-  connection, and that thread owns the chain's processing state; the main thread changes it
-  between blocks. The helper makes the audio-thread calls a plugin needs between blocks on that
-  thread instead of its main thread, so a CLAP plugin's thread check sees each call on the
-  thread CLAP assigns it.
-- The documentation names macOS 15 as the oldest supported macOS, the oldest one tested.
-
 ### Added
 
 - `plughost_formats::AudioThread` and `HostedPlugin::set_audio_thread`: an owner that processes
@@ -28,6 +19,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   audit. It is not for shipping.
 - `InputError::Events` for events that are not valid, not in offset order or not inside the
   block.
+
+### Changed
+
+- The helper processes blocks on a thread of its own instead of the thread that reads the
+  connection, and that thread owns the chain's processing state; the main thread changes it
+  between blocks. The helper makes the audio-thread calls a plugin needs between blocks on that
+  thread instead of its main thread, so a CLAP plugin's thread check sees each call on the
+  thread CLAP assigns it.
+- The documentation names macOS 15 as the oldest supported macOS, the oldest one tested.
 
 ### Fixed
 
