@@ -345,7 +345,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "plughost"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "interprocess",
  "json5",
@@ -362,7 +362,7 @@ dependencies = [
 
 [[package]]
 name = "plughost-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "interprocess",
  "postcard",
@@ -374,7 +374,7 @@ dependencies = [
 
 [[package]]
 name = "plughost-formats"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "block2",
  "clack-extensions",
@@ -397,7 +397,7 @@ dependencies = [
 
 [[package]]
 name = "plughost-helper"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "interprocess",
  "objc2",
