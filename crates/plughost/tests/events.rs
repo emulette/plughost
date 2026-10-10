@@ -2,10 +2,10 @@
 //! through real helper processes. Build the helper and the test plugins first (see `support`).
 
 use plughost::{
-    AudioBusConfig, AudioDirection, AudioInputRoute, AudioSource, BlockContext, Chain,
-    ChannelAdaptation, Error, Event, EventData, EventInputRoute, EventPortInfo, EventSource,
-    FailureKind, Layout, PluginFormat, PluginRef, ProcessMode, RenderOptions, RoutedChainConfig,
-    SampleFormat, SlotAudioConfig, SlotEventConfig, Support, TailPolicy, render,
+    AudioBusConfig, AudioDirection, AudioInputRoute, AudioSource, AutomationEvent, BlockContext,
+    Chain, ChannelAdaptation, Error, Event, EventData, EventInputRoute, EventPortInfo, EventSource,
+    FailureKind, Layout, ParameterChange, PluginFormat, PluginRef, ProcessMode, RenderOptions,
+    RoutedChainConfig, SampleFormat, SlotAudioConfig, SlotEventConfig, Support, TailPolicy, render,
 };
 
 mod support;
@@ -384,4 +384,106 @@ fn exceeding_the_output_budget_stops_processing_until_reset() {
             "{format:?}"
         );
     }
+}
+
+#[test]
+#[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
+fn events_from_the_previous_slot_and_its_automation_share_one_budget() {
+    for format in [PluginFormat::Vst3, PluginFormat::Clap] {
+        let mut chain = spawn(&[routing(format), routing(format)]);
+        let mut config = chain
+            .main_bus_config(
+                48_000.0,
+                512,
+                Layout::Stereo,
+                &[Layout::Stereo, Layout::Stereo],
+            )
+            .unwrap();
+        let output = ports(&mut chain, 0, AudioDirection::Output)[0];
+        config.event_inputs = 1;
+        config.slots[0].events = SlotEventConfig {
+            inputs: vec![EventInputRoute {
+                port: ports(&mut chain, 0, AudioDirection::Input)[0],
+                source: EventSource::External { port: 0 },
+            }],
+            outputs: vec![output],
+        };
+        config.slots[1].events.inputs = vec![EventInputRoute {
+            port: ports(&mut chain, 1, AudioDirection::Input)[0],
+            source: EventSource::Previous { port: output },
+        }];
+        chain.prepare_audio(&config).unwrap();
+        let parameter = chain
+            .parameters(1)
+            .unwrap()
+            .into_iter()
+            .find(|(info, _)| info.flags.automatable)
+            .unwrap()
+            .0
+            .id;
+        // The first slot sends each note on with a controller: 4,000 events for the second slot,
+        // which with its 100 automation points exceed one block.
+        let events: Vec<Event> = (0..2000)
+            .map(|index| Event::note_on(index * 512 / 2000, 0, 60, 100))
+            .collect();
+        let automation: Vec<AutomationEvent> = (0..100)
+            .map(|offset| AutomationEvent {
+                slot: 1,
+                change: ParameterChange {
+                    id: parameter,
+                    offset,
+                    value: 0.5,
+                },
+            })
+            .collect();
+        let input = [0.0f32; 512];
+        let (mut left, mut right) = ([0.0f32; 512], [0.0f32; 512]);
+        let mut block = |chain: &mut Chain, automation: &[AutomationEvent], events: &[Event]| {
+            chain.process_audio_f32(
+                &BlockContext::new(512),
+                &[&input, &input],
+                &mut [&mut left, &mut right],
+                automation,
+                events,
+                &mut Vec::new(),
+            )
+        };
+        let error = block(&mut chain, &automation, &events).unwrap_err();
+        assert!(
+            matches!(error, Error::Operation { slot: Some(1), .. }),
+            "{format:?}: {error:?}"
+        );
+        assert_eq!(error.kind(), FailureKind::Processing, "{format:?}");
+        // The first slot took its events, so the stream is out of sync until a reset.
+        let error = block(&mut chain, &[], &[]).unwrap_err();
+        assert!(matches!(error, Error::Operation { slot: None, .. }));
+        chain.reset().unwrap();
+        block(&mut chain, &automation, &events[..1000]).unwrap();
+    }
+}
+
+#[test]
+#[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
+fn misplaced_events_are_refused_as_event_input() {
+    let (mut chain, config) = routing_chain(PluginFormat::Clap);
+    let on = Event::note_on(10, 0, 60, 100);
+    let off = Event::note_off(20, 0, 60, 0);
+    for events in [
+        vec![off.clone(), on.clone()],
+        vec![on.clone().at(64)],
+        vec![Event::midi(0, [0x90, 0x80, 1])],
+    ] {
+        assert!(
+            matches!(
+                run(&mut chain, &config, 64, &events),
+                Err(Error::Input {
+                    slot: None,
+                    error: plughost::InputError::Events
+                })
+            ),
+            "{events:?}"
+        );
+    }
+    // Program change has one data byte; the third is ignored.
+    run(&mut chain, &config, 64, &[Event::midi(0, [0xC0, 5, 0x80])]).unwrap();
 }

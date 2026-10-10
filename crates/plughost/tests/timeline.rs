@@ -663,3 +663,46 @@ fn absent_time_stays_absent_and_discrete_automation_is_quantized() {
         );
     }
 }
+
+#[test]
+#[ignore = "needs helper and test plugins"]
+fn edits_and_resets_apply_while_a_restart_is_pending() {
+    const RESTART_MODE: u64 = 10;
+    let mut chain = chain(PluginFormat::Clap, 32);
+    let input = [0.5f32; 32];
+    let process = |chain: &mut Chain, automation: &[AutomationEvent]| {
+        let (mut left, mut right) = ([0.0f32; 32], [0.0f32; 32]);
+        chain.process_audio_f32(
+            &BlockContext::new(32),
+            &[&input, &input],
+            &mut [&mut left, &mut right],
+            automation,
+            &[],
+            &mut Vec::new(),
+        )
+    };
+    let restart_required = |result: Result<(), Error>| {
+        matches!(
+            result,
+            Err(Error::Operation { slot: Some(0), failure })
+                if failure.kind == FailureKind::RestartRequired
+        )
+    };
+    // The plugin asks to be prepared again from the block that sets its restart mode.
+    let automation = [AutomationEvent {
+        slot: 0,
+        change: ParameterChange {
+            id: RESTART_MODE,
+            offset: 0,
+            value: 0.5,
+        },
+    }];
+    assert!(restart_required(process(&mut chain, &automation)));
+    chain.set_parameter(0, 0, 0.375).unwrap();
+    let text = chain.parameter_text(0, 0, 0.25).unwrap();
+    chain.set_parameter_text(0, 0, &text).unwrap();
+    chain.reset().unwrap();
+    assert!(restart_required(process(&mut chain, &[])));
+    chain.reprepare().unwrap();
+    process(&mut chain, &[]).unwrap();
+}

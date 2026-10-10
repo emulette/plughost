@@ -209,6 +209,11 @@ fn valid_address(id: Option<u32>, channel: u8, key: u8) -> bool {
     id.is_none_or(|id| id <= MAX_NOTE_ID) && channel < 16 && key < 0x80
 }
 
+/// Whether a channel message's status takes one data byte: program change and channel pressure.
+fn two_bytes(status: u8) -> bool {
+    matches!(status & 0xF0, 0xC0 | 0xD0)
+}
+
 /// A 7-bit MIDI value from a value in 0..=1.
 fn seven_bits(value: f64) -> u8 {
     (value * 127.0).round().clamp(0.0, 127.0) as u8
@@ -220,6 +225,7 @@ impl EventData {
     /// expression. `None` for system exclusive data and the other expressions.
     pub fn to_midi(&self) -> Option<[u8; 3]> {
         Some(match self {
+            EventData::Midi([status, first, _]) if two_bytes(*status) => [*status, *first, 0],
             EventData::Midi(bytes) => *bytes,
             EventData::NoteOn(note) => [
                 0x90 | (note.channel & 0x0F),
@@ -338,7 +344,9 @@ impl Event {
         let EventData::Midi([status, first, second]) = self.data else {
             return None;
         };
-        if !(0x80..0xF0).contains(&status) || first > 0x7F || second > 0x7F {
+        // Program change and channel pressure have no second data byte.
+        if !(0x80..0xF0).contains(&status) || first > 0x7F || (second > 0x7F && !two_bytes(status))
+        {
             return None;
         }
         let channel = status & 0x0F;
@@ -531,6 +539,16 @@ mod tests {
         );
         let tuning = NoteExpression::new(1, 60, ExpressionKind::Tuning, 1.0);
         assert_eq!(EventData::Expression(tuning).to_midi(), None);
+    }
+
+    #[test]
+    fn two_byte_messages_ignore_their_third_byte() {
+        for status in [0xC3, 0xD3] {
+            let event = Event::midi(0, [status, 5, 0x80]);
+            assert!(event.is_valid());
+            assert_eq!(event.data.to_midi(), Some([status, 5, 0]));
+        }
+        assert!(!Event::midi(0, [0xB3, 5, 0x80]).is_valid());
     }
 
     #[test]

@@ -171,10 +171,12 @@ fn validate<S: WireSample>(
     if S::FORMAT != config.sample_format {
         return Err(InputError::AudioSampleFormat);
     }
+    if !events_fit(events, context.frames) {
+        return Err(InputError::Events);
+    }
     if context.frames > config.max_block_size
         || input.len() != config.input_channels()
         || input.iter().any(|channel| channel.len() != context.frames)
-        || !events_fit(events, context.frames)
     {
         return Err(InputError::AudioBuffers);
     }
@@ -212,27 +214,23 @@ fn run<S: WireSample>(
     responder: &Responder,
     completion: &mut shared::Completion<'_>,
 ) -> io::Result<()> {
-    if state
+    if let Some(slot) = state
         .processors
         .iter()
-        .any(|processor| processor.restart_required())
+        .position(|processor| processor.restart_required())
     {
-        return responder.fail(
-            None,
-            Failure::new(
-                FailureKind::RestartRequired,
-                crate::errors::AUDIO_LATENCY_CHANGED,
-            ),
-        );
+        return responder.fail(Some(slot), audio_timing::restart_required());
     }
     let event_buffers = &mut *state.event_buffers;
     for (slot, processor) in state.processors.iter().enumerate() {
         let (done, pending) = event_buffers.produced.split_at_mut(slot);
         let previous_events = done.last().map_or(&[][..], Vec::as_slice);
         let slot_events = &mut event_buffers.inputs[slot];
-        if let Err(error) = state
-            .events_plan
-            .gather(slot, events, previous_events, slot_events)
+        let slot_automation = automation.iter().filter(|event| event.slot == slot).count();
+        if let Err(error) =
+            state
+                .events_plan
+                .gather(slot, events, previous_events, slot_automation, slot_events)
         {
             // Earlier slots already advanced; the notes they forwarded may be held.
             *state.resync = true;
@@ -272,7 +270,11 @@ fn run<S: WireSample>(
             )
         };
         if let Err(error) = result {
-            if error.is_output_event_overflow() {
+            // Events a plugin could not take after earlier slots advanced are lost like an
+            // overflow of its output; a later slot's native events can outgrow its block.
+            if error.is_output_event_overflow()
+                || (slot > 0 && error.input_error() == Some(InputError::EventCapacity))
+            {
                 *state.resync = true;
             }
             return responder.fail(Some(slot), error.failure());
@@ -298,7 +300,7 @@ fn run<S: WireSample>(
     }
     let tail = match state.plan.tail(&state.storage.timings) {
         Ok(tail) => tail,
-        Err(failure) => return responder.fail(None, failure),
+        Err((slot, failure)) => return responder.fail(Some(slot), failure),
     };
     S::respond(
         &state.storage.slots.last().unwrap().output,

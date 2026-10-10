@@ -107,31 +107,35 @@ impl Host {
                 }
             };
             let pipeline = process::lock(&self.pipeline);
-            // The active chain must still match its alignment before one slot is retimed.
-            let checked = pipeline
-                .alignment
-                .as_ref()
-                .ok_or_else(|| {
+            // The active chain must still match its alignment before one slot is retimed. A
+            // failure names the slot that does not match, or the one being replaced.
+            let checked = match pipeline.alignment.as_ref() {
+                Some(alignment) => alignment.timing.tail(&timings).map(|_| alignment),
+                None => Err((
+                    slot,
                     Failure::new(
                         FailureKind::NotPrepared,
                         plughost_core::messages::CHAIN_NOT_PREPARED,
-                    )
-                })
-                .and_then(|alignment| alignment.timing.tail(&timings).map(|_| alignment));
+                    ),
+                )),
+            };
             timings[slot] = current;
             let replacements = checked.and_then(|alignment| {
-                let (plan, tail) = AudioTiming::plan(routing, &timings)?;
+                let (plan, tail) = AudioTiming::plan(routing, &timings)
+                    .map_err(|(failed, failure)| (failed.unwrap_or(slot), failure))?;
                 Ok((
                     alignment
                         .delays32
                         .as_ref()
                         .map(|bank| bank.replacement(slot, &plan))
-                        .transpose()?,
+                        .transpose()
+                        .map_err(|failure| (slot, failure))?,
                     alignment
                         .delays64
                         .as_ref()
                         .map(|bank| bank.replacement(slot, &plan))
-                        .transpose()?,
+                        .transpose()
+                        .map_err(|failure| (slot, failure))?,
                     plan,
                     tail,
                 ))
@@ -139,8 +143,8 @@ impl Host {
             drop(pipeline);
             match replacements {
                 Ok(replacements) => retimed = Some((replacements, current)),
-                Err(failure) => {
-                    return self.reject_candidate(slot, candidate.as_ref(), slot, failure);
+                Err((failed, failure)) => {
+                    return self.reject_candidate(slot, candidate.as_ref(), failed, failure);
                 }
             }
         }

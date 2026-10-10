@@ -62,13 +62,15 @@ impl Processor {
             return Err(ClapError::SampleFormatUnsupported(S::FORMAT));
         }
 
+        if !events_fit(events, frames) {
+            return Err(ClapError::Input(plughost_core::InputError::Events));
+        }
         if input.len() != main_inputs
             || output.len() != main_outputs
             || frames > prepared.config.max_block_size
             || input.iter().any(|c| c.len() != frames)
             || output.iter().any(|c| c.len() != frames)
             || !plughost_core::changes_fit(automation, frames)
-            || !events_fit(events, frames)
         {
             return Err(ClapError::Buffers);
         }

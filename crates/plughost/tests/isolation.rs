@@ -390,6 +390,29 @@ fn a_plugin_holding_up_the_idle_main_thread_is_named_when_a_request_times_out() 
     ));
 }
 
+#[test]
+#[ignore = "needs scripts/build-helper.sh and scripts/build-test-plugins.sh"]
+fn taking_changes_waits_for_the_main_thread_as_long_as_a_control_request() {
+    let mut chain = spawn_with(
+        &[delay_variant(PluginFormat::Clap, "stall-main-thread", 9)],
+        &HostIdentity::default(),
+        {
+            let mut timeouts = Timeouts::default();
+            timeouts.control = Duration::from_millis(500);
+            timeouts
+        },
+    );
+    prepare(&mut chain);
+    run(&mut chain, &signal(512));
+    std::thread::sleep(Duration::from_millis(200));
+    let started = Instant::now();
+    assert!(matches!(
+        chain.take_changes(),
+        Err(Error::TimedOut { slot: Some(0) })
+    ));
+    assert!(started.elapsed() < Duration::from_secs(2));
+}
+
 /// A parameter edit saved right after it is made, with no audio in between, is restored in a
 /// new helper.
 #[test]

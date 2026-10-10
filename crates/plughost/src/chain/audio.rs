@@ -255,12 +255,17 @@ impl Chain {
                 error: InputError::Automation,
             });
         }
+        if !events_fit(events, frames) {
+            return Err(Error::Input {
+                slot: None,
+                error: InputError::Events,
+            });
+        }
         if input.len() != config.input_channels()
             || output.len() != config.output_channels()
             || frames > config.max_block_size
             || input.iter().any(|channel| channel.len() != frames)
             || output.iter().any(|channel| channel.len() != frames)
-            || !events_fit(events, frames)
         {
             return Err(Error::Buffers);
         }

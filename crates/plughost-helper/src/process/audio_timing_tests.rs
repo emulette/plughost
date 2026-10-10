@@ -96,16 +96,13 @@ fn timing_changes_require_reprepare_and_latency_overflow_is_explicit() {
     let timing = AudioTiming::new(&config, &native).unwrap();
     let mut changed = native;
     changed[0].latency = 4;
-    assert_eq!(
-        timing.tail(&changed).unwrap_err().kind,
-        FailureKind::RestartRequired
-    );
+    let (slot, failure) = timing.tail(&changed).unwrap_err();
+    assert_eq!((slot, failure.kind), (0, FailureKind::RestartRequired));
     changed = native;
     changed[1].restart_required = true;
-    assert_eq!(
-        timing.tail(&changed).unwrap_err().kind,
-        FailureKind::RestartRequired
-    );
+    let (slot, failure) = timing.tail(&changed).unwrap_err();
+    assert_eq!((slot, failure.kind), (1, FailureKind::RestartRequired));
+    assert_eq!(timing.current_tail(&changed), Tail::Samples(13));
     changed[1].restart_required = false;
     changed[0].latency = u32::MAX;
     assert_eq!(

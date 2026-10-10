@@ -316,6 +316,9 @@ impl Engine {
             }));
         }
         let frames = context.frames;
+        if !events_fit(events, frames) {
+            return Err(Vst3Error::Input(plughost_core::InputError::Events));
+        }
         let (main_inputs, main_outputs) = prepared.buffers.channels();
         if input.len() != main_inputs
             || output.len() != main_outputs
@@ -326,7 +329,6 @@ impl Engine {
             || changes
                 .windows(2)
                 .any(|pair| pair[0].offset > pair[1].offset)
-            || !events_fit(events, frames)
         {
             return Err(Vst3Error::Buffers);
         }

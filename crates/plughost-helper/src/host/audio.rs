@@ -169,12 +169,7 @@ impl Host {
         };
         let (plan, tail) = match AudioTiming::plan(&config, &timings) {
             Ok(plan) => plan,
-            Err(failure) => {
-                return Response::Failed {
-                    slot: None,
-                    failure,
-                };
-            }
+            Err((slot, failure)) => return Response::Failed { slot, failure },
         };
         let latency = plan.latency();
         let storage = process::prepared::Prepared::new(&config, &timings);

@@ -7,8 +7,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ## [Unreleased]
 
+### Added
+
+- `InputError::Events` for events that are not valid, not in offset order or not inside the
+  block.
+
 ### Fixed
 
+- `set_parameter`, `set_parameter_text` and `reset` succeed while a plugin waits to be
+  prepared again; they used to apply the change and still fail with `RestartRequired`. A
+  `RestartRequired` failure of a block names the slot that asked to be prepared again.
+- Events that are not valid, in offset order or inside the block fail with
+  `InputError::Events` instead of `Error::Buffers`, in a chain and in the plugins of
+  `plughost-formats`. Program change and channel pressure ignore their third byte as
+  documented; a third byte above 127 used to make them invalid, and `to_midi()` now gives it
+  as 0.
+- The events a slot receives from the previous slot share the block's budget with that slot's
+  automation. A block that exceeds it, or that a later slot cannot take, stops processing until
+  `reset()`, as an output overflow does; the plugin used to refuse it as invalid input while
+  the earlier slots had already processed it.
+- `take_changes` waits for the helper as long as other control requests (`Timeouts::control`)
+  instead of the load timeout.
 - A VST3 plugin's request for a new bus configuration (`kIoChanged`, `kReloadComponent`) made
   before `reset` stays pending after it, so processing keeps failing with `RestartRequired`
   until the plugin is prepared again. `reset` used to clear it and process on the old buses.

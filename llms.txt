@@ -225,7 +225,11 @@ count without transport, and `.with_transport(transport)` adds one. The helper's
 Automation points and events are fixed-size records: together they are limited to
 `MAX_BLOCK_EVENTS` (4,096) per call across the chain, and system exclusive data, kept apart
 from the records, to `MAX_BLOCK_SYSEX_BYTES` (64 KiB); excess input fails with
-`InputError::EventCapacity` before DSP advances. Pending
+`InputError::EventCapacity` before DSP advances. Events that are not valid, not in offset order
+or not inside the block fail with `InputError::Events`. Each slot's events, including those the
+previous slot sends it, share that budget with its automation points; when a later slot cannot
+take them, or a plugin sends more than a block allows, earlier slots have already processed the
+block, so later blocks fail with `FailureKind::Processing` until `reset()`. Pending
 control edits have a separate 4,096-entry budget (VST3 coalesces by parameter ID). Prepared
 host event storage is reused. Native VST3 output-queue overflow requires re-preparation.
 External-input alignment storage is reserved during preparation and limited to
@@ -250,7 +254,9 @@ Read-only or non-automatable targets are rejected when appropriate.
 `Event { offset, port, data }` carries `EventData`: a MIDI 1.0 channel message
 (`EventData::Midi`), a complete system exclusive message from `F0` to `F7`
 (`EventData::SysEx`), a note on or off (`EventData::NoteOn` / `NoteOff` with a `Note`), or
-the expression of single notes (`EventData::Expression` with a `NoteExpression`).
+the expression of single notes (`EventData::Expression` with a `NoteExpression`). Program
+change and channel pressure have one data byte; the third byte is ignored, and `to_midi()`
+gives it as 0.
 `Event::new(offset, data)` builds any of them; `midi`, `note_on`, `note_off`,
 `control_change` and `sysex` build MIDI 1.0 messages. `on_port(port)` selects one of the
 chain's external event inputs and `at(offset)` moves the event. Offsets are block-relative for
@@ -286,7 +292,8 @@ one input port that takes controller messages only. VST3 receives notes as note 
 their IDs, pressure as poly pressure, and the other expressions as note expression values of the
 standard types, which reach a note by ID alone. A note off or such an expression without an ID
 goes to each note on its key by that note's ID, so notes started without an ID take no
-expression other than pressure. CLAP ports that take the CLAP dialect receive notes, MIDI notes
+expression other than pressure. A block whose events become more native events than that
+(8,192) is refused with `InputError::EventCapacity`. CLAP ports that take the CLAP dialect receive notes, MIDI notes
 and expressions as CLAP note and note expression events, and MIDI poly pressure as pressure when
 they take no MIDI; other channel messages go as MIDI to ports that take MIDI or MIDI with MPE,
 which receive notes and pressure in their MIDI 1.0 form where they have no CLAP dialect. System exclusive data goes only to ports that take MIDI. Audio Units take events on
@@ -330,7 +337,9 @@ the latency they were activated with until then, but many, like Audio Units, del
 latency at once, so the chain's output is out of alignment until the application applies it. A
 render does not start while a change is pending: it fails with `RenderError::LatencyNotApplied`
 (`FailureKind::RestartRequired`) before processing anything. CLAP plugins change their latency by asking for a restart, which refuses processing until
-the chain is prepared again. Tails follow the plugins: they are read on the helper's main thread
+the chain is prepared again. A plugin that asked to be prepared again (a CLAP restart, a VST3
+`kIoChanged` or `kReloadComponent`) fails blocks with `FailureKind::RestartRequired` for its
+slot until `reprepare()`; `reset()` keeps the request, and edits and resets still apply. Tails follow the plugins: they are read on the helper's main thread
 while it idles and when asked for timing or changes, and CLAP tails also after the block in
 which the plugin reported a change. The processing thread never queries latency or tail natively.
 A generic `render::Process` whose latency changes during a render still fails it with

@@ -63,6 +63,8 @@ const AUDIO_BUS_LAYOUT: &str = "an active audio bus must have a nonempty layout"
 const AUDIO_ROUTE: &str = "the audio route does not name an available source";
 const CHANNEL_ADAPTATION: &str =
     "the explicit channel adaptation does not match the source and target layouts";
+const BLOCK_EVENTS: &str = "events must be notes, expressions in their ranges, MIDI 1.0 channel messages or complete \
+     system exclusive messages, in offset order and inside the block";
 const AUDIO_BUFFERS: &str =
     "audio buffers must match the bus channel count and contain equal frame counts";
 const AUDIO_SAMPLE_FORMAT: &str =
@@ -162,6 +164,8 @@ pub enum InputError {
     EventPort {
         port: usize,
     },
+    /// Events that are not valid, in offset order, or inside the block.
+    Events,
 }
 
 impl fmt::Display for InputError {
@@ -176,6 +180,7 @@ impl fmt::Display for InputError {
                 write!(f, "{EVENT_ROUTE} (slot {slot}, input port {port})")
             }
             Self::EventPort { port } => write!(f, "{EVENT_PORT} ({port})"),
+            Self::Events => f.write_str(BLOCK_EVENTS),
             Self::AudioSlotCount => f.write_str(AUDIO_SLOT_COUNT),
             Self::AudioBusCount => write!(f, "{AUDIO_BUS_COUNT} ({})", crate::MAX_AUDIO_BUSES),
             Self::AudioChannelCount => {

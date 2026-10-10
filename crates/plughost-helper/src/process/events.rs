@@ -85,12 +85,14 @@ impl EventPlan {
 
     /// The events `slot` receives on its native input indices: each route's source events in
     /// route order, then ordered by offset, keeping that order at equal offsets. `previous` is
-    /// what the previous slot produced in this block.
+    /// what the previous slot produced in this block. They share the block's budget with the
+    /// slot's `automation` points.
     pub fn gather(
         &self,
         slot: usize,
         chain: &[Event],
         previous: &[Event],
+        automation: usize,
         into: &mut Vec<Event>,
     ) -> Result<(), InputError> {
         into.clear();
@@ -106,7 +108,7 @@ impl EventPlan {
                 into.push(event.clone().on_port(*native));
             }
         }
-        validate_event_budget(0, into)?;
+        validate_event_budget(automation, into)?;
         into.sort_by_key(|event| event.offset);
         Ok(())
     }

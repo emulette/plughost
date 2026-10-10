@@ -77,31 +77,36 @@ impl AudioTiming {
         self.latency
     }
 
-    /// Plans `config` for the slots' current timing and evaluates the chain tail.
+    /// Plans `config` for the slots' current timing and evaluates the chain tail. A slot that
+    /// asked to be prepared again fails with its index.
     pub fn plan(
         config: &RoutedChainConfig,
         native: &[PluginTiming],
-    ) -> Result<(Self, Tail), Failure> {
-        let plan = Self::new(config, native)?;
-        let tail = plan.tail(native)?;
+    ) -> Result<(Self, Tail), (Option<usize>, Failure)> {
+        let plan = Self::new(config, native).map_err(|failure| (None, failure))?;
+        let tail = plan
+            .tail(native)
+            .map_err(|(slot, failure)| (Some(slot), failure))?;
         Ok((plan, tail))
     }
 
     /// Re-evaluates current tails along the planned paths; a tail that overflows is infinite.
     /// A plugin keeps the latency it was activated with until it is prepared again or reset, and
     /// every activation plans the chain again; a latency the plan does not have, like a restart
-    /// request, needs a new configuration and fresh delay lines.
-    pub fn tail(&self, native: &[PluginTiming]) -> Result<Tail, Failure> {
-        if native
+    /// request, needs a new configuration and fresh delay lines, and fails with its slot.
+    pub fn tail(&self, native: &[PluginTiming]) -> Result<Tail, (usize, Failure)> {
+        if let Some(slot) = native
             .iter()
             .zip(&self.native_latencies)
-            .any(|(timing, expected)| timing.latency != *expected || timing.restart_required)
+            .position(|(timing, expected)| timing.latency != *expected || timing.restart_required)
         {
-            return Err(Failure::new(
-                FailureKind::RestartRequired,
-                crate::errors::AUDIO_LATENCY_CHANGED,
-            ));
+            return Err((slot, restart_required()));
         }
+        Ok(self.current_tail(native))
+    }
+
+    /// The chain tail of the slots' current tails, whether or not they still match the plan.
+    pub fn current_tail(&self, native: &[PluginTiming]) -> Tail {
         let mut tail = Tail::Samples(0);
         for (timing, previous) in native.iter().zip(&self.previous) {
             let incoming = if *previous { tail } else { Tail::Samples(0) };
@@ -112,8 +117,16 @@ impl AudioTiming {
                 _ => Tail::Infinite,
             };
         }
-        Ok(tail)
+        tail
     }
+}
+
+/// The failure of a slot that needs a new configuration before it processes again.
+pub(crate) fn restart_required() -> Failure {
+    Failure::new(
+        FailureKind::RestartRequired,
+        crate::errors::AUDIO_LATENCY_CHANGED,
+    )
 }
 
 /// Timing and its fully reserved histories are installed together after successful preparation.

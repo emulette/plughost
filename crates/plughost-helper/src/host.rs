@@ -507,10 +507,11 @@ impl Host {
             Ok(timings) => timings,
             Err((slot, error)) => return failed(slot, &error),
         };
-        match AudioTiming::plan(config, &timings) {
-            Ok((plan, tail)) => Response::Timing {
+        // A slot that waits to be prepared again fails the blocks it would process, not this read.
+        match AudioTiming::new(config, &timings) {
+            Ok(plan) => Response::Timing {
                 latency: plan.latency(),
-                tail,
+                tail: plan.current_tail(&timings),
                 latency_changed: timings.iter().any(|timing| timing.latency_changed),
             },
             Err(failure) => Response::Failed {

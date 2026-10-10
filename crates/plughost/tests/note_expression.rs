@@ -293,3 +293,52 @@ fn notes_reach_a_midi_port_in_their_midi_form() {
         ]
     );
 }
+
+#[test]
+#[ignore = "needs helper, routing and synth fixtures (.ps1 or .sh build scripts)"]
+fn a_later_slot_that_cannot_take_its_notes_stops_processing_until_reset() {
+    let mut chain = spawn(&[routing(PluginFormat::Clap), synth(PluginFormat::Vst3)]);
+    let mut config = chain
+        .main_bus_config(
+            SAMPLE_RATE,
+            FRAMES,
+            Layout::None,
+            &[Layout::None, Layout::Stereo],
+        )
+        .unwrap();
+    config.slots[0].events = routing_slot(&mut chain, 0).0;
+    chain.prepare_audio(&config).unwrap();
+    run(
+        &mut chain,
+        &config,
+        &[note_on(0, 1, 0.5), note_on(0, 2, 0.5), note_on(0, 3, 0.5)],
+    );
+    // Each tuning without an ID reaches all three notes in VST3: 9,000 native events, more
+    // than one block holds, after the routing slot took them.
+    let tuning = NoteExpression::new(0, KEY, ExpressionKind::Tuning, 1.0);
+    let events = vec![Event::new(0, EventData::Expression(tuning)); 3000];
+    let mut output = vec![vec![0.0; FRAMES]; 2];
+    let mut views: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
+    let mut block = |events: &[Event]| {
+        chain.process_audio_f32(
+            &BlockContext::new(FRAMES),
+            &[],
+            &mut views,
+            &[],
+            events,
+            &mut Vec::new(),
+        )
+    };
+    let error = block(&events).unwrap_err();
+    assert!(
+        matches!(error, plughost::Error::Operation { slot: Some(1), .. }),
+        "{error:?}"
+    );
+    let error = block(&[]).unwrap_err();
+    assert!(
+        matches!(error, plughost::Error::Operation { slot: None, .. }),
+        "{error:?}"
+    );
+    chain.reset().unwrap();
+    run(&mut chain, &config, &[]);
+}

@@ -147,7 +147,10 @@ impl Chain {
     /// an idle consumer cannot backpressure processing or shutdown. A recovered chain has its own
     /// stream.
     pub fn take_changes(&mut self) -> Result<plughost_core::ChangeBatch, Error> {
-        match self.helper.request(Request::Changes, self.timeouts.load)? {
+        match self
+            .helper
+            .request(Request::Changes, self.timeouts.control)?
+        {
             Response::Changes(batch) => Ok(batch),
             _ => Err(Error::Protocol),
         }
