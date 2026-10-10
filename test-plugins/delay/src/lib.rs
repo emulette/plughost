@@ -2,8 +2,9 @@
 //! [`LATENCY`] samples and reports that latency. The VST3 side is a single component that
 //! processes 32-bit and 64-bit samples, with a gain kept in its state and mapped to a MIDI
 //! controller, a read-only parameter telling whether the last restored state was marked as
-//! project state, and a parameter that switches the gain's MIDI controller (7 or 11) and reports
-//! the change with `kMidiCCAssignmentChanged`. Asked for six channels, it answers 6.0 instead
+//! project state, a parameter that switches the gain's MIDI controller (7 or 11) and reports
+//! the change with `kMidiCCAssignmentChanged`, and one whose edit in the controller asks for a
+//! new bus configuration with `kIoChanged`. Asked for six channels, it answers 6.0 instead
 //! of 5.1. The CLAP side (`clap.rs`) scales the delay with
 //! the sample rate and adds a gain parameter kept in its state.
 //!
@@ -75,7 +76,8 @@ const GAIN_CONTROLLER: ParamID = 2;
 const HOST_NAME: ParamID = 3;
 const PROGRAM: ParamID = 6;
 const EVENT_PROBE: ParamID = 7;
-const PARAMETERS: [(&str, i32, ParamValue, i32); 8] = [
+const RESTART_PROBE: ParamID = 8;
+const PARAMETERS: [(&str, i32, ParamValue, i32); 9] = [
     ("Gain", 0, 1.0, ParameterFlags_::kCanAutomate),
     ("Project State", 1, 0.0, ParameterFlags_::kIsReadOnly),
     ("Gain Controller", 1, 0.0, ParameterFlags_::kIsList),
@@ -89,6 +91,7 @@ const PARAMETERS: [(&str, i32, ParamValue, i32); 8] = [
         ParameterFlags_::kIsProgramChange | ParameterFlags_::kIsList,
     ),
     ("Event probe", 1, 0.0, ParameterFlags_::kCanAutomate),
+    ("Restart probe", 1, 0.0, 0),
 ];
 
 fn class_id() -> TUID {
@@ -779,9 +782,17 @@ impl IEditControllerTrait for Delay {
         }
         if id == GAIN_CONTROLLER
             && changed
-            && let Some(handler) = handler
+            && let Some(handler) = &handler
         {
             unsafe { handler.restartComponent(kMidiCCAssignmentChanged as int32) };
+        }
+        if id == RESTART_PROBE
+            && changed
+            && value > 0.5
+            && let Some(handler) = handler
+        {
+            use vst3::Steinberg::Vst::RestartFlags_::kIoChanged;
+            unsafe { handler.restartComponent(kIoChanged as int32) };
         }
         kResultOk
     }

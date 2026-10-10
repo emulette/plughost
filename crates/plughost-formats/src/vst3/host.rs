@@ -540,6 +540,11 @@ impl ComponentHandler {
         self.restart_flags.swap(0, Ordering::Relaxed)
     }
 
+    /// Records restart requests taken with [`Self::take_restart_flags`] again.
+    pub fn restore_restart_flags(&self, flags: i32) {
+        self.restart_flags.fetch_or(flags, Ordering::Relaxed);
+    }
+
     pub fn take_midi_mapping_changed(&self) -> bool {
         self.midi_mapping_changed.swap(false, Ordering::Relaxed)
     }

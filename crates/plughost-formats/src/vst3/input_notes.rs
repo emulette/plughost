@@ -40,6 +40,12 @@ impl InputNotes {
         self.started.clear();
     }
 
+    /// Takes the notes `other` follows, within the storage reserved for them.
+    pub fn copy_from(&mut self, other: &InputNotes) {
+        self.started.clear();
+        self.started.extend_from_slice(&other.started);
+    }
+
     pub fn note_on(&mut self, bus: i32, channel: i16, pitch: i16, id: i32) {
         if self.started.len() < MAX_BLOCK_EVENTS {
             self.started.push(Started {

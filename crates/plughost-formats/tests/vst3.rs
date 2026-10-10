@@ -637,6 +637,22 @@ fn buses_announced_while_activating_do_not_ask_for_another_preparation() {
 
 #[test]
 #[ignore = "needs scripts/build-test-plugins.sh"]
+fn reset_keeps_a_restart_requested_before_it() {
+    const RESTART_PROBE: u64 = 8;
+    let _serial = serial();
+    let mut plugin = plugin("plughost-test-delay");
+    plugin
+        .prepare(&config(48_000.0, SampleFormat::F32))
+        .unwrap();
+    plugin.set_parameter(RESTART_PROBE, 1.0).unwrap();
+    assert!(plugin.processor().restart_required());
+    plugin.reset().unwrap();
+    assert!(plugin.processor().restart_required());
+    assert!(plugin.timing().unwrap().restart_required);
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
 fn processors_fail_once_the_plugin_is_dropped() {
     let _serial = serial();
     let mut plugin = plugin("again");
@@ -873,4 +889,87 @@ fn a_cyclic_unit_hierarchy_is_an_error_and_recovers() {
         .restore_state(&good, plughost_core::StatePurpose::Project)
         .unwrap();
     assert!(plugin.parameter_details(0).unwrap().groups.is_some());
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
+fn note_events_without_an_id_that_overflow_the_event_list_refuse_the_block() {
+    use plughost_core::{EventData, ExpressionKind, InputError, Note, NoteExpression};
+    const KEY: u8 = 60;
+    let _serial = serial();
+    let mut plugin = plugin("plughost-test-synth");
+    plugin
+        .prepare(&ProcessConfig {
+            input: Layout::None,
+            ..config(48_000.0, SampleFormat::F32)
+        })
+        .unwrap();
+    let mut block = |events: &[Event]| {
+        let mut output = vec![vec![0.0f32; 512]; 2];
+        let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
+        plugin
+            .process(
+                &plughost_core::BlockContext::new(512),
+                &[],
+                &mut outputs,
+                &[],
+                events,
+                &mut Vec::new(),
+            )
+            .map(|()| output)
+    };
+    let notes: Vec<Event> = (1..=3)
+        .map(|id| Event::new(0, EventData::NoteOn(Note::new(0, KEY, 1.0).with_id(id))))
+        .collect();
+    block(&notes).unwrap();
+    // Each tuning without an ID reaches all three notes: 9,000 native events, and the note off
+    // after them three more.
+    let tuning = NoteExpression::new(0, KEY, ExpressionKind::Tuning, 0.0);
+    let mut events = vec![Event::new(0, EventData::Expression(tuning)); 3000];
+    events.push(Event::new(511, EventData::NoteOff(Note::new(0, KEY, 0.0))));
+    assert_eq!(
+        block(&events).map(|_| ()),
+        Err(Vst3Error::Input(InputError::EventCapacity))
+    );
+    // The refused block changed nothing: its note off alone still ends all three notes.
+    let ended = block(&events[3000..]).unwrap();
+    assert!(
+        ended
+            .iter()
+            .flatten()
+            .take(511)
+            .any(|&sample| sample != 0.0)
+    );
+    assert!(
+        block(&[])
+            .unwrap()
+            .iter()
+            .flatten()
+            .all(|&sample| sample == 0.0)
+    );
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
+fn a_render_does_not_start_on_a_latency_the_plugin_changed() {
+    let _serial = serial();
+    let mut plugin = plugin("plughost-test-latency-change");
+    plugin
+        .prepare(&config(48_000.0, SampleFormat::F32))
+        .unwrap();
+    // The fixture announces a new latency once it has processed 2,400 frames.
+    let input = signal(4800, |v| v as f32);
+    assert_eq!(run(&mut plugin, &input), input);
+    assert!(plugin.timing().unwrap().latency_changed);
+    let slices: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
+    let options = RenderOptions::new(TailPolicy::Reported, 0.0);
+    assert!(matches!(
+        render(&mut plugin, &slices, 4800, &[], &options),
+        Err(Vst3Error::Render(
+            plughost_core::RenderError::LatencyNotApplied
+        ))
+    ));
+    plugin.reset().unwrap();
+    assert_eq!(plugin.timing().unwrap().latency, 2 * TEST_DELAY_LATENCY);
+    assert_eq!(run(&mut plugin, &input), input);
 }

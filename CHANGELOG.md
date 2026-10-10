@@ -5,6 +5,23 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A VST3 plugin's request for a new bus configuration (`kIoChanged`, `kReloadComponent`) made
+  before `reset` stays pending after it, so processing keeps failing with `RestartRequired`
+  until the plugin is prepared again. `reset` used to clear it and process on the old buses.
+- A VST3 block whose note offs and expressions without an ID, sent to every note on their key,
+  are more native events than one block holds is refused with `InputError::EventCapacity`
+  before the plugin processes it. The events beyond that used to be dropped, which could leave
+  notes sounding.
+- Rendering a VST3 plugin hosted directly with `plughost-formats` fails with
+  `RenderError::LatencyNotApplied` while a latency the plugin announced is not applied yet, as a
+  chain does.
+- An Audio Unit's MIDI output keeps a system exclusive message that real-time messages
+  interrupt, or that arrives over several calls; the rest of the output used to be dropped.
+
 ## [0.1.0] - 2026-10-01
 
 ### Added

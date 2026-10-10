@@ -68,6 +68,8 @@ pub(crate) struct Prepared {
     events: ComWrapper<EventList>,
     /// The notes `events` started and have not ended.
     notes: InputNotes,
+    /// Where a block's notes are followed while its native events are counted.
+    counted: InputNotes,
     output_events: ComWrapper<OutputEventList>,
     /// Per event input port, whether it is active; events reach only active ports.
     pub event_inputs: Vec<bool>,
@@ -161,6 +163,7 @@ impl Engine {
         // A note off or an expression without an ID becomes one event per note on its key.
         let events = ComWrapper::new(EventList::new(2 * limit)?);
         let notes = InputNotes::new()?;
+        let counted = InputNotes::new()?;
         let output_events = ComWrapper::new(OutputEventList::new()?);
         let automation = scratch(limit)?;
         let mut setup = ProcessSetup {
@@ -216,6 +219,7 @@ impl Engine {
             output_changes,
             events,
             notes,
+            counted,
             output_events,
             event_inputs,
             event_buses,
@@ -241,6 +245,9 @@ impl Engine {
         if self.prepared.is_none() {
             return Ok(());
         }
+        // Activating again applies a changed latency but not a new bus configuration, so a
+        // restart the plugin asked for before still stands.
+        let requested = instance.handler.restart_flags() & RESTART_REQUIRED;
         let result = unsafe {
             instance.processor.setProcessing(0);
             instance.component.setActive(0);
@@ -252,7 +259,9 @@ impl Engine {
         }
         let latency = activated(&instance.processor);
         let tail = tail(&instance.processor);
+        // Requests made while activating again are about the configuration it keeps.
         instance.handler.take_restart_flags();
+        instance.handler.restore_restart_flags(requested);
         if let Some(prepared) = &mut self.prepared {
             prepared.notes.clear();
             prepared.output_events.forget_notes();
@@ -323,6 +332,10 @@ impl Engine {
         }
         if frames == 0 {
             return Ok(());
+        }
+        // A note off or an expression without an ID becomes one event per note on its key.
+        if prepared.native_event_count(events) > prepared.events.limit() {
+            return Err(Vst3Error::Input(plughost_core::InputError::EventCapacity));
         }
         prepared.stage_automation(changes)?;
         prepared.buffers.bind(input, output, 0..frames)?;
@@ -631,6 +644,45 @@ impl Prepared {
             self.push_point(index, offset, value);
             staged += 1;
         }
+    }
+
+    /// The note events `events` become, counted on a copy of the notes followed so far, so that
+    /// a block that does not fit is refused before it changes anything.
+    fn native_event_count(&mut self, events: &[plughost_core::Event]) -> usize {
+        self.counted.copy_from(&self.notes);
+        let mut count = 0;
+        for event in events {
+            match self.translate(event) {
+                // SAFETY: the union field read matches the event type set where the event was built.
+                Some(NativeInput::Note(note)) => match u32::from(note.r#type) {
+                    NOTE_ON => {
+                        let on = unsafe { note.__field0.noteOn };
+                        self.counted
+                            .note_on(note.busIndex, on.channel, on.pitch, on.noteId);
+                        count += 1;
+                    }
+                    NOTE_OFF => {
+                        let off = unsafe { note.__field0.noteOff };
+                        self.counted.note_off(
+                            note.busIndex,
+                            off.channel,
+                            off.pitch,
+                            off.noteId,
+                            |_| count += 1,
+                        );
+                    }
+                    _ => count += 1,
+                },
+                Some(NativeInput::KeyExpression(expression, channel, pitch)) => {
+                    count += self
+                        .counted
+                        .ids(expression.busIndex, channel, pitch)
+                        .count();
+                }
+                Some(NativeInput::Parameter(..)) | None => {}
+            }
+        }
+        count
     }
 
     /// Queues a note event, following the notes it starts and ends. A note off without an ID

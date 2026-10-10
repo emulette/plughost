@@ -484,6 +484,15 @@ impl<S: Sample> Process<S> for Plugin {
         Ok(Plugin::timing(self)?.tail)
     }
 
+    /// A latency the plugin announced is applied when it activates again, and many plugins delay
+    /// by it at once, so a render does not start on the latency it was activated with.
+    fn begin_render(&mut self) -> Result<(), Vst3Error> {
+        if lock(&self.engine).timing()?.latency_changed {
+            return Err(plughost_core::RenderError::LatencyNotApplied.into());
+        }
+        Ok(())
+    }
+
     fn validate_automation(
         &mut self,
         automation: &[plughost_core::AutomationEvent],

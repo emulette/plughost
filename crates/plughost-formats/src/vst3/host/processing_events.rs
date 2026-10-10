@@ -334,6 +334,9 @@ impl EventList {
     pub fn clear(&self) {
         lock(&self.events).clear();
     }
+    pub fn limit(&self) -> usize {
+        self.limit
+    }
     pub fn push(&self, mut event: Event) {
         unsafe {
             self.addEvent(&mut event);

@@ -418,7 +418,10 @@ impl Plugin {
     pub(crate) fn reset(&mut self) -> Result<(), AuError> {
         let mut engine = lock(&self.engine);
         unsafe { engine.unit()?.reset() };
-        if engine.prepared.is_some() {
+        if let Some(prepared) = &engine.prepared {
+            if let Some(midi_output) = &prepared.midi_output {
+                midi_output.reset();
+            }
             engine.take_latency()?;
         }
         Ok(())
