@@ -9,6 +9,7 @@ use plughost_core::{
     BlockContext, Event, HostIdentity, Layout, MAX_BLOCK_EVENTS, ParameterChange, PluginFormat,
     ProcessConfig, ProcessMode, SampleFormat,
 };
+#[cfg(feature = "clap")]
 use plughost_formats::{Error, HostedPlugin};
 #[cfg(any(feature = "vst3", feature = "clap"))]
 use std::path::Path;
@@ -83,20 +84,7 @@ fn check(reference: PluginRef) {
 #[test]
 #[ignore = "needs routing VST3 and CLAP fixtures"]
 fn native_effects_reject_combined_event_overflow_without_touching_output() {
-    for (format, extension, class) in [
-        #[cfg(feature = "vst3")]
-        (
-            PluginFormat::Vst3,
-            "vst3",
-            "706C7567686F7374526F7574696E6701",
-        ),
-        #[cfg(feature = "clap")]
-        (
-            PluginFormat::Clap,
-            "clap",
-            "com.studio.plughost.test-routing",
-        ),
-    ] {
+    let check_native = |format: PluginFormat, extension: &str, class: &str| {
         check(PluginRef {
             format,
             bundle: Some(Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
@@ -104,7 +92,19 @@ fn native_effects_reject_combined_event_overflow_without_touching_output() {
             ))),
             class_id: class.into(),
         });
-    }
+    };
+    #[cfg(feature = "vst3")]
+    check_native(
+        PluginFormat::Vst3,
+        "vst3",
+        "706C7567686F7374526F7574696E6701",
+    );
+    #[cfg(feature = "clap")]
+    check_native(
+        PluginFormat::Clap,
+        "clap",
+        "com.studio.plughost.test-routing",
+    );
 }
 
 #[cfg(all(target_os = "macos", feature = "au"))]

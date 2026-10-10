@@ -48,5 +48,9 @@ jobs:
           fallback: none
       - name: Build fixtures and helper, test, lint, document, check dependencies
         run: ${{ matrix.verify }}
+      - name: Lint VST3-only targets
+        run: cargo clippy -p plughost-formats --all-targets --locked --no-default-features --features vst3 -- -D warnings
+      - name: Lint CLAP-only targets
+        run: cargo clippy -p plughost-formats --all-targets --locked --no-default-features --features clap -- -D warnings
       - name: Build each crate from its package
         run: cargo package --locked --target-dir target/package-check -p plughost-core -p plughost-formats -p plughost-helper -p plughost
