@@ -22,7 +22,7 @@ impl SharedAudio {
         );
         // In bounds by the assertion above. Slots start 8-byte aligned in the page-aligned
         // mapping and the stride is a whole number of samples, so the pointer is aligned for T.
-        self.mapping.as_mut_ptr().wrapping_add(offset).cast()
+        self.memory.as_ptr().wrapping_add(offset).cast()
     }
 
     fn write_pcm<T: WireSample>(&self, slot: usize, channels: &[&[T]]) {

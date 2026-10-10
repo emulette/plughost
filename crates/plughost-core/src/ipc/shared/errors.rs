@@ -6,7 +6,8 @@ pub(super) const TRANSFER: &str = "the shared audio handle transfer is invalid";
 pub(super) const BLOCK: &str = "the shared audio block does not match the prepared slot";
 pub(super) const GENERATION: &str = "the shared audio generation is invalid";
 pub(super) const EVENTS: &str = "the shared audio events are invalid";
-pub(super) const ACTIVITY: &str = "the shared activity mapping is invalid";
+#[cfg(unix)]
+pub(super) const MEMORY: &str = "the shared memory is smaller than its mapping";
 pub(super) const STORAGE: &str = "could not reserve local shared audio storage";
 
 pub(super) fn invalid(message: &'static str) -> io::Error {

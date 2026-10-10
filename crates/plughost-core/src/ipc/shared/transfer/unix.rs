@@ -34,17 +34,17 @@ impl Sender {
     /// Sends ownership of a duplicate file descriptor. Nonblocking: a stalled peer cannot hold up
     /// the application here. At most one preparation may be outstanding on this connection.
     pub fn send(&self, memory: &SharedAudio, _child: &Child) -> io::Result<u64> {
-        self.send_file(&memory.file, memory.descriptor.generation)
+        self.send_fd(memory.memory.handle(), memory.descriptor.generation)
     }
 
     /// Sends the activity mapping the same way, for the load request that carries its token.
     pub fn send_activity(&self, activity: &Activity, _child: &Child) -> io::Result<u64> {
-        self.send_file(&activity.file, ACTIVITY_TAG)
+        self.send_fd(activity.memory.handle(), ACTIVITY_TAG)
     }
 
-    fn send_file(&self, file: &std::fs::File, tag: u64) -> io::Result<u64> {
+    fn send_fd(&self, fd: &OwnedFd, tag: u64) -> io::Result<u64> {
         let payload = tag.to_le_bytes();
-        let fds = [file.as_fd()];
+        let fds = [fd.as_fd()];
         let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
         let mut control = SendAncillaryBuffer::new(&mut space);
         if !control.push(SendAncillaryMessage::ScmRights(&fds)) {
@@ -79,14 +79,15 @@ impl Receiver {
     ///
     /// # Safety
     /// The transfer must come from the parent using `Sender::send`, and the parent must never
-    /// resize or access the backing file other than through `SharedAudio` while it is mapped.
+    /// access the shared memory other than through `SharedAudio` while it is mapped.
     /// `descriptor` must be the exact descriptor of the transferred mapping, including precision.
     /// Each transfer is received once. Windows additionally requires a live, uniquely owned handle.
     pub unsafe fn receive(&self, descriptor: Descriptor, token: u64) -> io::Result<SharedAudio> {
         if token != descriptor.generation {
             return Err(invalid(TRANSFER));
         }
-        SharedAudio::from_file(self.receive_file(token)?, descriptor)
+        // SAFETY: the parent sent the shared memory of its `SharedAudio` for `descriptor`.
+        unsafe { SharedAudio::open(self.receive_fd(token)?, descriptor) }
     }
 
     /// Receives the activity mapping sent before the load request carrying `token`.
@@ -97,10 +98,11 @@ impl Receiver {
         if token != ACTIVITY_TAG {
             return Err(invalid(TRANSFER));
         }
-        Activity::from_file(self.receive_file(token)?)
+        // SAFETY: the parent sent the shared memory of its `Activity`.
+        unsafe { Activity::open(self.receive_fd(token)?) }
     }
 
-    fn receive_file(&self, tag: u64) -> io::Result<std::fs::File> {
+    fn receive_fd(&self, tag: u64) -> io::Result<OwnedFd> {
         let mut payload = [0; 8];
         let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
         let mut control = RecvAncillaryBuffer::new(&mut space);
@@ -110,15 +112,15 @@ impl Receiver {
             &mut control,
             RecvFlags::DONTWAIT,
         )?;
-        let mut file = None;
+        let mut received_fd = None;
         for message in control.drain() {
             if let RecvAncillaryMessage::ScmRights(fds) = message {
                 for fd in fds {
-                    if file.is_some() {
+                    if received_fd.is_some() {
                         return Err(invalid(TRANSFER));
                     }
                     rustix::io::fcntl_setfd(&fd, rustix::io::FdFlags::CLOEXEC)?;
-                    file = Some(std::fs::File::from(fd));
+                    received_fd = Some(fd);
                 }
             }
         }
@@ -130,6 +132,6 @@ impl Receiver {
         {
             return Err(invalid(TRANSFER));
         }
-        file.ok_or_else(|| invalid(TRANSFER))
+        received_fd.ok_or_else(|| invalid(TRANSFER))
     }
 }

@@ -4,13 +4,10 @@
 //! a plain atomic store into shared memory, so announcing a call costs no system call. After the
 //! helper crashes or stops responding, the application reads what each thread was doing.
 
-use std::fs::File;
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use memmap2::{MmapOptions, MmapRaw};
-
-use super::errors::{ACTIVITY, invalid};
+use super::memory::{Handle, Memory};
 
 /// A helper thread that calls into plugins.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,35 +18,36 @@ pub enum Caller {
     Processing = 1,
 }
 
-const BYTES: u64 = 2 * size_of::<u64>() as u64;
+const BYTES: usize = 2 * size_of::<u64>();
 
 pub struct Activity {
-    mapping: MmapRaw,
-    pub(super) file: File,
+    pub(super) memory: Memory,
 }
 
 impl Activity {
     pub fn new() -> io::Result<Self> {
-        let file = tempfile::tempfile()?;
-        file.set_len(BYTES)?;
-        Self::from_file(file)
+        Ok(Self {
+            memory: Memory::new(BYTES)?,
+        })
     }
 
-    pub(super) fn from_file(file: File) -> io::Result<Self> {
-        if file.metadata()?.len() != BYTES {
-            return Err(invalid(ACTIVITY));
-        }
-        let mapping = MmapOptions::new().len(BYTES as usize).map_raw(&file)?;
-        Ok(Self { mapping, file })
+    /// # Safety
+    ///
+    /// `handle` must be the shared memory of a peer's [`Activity`].
+    pub(super) unsafe fn open(handle: Handle) -> io::Result<Self> {
+        Ok(Self {
+            // SAFETY: forwarded from the caller.
+            memory: unsafe { Memory::open(handle, BYTES) }?,
+        })
     }
 
     fn word(&self, caller: Caller) -> &AtomicU64 {
-        // SAFETY: the page-aligned mapping holds one word per caller, has an immutable length and
+        // SAFETY: the page-aligned mapping holds one word per caller, has a fixed length and
         // lives as long as `self`. Both processes access it only through these atomics.
         unsafe {
             &*self
-                .mapping
-                .as_mut_ptr()
+                .memory
+                .as_ptr()
                 .cast::<AtomicU64>()
                 .add(caller as usize)
         }

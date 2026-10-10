@@ -28,6 +28,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   the earlier slots had already processed it.
 - `take_changes` waits for the helper as long as other control requests (`Timeouts::control`)
   instead of the load timeout.
+- The shared memory between an application and its helper is anonymous shared memory of a
+  fixed size: a POSIX shared memory object on macOS and a section backed by the paging file on
+  Windows. It used to be a temporary file, which a process that truncated it could make the
+  other one crash with `SIGBUS` when it read the mapping.
 - A VST3 plugin's request for a new bus configuration (`kIoChanged`, `kReloadComponent`) made
   before `reset` stays pending after it, so processing keeps failing with `RestartRequired`
   until the plugin is prepared again. `reset` used to clear it and process on the old buses.

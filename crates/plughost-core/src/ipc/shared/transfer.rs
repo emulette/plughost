@@ -1,4 +1,4 @@
-//! Anonymous file ownership transfer at prepare time, separate from PCM processing.
+//! Shared memory ownership transfer at prepare time, separate from PCM processing.
 //! On Unix a private datagram socket is inherited as stdin; Windows duplicates into the child.
 
 #[cfg(unix)]

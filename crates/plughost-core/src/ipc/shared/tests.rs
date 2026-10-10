@@ -14,8 +14,14 @@ fn descriptor(format: SampleFormat) -> Descriptor {
 
 fn pair(format: SampleFormat) -> (SharedAudio, SharedAudio) {
     let owner = SharedAudio::new(descriptor(format)).unwrap();
-    let peer = SharedAudio::from_file(owner.file.try_clone().unwrap(), owner.descriptor()).unwrap();
+    let peer = peer(&owner, owner.descriptor());
     (owner, peer)
+}
+
+fn peer(owner: &SharedAudio, descriptor: Descriptor) -> SharedAudio {
+    let handle = owner.memory.handle().try_clone().unwrap();
+    // SAFETY: the owner's own shared memory, for its descriptor.
+    unsafe { SharedAudio::open(handle, descriptor) }.unwrap()
 }
 
 fn automation() -> Vec<AutomationEvent> {
@@ -237,11 +243,6 @@ fn insufficient_scratch_is_rejected_before_dsp() {
 #[test]
 fn anonymous_mapping_survives_peer_drop() {
     let (mut owner, mut peer) = pair(SampleFormat::F32);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        assert_eq!(owner.file.metadata().unwrap().nlink(), 0);
-    }
     let submission = owner
         .write_input_f32(1, 1, &[&[0.25], &[0.5]], &[], &[])
         .unwrap();
@@ -268,7 +269,7 @@ fn zero_audio_input_carries_the_full_event_budget_and_preserves_float_bits() {
         },
     };
     let mut owner = SharedAudio::new(descriptor).unwrap();
-    let mut peer = SharedAudio::from_file(owner.file.try_clone().unwrap(), descriptor).unwrap();
+    let mut peer = peer(&owner, descriptor);
     let notes = vec![Event::note_off(0, 0, 60, 0); MAX_BLOCK_EVENTS - 1];
     let changes = automation();
     let submission = owner
@@ -294,4 +295,20 @@ fn zero_audio_input_carries_the_full_event_budget_and_preserves_float_bits() {
             .collect::<Vec<_>>(),
         bits
     );
+}
+
+/// A mapped file that a peer truncates kills the process that reads the mapping.
+#[cfg(unix)]
+#[test]
+fn a_peer_cannot_shrink_the_shared_memory() {
+    let (mut owner, mut peer) = pair(SampleFormat::F32);
+    let handle = owner.memory.handle().try_clone().unwrap();
+    assert!(std::fs::File::from(handle).set_len(0).is_err());
+    let submission = owner
+        .write_input_f32(1, 8, &[&[0.25; 8], &[0.5; 8]], &[], &[])
+        .unwrap();
+    let mut audio = vec![vec![0.0; 8]; 2];
+    peer.read_input_f32(submission, &mut audio, &mut Vec::new(), &mut Vec::new())
+        .unwrap();
+    assert_eq!(audio, [vec![0.25; 8], vec![0.5; 8]]);
 }

@@ -236,7 +236,8 @@ External-input alignment storage is reserved during preparation and limited to
 256 MiB per chain. A failed staged reservation preserves the old chain.
 
 PCM and events use fixed shared-memory slots prepared for the selected precision and maximum
-block size. Each generation has a separate 256 MiB shared-storage budget, plus local/native
+block size, in anonymous shared memory whose size neither process can change (a POSIX shared
+memory object on macOS, a section backed by the paging file on Windows). Each generation has a separate 256 MiB shared-storage budget, plus local/native
 buffers; re-preparation temporarily retains both generations. Control messages and completion
 notifications use the socket. Processing still copies audio, allocates in other host paths,
 and waits for the helper; shared memory does not make `Chain` real-time safe.

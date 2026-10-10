@@ -8,16 +8,15 @@
 
 mod activity;
 mod errors;
+mod memory;
 mod samples;
 #[cfg(test)]
 mod tests;
 pub mod transfer;
 
-use std::fs::File;
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use memmap2::{MmapOptions, MmapRaw};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -26,6 +25,7 @@ use crate::{
 };
 pub use activity::{Activity, Caller};
 use errors::{BLOCK, CONFIGURATION, EVENTS, GENERATION, invalid};
+use memory::{Handle, Memory};
 
 /// Total mapping budget per prepared generation, including both PCM slots and events.
 pub const MAX_SHARED_BYTES: usize = 256 << 20;
@@ -172,12 +172,11 @@ impl SlotConfig {
     }
 }
 
-/// A single generation, backed by an anonymous temporary file owned by the participating processes.
-/// Dropping an endpoint closes its file and mapping; no named-file cleanup protocol is required.
-/// Storage is allocated outside processing. The file is never resized after it is mapped.
+/// A single generation, in anonymous shared memory of a fixed size owned by the participating
+/// processes. Dropping an endpoint closes its handle and mapping; no named cleanup protocol is
+/// required. Storage is allocated outside processing.
 pub struct SharedAudio {
-    mapping: MmapRaw,
-    file: File,
+    memory: Memory,
     descriptor: Descriptor,
     layout: Layout,
 }
@@ -185,22 +184,26 @@ pub struct SharedAudio {
 impl SharedAudio {
     pub fn new(descriptor: Descriptor) -> io::Result<Self> {
         let layout = descriptor.config.layout()?;
-        let file = tempfile::tempfile()?;
-        file.set_len(layout.bytes as u64)?;
-        Self::from_file(file, descriptor)
+        Self::with_memory(Memory::new(layout.bytes)?, descriptor)
     }
 
-    fn from_file(file: File, descriptor: Descriptor) -> io::Result<Self> {
+    /// # Safety
+    ///
+    /// `handle` must be the shared memory of a peer's [`SharedAudio`] for `descriptor`.
+    unsafe fn open(handle: Handle, descriptor: Descriptor) -> io::Result<Self> {
         let layout = descriptor.config.layout()?;
-        if descriptor.generation == 0 || file.metadata()?.len() != layout.bytes as u64 {
+        // SAFETY: forwarded from the caller.
+        Self::with_memory(unsafe { Memory::open(handle, layout.bytes) }?, descriptor)
+    }
+
+    fn with_memory(memory: Memory, descriptor: Descriptor) -> io::Result<Self> {
+        if descriptor.generation == 0 {
             return Err(invalid(CONFIGURATION));
         }
-        let mapping = MmapOptions::new().len(layout.bytes).map_raw(&file)?;
         Ok(Self {
-            mapping,
-            file,
+            memory,
             descriptor,
-            layout,
+            layout: descriptor.config.layout()?,
         })
     }
 
@@ -210,9 +213,9 @@ impl SharedAudio {
 
     fn word(&self, offset: usize) -> &AtomicU64 {
         assert!(offset.is_multiple_of(8) && offset <= self.layout.bytes - 8);
-        // SAFETY: the page-aligned mapping remains live and has immutable length. The event ranges
+        // SAFETY: the page-aligned mapping remains live and has a fixed length. The event ranges
         // are accessed only through aligned 64-bit atomics and never overlap the PCM ranges.
-        unsafe { &*self.mapping.as_mut_ptr().add(offset).cast::<AtomicU64>() }
+        unsafe { &*self.memory.as_ptr().add(offset).cast::<AtomicU64>() }
     }
 
     fn load(&self, offset: usize) -> u64 {
@@ -261,7 +264,7 @@ impl SharedAudio {
                     u64::from(u32::from_le_bytes([*status, *first, *second, 0])),
                 ),
                 EventData::SysEx(bytes) => {
-                    let destination = self.mapping.as_mut_ptr().wrapping_add(region.sysex + sysex);
+                    let destination = self.memory.as_ptr().wrapping_add(region.sysex + sysex);
                     // SAFETY: the budget check keeps the bytes inside this region's arena, which
                     // no atomic word overlaps; the slot belongs to the writer until handed over.
                     unsafe {
@@ -360,7 +363,7 @@ impl SharedAudio {
                         return Err(invalid(EVENTS));
                     }
                     let mut bytes = vec![0; length];
-                    let source = self.mapping.as_mut_ptr().wrapping_add(region.sysex + start);
+                    let source = self.memory.as_ptr().wrapping_add(region.sysex + start);
                     // SAFETY: the range was checked against this region's arena above.
                     unsafe { std::ptr::copy_nonoverlapping(source, bytes.as_mut_ptr(), length) };
                     EventData::SysEx(bytes)
