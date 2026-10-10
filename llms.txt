@@ -25,8 +25,8 @@ The application depends on `plughost = "=0.1.0"`. A separate executable depends 
 `Scanner::new` and `Chain::spawn`. The library supplies the helper's command-line arguments
 and IPC handshake. Keep application and helper versions matched.
 
-Supported targets are `aarch64-apple-darwin` and `x86_64-pc-windows-msvc`. Audio Units are
-macOS-only. The helper and loaded plugin must use the same architecture. Intel Macs,
+Supported targets are `aarch64-apple-darwin`, on macOS 15 or newer, and
+`x86_64-pc-windows-msvc`. Audio Units are macOS-only. The helper and loaded plugin must use the same architecture. Intel Macs,
 Rosetta, Linux, and cross-architecture bridges are outside the supported targets.
 
 On macOS the helper is a background `LSUIElement` application, signed with Hardened Runtime

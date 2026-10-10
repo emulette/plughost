@@ -7,6 +7,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ## [Unreleased]
 
+### Changed
+
+- The documentation names macOS 15 as the oldest supported macOS, the oldest one tested.
+
 ### Added
 
 - `InputError::Events` for events that are not valid, not in offset order or not inside the
@@ -30,6 +34,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   instead of the load timeout.
 - A native scan or retry drops the cache entries of bundles that are no longer on disk; they
   used to stay and be written again with every saved result.
+- The development helper app built by `scripts/build-helper.sh` reports the workspace version;
+  it reported 0.0.5.
 - The shared memory between an application and its helper is anonymous shared memory of a
   fixed size: a POSIX shared memory object on macOS and a section backed by the paging file on
   Windows. It used to be a temporary file, which a process that truncated it could make the

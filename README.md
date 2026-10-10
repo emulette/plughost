@@ -5,8 +5,8 @@ Each plugin chain runs in a helper process, isolating plugin crashes and hangs f
 
 ## Installation
 
-plughost 0.1.0 requires Rust 1.92 or newer. Supported platforms are macOS on Apple Silicon
-(`aarch64-apple-darwin`) and Windows x64 (`x86_64-pc-windows-msvc`).
+plughost 0.1.0 requires Rust 1.92 or newer. Supported platforms are macOS 15 or newer on Apple
+Silicon (`aarch64-apple-darwin`) and Windows x64 (`x86_64-pc-windows-msvc`).
 
 Add the application library to your application's `Cargo.toml`:
 
