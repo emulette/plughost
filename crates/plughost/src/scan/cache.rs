@@ -89,8 +89,8 @@ impl Writer {
         let (library, architecture) = current();
         let mut bundles = read(path)?.bundles;
         let cached = bundles.len();
-        // Entries of bundles gone from disk would go into every snapshot from here on.
-        bundles.retain(|bundle, _| bundle.try_exists().is_ok_and(|exists| exists));
+        // An inaccessible bundle may still exist; prune only confirmed removals.
+        bundles.retain(|bundle, _| !matches!(bundle.try_exists(), Ok(false)));
         let mut writer = Self {
             path: path.to_path_buf(),
             parent: parent.to_path_buf(),

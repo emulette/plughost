@@ -342,3 +342,53 @@ fn a_later_slot_that_cannot_take_its_notes_stops_processing_until_reset() {
     chain.reset().unwrap();
     run(&mut chain, &config, &[]);
 }
+
+#[test]
+#[ignore = "needs helper and synth fixtures (.ps1 or .sh build scripts)"]
+fn a_first_slot_native_event_overflow_is_rejected_without_advancing() {
+    let mut chain = spawn(&[synth(PluginFormat::Vst3)]);
+    let mut reference = spawn(&[synth(PluginFormat::Vst3)]);
+    let config = chain
+        .main_bus_config(SAMPLE_RATE, FRAMES, Layout::None, &[Layout::Stereo])
+        .unwrap();
+    let notes = [note_on(0, 1, 0.5), note_on(0, 2, 0.5), note_on(0, 3, 0.5)];
+    for chain in [&mut chain, &mut reference] {
+        chain.prepare_audio(&config).unwrap();
+        run(chain, &config, &notes);
+    }
+    let tuning = NoteExpression::new(0, KEY, ExpressionKind::Tuning, 1.0);
+    let mut events = vec![Event::new(0, EventData::Expression(tuning)); 3000];
+    events.push(Event::new(
+        FRAMES - 1,
+        EventData::NoteOff(Note::new(0, KEY, 0.0)),
+    ));
+    let mut output = vec![vec![7.0; FRAMES]; 2];
+    let mut views: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
+    let mut produced = vec![notes[0].clone()];
+    let error = chain
+        .process_audio_f32(
+            &BlockContext::new(FRAMES),
+            &[],
+            &mut views,
+            &[],
+            &events,
+            &mut produced,
+        )
+        .unwrap_err();
+    assert!(
+        matches!(
+            error,
+            plughost::Error::Input {
+                slot: Some(0),
+                error: plughost::InputError::EventCapacity,
+            }
+        ),
+        "{error:?}"
+    );
+    assert!(output.iter().flatten().all(|&sample| sample == 7.0));
+    assert_eq!(produced, [notes[0].clone()]);
+    // Retrying needs no reset, and the rejected tuning/note off did not change or advance DSP.
+    let (retried, _) = run(&mut chain, &config, &[]);
+    assert_eq!(retried, run(&mut reference, &config, &[]).0);
+    assert!(retried.iter().any(|&sample| sample != 0.0));
+}

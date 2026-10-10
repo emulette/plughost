@@ -1,5 +1,6 @@
 //! Where a plugin's audio-thread functions run when the host calls them between blocks.
 
+#[cfg(any(feature = "vst3", feature = "clap"))]
 use std::sync::Arc;
 
 /// Runs the audio-thread calls a plugin needs outside the blocks it processes on the thread that
@@ -15,9 +16,11 @@ pub trait AudioThread: Send + Sync {
 }
 
 /// The audio thread the owner of a plugin set, if any.
+#[cfg(any(feature = "vst3", feature = "clap"))]
 #[derive(Clone, Default)]
 pub(crate) struct AudioCalls(Option<Arc<dyn AudioThread>>);
 
+#[cfg(any(feature = "vst3", feature = "clap"))]
 impl AudioCalls {
     pub fn new(thread: Arc<dyn AudioThread>) -> AudioCalls {
         AudioCalls(Some(thread))

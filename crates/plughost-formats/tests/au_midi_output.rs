@@ -22,7 +22,7 @@ use objc2_core_audio_types::AudioBufferList;
 use objc2_foundation::{NSArray, NSError, NSInteger, NSString};
 use plughost_core::{
     AudioBusConfig, AudioConfig, AudioDirection, Event, EventConfig, Layout, MAX_BLOCK_EVENTS,
-    ProcessMode, SampleFormat,
+    MAX_BLOCK_SYSEX_BYTES, ProcessMode, SampleFormat,
 };
 use plughost_formats::au::{self, Plugin};
 use plughost_formats::{Error, HostedPlugin};
@@ -80,6 +80,23 @@ fn respond(send: &RcBlock<OutputEvent>, time: AUEventSampleTime, bytes: &[u8]) {
         // Two notes under running status, a clock and a system exclusive message.
         [0xB0, 127, _] => out(0, &[0x90, 1, 2, 3, 4, 0xF8, 0xF0, 0x7D, 0x01, 0xF7]),
         [0xB0, 126, value] => out(1, &[0xB0, 126, *value]),
+        // Fragments at the byte limit, optionally interrupted by clocks.
+        [0xB0, 125, mode] => {
+            let length = match mode {
+                0 => MAX_BLOCK_SYSEX_BYTES,
+                1 => MAX_BLOCK_SYSEX_BYTES + 1,
+                _ => MAX_BLOCK_SYSEX_BYTES - 1,
+            };
+            let mut message = vec![1; length];
+            message[0] = 0xF0;
+            out(0, &message[..2]);
+            if *mode == 1 {
+                out(0, &[0xF8]);
+                message.push(0xF8);
+            }
+            out(0, &message[2..]);
+        }
+        [0xB0, 124, _] => out(0, &[0xF7]),
         _ => out(0, bytes),
     }
 }
@@ -369,6 +386,44 @@ fn a_block_with_too_many_events_fails_and_the_next_one_delivers() {
         block(&mut plugin, &[Event::note_on(7, 0, 60, 1)]).unwrap(),
         [Event::note_on(7, 0, 60, 1)]
     );
+}
+
+#[test]
+fn system_exclusive_byte_limits_include_the_terminator() {
+    let mut plugin = prepared(vec![0]);
+    // Leave one byte for F7 and finish in the next block: the full budget is valid.
+    assert!(
+        block(&mut plugin, &[Event::control_change(0, 0, 125, 2)])
+            .unwrap()
+            .is_empty()
+    );
+    let mut message = vec![1; MAX_BLOCK_SYSEX_BYTES];
+    message[0] = 0xF0;
+    message[MAX_BLOCK_SYSEX_BYTES - 1] = 0xF7;
+    assert_eq!(
+        block(&mut plugin, &[Event::control_change(5, 0, 124, 0)]).unwrap(),
+        [Event::sysex(5, message)]
+    );
+    // Reaching the limit without F7 cannot produce a valid message within the budget.
+    let error = block(&mut plugin, &[Event::control_change(0, 0, 125, 0)]).unwrap_err();
+    assert!(error.is_output_event_overflow(), "{error}");
+    assert!(
+        block(&mut plugin, &[Event::control_change(0, 0, 124, 0)])
+            .unwrap()
+            .is_empty()
+    );
+    let note = Event::note_on(7, 0, 60, 1);
+    assert_eq!(
+        block(&mut plugin, std::slice::from_ref(&note)).unwrap(),
+        [note]
+    );
+}
+
+#[test]
+fn clocks_do_not_hide_system_exclusive_byte_overflow() {
+    let mut plugin = prepared(vec![0]);
+    let error = block(&mut plugin, &[Event::control_change(0, 0, 125, 1)]).unwrap_err();
+    assert!(error.is_output_event_overflow(), "{error}");
 }
 
 #[test]

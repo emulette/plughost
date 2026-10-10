@@ -9,6 +9,8 @@ pub(super) fn run() {
     interrupted_snapshot_write_preserves_the_previous_cache();
     parallel_completions_publish_valid_snapshots();
     another_process_cannot_overwrite_an_active_writer();
+    #[cfg(unix)]
+    inaccessible_bundles_keep_their_cache_entries();
     removed_bundles_leave_the_cache();
     #[cfg(unix)]
     failed_save_aborts_active_helpers_without_losing_previous_results();
@@ -315,4 +317,42 @@ fn removed_bundles_leave_the_cache() {
     let saved = directory.read();
     assert!(saved["bundles"].get(removed.to_str().unwrap()).is_none());
     assert!(saved["bundles"][kept.to_str().unwrap()].is_object());
+    if kept.is_dir() {
+        fs::remove_dir_all(&kept).unwrap();
+    } else {
+        fs::remove_file(&kept).unwrap();
+    }
+    let catalog = scanner.scan(&|_| {}).unwrap();
+    assert!(catalog.bundles.is_empty());
+    assert!(directory.read()["bundles"].as_object().unwrap().is_empty());
+}
+
+#[cfg(unix)]
+fn inaccessible_bundles_keep_their_cache_entries() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = Directory::new();
+    let restricted = directory.path().join("restricted");
+    fs::create_dir(&restricted).unwrap();
+    let hidden = bundle(&restricted, "hidden");
+    let visible = bundle(directory.path(), "visible");
+    fs::write(restricted.join("release"), []).unwrap();
+    fs::write(directory.path().join("release"), []).unwrap();
+    let scanner = directory.scanner();
+    scanner.retry(&hidden).unwrap();
+    let before = directory.read()["bundles"][hidden.to_str().unwrap()].clone();
+    assert!(before.is_object());
+
+    let permissions = fs::metadata(&restricted).unwrap().permissions();
+    fs::set_permissions(&restricted, fs::Permissions::from_mode(0o000)).unwrap();
+    let exists = hidden.try_exists();
+    let result = scanner.retry(&visible);
+    fs::set_permissions(&restricted, permissions).unwrap();
+
+    assert!(matches!(exists, Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied));
+    assert!(matches!(result.unwrap().outcome, ScanOutcome::Found(_)));
+    assert_eq!(
+        directory.read()["bundles"][hidden.to_str().unwrap()],
+        before
+    );
 }

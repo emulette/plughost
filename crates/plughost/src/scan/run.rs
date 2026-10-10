@@ -27,7 +27,7 @@ impl Scanner {
         events: &(dyn Fn(&ScanEvent) + Sync),
     ) -> Result<Catalog, Error> {
         let paths = bundle::find(&self.directories, &|| control.is_cancelled());
-        if paths.is_empty() || control.is_cancelled() {
+        if control.is_cancelled() {
             return Ok(Catalog {
                 bundles: Vec::new(),
                 audio_units: self.list_audio_units(control, events),

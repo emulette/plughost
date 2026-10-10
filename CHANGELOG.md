@@ -45,8 +45,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   the earlier slots had already processed it.
 - `take_changes` waits for the helper as long as other control requests (`Timeouts::control`)
   instead of the load timeout.
-- A native scan or retry drops the cache entries of bundles that are no longer on disk; they
-  used to stay and be written again with every saved result.
+- A native scan or retry drops the cache entries of bundles confirmed to be gone from disk,
+  including when the last bundle was removed. Entries that cannot be checked because of an
+  I/O error are preserved. Removed bundles used to stay in every saved result.
 - The development helper app built by `scripts/build-helper.sh` reports the workspace version;
   it reported 0.0.5.
 - The shared memory between an application and its helper is anonymous shared memory of a
@@ -59,12 +60,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - A VST3 block whose note offs and expressions without an ID, sent to every note on their key,
   are more native events than one block holds is refused with `InputError::EventCapacity`
   before the plugin processes it. The events beyond that used to be dropped, which could leave
-  notes sounding.
+  notes sounding. The helper preserves this typed input error for the first chain slot, which
+  can be retried without a reset; a later slot's overflow still requires a reset.
 - Rendering a VST3 plugin hosted directly with `plughost-formats` fails with
   `RenderError::LatencyNotApplied` while a latency the plugin announced is not applied yet, as a
   chain does.
 - An Audio Unit's MIDI output keeps a system exclusive message that real-time messages
   interrupt, or that arrives over several calls; the rest of the output used to be dropped.
+  Only complete messages are delivered. An unfinished message that cannot fit the byte budget
+  with its terminator fails the block immediately, including when real-time bytes follow it.
+- `plughost-formats` builds without unused audio-thread code warnings when VST3 and CLAP are
+  disabled, including AU-only builds.
 
 ## [0.1.0] - 2026-10-01
 

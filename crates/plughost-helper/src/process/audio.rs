@@ -272,6 +272,14 @@ fn run<S: WireSample>(
             )
         };
         if let Err(error) = result {
+            if slot == 0
+                && let Some(error) = error.input_error()
+            {
+                return responder.send(&Response::Rejected {
+                    slot: Some(slot),
+                    error,
+                });
+            }
             // Events a plugin could not take after earlier slots advanced are lost like an
             // overflow of its output; a later slot's native events can outgrow its block.
             if error.is_output_event_overflow()
