@@ -20,8 +20,13 @@ targets = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
 [lints]
 workspace = true
 
+[features]
+# The helper's real-time audit build (see `audit`); not for shipping.
+realtime-audit = ["dep:rtsan-standalone"]
+
 [dependencies]
 postcard.workspace = true
+rtsan-standalone = { workspace = true, optional = true }
 serde.workspace = true
 
 [target.'cfg(unix)'.dependencies]

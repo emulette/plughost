@@ -178,9 +178,11 @@ impl InputBuffer {
 }
 impl InputEventBuffer for InputBuffer {
     fn len(&self) -> u32 {
+        let _audit = plughost_core::audit::callback();
         self.events.len() as u32
     }
     fn get(&self, index: u32) -> Option<&UnknownEvent> {
+        let _audit = plughost_core::audit::callback();
         self.events
             .get(index as usize)
             .map(|(_, event)| event.unknown())

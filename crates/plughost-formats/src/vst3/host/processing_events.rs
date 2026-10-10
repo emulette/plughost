@@ -70,9 +70,11 @@ impl Class for ParamValueQueue {
 }
 impl IParamValueQueueTrait for ParamValueQueue {
     unsafe fn getParameterId(&self) -> ParamID {
+        let _audit = plughost_core::audit::callback();
         self.id.load(Ordering::Relaxed)
     }
     unsafe fn getPointCount(&self) -> int32 {
+        let _audit = plughost_core::audit::callback();
         let mut points = lock(&self.points);
         points.sort();
         let start = points
@@ -84,6 +86,7 @@ impl IParamValueQueueTrait for ParamValueQueue {
         (end - start) as i32
     }
     unsafe fn getPoint(&self, index: int32, offset: *mut int32, value: *mut ParamValue) -> tresult {
+        let _audit = plughost_core::audit::callback();
         if index < 0 || offset.is_null() || value.is_null() {
             return kInvalidArgument;
         }
@@ -104,6 +107,7 @@ impl IParamValueQueueTrait for ParamValueQueue {
         }
     }
     unsafe fn addPoint(&self, offset: int32, value: ParamValue, index: *mut int32) -> tresult {
+        let _audit = plughost_core::audit::callback();
         let mut points = lock(&self.points);
         points.sort();
         let start = points
@@ -279,9 +283,11 @@ impl ParameterChanges {
 }
 impl IParameterChangesTrait for ParameterChanges {
     unsafe fn getParameterCount(&self) -> int32 {
+        let _audit = plughost_core::audit::callback();
         lock(&self.used).count as i32
     }
     unsafe fn getParameterData(&self, index: int32) -> *mut IParamValueQueue {
+        let _audit = plughost_core::audit::callback();
         let used = lock(&self.used).count;
         if index < 0 || index as usize >= used {
             return std::ptr::null_mut();
@@ -295,6 +301,7 @@ impl IParameterChangesTrait for ParameterChanges {
         id: *const ParamID,
         index: *mut int32,
     ) -> *mut IParamValueQueue {
+        let _audit = plughost_core::audit::callback();
         if id.is_null() {
             return std::ptr::null_mut();
         }
@@ -349,9 +356,11 @@ impl EventList {
 }
 impl IEventListTrait for EventList {
     unsafe fn getEventCount(&self) -> int32 {
+        let _audit = plughost_core::audit::callback();
         lock(&self.events).len() as i32
     }
     unsafe fn getEvent(&self, index: int32, event: *mut Event) -> tresult {
+        let _audit = plughost_core::audit::callback();
         match lock(&self.events).get(index as usize) {
             Some(value) if !event.is_null() => {
                 unsafe {
@@ -363,6 +372,7 @@ impl IEventListTrait for EventList {
         }
     }
     unsafe fn addEvent(&self, event: *mut Event) -> tresult {
+        let _audit = plughost_core::audit::callback();
         if event.is_null() {
             return kInvalidArgument;
         }

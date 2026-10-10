@@ -22,6 +22,8 @@ workspace = true
 
 [features]
 default = ["vst3", "au", "clap"]
+# Marks plugin calls and host callbacks for the helper's real-time audit build; not for shipping.
+realtime-audit = ["plughost-core/realtime-audit"]
 vst3 = ["dep:vst3"]
 clap = ["dep:clack-host", "dep:clack-extensions", "dep:clap-sys", "dep:walkdir"]
 # Audio Units, macOS only.

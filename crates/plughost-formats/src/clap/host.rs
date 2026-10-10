@@ -211,12 +211,16 @@ impl<'a> SharedHandler<'a> for Shared {
     }
 
     fn request_restart(&self) {
+        let _audit = plughost_core::audit::callback();
         self.restart_requested.store(true, Ordering::Relaxed);
     }
 
-    fn request_process(&self) {}
+    fn request_process(&self) {
+        let _audit = plughost_core::audit::callback();
+    }
 
     fn request_callback(&self) {
+        let _audit = plughost_core::audit::callback();
         self.callback_requested.store(true, Ordering::Relaxed);
     }
 }
@@ -236,6 +240,7 @@ impl Shared {
 
 impl HostLogImpl for Shared {
     fn log(&self, severity: LogSeverity, message: &str) {
+        let _audit = plughost_core::audit::callback();
         let severity = match severity {
             LogSeverity::Debug => DiagnosticSeverity::Debug,
             LogSeverity::Info => DiagnosticSeverity::Info,
@@ -252,16 +257,19 @@ impl HostLogImpl for Shared {
 
 impl HostThreadCheckImpl for Shared {
     fn is_main_thread(&self) -> bool {
+        let _audit = plughost_core::audit::callback();
         std::thread::current().id() == self.main_thread
     }
 
     fn is_audio_thread(&self) -> bool {
+        let _audit = plughost_core::audit::callback();
         AUDIO_CONTEXT.with(Cell::get)
     }
 }
 
 impl HostParamsImplShared for Shared {
     fn request_flush(&self) {
+        let _audit = plughost_core::audit::callback();
         self.flush_requested.store(true, Ordering::Relaxed);
     }
 }
@@ -441,6 +449,7 @@ pub struct AudioThread<'a> {
 impl<'a> AudioProcessorHandler<'a> for AudioThread<'a> {}
 impl HostTailImpl for AudioThread<'_> {
     fn changed(&mut self) {
+        let _audit = plughost_core::audit::callback();
         self.shared.tail_changed.store(true, Ordering::Relaxed);
     }
 }

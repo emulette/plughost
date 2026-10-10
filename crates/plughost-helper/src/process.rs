@@ -225,6 +225,7 @@ impl Processing {
 fn serve(queue: &Receiver<Work>, handed_back: &SyncSender<Command>, responder: &Responder) {
     let mut pipeline = Pipeline::default();
     while let Ok(work) = queue.recv() {
+        let _audit = plughost_core::audit::processing();
         match work {
             Work::Block {
                 context,

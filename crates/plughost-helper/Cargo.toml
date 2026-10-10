@@ -20,6 +20,11 @@ targets = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
 [lints]
 workspace = true
 
+[features]
+# Audits the processing thread for allocations, locks and system calls (see `plughost_core::audit`);
+# not for shipping.
+realtime-audit = ["plughost-core/realtime-audit", "plughost-formats/realtime-audit"]
+
 [dependencies]
 interprocess.workspace = true
 plughost-core.workspace = true

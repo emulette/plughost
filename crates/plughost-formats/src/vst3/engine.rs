@@ -982,5 +982,6 @@ fn call_process(
         // Always present: many plugins read the sample rate and time from it without checking.
         processContext: &mut context,
     };
+    let _audit = plughost_core::audit::plugin();
     unsafe { instance.processor.process(&mut data) }
 }

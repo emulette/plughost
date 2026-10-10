@@ -41,6 +41,12 @@ use plughost_core::{DiagnosticBuffer, Failure, FailureKind};
 
 use crate::errors::{CONNECT, USAGE};
 
+/// The audit build counts the host's allocations on the processing thread. Unit tests count
+/// allocations with their own.
+#[cfg(all(feature = "realtime-audit", not(test)))]
+#[global_allocator]
+static ALLOCATOR: plughost_core::audit::Allocator = plughost_core::audit::Allocator;
+
 /// How long the main thread waits for a request before running the event loop again.
 const EVENT_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -75,7 +81,11 @@ pub fn run() -> ExitCode {
         return ExitCode::FAILURE;
     }
     match serve(mode, name, token) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(()) => {
+            #[cfg(feature = "realtime-audit")]
+            errors::report(&plughost_core::audit::report());
+            ExitCode::SUCCESS
+        }
         Err(error) => {
             errors::report(&format!("{CONNECT}: {error}"));
             ExitCode::FAILURE

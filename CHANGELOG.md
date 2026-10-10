@@ -23,6 +23,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   (delivering edits to a prepared VST3 processor with a process call without audio, and CLAP
   `params.flush` while active, `reset` and `stop_processing`). Without one they run on the
   calling thread, as before.
+- The `realtime-audit` feature of `plughost-helper` builds a helper that audits its processing
+  thread: `scripts/build-helper.sh --audit` builds it, and the benchmark README describes the
+  audit. It is not for shipping.
 - `InputError::Events` for events that are not valid, not in offset order or not inside the
   block.
 

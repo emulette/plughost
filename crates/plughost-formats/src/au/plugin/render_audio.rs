@@ -76,6 +76,7 @@ impl Buffers {
                   count: AUAudioFrameCount,
                   bus: NSInteger,
                   list: NonNull<AudioBufferList>| {
+                let _audit = plughost_core::audit::callback();
                 let Some(input_bus) = usize::try_from(bus)
                     .ok()
                     .and_then(|index| input_buses.get(index))
@@ -160,6 +161,7 @@ fn render_output(
     time.mSampleTime = position;
     time.mFlags = AudioTimeStampFlags::SampleTimeValid;
     let status = unsafe {
+        let _audit = plughost_core::audit::plugin();
         (*render).call((
             NonNull::from(&mut flags),
             NonNull::from(&mut time),

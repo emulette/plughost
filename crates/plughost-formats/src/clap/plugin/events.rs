@@ -21,6 +21,7 @@ impl clack_host::events::io::OutputEventBuffer for ParameterOutput<'_> {
         &mut self,
         event: &clack_host::events::UnknownEvent,
     ) -> Result<(), clack_host::events::io::TryPushError> {
+        let _audit = plughost_core::audit::callback();
         let parameters = self.parameters;
         let queue = self.queue;
         let notification = match event.as_core_event() {

@@ -247,13 +247,16 @@ fn follow(sounding: &mut Sounding, event: &Event, delivered: Option<&EventData>)
 
 impl IEventListTrait for OutputEventList {
     unsafe fn getEventCount(&self) -> int32 {
+        let _audit = plughost_core::audit::callback();
         lock(&self.output).events.len() as i32
     }
     /// Converted events are not handed back to the plugin.
     unsafe fn getEvent(&self, _index: int32, _event: *mut Event) -> tresult {
+        let _audit = plughost_core::audit::callback();
         kResultFalse
     }
     unsafe fn addEvent(&self, event: *mut Event) -> tresult {
+        let _audit = plughost_core::audit::callback();
         if event.is_null() {
             return kInvalidArgument;
         }

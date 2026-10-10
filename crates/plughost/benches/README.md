@@ -63,3 +63,21 @@ On both supported platforms, direct processing took about as long as Pedalboard.
 a fixed cost of about 10 to 60 µs per block: it dominates cheap plugins at 64-frame blocks and is
 a small part of the render with heavier plugins or larger blocks. plughost loaded plugins and
 restored state faster than Pedalboard in every measured case.
+
+# Real-time audit
+
+`scripts/build-helper.sh --audit` (Windows: `build-helper.ps1 -Audit`) builds the helper with
+the `realtime-audit` feature, in place of the usual one. On macOS, RealtimeSanitizer, whose
+runtime the build downloads, writes each allocation, lock and system call that the helper's own
+code makes while it processes a block, or makes a plugin's audio-thread calls between blocks, to
+the helper's standard error with its stack. The plugins' own code is left out; the host
+callbacks they make from it are watched. On both platforms the helper also counts the
+allocations and frees of that code, and when the application shuts it down it writes them with
+the number of plugin queries (tails, latencies, properties) it made there. Run a workload against
+it, such as the tests, then build the usual helper again:
+
+```sh
+scripts/build-helper.sh --audit
+RTSAN_OPTIONS=halt_on_error=false cargo test --workspace --locked -- --include-ignored 2> audit.log
+scripts/build-helper.sh
+```

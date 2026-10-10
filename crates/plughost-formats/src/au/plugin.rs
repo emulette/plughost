@@ -608,6 +608,7 @@ impl Engine {
                   beat: *mut f64,
                   to_next_beat: *mut NSInteger,
                   downbeat: *mut f64| {
+                let _audit = plughost_core::audit::callback();
                 let snapshot = *context_timeline.lock().unwrap_or_else(|p| p.into_inner());
                 musical_context::fill(
                     snapshot,
@@ -631,6 +632,7 @@ impl Engine {
                   sample: *mut f64,
                   cycle_start: *mut f64,
                   cycle_end: *mut f64| {
+                let _audit = plughost_core::audit::callback();
                 let snapshot = *transport_timeline.lock().unwrap_or_else(|p| p.into_inner());
                 let Some(value) = snapshot else {
                     return Bool::NO;
@@ -834,6 +836,7 @@ impl Engine {
                     (_, Some(midi)) => midi.as_slice(),
                     (_, None) => continue,
                 };
+                let _audit = plughost_core::audit::plugin();
                 schedule.call((
                     position as AUEventSampleTime + event.offset as AUEventSampleTime,
                     0,
@@ -870,6 +873,7 @@ impl Engine {
             return Err(AuError::Input(plughost_core::InputError::Automation));
         }
         let plain = plain(*min, *max, info, value);
+        let _audit = plughost_core::audit::plugin();
         prepared.schedule.call((
             prepared.position as AUEventSampleTime + offset as AUEventSampleTime,
             0,

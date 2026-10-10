@@ -80,6 +80,7 @@ impl Output {
         let sink = Arc::clone(&collected);
         let block = RcBlock::new(
             move |time: AUEventSampleTime, cable: u8, length: NSInteger, bytes: NonNull<u8>| {
+                let _audit = plughost_core::audit::callback();
                 let Ok(length) = usize::try_from(length) else {
                     return 0;
                 };

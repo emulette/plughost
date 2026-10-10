@@ -38,10 +38,14 @@ pub use errors::{Failure, FailureKind, InputError, RenderError};
 #[doc(hidden)]
 pub mod messages {
     pub use crate::errors::{
-        BUFFERS, CHAIN_NOT_PREPARED, MAIN_BUS, OUTPUT_EVENT_CAPACITY, STATE_MISMATCH,
+        AUDIT, BUFFERS, CHAIN_NOT_PREPARED, MAIN_BUS, OUTPUT_EVENT_CAPACITY, STATE_MISMATCH,
         UNCONVERTIBLE_OUTPUT_EVENTS, UNKNOWN_EVENT_PORT,
     };
 }
+/// The processing path's real-time audit. Internal to plughost-formats and plughost-helper;
+/// exempt from semver.
+#[doc(hidden)]
+pub mod audit;
 pub use event::{
     Event, EventData, ExpressionKind, MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES, MAX_NOTE_ID,
     Message, Note, NoteExpression, events_fit, sysex_bytes, validate_event_budget,

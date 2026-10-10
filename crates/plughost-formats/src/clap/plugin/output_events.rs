@@ -166,6 +166,7 @@ impl ProcessOutput<'_> {
 
 impl OutputEventBuffer for ProcessOutput<'_> {
     fn try_push(&mut self, event: &UnknownEvent) -> Result<(), TryPushError> {
+        let _audit = plughost_core::audit::callback();
         let pushed = self.push(event);
         // A note off ends the notes it names whether or not it is delivered.
         if let Some(CoreEventSpace::NoteOff(off)) = event.as_core_event() {

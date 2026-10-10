@@ -159,11 +159,14 @@ impl Processor {
         let mut output_events = OutputEvents::from_buffer(&mut output_events_buffer);
         let steady_time = prepared.steady_time;
         let result = in_audio_context(|| {
-            let started = processor
-                .ensure_processing_started()
-                .map_err(|error| ClapError::Process(error.to_string()))?;
-            started
-                .process(
+            let started = {
+                let _audit = plughost_core::audit::plugin();
+                processor.ensure_processing_started()
+            }
+            .map_err(|error| ClapError::Process(error.to_string()))?;
+            let processed = {
+                let _audit = plughost_core::audit::plugin();
+                started.process(
                     &input_audio,
                     &mut output_audio,
                     &input_events,
@@ -171,7 +174,8 @@ impl Processor {
                     Some(steady_time),
                     transport.as_ref(),
                 )
-                .map_err(|error| ClapError::Process(error.to_string()))
+            };
+            processed.map_err(|error| ClapError::Process(error.to_string()))
         });
         prepared.steady_time = next_time;
         if processor

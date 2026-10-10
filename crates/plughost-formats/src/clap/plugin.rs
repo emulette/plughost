@@ -224,9 +224,10 @@ impl Plugin {
             engine.processor.take()
         };
         if let Some(processor) = processor {
-            let stopped = self
-                .audio
-                .run(|| in_audio_context(|| processor.into_stopped()));
+            let stopped = self.audio.run(|| {
+                let _audit = plughost_core::audit::plugin();
+                in_audio_context(|| processor.into_stopped())
+            });
             self.instance.deactivate(stopped);
         }
     }
@@ -381,6 +382,7 @@ impl Plugin {
             self.audio.run(|| {
                 if let Some(processor) = lock(&engine).processor.as_mut() {
                     deliver(&mut |input, output| {
+                        let _audit = plughost_core::audit::plugin();
                         in_audio_context(|| {
                             params.flush_active(&mut processor.plugin_handle(), input, output)
                         })
@@ -470,7 +472,10 @@ impl Plugin {
         self.audio.run(move || {
             let mut engine = lock(&engine);
             let processor = engine.processor.as_mut().ok_or(ClapError::NotPrepared)?;
-            in_audio_context(|| processor.reset());
+            {
+                let _audit = plughost_core::audit::plugin();
+                in_audio_context(|| processor.reset());
+            }
             if let Some(prepared) = &mut engine.prepared {
                 // Reset ended the plugin's notes.
                 prepared.sounding.clear();
@@ -815,7 +820,10 @@ fn read_tail(processor: &mut PluginAudioProcessor<Host>) -> Tail {
     let Some(extension) = processor.access_shared_handler(|shared| shared.extensions().tail) else {
         return Tail::Samples(0);
     };
-    let tail = in_audio_context(|| extension.get(&processor.plugin_handle()));
+    let tail = {
+        let _audit = plughost_core::audit::query();
+        in_audio_context(|| extension.get(&processor.plugin_handle()))
+    };
     if tail.is_infinite() {
         Tail::Infinite
     } else {

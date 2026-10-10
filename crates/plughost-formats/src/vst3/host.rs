@@ -575,12 +575,14 @@ impl ComponentHandler {
 
 impl IComponentHandlerTrait for ComponentHandler {
     unsafe fn beginEdit(&self, id: ParamID) -> tresult {
+        let _audit = plughost_core::audit::callback();
         self.events
             .record(ParameterEvent::BeginEdit { id: u64::from(id) });
         kResultOk
     }
 
     unsafe fn performEdit(&self, id: ParamID, value_normalized: ParamValue) -> tresult {
+        let _audit = plughost_core::audit::callback();
         if !value_normalized.is_finite() || !(0.0..=1.0).contains(&value_normalized) {
             return kInvalidArgument;
         }
@@ -603,12 +605,14 @@ impl IComponentHandlerTrait for ComponentHandler {
     }
 
     unsafe fn endEdit(&self, id: ParamID) -> tresult {
+        let _audit = plughost_core::audit::callback();
         self.events
             .record(ParameterEvent::EndEdit { id: u64::from(id) });
         kResultOk
     }
 
     unsafe fn restartComponent(&self, flags: int32) -> tresult {
+        let _audit = plughost_core::audit::callback();
         if flags
             & (RestartFlags_::kParamTitlesChanged
                 | RestartFlags_::kReloadComponent
@@ -640,6 +644,7 @@ impl IComponentHandlerTrait for ComponentHandler {
 
 impl IComponentHandler2Trait for ComponentHandler {
     unsafe fn setDirty(&self, state: vst3::Steinberg::TBool) -> tresult {
+        let _audit = plughost_core::audit::callback();
         self.events
             .record(ParameterEvent::Dirty { dirty: state != 0 });
         kResultOk
@@ -647,6 +652,7 @@ impl IComponentHandler2Trait for ComponentHandler {
 
     /// Accepts the editor view type, which is the only view the host opens.
     unsafe fn requestOpenEditor(&self, name: FIDString) -> tresult {
+        let _audit = plughost_core::audit::callback();
         let editor = name.is_null()
             || unsafe { CStr::from_ptr(name) }
                 == unsafe { CStr::from_ptr(vst3::Steinberg::Vst::ViewType::kEditor) };
@@ -657,9 +663,11 @@ impl IComponentHandler2Trait for ComponentHandler {
         kResultOk
     }
     unsafe fn startGroupEdit(&self) -> tresult {
+        let _audit = plughost_core::audit::callback();
         kResultFalse
     }
     unsafe fn finishGroupEdit(&self) -> tresult {
+        let _audit = plughost_core::audit::callback();
         kResultFalse
     }
 }
