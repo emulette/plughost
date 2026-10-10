@@ -3,7 +3,9 @@
 //! loaders can change an instance before reporting failure and cannot roll back, so this staging
 //! is what lets a failed change leave the active slot, its parameters and its DSP history intact.
 use super::*;
-use plughost_core::{PluginFormat, PluginInfo, PluginState};
+use crate::process::audio_timing::DelayReplacement;
+use crate::process::{Replace, Retime};
+use plughost_core::{PluginFormat, PluginInfo, PluginState, SampleFormat};
 
 impl Host {
     pub(super) fn import_preset(&mut self, slot: usize, bytes: &[u8]) -> Response {
@@ -67,17 +69,15 @@ impl Host {
         prepare_first: bool,
         change: impl FnOnce(&mut dyn HostedPlugin) -> Result<(), Error>,
     ) -> Response {
-        let mut candidate = match plughost_formats::load(&self.references[slot], &self.identity) {
+        let mut candidate = match self.load_slot(slot, &self.references[slot], &self.identity) {
             Ok(candidate) => candidate,
             Err(error) => return failed(slot, &error),
         };
-        let (audio_config, routing) = {
-            let pipeline = process::lock(&self.pipeline);
-            (
-                pipeline.audio_slots.get(slot).cloned(),
-                pipeline.audio_config.clone(),
-            )
-        };
+        let (audio_config, routing, active) = (
+            self.audio_slots.get(slot).cloned(),
+            self.audio_config.clone(),
+            self.timing.clone(),
+        );
         let prepare = |candidate: &mut dyn HostedPlugin| match &audio_config {
             Some(config) => candidate.prepare_audio(config).map(|_| ()),
             None => Ok(()),
@@ -106,11 +106,10 @@ impl Host {
                     return self.reject_candidate(slot, candidate.as_ref(), index, error.failure());
                 }
             };
-            let pipeline = process::lock(&self.pipeline);
             // The active chain must still match its alignment before one slot is retimed. A
             // failure names the slot that does not match, or the one being replaced.
-            let checked = match pipeline.alignment.as_ref() {
-                Some(alignment) => alignment.timing.tail(&timings).map(|_| alignment),
+            let checked = match &active {
+                Some(active) => active.tail(&timings).map(|_| active),
                 None => Err((
                     slot,
                     Failure::new(
@@ -120,27 +119,27 @@ impl Host {
                 )),
             };
             timings[slot] = current;
-            let replacements = checked.and_then(|alignment| {
+            let replacements = checked.and_then(|active| {
                 let (plan, tail) = AudioTiming::plan(routing, &timings)
                     .map_err(|(failed, failure)| (failed.unwrap_or(slot), failure))?;
-                Ok((
-                    alignment
-                        .delays32
-                        .as_ref()
-                        .map(|bank| bank.replacement(slot, &plan))
-                        .transpose()
-                        .map_err(|failure| (slot, failure))?,
-                    alignment
-                        .delays64
-                        .as_ref()
-                        .map(|bank| bank.replacement(slot, &plan))
-                        .transpose()
-                        .map_err(|failure| (slot, failure))?,
-                    plan,
-                    tail,
-                ))
+                let (delays32, delays64) = match routing.sample_format {
+                    SampleFormat::F32 => (
+                        Some(
+                            DelayReplacement::new(routing, active, slot, &plan)
+                                .map_err(|failure| (slot, failure))?,
+                        ),
+                        None,
+                    ),
+                    SampleFormat::F64 => (
+                        None,
+                        Some(
+                            DelayReplacement::new(routing, active, slot, &plan)
+                                .map_err(|failure| (slot, failure))?,
+                        ),
+                    ),
+                };
+                Ok((delays32, delays64, plan, tail))
             });
-            drop(pipeline);
             match replacements {
                 Ok(replacements) => retimed = Some((replacements, current)),
                 Err((failed, failure)) => {
@@ -159,24 +158,25 @@ impl Host {
             window.close(self.slots[slot].as_mut());
         }
         let mut timing = None;
-        let old = {
-            let mut pipeline = process::lock(&self.pipeline);
-            pipeline.processors[slot] = processor;
-            if let Some(((replacement32, replacement64, plan, tail), current)) = retimed {
-                pipeline.parameters[slot] = parameters;
-                pipeline.changes.observe(slot, current);
-                timing = Some((plan.latency(), tail));
-                let alignment = pipeline.alignment.as_mut().unwrap();
-                if let (Some(bank), Some(replacement)) = (&mut alignment.delays32, replacement32) {
-                    bank.replace_slot(replacement);
-                }
-                if let (Some(bank), Some(replacement)) = (&mut alignment.delays64, replacement64) {
-                    bank.replace_slot(replacement);
-                }
-                alignment.timing = plan;
+        let retime = retimed.map(|((delays32, delays64, plan, tail), current)| {
+            timing = Some((plan.latency(), tail));
+            self.timing = Some(plan.clone());
+            Retime {
+                parameters,
+                timing: current,
+                delays32,
+                delays64,
+                plan,
             }
-            std::mem::replace(&mut self.slots[slot], candidate)
-        };
+        });
+        let replaced = self.processing.request(Command::Replace(Box::new(Replace {
+            slot,
+            processor,
+            retime,
+        })));
+        let old = std::mem::replace(&mut self.slots[slot], candidate);
+        // Retire the old processor handle and delay lines before the old instance is dropped.
+        drop(replaced);
         self.retain_diagnostics(slot, old.as_ref());
         self.invalidate_parameters(slot);
         drop(old);

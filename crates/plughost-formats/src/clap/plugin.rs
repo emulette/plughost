@@ -41,6 +41,8 @@ use plughost_core::{
 
 use super::errors::ClapError;
 use super::host::{Host, MainThread, Shared, in_audio_context};
+use crate::AudioThread;
+use crate::audio_thread::AudioCalls;
 use crate::hosted::{EditorRequest, EditorView, ResizeRequest};
 use parameter_cache::ParameterCache;
 
@@ -129,6 +131,7 @@ pub struct Plugin {
     info: PluginInfo,
     instance: PluginInstance<Host>,
     engine: Arc<Mutex<Engine>>,
+    audio: AudioCalls,
     parameters: Arc<ParameterCache>,
     editor: Option<ResizeRequest>,
     audio_active: std::collections::HashMap<(bool, u64), bool>,
@@ -183,6 +186,7 @@ impl Plugin {
                 processor: None,
                 prepared: None,
             })),
+            audio: AudioCalls::default(),
             parameters: Arc::default(),
             editor: None,
             audio_active: std::collections::HashMap::new(),
@@ -191,6 +195,12 @@ impl Plugin {
 
     pub(crate) fn info(&self) -> &PluginInfo {
         &self.info
+    }
+
+    /// Makes the plugin's audio-thread calls between blocks on `thread`, the thread that
+    /// processes it.
+    pub fn set_audio_thread(&mut self, thread: Arc<dyn AudioThread>) {
+        self.audio = AudioCalls::new(thread);
     }
 
     /// Drains messages from the CLAP host log extension, including initialization messages.
@@ -205,7 +215,8 @@ impl Plugin {
         })
     }
 
-    /// Stops processing as the plugin's audio thread, then deactivates on the main thread.
+    /// Stops processing on the audio thread (`stop_processing` is an audio-thread function),
+    /// then deactivates on the main thread.
     fn deactivate(&mut self) {
         let processor = {
             let mut engine = lock(&self.engine);
@@ -213,7 +224,9 @@ impl Plugin {
             engine.processor.take()
         };
         if let Some(processor) = processor {
-            let stopped = in_audio_context(|| processor.into_stopped());
+            let stopped = self
+                .audio
+                .run(|| in_audio_context(|| processor.into_stopped()));
             self.instance.deactivate(stopped);
         }
     }
@@ -350,27 +363,32 @@ impl Plugin {
                 buffer.push(&ParamValueEvent::new(0, id, Pckn::match_all(), value));
             }
         }
-        let input = InputEvents::from_buffer(&buffer);
         let parameter_events = shared.parameter_events.clone();
-        let mut output_buffer = events::ParameterOutput {
-            parameters: &parameters,
-            queue: &parameter_events,
+        let deliver = |flush: &mut dyn FnMut(&InputEvents, &mut OutputEvents)| {
+            let mut output_buffer = events::ParameterOutput {
+                parameters: &parameters,
+                queue: &parameter_events,
+            };
+            flush(
+                &InputEvents::from_buffer(&buffer),
+                &mut OutputEvents::from_buffer(&mut output_buffer),
+            );
         };
-        let mut output = OutputEvents::from_buffer(&mut output_buffer);
-        let mut engine = lock(&self.engine);
-        match engine.processor.as_mut() {
-            Some(processor) => {
-                in_audio_context(|| {
-                    params.flush_active(&mut processor.plugin_handle(), &input, &mut output)
-                });
-                drop(engine);
-            }
-            None => {
-                drop(engine);
-                if let Some(mut handle) = self.instance.inactive_plugin_handle() {
-                    params.flush(&mut handle, &input, &mut output);
+        // An active plugin's flush is an audio-thread function; an inactive one's belongs to
+        // the main thread.
+        if lock(&self.engine).processor.is_some() {
+            let engine = Arc::clone(&self.engine);
+            self.audio.run(|| {
+                if let Some(processor) = lock(&engine).processor.as_mut() {
+                    deliver(&mut |input, output| {
+                        in_audio_context(|| {
+                            params.flush_active(&mut processor.plugin_handle(), input, output)
+                        })
+                    });
                 }
-            }
+            });
+        } else if let Some(mut handle) = self.instance.inactive_plugin_handle() {
+            deliver(&mut |input, output| params.flush(&mut handle, input, output));
         }
     }
 
@@ -445,16 +463,20 @@ impl Plugin {
         .map_err(|_| ClapError::State)
     }
 
-    /// Clears the plugin's internal audio state with its native `reset`, keeping its settings.
+    /// Clears the plugin's internal audio state with its native `reset`, an audio-thread
+    /// function, keeping its settings.
     pub(crate) fn reset(&mut self) -> Result<(), ClapError> {
-        let mut engine = lock(&self.engine);
-        let processor = engine.processor.as_mut().ok_or(ClapError::NotPrepared)?;
-        in_audio_context(|| processor.reset());
-        if let Some(prepared) = &mut engine.prepared {
-            // Reset ended the plugin's notes.
-            prepared.sounding.clear();
-        }
-        Ok(())
+        let engine = Arc::clone(&self.engine);
+        self.audio.run(move || {
+            let mut engine = lock(&engine);
+            let processor = engine.processor.as_mut().ok_or(ClapError::NotPrepared)?;
+            in_audio_context(|| processor.reset());
+            if let Some(prepared) = &mut engine.prepared {
+                // Reset ended the plugin's notes.
+                prepared.sounding.clear();
+            }
+            Ok(())
+        })
     }
 
     /// Opens the editor embedded in `parent` and returns its size.

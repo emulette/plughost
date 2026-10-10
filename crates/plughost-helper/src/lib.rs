@@ -7,11 +7,13 @@
 //! takes a handle-transfer socket from stdin and restores null stdin before loading plugins.
 //! Standard output remains available to plugins and is never used for protocol messages.
 //!
-//! An IPC thread receives requests and processes audio blocks itself, so a main thread held up by
-//! a plugin (a modal dialog, a window being dragged) does not stall audio. The main thread makes
-//! every other plugin call, runs the editors, and runs the OS event loop between requests, since
-//! plugins' dialogs, timers, and editors depend on it. Both threads record the slot they are
-//! calling in the application's activity mapping.
+//! An IPC thread receives requests and passes audio blocks to a processing thread, so a main
+//! thread held up by a plugin (a modal dialog, a window being dragged) does not stall audio. The
+//! processing thread owns the chain's processing state and also makes the audio-thread calls
+//! plugins need between blocks. The main thread makes every other plugin call, runs the editors,
+//! and runs the OS event loop between requests, since plugins' dialogs, timers, and editors
+//! depend on it. Both threads record the slot they are calling in the application's activity
+//! mapping.
 
 mod calls;
 mod editor;
@@ -97,30 +99,32 @@ fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
 
     let (requests, incoming) = mpsc::channel::<Request>();
     let mut host = None;
-    let mut pipeline = None;
+    let mut blocks = None;
     if mode == Mode::Host {
-        let chain = host::Host::new(
+        let (processing, work) = process::Processing::spawn(responder.clone())?;
+        host = Some(host::Host::new(
             transfer::Receiver::take_from_stdin()?,
             responder.diagnostics.clone(),
-        );
-        pipeline = Some(chain.pipeline());
-        host = Some(chain);
+            processing,
+        ));
+        blocks = Some(work);
     }
-    let processing = responder.clone();
     thread::spawn(move || {
         let mut receive = MessageReader::new(receive);
         while let Ok(request) = receive.read::<Request>() {
-            let handled = match (request, &pipeline) {
+            let handled = match (request, &blocks) {
                 (
                     Request::Process {
                         context,
                         submission,
                     },
-                    Some(pipeline),
-                ) => events::with_pool(|| {
-                    process::block(pipeline, &context, submission, &processing)
-                })
-                .is_ok(),
+                    Some(blocks),
+                ) => blocks
+                    .send(process::Work::Block {
+                        context,
+                        submission,
+                    })
+                    .is_ok(),
                 (request, _) => requests.send(request).is_ok(),
             };
             if !handled {

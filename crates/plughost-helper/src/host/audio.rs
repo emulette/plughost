@@ -2,8 +2,10 @@
 //! restored from the active one and commits only when every slot succeeds, so a failure leaves
 //! the prepared chain and its pending audio intact. Initial setup has no old DSP to retain.
 use super::*;
+use crate::process;
+use plughost_core::AudioBusInfo;
+use plughost_core::AudioDirection;
 use plughost_core::ipc::shared::Descriptor;
-use plughost_core::{AudioBusInfo, AudioConfig, AudioDirection, RoutedChainConfig};
 use plughost_formats::BlockProcessor;
 
 impl Host {
@@ -34,7 +36,7 @@ impl Host {
         transport: process::shared::Transport,
     ) -> Response {
         let generation = transport.descriptor().generation;
-        let staged = process::lock(&self.pipeline).audio_config.is_some();
+        let staged = self.audio_config.is_some();
         let calls = self.calls.clone();
         let mut candidates: Vec<Box<dyn HostedPlugin>> = Vec::new();
         let mut reports = Vec::new();
@@ -51,7 +53,7 @@ impl Host {
                     Err(error) => return failed(slot, &error),
                 };
                 let mut candidate =
-                    match plughost_formats::load(&self.references[slot], &self.identity) {
+                    match self.load_slot(slot, &self.references[slot], &self.identity) {
                         Ok(candidate) => candidate,
                         Err(error) => return failed(slot, &error),
                     };
@@ -173,7 +175,7 @@ impl Host {
         };
         let latency = plan.latency();
         let storage = process::prepared::Prepared::new(&config, &timings);
-        let alignment = match audio_timing::Alignment::new(&config, plan) {
+        let alignment = match audio_timing::Alignment::new(&config, plan.clone()) {
             Ok(alignment) => alignment,
             Err(failure) => {
                 return Response::Failed {
@@ -183,24 +185,15 @@ impl Host {
             }
         };
         let reopen: Vec<bool> = self.editors.iter().map(Option::is_some).collect();
-        if let Some(processors) = candidate_processors {
+        let old = candidate_processors.is_some().then(|| {
             self.close_editors();
             let old = std::mem::replace(&mut self.slots, candidates);
             for (slot, plugin) in old.iter().enumerate() {
                 self.retain_diagnostics(slot, plugin.as_ref());
             }
-            // Retire processor handles before old plugin instances are dropped.
-            process::lock(&self.pipeline).processors = processors;
-            drop(old);
-        }
-        let mut pipeline = process::lock(&self.pipeline);
-        pipeline.prepared = Some(storage);
-        pipeline.transport = Some(transport);
-        pipeline.parameters = parameters;
-        for (slot, timing) in timings.into_iter().enumerate() {
-            pipeline.changes.observe(slot, timing);
-        }
-        pipeline.audio_slots = config
+            old
+        });
+        self.audio_slots = config
             .slots
             .iter()
             .map(|slot| AudioConfig {
@@ -214,11 +207,24 @@ impl Host {
                 events: slot.events.native(),
             })
             .collect();
-        pipeline.audio_config = Some(config);
-        pipeline.alignment = Some(alignment);
-        pipeline.events = Some(events);
-        pipeline.resync = false;
-        drop(pipeline);
+        self.audio_config = Some(config.clone());
+        self.timing = Some(plan);
+        // Retire the old processor handles, and the rest of the old state, before the old
+        // instances are dropped.
+        drop(
+            self.processing
+                .request(Command::Prepare(Box::new(process::Prepare {
+                    processors: candidate_processors,
+                    prepared: Some(storage),
+                    transport: Some(transport),
+                    audio_config: Some(config),
+                    alignment: Some(alignment),
+                    events: Some(events),
+                    parameters,
+                    timings,
+                }))),
+        );
+        drop(old);
         for slot in 0..self.slots.len() {
             self.invalidate_parameters(slot);
         }

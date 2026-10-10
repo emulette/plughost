@@ -142,7 +142,7 @@ fn replacement_preserves_own_inputs_and_disconnected_paths_but_retimes_dependent
     delays.apply(1, 0, &mut [vec![1.0, 2.0]]);
     delays.apply(3, 0, &mut [vec![3.0, 4.0]]);
     // Replacing slot 1 leaves its input history intact: it belongs to slot 0's path.
-    delays.replace_slot(delays.replacement(1, &timing).unwrap());
+    delays.replace_slot(&mut DelayReplacement::new(&config, &timing, 1, &timing).unwrap());
     let mut own = [vec![0.0; 3]];
     delays.apply(1, 0, &mut own);
     assert_eq!(own, [vec![0.0, 1.0, 2.0]]);
@@ -153,7 +153,7 @@ fn replacement_preserves_own_inputs_and_disconnected_paths_but_retimes_dependent
         &[native(7, 0), native(0, 0), native(5, 0), native(0, 0)],
     )
     .unwrap();
-    delays.replace_slot(delays.replacement(0, &changed).unwrap());
+    delays.replace_slot(&mut DelayReplacement::new(&config, &timing, 0, &changed).unwrap());
     let mut dependent = [vec![9.0; 8]];
     delays.apply(1, 0, &mut dependent);
     assert_eq!(dependent, [vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 9.0]]);
@@ -170,7 +170,10 @@ fn failed_delay_replacement_preserves_pending_audio_and_checks_the_whole_bank() 
     bank.apply(1, 0, &mut [vec![1.0, 2.0]]);
     let huge = AudioTiming::new(&config, &[native(u32::MAX, 0), native(0, 0)]).unwrap();
     assert_eq!(
-        bank.replacement(0, &huge).err().unwrap().kind,
+        DelayReplacement::<f64>::new(&config, &plan, 0, &huge)
+            .err()
+            .unwrap()
+            .kind,
         FailureKind::Configuration
     );
     let mut next = [vec![3.0, 4.0, 5.0]];

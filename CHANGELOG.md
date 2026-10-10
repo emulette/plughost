@@ -9,10 +9,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- The helper processes blocks on a thread of its own instead of the thread that reads the
+  connection, and that thread owns the chain's processing state; the main thread changes it
+  between blocks. The helper makes the audio-thread calls a plugin needs between blocks on that
+  thread instead of its main thread, so a CLAP plugin's thread check sees each call on the
+  thread CLAP assigns it.
 - The documentation names macOS 15 as the oldest supported macOS, the oldest one tested.
 
 ### Added
 
+- `plughost_formats::AudioThread` and `HostedPlugin::set_audio_thread`: an owner that processes
+  a plugin on a thread of its own makes the plugin's audio-thread calls between blocks there too
+  (delivering edits to a prepared VST3 processor with a process call without audio, and CLAP
+  `params.flush` while active, `reset` and `stop_processing`). Without one they run on the
+  calling thread, as before.
 - `InputError::Events` for events that are not valid, not in offset order or not inside the
   block.
 

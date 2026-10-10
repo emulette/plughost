@@ -1,5 +1,7 @@
 //! Host mode on the main thread: one chain of plugins, their lifecycle, state, and editors. Audio
-//! goes through the processing thread (`process.rs`).
+//! goes through the processing thread (`process.rs`), whose state this thread changes with
+//! commands. It keeps its own copy of the prepared configuration and alignment plan, to plan
+//! changes without the processing thread.
 
 mod audio;
 mod state;
@@ -9,8 +11,8 @@ use std::sync::Arc;
 use plughost_core::ipc::shared::{Caller, transfer};
 use plughost_core::ipc::{Request, Response};
 use plughost_core::render::Tail;
-use plughost_core::{Capabilities, CapabilityReport, DiagnosticBuffer, Support};
-use plughost_core::{Failure, FailureKind, HostIdentity, InputError};
+use plughost_core::{AudioConfig, Capabilities, CapabilityReport, DiagnosticBuffer, Support};
+use plughost_core::{Failure, FailureKind, HostIdentity, InputError, RoutedChainConfig};
 use plughost_core::{PluginRef, PluginState, StatePurpose};
 use plughost_formats::{EditorRequest, Error, HostedPlugin};
 
@@ -18,7 +20,7 @@ use crate::calls::Calls;
 use crate::editor::EditorWindow;
 use crate::errors::WRONG_MODE;
 use crate::process::audio_timing::{self, AudioTiming};
-use crate::process::{self, Pipeline};
+use crate::process::{AudioThread, Command, Pipeline, Processing};
 
 pub struct Host {
     slots: Vec<Box<dyn HostedPlugin>>,
@@ -28,13 +30,21 @@ pub struct Host {
     retired_diagnostics: plughost_core::DiagnosticBatch,
     diagnostics: DiagnosticBuffer,
     editors: Vec<Option<EditorWindow>>,
-    pipeline: process::Shared,
+    processing: Arc<Processing>,
+    /// The prepared routing, each slot's part of it, and the alignment planned for it.
+    audio_config: Option<RoutedChainConfig>,
+    audio_slots: Vec<AudioConfig>,
+    timing: Option<AudioTiming>,
     transfer: transfer::Receiver,
     calls: Calls,
 }
 
 impl Host {
-    pub fn new(transfer: transfer::Receiver, diagnostics: DiagnosticBuffer) -> Self {
+    pub fn new(
+        transfer: transfer::Receiver,
+        diagnostics: DiagnosticBuffer,
+        processing: Arc<Processing>,
+    ) -> Self {
         Self {
             slots: Vec::new(),
             parameter_events: Vec::new(),
@@ -43,14 +53,13 @@ impl Host {
             retired_diagnostics: Default::default(),
             diagnostics,
             editors: Vec::new(),
-            pipeline: Default::default(),
+            processing,
+            audio_config: None,
+            audio_slots: Vec::new(),
+            timing: None,
             transfer,
             calls: Calls::default(),
         }
-    }
-
-    pub fn pipeline(&self) -> process::Shared {
-        Arc::clone(&self.pipeline)
     }
 
     /// Handles one request. Parameter events and metadata are collected before the response
@@ -142,7 +151,10 @@ impl Host {
             } => self.load_discovered_preset(slot, &location, load_key.as_deref()),
             Request::Changes => {
                 self.tick();
-                Response::Changes(process::lock(&self.pipeline).changes.take())
+                match self.processing.request(Command::Changes(None)) {
+                    Command::Changes(Some(changes)) => Response::Changes(changes),
+                    _ => unreachable!(),
+                }
             }
             Request::Diagnostics => {
                 let mut batch = std::mem::take(&mut self.retired_diagnostics);
@@ -306,7 +318,7 @@ impl Host {
     /// reports while processing, and records changes for the application. A slot that cannot
     /// report its timing now fails the next block or request that needs it.
     fn observe_timing(&mut self) {
-        if process::lock(&self.pipeline).audio_config.is_none() {
+        if self.audio_config.is_none() {
             return;
         }
         let calls = self.calls.clone();
@@ -316,7 +328,7 @@ impl Host {
                 plugin.timing()
             };
             if let Ok(timing) = timing {
-                process::lock(&self.pipeline).changes.observe(slot, timing);
+                self.processing.observe(slot, timing);
             }
         }
     }
@@ -335,9 +347,8 @@ impl Host {
                     .contains(&plughost_core::ParameterEvent::MetadataChanged)
             {
                 let parameters = parameter_infos(plugin.as_mut());
-                if let Some(cached) = process::lock(&self.pipeline).parameters.get_mut(slot) {
-                    *cached = parameters;
-                }
+                self.processing
+                    .request(Command::Parameters(slot, parameters));
             }
             self.parameter_events[slot].append(batch);
         }
@@ -388,7 +399,7 @@ impl Host {
         match unsafe { self.transfer.receive_activity(activity) } {
             Ok(activity) => {
                 self.calls = Calls::new(activity);
-                process::lock(&self.pipeline).calls = self.calls.clone();
+                self.processing.request(Command::Calls(self.calls.clone()));
             }
             Err(error) => {
                 return Response::Failed {
@@ -407,10 +418,14 @@ impl Host {
             };
         }
         self.close_editors();
-        *process::lock(&self.pipeline) = Pipeline {
+        // Retire the processors before the instances they process are dropped.
+        drop(self.processing.request(Command::Load(Box::new(Pipeline {
             calls: self.calls.clone(),
             ..Pipeline::default()
-        };
+        }))));
+        self.audio_config = None;
+        self.audio_slots.clear();
+        self.timing = None;
         self.parameter_events.clear();
         self.slots.clear();
         self.references.clear();
@@ -419,7 +434,7 @@ impl Host {
         let mut infos = Vec::new();
         for (slot, plugin) in plugins.iter().enumerate() {
             let _call = calls.enter(Caller::Main, slot);
-            let loaded = match plughost_formats::load(plugin, host) {
+            let loaded = match self.load_slot(slot, plugin, host) {
                 Ok(loaded) => loaded,
                 Err(error) => {
                     self.slots.clear();
@@ -433,9 +448,22 @@ impl Host {
         self.references = plugins.to_vec();
         self.identity = host.clone();
         self.editors = self.slots.iter().map(|_| None).collect();
-        process::lock(&self.pipeline).processors =
-            self.slots.iter().map(|plugin| plugin.processor()).collect();
+        self.processing.request(Command::Processors(
+            self.slots.iter().map(|plugin| plugin.processor()).collect(),
+        ));
         Response::Loaded(infos)
+    }
+
+    /// Loads an instance for `slot`, whose audio-thread calls run on the processing thread.
+    fn load_slot(
+        &self,
+        slot: usize,
+        plugin: &PluginRef,
+        host: &HostIdentity,
+    ) -> Result<Box<dyn HostedPlugin>, Error> {
+        let mut loaded = plughost_formats::load(plugin, host)?;
+        loaded.set_audio_thread(AudioThread::new(&self.processing, slot));
+        Ok(loaded)
     }
 
     /// Restores a project state into a slot's newly loaded, unprepared plugin.
@@ -461,42 +489,47 @@ impl Host {
             }
             let parameters = parameter_infos(plugin.as_mut());
             plugin.take_parameter_events();
-            if let Some(cached) = process::lock(&self.pipeline).parameters.get_mut(slot) {
-                *cached = parameters;
-            }
+            self.processing
+                .request(Command::Parameters(slot, parameters));
             self.invalidate_parameters(slot);
         }
-        {
-            let mut pipeline = process::lock(&self.pipeline);
+        let Some(config) = &self.audio_config else {
             // Native reset ended every note the chain forwarded.
-            pipeline.resync = false;
-            if let Some(config) = pipeline.audio_config.clone() {
-                // Native reset activates the plugins again, which applies a latency they changed.
-                let timings = match audio_timing::chain_timings(&self.slots, &calls) {
-                    Ok(timings) => timings,
-                    Err((slot, error)) => return failed(slot, &error),
-                };
-                // Native reset discarded DSP history, so the previous alignment is unusable.
-                pipeline.alignment = None;
-                match AudioTiming::new(&config, &timings)
-                    .and_then(|plan| audio_timing::Alignment::new(&config, plan))
-                {
-                    Ok(alignment) => pipeline.alignment = Some(alignment),
-                    Err(failure) => {
-                        return Response::Failed {
-                            slot: None,
-                            failure,
-                        };
-                    }
-                }
+            self.processing.request(Command::Reset(None));
+            return Response::Done;
+        };
+        // Native reset activates the plugins again, which applies a latency they changed.
+        let timings = match audio_timing::chain_timings(&self.slots, &calls) {
+            Ok(timings) => timings,
+            Err((slot, error)) => return failed(slot, &error),
+        };
+        // Native reset discarded DSP history, so the previous alignment is unusable.
+        let planned = AudioTiming::new(config, &timings).and_then(|plan| {
+            let alignment = audio_timing::Alignment::new(config, plan.clone())?;
+            Ok((plan, alignment))
+        });
+        let (alignment, response) = match planned {
+            Ok((plan, alignment)) => {
+                self.timing = Some(plan);
+                (Some(alignment), Response::Done)
             }
-        }
-        Response::Done
+            Err(failure) => {
+                self.timing = None;
+                (
+                    None,
+                    Response::Failed {
+                        slot: None,
+                        failure,
+                    },
+                )
+            }
+        };
+        drop(self.processing.request(Command::Reset(alignment)));
+        response
     }
 
     fn timing(&self) -> Response {
-        let pipeline = process::lock(&self.pipeline);
-        let Some(config) = &pipeline.audio_config else {
+        let Some(config) = &self.audio_config else {
             return Response::Timing {
                 latency: 0,
                 tail: Tail::Samples(0),

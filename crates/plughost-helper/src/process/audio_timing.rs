@@ -5,7 +5,9 @@ use std::collections::VecDeque;
 
 use plughost_core::ipc::shared::Caller;
 use plughost_core::render::Tail;
-use plughost_core::{AudioSource, Failure, FailureKind, PluginTiming, RoutedChainConfig, Sample};
+use plughost_core::{
+    AudioInputRoute, AudioSource, Failure, FailureKind, PluginTiming, RoutedChainConfig, Sample,
+};
 use plughost_formats::{Error, HostedPlugin};
 
 use crate::calls::Calls;
@@ -155,51 +157,18 @@ pub(crate) struct DelayBank<S: Sample> {
 
 struct RouteDelay<S: Sample> {
     delay: usize,
-    channels: usize,
     queues: Vec<VecDeque<S>>,
 }
 
 impl<S: Sample> DelayBank<S> {
-    /// Builds fresh downstream histories without modifying this bank. The final bank's total
-    /// sample budget is checked before allocation, including unaffected routes.
-    pub fn replacement(
-        &self,
-        replaced: usize,
-        timing: &AudioTiming,
-    ) -> Result<DelayReplacement<S>, Failure> {
-        let start = replaced + 1;
-        let end = (start..self.routes.len())
-            .find(|&slot| !timing.previous[slot])
-            .unwrap_or(self.routes.len());
-        check_budget::<S>(self.routes.iter().enumerate().flat_map(|(slot, routes)| {
-            routes.iter().enumerate().map(move |(index, route)| {
-                let delay = if (start..end).contains(&slot) {
-                    timing.delays[slot][index] as usize
-                } else {
-                    route.delay
-                };
-                (route.channels, delay)
-            })
-        }))?;
-        let routes = (start..end)
-            .map(|slot| {
-                self.routes[slot]
-                    .iter()
-                    .zip(&timing.delays[slot])
-                    .map(|(route, &delay)| RouteDelay::new(route.channels, delay as usize))
-                    .collect()
-            })
-            .collect();
-        Ok(DelayReplacement { start, routes })
-    }
-
-    /// Commits already prepared histories; unaffected queues retain their pending samples.
-    pub fn replace_slot(&mut self, replacement: DelayReplacement<S>) {
+    /// Commits prepared histories, which take the replaced ones for the control thread to drop;
+    /// unaffected queues retain their pending samples.
+    pub fn replace_slot(&mut self, replacement: &mut DelayReplacement<S>) {
         for (old, new) in self.routes[replacement.start..]
             .iter_mut()
-            .zip(replacement.routes)
+            .zip(&mut replacement.routes)
         {
-            *old = new;
+            std::mem::swap(old, new);
         }
     }
 
@@ -265,6 +234,55 @@ pub(crate) struct DelayReplacement<S: Sample> {
     routes: Vec<Vec<RouteDelay<S>>>,
 }
 
+impl<S: Sample> DelayReplacement<S> {
+    /// Fresh downstream histories for a bank of `config` planned with `current`, whose slot
+    /// `replaced` changes the plan to `timing`. Built on the control thread from the plans
+    /// alone; the final bank's total sample budget is checked before allocation, including
+    /// unaffected routes.
+    pub fn new(
+        config: &RoutedChainConfig,
+        current: &AudioTiming,
+        replaced: usize,
+        timing: &AudioTiming,
+    ) -> Result<Self, Failure> {
+        let slots = config.slots.len();
+        let start = replaced + 1;
+        let end = (start..slots)
+            .find(|&slot| !timing.previous[slot])
+            .unwrap_or(slots);
+        let channels = |route: &AudioInputRoute| {
+            if route.bus.active {
+                route.bus.layout.channels()
+            } else {
+                0
+            }
+        };
+        check_budget::<S>(config.slots.iter().enumerate().flat_map(|(slot, setup)| {
+            let delays = if (start..end).contains(&slot) {
+                &timing.delays[slot]
+            } else {
+                &current.delays[slot]
+            };
+            setup
+                .inputs
+                .iter()
+                .zip(delays)
+                .map(move |(route, &delay)| (channels(route), delay as usize))
+        }))?;
+        let routes = (start..end)
+            .map(|slot| {
+                config.slots[slot]
+                    .inputs
+                    .iter()
+                    .zip(&timing.delays[slot])
+                    .map(|(route, &delay)| RouteDelay::new(channels(route), delay as usize))
+                    .collect()
+            })
+            .collect();
+        Ok(DelayReplacement { start, routes })
+    }
+}
+
 /// Declared delays come from plugins, so their total storage is bounded before it is reserved.
 fn check_budget<S: Sample>(shape: impl Iterator<Item = (usize, usize)>) -> Result<(), Failure> {
     let mut bytes = 0usize;
@@ -285,7 +303,6 @@ impl<S: Sample> RouteDelay<S> {
     fn new(channels: usize, delay: usize) -> Self {
         Self {
             delay,
-            channels,
             queues: (0..if delay == 0 { 0 } else { channels })
                 .map(|_| VecDeque::with_capacity(delay))
                 .collect(),

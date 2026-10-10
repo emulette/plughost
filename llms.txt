@@ -39,8 +39,13 @@ signing and notarization. On Windows pass the helper `.exe` path.
 `plughost-formats` loads native code in the calling process. Its default features are
 `vst3`, `au`, and `clap`; direct users can disable defaults and select formats. Native
 lifecycle/controller/editor calls normally belong on the main thread, with the OS event
-loop running. `plughost-helper` uses all format features and owns these threads and loops.
-Use `plughost` for application-level crash isolation.
+loop running. A plugin's `BlockProcessor` processes it from another thread; an owner that
+does gives the plugin an `AudioThread` with `HostedPlugin::set_audio_thread`, and the
+audio-thread calls the plugin needs between blocks (delivering edits to a prepared VST3
+processor, CLAP `params.flush` while active, `reset` and `stop_processing`) run there instead
+of on the calling thread. `plughost-helper` uses all format features and owns these threads
+and loops: it processes blocks on a thread of its own, which also makes those calls. Use
+`plughost` for application-level crash isolation.
 
 ## Discovery
 

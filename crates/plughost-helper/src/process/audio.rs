@@ -1,8 +1,10 @@
 //! Serial, explicitly routed audio. Preparation resolves native bus identities to channel ranges.
 //! Each block is validated here, at the helper's IPC boundary, before any slot or delay advances.
 use super::*;
+use plughost_core::Event;
 use plughost_core::ipc::shared::Caller;
 use plughost_core::ipc::{AudioSamples, Response};
+use plughost_core::messages::CHAIN_NOT_PREPARED;
 use plughost_core::{Failure, FailureKind, InputError, RoutedChainConfig, Sample, events_fit};
 use std::io;
 use std::ops::{Add, Mul};

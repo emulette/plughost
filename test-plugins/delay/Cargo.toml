@@ -13,7 +13,7 @@ crate-type = ["cdylib"]
 workspace = true
 
 [dependencies]
-clack-extensions = { workspace = true, features = ["audio-ports", "clack-plugin", "gui", "latency", "log", "params", "state", "state-context", "tail", "timer"] }
+clack-extensions = { workspace = true, features = ["audio-ports", "clack-plugin", "gui", "latency", "log", "params", "state", "state-context", "tail", "thread-check", "timer"] }
 clack-plugin.workspace = true
 vst3.workspace = true
 

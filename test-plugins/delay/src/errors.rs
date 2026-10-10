@@ -8,3 +8,5 @@ pub const UNKNOWN_VARIANT: &str =
 pub const GUI_API: &str = "the test editor draws only inside a Cocoa view of the host";
 #[cfg(target_os = "macos")]
 pub const GUI_PARENT: &str = "the host gave the test editor no Cocoa view to draw in";
+/// Starts the `thread-check` variant's report of a call on the wrong thread.
+pub const WRONG_THREAD: &str = "called on the wrong thread: ";

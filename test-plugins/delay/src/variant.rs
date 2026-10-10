@@ -22,10 +22,11 @@ pub enum Variant {
     RestartOnActivate,
     Timers,
     LatencyChange,
+    ThreadCheck,
 }
 
 /// Module file name (without extension), class ID suffix, and plugin name of each variant.
-const VARIANTS: [(Variant, &str, u32, &str); 14] = [
+const VARIANTS: [(Variant, &str, u32, &str); 15] = [
     (
         Variant::Delay,
         "plughost-test-delay",
@@ -109,6 +110,12 @@ const VARIANTS: [(Variant, &str, u32, &str); 14] = [
         "plughost-test-latency-change",
         0x7900000E,
         "plughost test latency change",
+    ),
+    (
+        Variant::ThreadCheck,
+        "plughost-test-thread-check",
+        0x7900000F,
+        "plughost test thread check",
     ),
 ];
 

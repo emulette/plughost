@@ -1,8 +1,10 @@
 //! The operations every format provides, so the helper can host a chain of mixed formats. Audio
 //! retains the explicitly selected sample precision across this interface.
 
+use crate::audio_thread::AudioThread;
 use crate::errors::Error;
 use std::ffi::c_void;
+use std::sync::Arc;
 
 use plughost_core::Capabilities;
 use plughost_core::PluginRef;
@@ -81,6 +83,9 @@ pub trait HostedPlugin {
     fn prepare(&mut self, config: &ProcessConfig) -> Result<(), Error>;
     /// A handle that processes this plugin from another thread.
     fn processor(&self) -> Box<dyn BlockProcessor>;
+    /// Makes the audio-thread calls this plugin needs between blocks on `thread`, the thread
+    /// that runs its [`BlockProcessor`] (see [`AudioThread`]).
+    fn set_audio_thread(&mut self, _thread: Arc<dyn AudioThread>) {}
     /// Reads the prepared plugin's timing on this thread, which is what its processor reports
     /// until the next read: the tail the plugin reports now, and the latency it was activated
     /// with, with a change it announced pending until it is prepared again or reset.
@@ -260,6 +265,10 @@ impl HostedPlugin for vst3::Plugin {
 
     fn processor(&self) -> Box<dyn BlockProcessor> {
         Box::new(vst3::Plugin::processor(self))
+    }
+
+    fn set_audio_thread(&mut self, thread: Arc<dyn AudioThread>) {
+        vst3::Plugin::set_audio_thread(self, thread);
     }
 
     fn timing(&self) -> Result<PluginTiming, Error> {
@@ -600,6 +609,10 @@ impl HostedPlugin for clap::Plugin {
 
     fn processor(&self) -> Box<dyn BlockProcessor> {
         Box::new(clap::Plugin::processor(self))
+    }
+
+    fn set_audio_thread(&mut self, thread: Arc<dyn AudioThread>) {
+        clap::Plugin::set_audio_thread(self, thread);
     }
 
     fn timing(&self) -> Result<PluginTiming, Error> {

@@ -8,10 +8,12 @@
 //! [`load`] creates a plugin of any enabled format from a `PluginRef`; each format's `Plugin` can
 //! also be created directly. Every plugin is used through [`HostedPlugin`] and processed from
 //! another thread through the [`BlockProcessor`] it hands out. Format-specific failures are
-//! variants of [`Error`].
+//! variants of [`Error`]. An owner that processes plugins on a thread of its own gives them an
+//! [`AudioThread`], so the audio-thread calls they need between blocks run there too.
 
 #[cfg(all(feature = "au", target_os = "macos"))]
 pub mod au;
+mod audio_thread;
 #[cfg(feature = "clap")]
 pub mod clap;
 mod errors;
@@ -23,5 +25,6 @@ mod state_stream;
 #[cfg(feature = "vst3")]
 pub mod vst3;
 
+pub use audio_thread::AudioThread;
 pub use errors::Error;
 pub use hosted::{BlockProcessor, EditorRequest, EditorView, HostedPlugin, ResizeRequest, load};

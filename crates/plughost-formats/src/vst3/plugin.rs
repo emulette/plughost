@@ -31,6 +31,8 @@ use super::instance::{Instance, midi_assignments};
 use super::module::Module;
 use super::parameter_cache::ParameterCache;
 use super::preset::Preset;
+use crate::AudioThread;
+use crate::audio_thread::AudioCalls;
 use crate::hosted::ResizeRequest;
 
 /// One VST3 plugin instance hosted in this process.
@@ -51,6 +53,7 @@ pub struct Plugin {
     handler: ComWrapper<ComponentHandler>,
     parameters: RefCell<Arc<ParameterCache>>,
     engine: Shared,
+    audio: AudioCalls,
     editor: Option<Editor>,
     _host: ComWrapper<HostApplication>,
     /// Declared last: the module stays loaded until every pointer into it is released.
@@ -79,6 +82,7 @@ impl Plugin {
                 instance: Some(instance),
                 prepared: None,
             })),
+            audio: AudioCalls::default(),
             editor: None,
             _host: host,
             _module: Rc::clone(module),
@@ -149,12 +153,28 @@ impl Plugin {
         Processor::new(&self.engine)
     }
 
+    /// Delivers edits to a prepared processor on `thread`, the thread that processes it.
+    pub fn set_audio_thread(&mut self, thread: Arc<dyn AudioThread>) {
+        self.audio = AudioCalls::new(thread);
+    }
+
     /// Delivers edits that have not reached the processor yet, with a process call that carries
     /// no audio (`numSamples = 0`).
     pub fn flush(&mut self) -> Result<(), Vst3Error> {
-        lock(&self.engine).flush()?;
+        self.deliver_edits()?;
         self.sync_controller();
         Ok(())
+    }
+
+    /// Makes the process call of [`Plugin::flush`]. VST3 calls `process` on the processing
+    /// thread, so a prepared processor takes it on its audio thread; an unprepared one is
+    /// activated for it on this thread, which owns activation.
+    fn deliver_edits(&self) -> Result<(), Vst3Error> {
+        if lock(&self.engine).prepared.is_none() {
+            return lock(&self.engine).flush();
+        }
+        let engine = Arc::clone(&self.engine);
+        self.audio.run(move || lock(&engine).flush())
     }
 
     /// The prepared plugin's timing, with the tail read again on this thread.
@@ -252,15 +272,12 @@ impl Plugin {
     ) -> Result<PluginState, Vst3Error> {
         let kind = state_kind(purpose)?;
         let component = MemoryStream::from_bytes(&[], kind);
-        let result = {
-            let mut engine = lock(&self.engine);
-            engine.flush()?;
-            unsafe {
-                engine
-                    .instance()?
-                    .component
-                    .getState(stream_ptr(&component))
-            }
+        self.deliver_edits()?;
+        let result = unsafe {
+            lock(&self.engine)
+                .instance()?
+                .component
+                .getState(stream_ptr(&component))
         };
         if component.exceeded() {
             return Err(Vst3Error::StateTooLarge);

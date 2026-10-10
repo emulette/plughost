@@ -3,7 +3,8 @@
 //! gets it wrong; plus a gain parameter kept in the state, so parameter changes and state round
 //! trips can be tested, a range parameter that, set while inactive, doubles the gain's range
 //! and announces it with `params.rescan`, and a tail parameter whose change, with a block or a
-//! flush between blocks, the plugin reports from its audio thread.
+//! flush between blocks, the plugin reports from its audio thread. The `thread-check` variant
+//! checks the thread of each call CLAP assigns to the main or the audio thread.
 
 use std::collections::VecDeque;
 use std::ffi::CStr;
@@ -28,6 +29,7 @@ use clack_extensions::state_context::{
     PluginStateContext, PluginStateContextImpl, StateContextType,
 };
 use clack_extensions::tail::{HostTail, PluginTail, PluginTailImpl, TailLength};
+use clack_extensions::thread_check::HostThreadCheck;
 use clack_plugin::entry::prelude::*;
 use clack_plugin::events::spaces::CoreEventSpace;
 use clack_plugin::prelude::*;
@@ -95,6 +97,7 @@ impl DefaultPluginFactory for TestPlugin {
             }
         }
         Ok(Shared {
+            thread_check: host.get_extension(),
             gui_requests_accepted: host.get_extension::<HostGui>().map(|gui| {
                 [
                     gui.request_show(&host).is_ok(),
@@ -136,6 +139,7 @@ impl DefaultPluginFactory for TestPlugin {
 }
 
 pub struct Shared {
+    thread_check: Option<HostThreadCheck>,
     saved_context: AtomicU32,
     loaded_context: AtomicU32,
     gui_requests_accepted: Option<[bool; 2]>,
@@ -156,7 +160,37 @@ pub struct Shared {
     pub(crate) removed_timer_calls: AtomicU32,
 }
 
+/// The thread CLAP assigns a plugin function to.
+#[derive(Clone, Copy)]
+enum Thread {
+    Main,
+    Audio,
+}
+
 impl Shared {
+    /// The `thread-check` variant logs a host misbehaving, naming `function`, when the host's
+    /// thread check says the calling thread is not `thread`.
+    fn check(&self, host: &HostSharedHandle, thread: Thread, function: &str) {
+        let Some(check) = self
+            .thread_check
+            .filter(|_| variant() == Variant::ThreadCheck)
+        else {
+            return;
+        };
+        let on = (check.is_main_thread(host), check.is_audio_thread(host));
+        let expected = match thread {
+            Thread::Main => (Some(true), Some(false)),
+            Thread::Audio => (Some(false), Some(true)),
+        };
+        if on != expected
+            && let Some(log) = host.get_extension::<HostLog>()
+            && let Ok(message) =
+                std::ffi::CString::new(format!("{}{function}", crate::errors::WRONG_THREAD))
+        {
+            log.log(host, LogSeverity::HostMisbehaving, &message);
+        }
+    }
+
     fn gain(&self) -> f64 {
         f64::from_bits(self.gain.load(Ordering::Relaxed))
     }
@@ -193,6 +227,13 @@ pub struct MainThread<'a> {
     editor: crate::editor::Slot,
 }
 
+impl MainThread<'_> {
+    fn check(&self, function: &str) {
+        self.shared
+            .check(&self.host.shared(), Thread::Main, function);
+    }
+}
+
 #[cfg(target_os = "macos")]
 impl MainThread<'_> {
     pub(crate) fn editor(&self) -> &crate::editor::Slot {
@@ -207,6 +248,7 @@ impl MainThread<'_> {
 impl<'a> PluginMainThread<'a, Shared> for MainThread<'a> {
     /// Holds up the host's main thread once, as a modal dialog would.
     fn on_main_thread(&self) {
+        self.check("on_main_thread");
         static STALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if variant() == Variant::StallMainThread && !STALLED.swap(true, Ordering::Relaxed) {
             std::thread::sleep(crate::MAIN_THREAD_STALL);
@@ -216,10 +258,12 @@ impl<'a> PluginMainThread<'a, Shared> for MainThread<'a> {
 
 impl PluginAudioPortsImpl for MainThread<'_> {
     fn count(&self, _is_input: bool) -> u32 {
+        self.check("audio_ports.count");
         1
     }
 
     fn get(&self, index: u32, is_input: bool, writer: &mut AudioPortInfoWriter) {
+        self.check("audio_ports.get");
         if index == 0 {
             writer.set(&AudioPortInfo {
                 id: ClapId::new(0),
@@ -235,16 +279,19 @@ impl PluginAudioPortsImpl for MainThread<'_> {
 
 impl PluginLatencyImpl for MainThread<'_> {
     fn get(&self) -> u32 {
+        self.check("latency.get");
         self.shared.latency.load(Ordering::Relaxed)
     }
 }
 
 impl PluginMainThreadParams for MainThread<'_> {
     fn count(&self) -> u32 {
+        self.check("params.count");
         15 + u32::from(matches!(variant(), Variant::Editor | Variant::Timers))
     }
 
     fn get_info(&self, index: u32, info: &mut ParamInfoWriter) {
+        self.check("params.get_info");
         match index {
             15 if variant() == Variant::Timers => info.set(&ParamInfo {
                 id: REMOVED_TIMER_CALLS,
@@ -377,6 +424,7 @@ impl PluginMainThreadParams for MainThread<'_> {
     }
 
     fn get_value(&self, id: ClapId) -> Option<f64> {
+        self.check("params.get_value");
         if id == REMOVED_TIMER_CALLS && variant() == Variant::Timers {
             return Some(f64::from(
                 self.shared.removed_timer_calls.load(Ordering::Relaxed),
@@ -437,6 +485,7 @@ impl PluginMainThreadParams for MainThread<'_> {
         value: f64,
         writer: &mut ParamDisplayWriter,
     ) -> std::fmt::Result {
+        self.check("params.value_to_text");
         if id.get() == 14 {
             return write!(writer, "Item {}", value as i64);
         }
@@ -447,11 +496,13 @@ impl PluginMainThreadParams for MainThread<'_> {
     }
 
     fn text_to_value(&self, _id: ClapId, text: &CStr) -> Option<f64> {
+        self.check("params.text_to_value");
         text.to_str().ok()?.trim().parse().ok()
     }
 
     /// Runs while inactive, when a range change is allowed.
     fn flush(&self, input: &InputEvents, output: &mut OutputEvents) {
+        self.check("params.flush (inactive)");
         self.shared.apply(input);
         report_edits(input, output);
         if input
@@ -477,6 +528,7 @@ impl PluginMainThreadParams for MainThread<'_> {
 
 impl PluginStateImpl for MainThread<'_> {
     fn save(&self, output: &mut OutputStream) -> Result<(), PluginError> {
+        self.check("state.save");
         output.write_all(&self.shared.gain().to_le_bytes())?;
         if variant() == Variant::LargeState {
             state_payload::write(self.shared.gain(), |bytes| {
@@ -487,6 +539,7 @@ impl PluginStateImpl for MainThread<'_> {
     }
 
     fn load(&self, input: &mut InputStream) -> Result<(), PluginError> {
+        self.check("state.load");
         let mut bytes = [0; 8];
         input.read_exact(&mut bytes)?;
         self.shared
@@ -533,6 +586,7 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
         shared: &'a Shared,
         config: PluginAudioConfiguration,
     ) -> Result<Self, PluginError> {
+        shared.check(&host.shared(), Thread::Main, "activate");
         if shared.gain() == 42.0 {
             return Err(PluginError::Message(crate::errors::PREPARE_STATE));
         }
@@ -564,7 +618,11 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
         mut audio: Audio,
         events: Events,
     ) -> Result<ProcessStatus, PluginError> {
-        if let Some(log) = self.log {
+        self.check("process");
+        // The thread check's reports must not be lost to a full log.
+        if variant() != Variant::ThreadCheck
+            && let Some(log) = self.log
+        {
             for _ in 0..256 {
                 log.log(
                     &self.host.shared(),
@@ -668,7 +726,21 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
         Ok(ProcessStatus::ContinueIfNotQuiet)
     }
 
+    fn deactivate(self, main_thread: &MainThread<'a>) {
+        main_thread.check("deactivate");
+    }
+
+    fn start_processing(&mut self) -> Result<(), PluginError> {
+        self.check("start_processing");
+        Ok(())
+    }
+
+    fn stop_processing(&mut self) {
+        self.check("stop_processing");
+    }
+
     fn reset(&mut self) {
+        self.check("reset");
         if variant() != Variant::NoopReset {
             for line in &mut self.lines {
                 line.iter_mut().for_each(|sample| *sample = 0.0);
@@ -678,6 +750,11 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
 }
 
 impl Processor<'_> {
+    fn check(&self, function: &str) {
+        self.shared
+            .check(&self.host.shared(), Thread::Audio, function);
+    }
+
     /// Applies the tail and restart mode parameters, reporting a tail change from this audio
     /// thread as CLAP asks, whether the edits arrive with a block or a flush between blocks.
     fn apply_timing(&mut self, input: &InputEvents) {
@@ -707,6 +784,7 @@ impl Processor<'_> {
 
 impl PluginAudioProcessorParams for Processor<'_> {
     fn flush(&mut self, input: &InputEvents, output: &mut OutputEvents) {
+        self.check("params.flush (active)");
         self.shared.apply(input);
         report_edits(input, output);
         self.apply_timing(input);
