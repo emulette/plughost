@@ -109,7 +109,8 @@ and run the same command with that checkout's helper. Times are 0.1.1 → 0.1.2.
 [--seconds 60] [--helper FILE]` renders a chain of the first class of each effect bundle repeatedly, restoring
 the initial states and resetting before every round, and reports reproducibility, render time,
 and helper memory. In 120 one-minute rounds of a three-effect chain on both supported platforms,
-no round failed and helper memory stayed level after the first rounds.
+no round failed and helper memory stayed level after the first rounds. `--helper` defaults to the
+helper that `scripts/build-helper.sh` builds; a relative path resolves against `crates/plughost/`.
 
 # Comparison with Pedalboard
 
@@ -127,7 +128,7 @@ python crates/plughost/benches/compare/with_pedalboard.py BUNDLE [--seconds 10] 
 ```
 
 An Audio Unit is named `--plugin au:CLASS_ID` in the compare benchmark and by its `.component`
-bundle in `with_pedalboard.py`.
+bundle in `with_pedalboard.py`. `--helper` works as in the soak run.
 
 plughost reports two ways of running the same plugin: **direct**, in the calling process through
 `plughost-formats` (like Pedalboard), and **isolated**, through a `Chain` in a helper process. The
