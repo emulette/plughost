@@ -139,6 +139,9 @@ walkdir = { workspace = true, optional = true }
 [dev-dependencies]
 tempfile.workspace = true
 
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+libc.workspace = true
+
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = { workspace = true, optional = true }
 objc2 = { workspace = true, optional = true }

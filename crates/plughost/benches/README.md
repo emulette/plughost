@@ -99,6 +99,18 @@ The native AU fixture is registered once, then instantiated 300 times while chec
 metadata and parameters. Copy `tests/au_state.rs` and its test target into 0.1.1's formats crate
 for comparison. Direct component lookup reduced the case from 55 ms to 5.5 ms.
 
+# AU idle waits
+
+```sh
+cargo test -p plughost-formats --release --lib au_wait_benchmark -- --ignored --nocapture
+```
+
+On a fresh non-main thread without run-loop sources, the benchmark waits 100 ms for
+notifications and for a completion from another thread. It checks completion values and elapsed
+duration and reports that thread's CPU time. Copy `au/wait_tests.rs`, its module declaration and
+the macOS `libc` dev dependency into 0.1.1's formats crate for comparison. CPU time fell from
+100/105 ms to 0.29/0.37 ms; elapsed time stayed near 100 ms.
+
 # Soak runs
 
 `cargo bench -p plughost --bench soak -- --plugin BUNDLE [--plugin BUNDLE ...] [--rounds 120]

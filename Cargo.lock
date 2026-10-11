@@ -381,6 +381,7 @@ dependencies = [
  "clack-extensions",
  "clack-host",
  "clap-sys",
+ "libc",
  "libloading",
  "objc2",
  "objc2-app-kit",

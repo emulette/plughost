@@ -22,6 +22,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- AU completion and notification waits sleep when a non-main thread's run loop has no sources,
+  instead of spinning. Completion callbacks still wake the wait and run-loop callbacks run.
 - AU creation looks up its component description directly, avoiding enumeration and name
   queries for every unrelated registered component.
 - VST3 converts each block's input events once into prepared scratch storage and skips copying
