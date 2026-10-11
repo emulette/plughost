@@ -113,3 +113,15 @@ fn killing_a_paused_snapshot_writer_preserves_the_previous_cache() {
     assert_eq!(load(&path).bundles.len(), 2);
     assert!(temporary.exists());
 }
+
+#[test]
+fn a_finished_writer_releases_the_lock_while_its_file_is_still_open_elsewhere() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("cache.json");
+    let writer = Writer::open(&path).unwrap();
+    // Another reference to the same open lock file, like one a process being started shares.
+    let shared = writer.lock.try_clone().unwrap();
+    writer.finish().unwrap();
+    Writer::open(&path).unwrap();
+    drop(shared);
+}

@@ -65,7 +65,15 @@ pub(super) struct Writer {
     /// A snapshot was published since the last sync.
     unsynced: bool,
     // Keep the stable sidecar inode: unlinking it would let another writer lock a different file.
-    _lock: File,
+    lock: File,
+}
+
+impl Drop for Writer {
+    fn drop(&mut self) {
+        // Closing alone releases the lock only once no other reference to this open file
+        // remains, and a process another thread is starting can briefly share it.
+        let _ = self.lock.unlock();
+    }
 }
 impl Writer {
     /// Contention fails immediately with WouldBlock. The lock is released by closing the file,
@@ -98,7 +106,7 @@ impl Writer {
                 bundles,
             },
             unsynced: false,
-            _lock: lock,
+            lock,
         };
         if writer.cache.bundles.len() != cached {
             writer.publish()?;

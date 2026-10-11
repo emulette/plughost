@@ -73,6 +73,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- A finished scan or retry releases the scan cache lock even while a process being started on
+  another thread still shares the lock file, so the next scan or retry no longer fails with
+  `WouldBlock`.
 - Malformed Unicode in an AU binary preset name returns a state error instead of aborting
   during conversion from Foundation strings.
 - Excessively nested VST3 `moduleinfo.json` metadata is ignored before recursive parsing can
