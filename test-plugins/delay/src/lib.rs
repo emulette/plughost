@@ -12,8 +12,8 @@
 //! name of the module the host loaded (see `variant.rs`), to test crash and hang isolation:
 //! `crash-in-process`, `hang-in-process`, `crash-on-scan` (in `GetPluginFactory`), and
 //! `hang-on-scan`. `noop-reset` reproduces a CLAP plugin whose reset leaves audio behind.
-//! `stall-main-thread` makes the CLAP side hold up the host's main thread once, for
-//! [`MAIN_THREAD_STALL`], from a main-thread callback it requests while processing. On macOS,
+//! `stall-main-thread` makes the CLAP side hold up the host's main thread once, connecting to
+//! the test barrier address in the host name and waiting for release. On macOS,
 //! `editor` gives the CLAP side an editor inside the host's window (see `editor.rs`).
 //! `restart-on-activate` makes the VST3 side report changed buses each time it activates.
 //! `timers` gives the CLAP side two timers, the first of which removes the second (`timers.rs`).
@@ -68,8 +68,6 @@ use variant::{Variant, variant};
 
 /// The delay, and the latency the plugin reports, in samples (for CLAP, at 48 kHz).
 pub const LATENCY: usize = 480;
-/// How long the `stall-main-thread` variant holds up the host's main thread.
-pub const MAIN_THREAD_STALL: std::time::Duration = std::time::Duration::from_secs(3);
 /// The frames the `latency-change` variant processes before it announces its new latency.
 pub const LATENCY_CHANGE_AFTER: usize = 2400;
 /// VST3 parameters: the output gain, whether the last restored state was marked as project

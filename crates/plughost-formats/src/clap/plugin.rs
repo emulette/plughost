@@ -14,6 +14,8 @@ mod parameters;
 mod presets;
 mod render;
 #[cfg(test)]
+mod thread_tests;
+#[cfg(test)]
 mod timing_tests;
 use std::ffi::{CString, c_void};
 mod capabilities;

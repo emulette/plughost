@@ -25,8 +25,12 @@ fn render_markers(chain: &mut Chain, layout: Layout) {
         &RenderOptions::new(TailPolicy::Reported, 0.0),
     )
     .unwrap();
-    for (actual, expected) in output.channels.iter().flatten().zip(input.iter().flatten()) {
-        assert!((actual - expected).abs() < 1e-4);
+    assert_eq!(output.channels.len(), input.len());
+    for (actual, expected) in output.channels.iter().zip(&input) {
+        assert_eq!(actual.len(), expected.len());
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-4);
+        }
     }
 }
 

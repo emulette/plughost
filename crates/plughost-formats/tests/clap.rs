@@ -273,13 +273,17 @@ fn run_processor(processor: &dyn BlockProcessor, input: &[Vec<f32>]) -> Vec<Vec<
 
 /// The largest difference between `output` and `input` delayed by `latency` and scaled by `gain`.
 fn delay_error(output: &[Vec<f32>], input: &[Vec<f32>], latency: usize, gain: f32) -> f32 {
+    assert_eq!(output.len(), input.len(), "channel count");
     output
         .iter()
         .zip(input)
         .flat_map(|(out, inp)| {
+            assert_eq!(out.len(), inp.len(), "frame count");
+            assert!(out.len() > latency, "the input must extend past latency");
+            assert!(out[..latency].iter().all(|sample| *sample == 0.0));
             out[latency..]
                 .iter()
-                .zip(inp)
+                .zip(&inp[..inp.len() - latency])
                 .map(move |(o, i)| (o - gain * i).abs())
         })
         .fold(0.0, f32::max)

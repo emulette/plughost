@@ -508,12 +508,22 @@ mod tests {
         ] {
             assert!(!Event::new(0, EventData::NoteOff(invalid)).is_valid());
         }
-        for kind in ExpressionKind::ALL {
-            let range = kind.range();
+        for (kind, min, max) in [
+            (ExpressionKind::Volume, 0.0, 4.0),
+            (ExpressionKind::Pan, 0.0, 1.0),
+            (ExpressionKind::Tuning, -120.0, 120.0),
+            (ExpressionKind::Vibrato, 0.0, 1.0),
+            (ExpressionKind::Expression, 0.0, 1.0),
+            (ExpressionKind::Brightness, 0.0, 1.0),
+            (ExpressionKind::Pressure, 0.0, 1.0),
+        ] {
             for (value, valid) in [
-                (*range.start(), true),
-                (*range.end(), true),
-                (range.end() + 0.001, false),
+                (min, true),
+                (max, true),
+                (min - 0.001, false),
+                (max + 0.001, false),
+                (f64::NAN, false),
+                (f64::NEG_INFINITY, false),
                 (f64::INFINITY, false),
             ] {
                 let expression = NoteExpression::new(0, 60, kind, value).with_id(3);

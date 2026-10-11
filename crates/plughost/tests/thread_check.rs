@@ -31,6 +31,16 @@ fn block(chain: &mut Chain, automation: &[AutomationEvent]) {
 }
 
 fn wrong_threads(chain: &mut Chain) -> Vec<String> {
+    let parameters = chain.parameters(0).unwrap();
+    let value = |id| parameters.iter().find(|(info, _)| info.id == id).unwrap().1;
+    assert_eq!(value(16), 1.0, "the host must provide thread-check");
+    assert_eq!(value(17), 1.0, "the host must provide logging");
+    assert!(value(18) > 0.0, "the fixture must have performed checks");
+    assert_eq!(
+        value(19),
+        0.0,
+        "the fixture found a call on the wrong thread"
+    );
     chain
         .take_diagnostics()
         .unwrap()

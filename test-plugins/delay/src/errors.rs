@@ -11,3 +11,5 @@ pub const GUI_API: &str = "the test editor draws only inside a Cocoa view of the
 pub const GUI_PARENT: &str = "the host gave the test editor no Cocoa view to draw in";
 /// Starts the `thread-check` variant's report of a call on the wrong thread.
 pub const WRONG_THREAD: &str = "called on the wrong thread: ";
+pub const STALL_ADDRESS: &str = "the stall fixture needs a barrier address as its host name";
+pub const STALL_CONNECT: &str = "the stall fixture could not announce entry to its barrier";

@@ -96,9 +96,13 @@ fn run(chain: &mut Chain, input: &[Vec<f32>]) -> Vec<Vec<f32>> {
 }
 
 fn max_difference(a: &[Vec<f32>], b: &[Vec<f32>], gain: f32) -> f32 {
+    assert_eq!(a.len(), b.len(), "channel count");
     a.iter()
         .zip(b)
-        .flat_map(|(x, y)| x.iter().zip(y).map(move |(p, q)| (p - gain * q).abs()))
+        .flat_map(|(x, y)| {
+            assert_eq!(x.len(), y.len(), "frame count");
+            x.iter().zip(y).map(move |(p, q)| (p - gain * q).abs())
+        })
         .fold(0.0, f32::max)
 }
 
@@ -330,11 +334,10 @@ fn a_hang_times_out_and_names_the_slot() {
 #[test]
 #[ignore = "needs scripts/build-helper.sh and scripts/build-test-plugins.sh"]
 fn blocks_keep_processing_while_a_plugin_holds_up_the_main_thread() {
-    // The fixture holds up the helper's main thread for 3 s, from a callback its first block
-    // requests; each block must still finish within the process timeout.
+    let mut stall = support::stall::Stall::new();
     let mut chain = spawn_with(
         &[delay_variant(PluginFormat::Clap, "stall-main-thread", 9)],
-        &HostIdentity::default(),
+        &stall.identity(),
         {
             let mut timeouts = Timeouts::default();
             timeouts.process = Duration::from_secs(1);
@@ -344,9 +347,11 @@ fn blocks_keep_processing_while_a_plugin_holds_up_the_main_thread() {
     prepare(&mut chain);
     let input = [0.25f32; 512];
     let (mut left, mut right) = ([0.0f32; 512], [0.0f32; 512]);
-    let started = Instant::now();
-    let mut blocks = 0;
-    while started.elapsed() < Duration::from_secs(2) {
+    support::block(&mut chain, 512, 0.25);
+    stall.wait_until_entered();
+    // Every block below runs after the native callback entered, while the test keeps the
+    // main thread blocked. A missing callback cannot make this pass.
+    for _ in 0..64 {
         chain
             .process_audio_f32(
                 &plughost_core::BlockContext::new(512),
@@ -357,23 +362,23 @@ fn blocks_keep_processing_while_a_plugin_holds_up_the_main_thread() {
                 &mut Vec::new(),
             )
             .unwrap();
-        blocks += 1;
+        assert_eq!(left, input);
+        assert_eq!(right, input);
     }
-    assert!(blocks > 1);
-    // A main-thread request waits for the stall, which therefore covered every block above.
+    drop(stall);
     chain.parameters(0).unwrap();
-    assert!(started.elapsed() > Duration::from_millis(2500));
 }
 
 #[test]
 #[ignore = "needs scripts/build-helper.sh and scripts/build-test-plugins.sh"]
 fn a_plugin_holding_up_the_idle_main_thread_is_named_when_a_request_times_out() {
+    let mut stall = support::stall::Stall::new();
     let mut chain = spawn_with(
         &[
             delay(PluginFormat::Clap),
             delay_variant(PluginFormat::Clap, "stall-main-thread", 9),
         ],
-        &HostIdentity::default(),
+        &stall.identity(),
         {
             let mut timeouts = Timeouts::default();
             timeouts.control = Duration::from_millis(500);
@@ -381,9 +386,8 @@ fn a_plugin_holding_up_the_idle_main_thread_is_named_when_a_request_times_out() 
         },
     );
     prepare(&mut chain);
-    run(&mut chain, &signal(512));
-    // Let the main thread's next tick enter the stalling callback before asking about slot 0.
-    std::thread::sleep(Duration::from_millis(200));
+    support::block(&mut chain, 512, 0.25);
+    stall.wait_until_entered();
     assert!(matches!(
         chain.parameters(0),
         Err(Error::TimedOut { slot: Some(1) })
@@ -393,9 +397,10 @@ fn a_plugin_holding_up_the_idle_main_thread_is_named_when_a_request_times_out() 
 #[test]
 #[ignore = "needs scripts/build-helper.sh and scripts/build-test-plugins.sh"]
 fn taking_changes_waits_for_the_main_thread_as_long_as_a_control_request() {
+    let mut stall = support::stall::Stall::new();
     let mut chain = spawn_with(
         &[delay_variant(PluginFormat::Clap, "stall-main-thread", 9)],
-        &HostIdentity::default(),
+        &stall.identity(),
         {
             let mut timeouts = Timeouts::default();
             timeouts.control = Duration::from_millis(500);
@@ -403,8 +408,8 @@ fn taking_changes_waits_for_the_main_thread_as_long_as_a_control_request() {
         },
     );
     prepare(&mut chain);
-    run(&mut chain, &signal(512));
-    std::thread::sleep(Duration::from_millis(200));
+    support::block(&mut chain, 512, 0.25);
+    stall.wait_until_entered();
     let started = Instant::now();
     assert!(matches!(
         chain.take_changes(),

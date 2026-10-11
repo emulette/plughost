@@ -105,6 +105,16 @@ impl DefaultPluginFactory for TestPlugin {
         }
         Ok(Shared {
             thread_check: host.get_extension(),
+            has_log: host.get_extension::<HostLog>().is_some(),
+            checks: AtomicU32::new(0),
+            wrong_threads: AtomicU32::new(0),
+            stall_endpoint: (variant() == Variant::StallMainThread)
+                .then(|| {
+                    host.name()
+                        .and_then(|name| name.to_str().ok())
+                        .and_then(|name| name.parse().ok())
+                })
+                .flatten(),
             gui_requests_accepted: host.get_extension::<HostGui>().map(|gui| {
                 [
                     gui.request_show(&host).is_ok(),
@@ -154,6 +164,10 @@ impl DefaultPluginFactory for TestPlugin {
 
 pub struct Shared {
     thread_check: Option<HostThreadCheck>,
+    has_log: bool,
+    checks: AtomicU32,
+    wrong_threads: AtomicU32,
+    stall_endpoint: Option<std::net::SocketAddr>,
     saved_context: AtomicU32,
     loaded_context: AtomicU32,
     gui_requests_accepted: Option<[bool; 2]>,
@@ -189,23 +203,27 @@ impl Shared {
     /// The `thread-check` variant logs a host misbehaving, naming `function`, when the host's
     /// thread check says the calling thread is not `thread`.
     fn check(&self, host: &HostSharedHandle, thread: Thread, function: &str) {
-        let Some(check) = self
-            .thread_check
-            .filter(|_| variant() == Variant::ThreadCheck)
-        else {
+        if variant() != Variant::ThreadCheck {
+            return;
+        }
+        self.checks.fetch_add(1, Ordering::Relaxed);
+        let Some(check) = self.thread_check else {
             return;
         };
         let on = (check.is_main_thread(host), check.is_audio_thread(host));
-        let expected = match thread {
-            Thread::Main => (Some(true), Some(false)),
-            Thread::Audio => (Some(false), Some(true)),
+        // CLAP allows the main and audio thread to coincide during offline processing.
+        let correct = match thread {
+            Thread::Main => on.0 == Some(true),
+            Thread::Audio => on.1 == Some(true),
         };
-        if on != expected
-            && let Some(log) = host.get_extension::<HostLog>()
-            && let Ok(message) =
-                std::ffi::CString::new(format!("{}{function}", crate::errors::WRONG_THREAD))
-        {
-            log.log(host, LogSeverity::HostMisbehaving, &message);
+        if !correct {
+            self.wrong_threads.fetch_add(1, Ordering::Relaxed);
+            if let Some(log) = host.get_extension::<HostLog>()
+                && let Ok(message) =
+                    std::ffi::CString::new(format!("{}{function}", crate::errors::WRONG_THREAD))
+            {
+                log.log(host, LogSeverity::HostMisbehaving, &message);
+            }
         }
     }
 
@@ -270,7 +288,18 @@ impl<'a> PluginMainThread<'a, Shared> for MainThread<'a> {
         self.check("on_main_thread");
         static STALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if variant() == Variant::StallMainThread && !STALLED.swap(true, Ordering::Relaxed) {
-            std::thread::sleep(crate::MAIN_THREAD_STALL);
+            let address = self
+                .shared
+                .stall_endpoint
+                .expect(crate::errors::STALL_ADDRESS);
+            let mut connection =
+                std::net::TcpStream::connect(address).expect(crate::errors::STALL_CONNECT);
+            connection
+                .write_all(&[1])
+                .expect(crate::errors::STALL_CONNECT);
+            // The test observes entry before submitting blocks and holds the stall until
+            // it explicitly releases or disconnects. No timer can end it prematurely.
+            let _ = connection.read_exact(&mut [0]);
         }
     }
 }
@@ -326,11 +355,27 @@ impl PluginMainThreadParams for MainThread<'_> {
             variant(),
             Variant::Editor | Variant::Timers | Variant::FlushRequest | Variant::ThreadCheck
         )) + 2 * u32::from(variant() == Variant::Timers)
+            + 4 * u32::from(variant() == Variant::ThreadCheck)
     }
 
     fn get_info(&self, index: u32, info: &mut ParamInfoWriter) {
         self.check("params.get_info");
         match index {
+            16..=19 if variant() == Variant::ThreadCheck => info.set(&ParamInfo {
+                id: ClapId::new(index),
+                flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: match index {
+                    16 => b"Host thread check present",
+                    17 => b"Host log present",
+                    18 => b"Thread checks",
+                    _ => b"Wrong thread calls",
+                },
+                module: b"",
+                min_value: 0.0,
+                max_value: if index < 18 { 1.0 } else { 1_000_000.0 },
+                default_value: 0.0,
+            }),
             15 if variant() == Variant::ThreadCheck => info.set(&ParamInfo {
                 id: ClapId::new(15),
                 flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
@@ -497,6 +542,15 @@ impl PluginMainThreadParams for MainThread<'_> {
 
     fn get_value(&self, id: ClapId) -> Option<f64> {
         self.check("params.get_value");
+        if variant() == Variant::ThreadCheck {
+            match id.get() {
+                16 => return Some(f64::from(self.shared.thread_check.is_some())),
+                17 => return Some(f64::from(self.shared.has_log)),
+                18 => return Some(f64::from(self.shared.checks.load(Ordering::Relaxed))),
+                19 => return Some(f64::from(self.shared.wrong_threads.load(Ordering::Relaxed))),
+                _ => {}
+            }
+        }
         if id.get() == 15 && variant() == Variant::ThreadCheck {
             return Some(f64::from(self.shared.tail_reads.load(Ordering::Relaxed)));
         }

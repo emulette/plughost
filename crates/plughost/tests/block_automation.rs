@@ -61,6 +61,8 @@ fn overlapping_slot_ramps_discrete_points_and_duplicate_edits_preserve_samples()
                 },
             )
             .unwrap();
+            assert_eq!(result.channels.len(), 2);
+            assert_eq!(result.channels[0].len(), input.len());
             for (frame, &sample) in result.channels[0].iter().enumerate() {
                 let gain = frame as f64 / 8191.0;
                 let expected = if frame >= 8192 {
@@ -103,7 +105,7 @@ fn overlapping_slot_ramps_discrete_points_and_duplicate_edits_preserve_samples()
 #[cfg(target_os = "macos")]
 #[test]
 #[ignore = "needs the helper and Apple AUDelay"]
-fn apple_ramp_matches_single_sample_submission() {
+fn apple_ramp_matches_independent_control_edits() {
     let reference = PluginRef {
         format: PluginFormat::AudioUnit,
         bundle: None,
@@ -118,7 +120,42 @@ fn apple_ramp_matches_single_sample_submission() {
         to: 0.75,
     }];
     let input = vec![0.25f32; 257];
-    let mut expected: Option<Vec<Vec<f32>>> = None;
+    // An independent oracle: explicit native control edits, one sample at a time. This path
+    // never constructs a ramp, submits block automation, or calls the render scheduler.
+    let mut control = plughost_formats::load(&reference, &HostIdentity::default()).unwrap();
+    control
+        .prepare(&plughost_core::ProcessConfig {
+            sample_rate: 48_000.0,
+            max_block_size: 1,
+            sample_format: plughost::SampleFormat::F32,
+            input: Layout::Stereo,
+            output: Layout::Stereo,
+            mode: plughost::ProcessMode::Offline,
+        })
+        .unwrap();
+    control.set_parameter(1, 0.5).unwrap();
+    let processor = control.processor();
+    let expected: Vec<_> = (0..input.len())
+        .map(|frame| {
+            control
+                .set_parameter(0, 0.25 + 0.5 * frame as f64 / 256.0)
+                .unwrap();
+            let (mut left, mut right) = ([0.0f32], [0.0f32]);
+            processor
+                .process_audio_f32(
+                    &BlockContext::new(1),
+                    &[&[0.25], &[0.25]],
+                    &mut [&mut left, &mut right],
+                    &[],
+                    &[],
+                    &mut Vec::new(),
+                )
+                .unwrap();
+            assert_eq!(left, right);
+            left[0]
+        })
+        .collect();
+    assert!(expected.first().unwrap() - expected.last().unwrap() > 0.08);
     for block in [1, 128] {
         let mut chain = spawn(std::slice::from_ref(&reference));
         let config = chain
@@ -152,17 +189,16 @@ fn apple_ramp_matches_single_sample_submission() {
             },
         )
         .unwrap();
-        if let Some(expected) = &expected {
-            for (actual, expected) in result
-                .channels
-                .iter()
-                .flatten()
-                .zip(expected.iter().flatten())
-            {
-                assert!((actual - expected).abs() < 1e-6, "{actual} != {expected}");
+        assert_eq!(result.channels.len(), 2);
+        for channel in &result.channels {
+            assert_eq!(channel.len(), input.len());
+            for (frame, actual) in channel.iter().enumerate() {
+                let expected = expected[frame];
+                assert!(
+                    (actual - expected).abs() < 1e-6,
+                    "block {block}, frame {frame}: {actual} != {expected}"
+                );
             }
-        } else {
-            expected = Some(result.channels);
         }
     }
 }

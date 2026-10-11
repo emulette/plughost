@@ -4,6 +4,8 @@
 // Every test target compiles this module and uses a different subset of it.
 #![allow(dead_code)]
 
+pub mod stall;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

@@ -318,9 +318,11 @@ fn run<S: Sample>(plugin: &mut Plugin, input: &[Vec<S>]) -> Vec<Vec<S>> {
 }
 
 fn max_difference<S: Sample>(a: &[Vec<S>], b: &[Vec<S>], gain: f64) -> f64 {
+    assert_eq!(a.len(), b.len(), "channel count");
     a.iter()
         .zip(b)
         .flat_map(|(x, y)| {
+            assert_eq!(x.len(), y.len(), "frame count");
             x.iter()
                 .zip(y)
                 .map(move |(p, q)| (p.to_f64() - gain * q.to_f64()).abs())
