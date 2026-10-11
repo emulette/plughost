@@ -233,3 +233,46 @@ mod allocation {
         COUNTS.get().unwrap()
     }
 }
+
+#[test]
+#[ignore = "prepared channel-view benchmark; run in release mode with --nocapture"]
+fn prepared_channel_views_benchmark() {
+    use std::hint::black_box;
+    use std::io::Write;
+    use std::time::Instant;
+    let config = black_box(config());
+    let mut prepared = Routed::<f64>::new(&config, &[timing()]);
+    let plan = AudioTiming::new(&config, &[timing()]).unwrap();
+    let mut delays = DelayBank::new(&config, &plan).unwrap();
+    const BLOCKS: usize = 1_000_000;
+    for frames in [1, 8] {
+        let external = vec![vec![1.0 + f64::EPSILON; frames]];
+        let started = Instant::now();
+        for _ in 0..BLOCKS {
+            let slot = black_box(&mut prepared.slots[0]);
+            slot.begin(0, frames, &[]);
+            slot.process(
+                &external,
+                &[],
+                frames,
+                &mut delays,
+                0,
+                |input, output, _| {
+                    let input = black_box(input);
+                    let output = black_box(output);
+                    for channel in output {
+                        channel.copy_from_slice(input[0]);
+                    }
+                },
+            );
+        }
+        let elapsed = started.elapsed();
+        assert_eq!(prepared.slots[0].output, vec![external[0].clone(); 2]);
+        writeln!(
+            std::io::stdout(),
+            "channels=3/2 frames={frames} blocks={BLOCKS} ms={:.3}",
+            elapsed.as_secs_f64() * 1000.0
+        )
+        .unwrap();
+    }
+}

@@ -53,6 +53,18 @@ the same command. Replacing per-sample queue operations with ring-buffer slice s
 480/8,192-sample delay cases from 23–27 ms to 6.6–6.7 ms at 64 frames and from 198–216 ms to
 63 ms at 512 frames. One-sample delays fell from 46/220 ms to 40/146 ms. All fingerprints matched.
 
+# Prepared channel views
+
+```sh
+cargo test -p plughost-helper --release --lib prepared_channel_views_benchmark -- --ignored --nocapture
+```
+
+The fixture routes three input channels to two outputs for 1,000,000 one-frame and eight-frame
+blocks, checking the f64 result. Copy this benchmark function into 0.1.1's
+`process/prepared_tests.rs` for comparison. Reserving views for the actual channel counts reduced
+these cases from 434/406 ms to 67/47 ms. Existing routing tests also verify that processing does
+not allocate and that direct, adapted, silent and delayed routes retain their samples.
+
 # Soak runs
 
 `cargo bench -p plughost --bench soak -- --plugin BUNDLE [--plugin BUNDLE ...] [--rounds 120]

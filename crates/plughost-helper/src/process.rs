@@ -8,6 +8,7 @@
 
 mod audio;
 pub(crate) mod audio_timing;
+mod channel_views;
 pub(crate) mod events;
 pub(crate) mod prepared;
 pub(crate) mod shared;

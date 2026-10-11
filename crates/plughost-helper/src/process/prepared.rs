@@ -2,11 +2,12 @@
 use std::ops::{Add, Mul, Range};
 
 use plughost_core::{
-    AudioSource, AutomationEvent, ChannelAdaptation, MAX_AUDIO_CHANNELS, MAX_BLOCK_EVENTS,
-    ParameterChange, PluginTiming, RoutedChainConfig, Sample, SampleFormat,
+    AudioSource, AutomationEvent, ChannelAdaptation, MAX_BLOCK_EVENTS, ParameterChange,
+    PluginTiming, RoutedChainConfig, Sample, SampleFormat,
 };
 
 use super::audio_timing::DelayBank;
+use super::channel_views::ChannelViews;
 
 pub(crate) enum Prepared {
     F32(Routed<f32>),
@@ -23,6 +24,8 @@ pub(crate) struct Slot<S: Sample> {
     pub output: Vec<Vec<S>>,
     pub changes: Vec<ParameterChange>,
     routes: Vec<Route>,
+    input_views: ChannelViews<S>,
+    output_views: ChannelViews<S>,
 }
 struct Route {
     index: usize,
@@ -107,6 +110,8 @@ impl<S: Sample> Routed<S> {
                     input: channels(input_count, config.max_block_size),
                     output: channels(output_count, config.max_block_size),
                     changes: Vec::with_capacity(MAX_BLOCK_EVENTS),
+                    input_views: ChannelViews::new(input_count),
+                    output_views: ChannelViews::new(output_count),
                     routes,
                 }
             })
@@ -194,45 +199,27 @@ impl<S: Sample + Add<Output = S> + Mul<Output = S> + From<f32>> Slot<S> {
             }
             delays.apply(slot, route.index, target);
         }
-        let mut inputs: [&[S]; MAX_AUDIO_CHANNELS] = [&[]; MAX_AUDIO_CHANNELS];
-        for route in &self.routes {
+        let inputs = self.routes.iter().flat_map(|route| {
             let direct = route.direct(delays, slot);
-            for (channel, destination) in route.destination.clone().enumerate() {
-                inputs[destination] = match &route.source {
-                    Source::External(range) if direct => &external[range.start + channel],
-                    Source::Previous(range) if direct => &previous[range.start + channel],
-                    _ => &self.input[destination],
-                };
-            }
-        }
-        let input_count = self.input.len();
+            let channels = match &route.source {
+                Source::External(range) if direct => &external[range.clone()],
+                Source::Previous(range) if direct => &previous[range.clone()],
+                _ => &self.input[route.destination.clone()],
+            };
+            channels.iter().map(Vec::as_slice)
+        });
         let changes = &self.changes;
-        with_outputs(&mut self.output, |outputs| {
-            call(&inputs[..input_count], outputs, changes)
+        self.input_views.with_inputs(inputs, |inputs| {
+            self.output_views
+                .with_outputs(&mut self.output, |outputs| call(inputs, outputs, changes))
         })
     }
-}
 
-/// Borrow channel views on the stack. No cached Rust references outlive a synchronous native call.
-pub(super) fn with_outputs<S, T>(
-    output: &mut [Vec<S>],
-    call: impl FnOnce(&mut [&mut [S]]) -> T,
-) -> T {
-    let mut outputs: [&mut [S]; MAX_AUDIO_CHANNELS] = std::array::from_fn(|_| &mut [][..]);
-    let count = output.len();
-    for (view, samples) in outputs.iter_mut().zip(output) {
-        *view = samples;
+    /// Borrows this slot's completed output for publication, reusing its channel-view storage.
+    pub fn with_output<T>(&mut self, call: impl FnOnce(&[&[S]]) -> T) -> T {
+        self.output_views
+            .with_inputs(self.output.iter().map(Vec::as_slice), call)
     }
-    call(&mut outputs[..count])
-}
-
-/// Borrow read-only channel views on the stack.
-pub(super) fn with_inputs<S, T>(input: &[Vec<S>], call: impl FnOnce(&[&[S]]) -> T) -> T {
-    let mut inputs: [&[S]; MAX_AUDIO_CHANNELS] = [&[]; MAX_AUDIO_CHANNELS];
-    for (view, samples) in inputs.iter_mut().zip(input) {
-        *view = samples;
-    }
-    call(&inputs[..input.len()])
 }
 
 #[cfg(test)]

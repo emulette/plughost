@@ -22,6 +22,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- Helper channel views are allocated for the negotiated channel counts during preparation
+  and reused for processing and publication, avoiding repeated 512-channel stack arrays.
 - Sidechain latency alignment uses bulk ring-buffer transfers while retaining lazy history
   initialization, exact samples and existing preparation memory limits.
 - Offline ramp scheduling visits active ramps and indexes interval validation, preserving

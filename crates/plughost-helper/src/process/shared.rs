@@ -6,7 +6,7 @@ use plughost_core::ipc::shared::{Descriptor, SharedAudio, Submission, transfer};
 use plughost_core::ipc::{AudioSamples, Response};
 use plughost_core::{AutomationEvent, BlockContext, Event, Failure, FailureKind, MAX_BLOCK_EVENTS};
 
-use super::{Pipeline, audio, prepared};
+use super::{Pipeline, audio};
 use crate::Responder;
 
 pub(crate) struct Transport {
@@ -101,14 +101,12 @@ macro_rules! complete {
         impl Completion<'_> {
             pub fn $name(
                 &mut self,
-                output: &[Vec<$sample>],
+                output: &[&[$sample]],
                 events: &[Event],
                 latency: u32,
                 tail: plughost_core::render::Tail,
             ) -> io::Result<()> {
-                let result = prepared::with_inputs(output, |channels| {
-                    self.memory.$write(self.submission, channels, events)
-                });
+                let result = self.memory.$write(self.submission, output, events);
                 if let Err(error) = result {
                     return self
                         .responder

@@ -20,7 +20,7 @@ trait WireSample: Sample + Add<Output = Self> + Mul<Output = Self> + From<f32> {
         produced: &mut Vec<Event>,
     ) -> Result<(), plughost_formats::Error>;
     fn respond(
-        output: &[Vec<Self>],
+        output: &[&[Self]],
         events: &[Event],
         latency: u32,
         tail: plughost_core::render::Tail,
@@ -42,7 +42,7 @@ macro_rules! wire_sample {
                 p.$method(c, i, o, a, e, produced)
             }
             fn respond(
-                output: &[Vec<Self>],
+                output: &[&[Self]],
                 events: &[Event],
                 latency: u32,
                 tail: plughost_core::render::Tail,
@@ -318,11 +318,18 @@ fn run<S: WireSample>(
         Ok(tail) => tail,
         Err((slot, failure)) => return responder.fail(Some(slot), failure),
     };
-    S::respond(
-        &state.storage.slots.last().unwrap().output,
-        &state.event_buffers.output,
-        state.plan.latency(),
-        tail,
-        completion,
-    )
+    state
+        .storage
+        .slots
+        .last_mut()
+        .unwrap()
+        .with_output(|output| {
+            S::respond(
+                output,
+                &state.event_buffers.output,
+                state.plan.latency(),
+                tail,
+                completion,
+            )
+        })
 }
