@@ -4,6 +4,7 @@
 use std::cell::{Cell, OnceCell};
 use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Once};
 
 use block2::{DynBlock, RcBlock};
@@ -38,6 +39,8 @@ type InternalRender = dyn Fn(
 ) -> i32;
 static EDITOR: Mutex<Option<Values>> = Mutex::new(None);
 static SERIAL: Mutex<()> = Mutex::new(());
+/// Instances created while set ignore a state restored before render resources are allocated.
+static IGNORE_UNALLOCATED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Default)]
 struct Ivars {
@@ -47,6 +50,7 @@ struct Ivars {
     render: OnceCell<RcBlock<InternalRender>>,
     values: Values,
     bypass: Cell<bool>,
+    ignore_unallocated: Cell<bool>,
 }
 
 define_class!(
@@ -92,6 +96,7 @@ define_class!(
             // This unit requires state to be replayed after allocation, like affected native AUs.
             *self.ivars().values.lock().unwrap() = [0.0; 2];
             self.ivars().bypass.set(false);
+            self.ivars().ignore_unallocated.set(false);
             unsafe { msg_send![super(self), allocateRenderResourcesAndReturnError: error] }
         }
         #[unsafe(method(internalRenderBlock))]
@@ -132,6 +137,9 @@ impl RestoredUnit {
         )
     }
     fn restore(&self, state: &State) {
+        if self.ivars().ignore_unallocated.get() {
+            return;
+        }
         let number = |key| {
             state
                 .objectForKey(&NSString::from_str(key))
@@ -148,7 +156,10 @@ impl RestoredUnit {
         options: AudioComponentInstantiationOptions,
         error: *mut *mut NSError,
     ) -> Option<Retained<Self>> {
-        let this = this.set_ivars(Ivars::default());
+        let this = this.set_ivars(Ivars {
+            ignore_unallocated: Cell::new(IGNORE_UNALLOCATED.load(Ordering::Relaxed)),
+            ..Ivars::default()
+        });
         let this: Option<Retained<Self>> = unsafe {
             msg_send![super(this), initWithComponentDescription: description, options: options, error: error]
         };
@@ -229,6 +240,25 @@ fn plugin() -> Plugin {
     Plugin::new(&id).unwrap()
 }
 
+fn config() -> ProcessConfig {
+    ProcessConfig {
+        sample_rate: 48_000.0,
+        max_block_size: 512,
+        sample_format: SampleFormat::F32,
+        input: Layout::Stereo,
+        output: Layout::Stereo,
+        mode: ProcessMode::Offline,
+    }
+}
+
+fn values(plugin: &mut Plugin) -> Vec<f64> {
+    plugin
+        .parameters()
+        .into_iter()
+        .map(|(_, value)| value)
+        .collect()
+}
+
 #[test]
 fn prepare_preserves_current_state_after_restore_or_factory_preset() {
     let _serial = SERIAL.lock().unwrap();
@@ -237,11 +267,15 @@ fn prepare_preserves_current_state_after_restore_or_factory_preset() {
         Some(StatePurpose::Preset),
         None,
     ] {
+        let state = purpose.map(|purpose| {
+            let mut source = plugin();
+            source.set_parameter(0, 0.5).unwrap();
+            source.save_state(purpose).unwrap()
+        });
+        // Created last, so the simulated editor below edits this instance.
         let mut plugin = plugin();
-        if let Some(purpose) = purpose {
-            plugin.set_parameter(0, 0.5).unwrap();
-            let state = plugin.save_state(purpose).unwrap();
-            plugin.restore_state(&state, purpose).unwrap();
+        if let (Some(purpose), Some(state)) = (purpose, &state) {
+            plugin.restore_state(state, purpose).unwrap();
         } else {
             plugin
                 .select_factory_preset(&FactoryPresetId::AudioUnit { number: 0 })
@@ -251,21 +285,8 @@ fn prepare_preserves_current_state_after_restore_or_factory_preset() {
         // A native editor updates the unit's model without calling the host's setter.
         EDITOR.lock().unwrap().as_ref().unwrap().lock().unwrap()[1] = 0.75;
         plugin.set_bypass(true).unwrap();
-        plugin
-            .prepare(&ProcessConfig {
-                sample_rate: 48_000.0,
-                max_block_size: 512,
-                sample_format: SampleFormat::F32,
-                input: Layout::Stereo,
-                output: Layout::Stereo,
-                mode: ProcessMode::Offline,
-            })
-            .unwrap();
-        let values: Vec<f64> = plugin
-            .parameters()
-            .into_iter()
-            .map(|(_, value)| value)
-            .collect();
+        plugin.prepare(&config()).unwrap();
+        let values = values(&mut plugin);
         assert_eq!(values.len(), 2);
         assert_eq!(values[0], 0.25, "{purpose:?}");
         assert_eq!(plugin.bypass().unwrap().enabled, Some(true));
@@ -274,6 +295,24 @@ fn prepare_preserves_current_state_after_restore_or_factory_preset() {
         assert_eq!(timing.tail, Tail::Samples(48));
         assert!(!timing.latency_changed);
     }
+}
+
+#[test]
+fn prepare_applies_a_restore_the_unit_did_not_take_before_allocation() {
+    let _serial = SERIAL.lock().unwrap();
+    let mut source = plugin();
+    source.set_parameter(0, 0.5).unwrap();
+    source.set_parameter(1, 0.25).unwrap();
+    let state = source.save_state(StatePurpose::Project).unwrap();
+    IGNORE_UNALLOCATED.store(true, Ordering::Relaxed);
+    let mut plugin = plugin();
+    IGNORE_UNALLOCATED.store(false, Ordering::Relaxed);
+    plugin.restore_state(&state, StatePurpose::Project).unwrap();
+    plugin.prepare(&config()).unwrap();
+    // Latency and tail follow the unit's model: 0.5 * 32 and 0.25 * 64 samples.
+    let timing = plugin.timing().unwrap();
+    assert_eq!(timing.latency, 16);
+    assert_eq!(timing.tail, Tail::Samples(16));
 }
 
 #[test]

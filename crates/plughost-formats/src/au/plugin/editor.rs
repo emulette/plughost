@@ -158,7 +158,9 @@ impl Plugin {
             return Ok(None);
         }
         // SAFETY: the property returned retained CF objects, owned by this call.
-        let (location, name) = unsafe { cocoa_metadata(&storage) }?;
+        let Some((location, name)) = (unsafe { cocoa_metadata(&storage) }) else {
+            return Ok(None);
+        };
         let Some(bundle) = CFBundle::new(None, Some(&location)) else {
             return Ok(None);
         };
@@ -187,17 +189,17 @@ fn pixels(size: NSSize) -> (u32, u32) {
     (size.width.round() as u32, size.height.round() as u32)
 }
 
-/// Takes ownership of the CF objects returned by the native Cocoa UI property.
-/// Null entries are possible even when the property call succeeds.
+/// Takes ownership of the CF objects returned by the native Cocoa UI property; `None` when the
+/// bundle or every class name is null, which is possible even when the property call succeeds.
 ///
 /// # Safety
 /// Each non-null pointer must be the retained CFURL (first entry) or CFString (remaining
 /// entries) returned by the unit. The slice has at least one class-name entry.
 unsafe fn cocoa_metadata(
     storage: &[*mut c_void],
-) -> Result<(CFRetained<CFURL>, CFRetained<CFString>), AuError> {
+) -> Option<(CFRetained<CFURL>, CFRetained<CFString>)> {
     // Read nullable pointers from raw storage: the bindings' NonNull fields cannot represent
-    // a unit's malformed property. Still release every non-null object on either error path.
+    // a unit's malformed property. Still release every non-null object when one is missing.
     let location = NonNull::new(storage[0].cast::<CFURL>())
         .map(|location| unsafe { CFRetained::from_raw(location) });
     let names: Vec<CFRetained<CFString>> = storage[1..]
@@ -205,11 +207,7 @@ unsafe fn cocoa_metadata(
         .filter_map(|&name| NonNull::new(name.cast::<CFString>()))
         .map(|name| unsafe { CFRetained::from_raw(name) })
         .collect();
-    let name = names.into_iter().next();
-    Ok((
-        location.ok_or(AuError::NoEditor)?,
-        name.ok_or(AuError::NoEditor)?,
-    ))
+    location.zip(names.into_iter().next())
 }
 
 #[cfg(test)]
@@ -225,10 +223,7 @@ mod tests {
     #[test]
     fn cocoa_property_with_no_class_name_is_not_an_editor() {
         let storage = [location(), std::ptr::null_mut(), std::ptr::null_mut()];
-        assert!(matches!(
-            unsafe { cocoa_metadata(&storage) },
-            Err(AuError::NoEditor)
-        ));
+        assert!(unsafe { cocoa_metadata(&storage) }.is_none());
     }
 
     #[test]
@@ -236,10 +231,7 @@ mod tests {
         let name = CFRetained::into_raw(CFString::from_str("ViewFactory"))
             .as_ptr()
             .cast();
-        assert!(matches!(
-            unsafe { cocoa_metadata(&[std::ptr::null_mut(), name]) },
-            Err(AuError::NoEditor)
-        ));
+        assert!(unsafe { cocoa_metadata(&[std::ptr::null_mut(), name]) }.is_none());
     }
 
     #[test]

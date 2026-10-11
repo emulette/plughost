@@ -368,7 +368,7 @@ impl Helper {
     /// the outstanding request is asked first; the other thread may hold up that request, or
     /// crash on its own, as the main thread can between requests. Slots are known only as far as
     /// the helper recorded them, so a crash on a plugin-owned thread names no slot.
-    fn culprit(&self) -> Result<Option<usize>, Error> {
+    fn culprit(&mut self) -> Result<Option<usize>, Error> {
         let Some(shared) = &self.shared else {
             return Ok(None);
         };
@@ -380,6 +380,9 @@ impl Helper {
         };
         let (first, second) = (activity.slot(first), activity.slot(second));
         if !self.valid_slot(first) || !self.valid_slot(second) {
+            // Later requests report the exit, not this mapping again.
+            self.kill();
+            self.shared = None;
             return Err(Error::Protocol);
         }
         Ok(first.or(second))

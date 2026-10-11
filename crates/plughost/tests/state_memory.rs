@@ -107,8 +107,9 @@ fn state_transfer_releases_large_scratch() {
             "retained {}",
             measurement.heap.bytes
         );
+        // One encoded copy of the state; a second copy of the payload would exceed this.
         assert!(
-            measurement.heap.peak < (2 * PAYLOAD + (1 << 20)) as isize,
+            measurement.heap.peak < (PAYLOAD + PAYLOAD / 2) as isize,
             "peak {}",
             measurement.heap.peak
         );

@@ -437,6 +437,12 @@ fn caller(fault: &str) {
                 .kind(),
             FailureKind::NotPrepared
         );
+        // Every later request reports the lost helper.
+        assert_eq!(
+            chain.parameters(0).map(|_| ()).unwrap_err().kind(),
+            FailureKind::Crashed,
+            "{fault}"
+        );
         chain = chain.recover(&[]).unwrap();
         assert_ne!(chain.plugins()[0].sdk_version.parse::<u32>().unwrap(), pid);
         chain

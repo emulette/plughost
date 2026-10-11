@@ -50,15 +50,23 @@ impl Plugin {
             .map(|index| presets.objectAtIndex(index))
             .find(|preset| unsafe { preset.number() } as i64 == *number)
             .ok_or(AuError::FactoryPreset)?;
+        let before = engine
+            .prepared
+            .is_none()
+            .then(|| super::snapshot(unit, plughost_core::StatePurpose::Preset));
         unsafe { unit.setCurrentPreset(Some(&preset)) };
         let selected = unsafe { unit.currentPreset() }.ok_or(AuError::FactoryPresetSelection)?;
         if unsafe { selected.number() } as i64 != *number {
             return Err(AuError::FactoryPresetSelection);
         }
-        self.restored_unprepared = engine
-            .prepared
-            .is_none()
-            .then_some(plughost_core::StatePurpose::Preset);
+        self.restored_unprepared = match before {
+            Some(before) => {
+                let state = unsafe { unit.fullState() }.ok_or(AuError::State)?;
+                let purpose = plughost_core::StatePurpose::Preset;
+                Some(super::Restored::new(unit, before, state, purpose))
+            }
+            None => None,
+        };
         Ok(())
     }
 }

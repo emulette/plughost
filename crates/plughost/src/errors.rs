@@ -56,7 +56,8 @@ pub enum Error {
         /// The violated input contract.
         error: InputError,
     },
-    /// The legacy audio entry point received mismatched channels or frame lengths.
+    /// Block audio has the wrong channel count or slice lengths, or more frames than the
+    /// prepared maximum block size.
     Buffers,
     /// The render scheduler rejected its input or could not complete delivery.
     Render(RenderError),

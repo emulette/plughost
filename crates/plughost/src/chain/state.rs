@@ -42,6 +42,12 @@ impl Chain {
         location: &plughost_core::PresetLocation,
         load_key: Option<&str>,
     ) -> Result<(), Error> {
+        if !crate::presets::encodable(location) {
+            return Err(Error::Input {
+                slot: Some(slot),
+                error: plughost_core::InputError::PathEncoding,
+            });
+        }
         self.accept_restored(Request::LoadDiscoveredPreset {
             slot,
             location: location.clone(),

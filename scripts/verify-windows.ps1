@@ -14,7 +14,8 @@ Push-Location $root
 try {
     Invoke-Step 'pwsh' @('-NoProfile', '-File', "$PSScriptRoot/build-test-plugins.ps1")
     Invoke-Step 'pwsh' @('-NoProfile', '-File', "$PSScriptRoot/build-helper.ps1")
-    Invoke-Step 'cargo' @('test', '--workspace', '--locked', '--', '--include-ignored')
+    # Benchmarks are ignored tests too; run them as crates/plughost/benches/README.md describes.
+    Invoke-Step 'cargo' @('test', '--workspace', '--locked', '--', '--include-ignored', '--skip', 'benchmark')
     Invoke-Step 'cargo' @('fmt', '--all', '--', '--check')
     Invoke-Step 'cargo' @('clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings')
     $env:RUSTDOCFLAGS = '-D warnings'

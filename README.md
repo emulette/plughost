@@ -120,7 +120,7 @@ On macOS:
 ```sh
 scripts/build-test-plugins.sh
 scripts/build-helper.sh
-cargo test --workspace --locked -- --include-ignored
+cargo test --workspace --locked -- --include-ignored --skip benchmark
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked

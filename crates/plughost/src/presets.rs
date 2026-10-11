@@ -2,7 +2,10 @@
 use crate::Error;
 use crate::helper::{Helper, Mode};
 use plughost_core::ipc::{Request, Response};
-use plughost_core::{HostIdentity, PresetDiscovery, PresetDiscoveryTarget, PresetProviderInfo};
+use plughost_core::{
+    HostIdentity, InputError, PresetDiscovery, PresetDiscoveryTarget, PresetLocation,
+    PresetProviderInfo,
+};
 use std::path::Path;
 use std::time::Duration;
 /// Lists CLAP providers and declared preset locations. Provider code runs only in a scan helper.
@@ -14,6 +17,9 @@ pub fn preset_providers(
 ) -> Result<Vec<PresetProviderInfo>, Error> {
     host.validate()
         .map_err(|error| Error::Input { slot: None, error })?;
+    if bundle.to_str().is_none() {
+        return Err(path_encoding());
+    }
     let mut helper = Helper::spawn(helper, Mode::Scan)?;
     match helper.request(
         Request::PresetProviders {
@@ -39,6 +45,9 @@ pub fn discover_presets(
 ) -> Result<PresetDiscovery, Error> {
     host.validate()
         .map_err(|error| Error::Input { slot: None, error })?;
+    if bundle.to_str().is_none() || !encodable(&target.location) {
+        return Err(path_encoding());
+    }
     let mut helper = Helper::spawn(helper, Mode::Scan)?;
     match helper.request(
         Request::DiscoverPresets {
@@ -50,5 +59,20 @@ pub fn discover_presets(
     )? {
         Response::DiscoveredPresets(presets) => Ok(presets),
         _ => Err(Error::Protocol),
+    }
+}
+
+/// Whether the helper's Unicode path protocol can carry `location`.
+pub(crate) fn encodable(location: &PresetLocation) -> bool {
+    match location {
+        PresetLocation::File { path } => path.to_str().is_some(),
+        PresetLocation::Plugin => true,
+    }
+}
+
+fn path_encoding() -> Error {
+    Error::Input {
+        slot: None,
+        error: InputError::PathEncoding,
     }
 }

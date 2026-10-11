@@ -40,6 +40,30 @@ fn unprepared_render_reports_not_prepared_for_both_precisions() {
             RenderSession::<f32, _>::new(&mut chain),
             Err(Error::NotPrepared)
         ));
+        // Direct preflight calls check preparation and precision as render does.
+        let automation = [AutomationEvent {
+            slot: 0,
+            change: ParameterChange {
+                id: 0,
+                offset: 0,
+                value: 0.5,
+            },
+        }];
+        assert!(matches!(
+            Process::<f32>::validate_automation(&mut chain, &automation),
+            Err(Error::NotPrepared)
+        ));
+        let config = chain
+            .main_bus_config(48_000.0, 16, Layout::Stereo, &[Layout::Stereo])
+            .unwrap();
+        chain.prepare_audio(&config).unwrap();
+        assert!(matches!(
+            Process::<f64>::validate_automation(&mut chain, &automation),
+            Err(Error::Input {
+                slot: None,
+                error: InputError::AudioSampleFormat
+            })
+        ));
     }
 }
 

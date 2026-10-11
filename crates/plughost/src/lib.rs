@@ -16,7 +16,7 @@
 //! [`Chain::main_bus_config`] builds the common serial main-bus configuration. Rendering retains the
 //! prepared sample type. For instruments with an empty input slice, specify
 //! `render::<f32, _>` or `render::<f64, _>` so Rust can infer the output precision.
-
+//!
 //! The [detailed API guide](https://github.com/emulette/plughost/blob/v0.1.1/llms.txt)
 //! covers scanning, cancellation, routing, state, and failure contracts.
 //!

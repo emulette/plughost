@@ -391,6 +391,7 @@ macro_rules! render_process {
                 Ok(())
             }
             fn validate_automation(&mut self, automation: &[AutomationEvent]) -> Result<(), Error> {
+                self.validate_render_precision(<$sample as Sample>::FORMAT)?;
                 self.validate_render_automation(automation)
             }
             fn validate_events(&mut self, events: &[Event]) -> Result<(), Error> {

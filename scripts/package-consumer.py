@@ -28,7 +28,9 @@ def main() -> None:
     ))
     names = ["plughost-core", "plughost-formats", "plughost-helper", "plughost"]
     version = next(p["version"] for p in metadata["packages"] if p["name"] == "plughost")
-    package = ["cargo", "package", "--locked", "--target-dir", str(output / "packages")]
+    # The consumer below builds every crate from these archives. Cargo's own verification would
+    # reuse sources it extracted earlier for the same unreleased version.
+    package = ["cargo", "package", "--locked", "--no-verify", "--target-dir", str(output / "packages")]
     if args.allow_dirty:
         package.append("--allow-dirty")
     for name in names:
@@ -60,6 +62,9 @@ def main() -> None:
     (consumer / "helper/src/main.rs").write_text(
         "fn main() -> std::process::ExitCode { plughost_helper::run() }\n", encoding="utf-8"
     )
+    # Start from the repository's lockfile so CI does not take dependency releases it has not
+    # tested; Maintenance checks fresh resolutions. Cargo adds only the consumer's own packages.
+    shutil.copyfile(root / "Cargo.lock", consumer / "Cargo.lock")
     resolved = json.loads(subprocess.check_output(
         ["cargo", "metadata", "--format-version", "1"], cwd=consumer
     ))

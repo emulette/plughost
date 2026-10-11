@@ -236,7 +236,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            let _ = writeln!(std::io::stderr(), "{error}");
+            let _ = writeln!(std::io::stderr(), "{}", errors::describe(&*error));
             ExitCode::FAILURE
         }
     }

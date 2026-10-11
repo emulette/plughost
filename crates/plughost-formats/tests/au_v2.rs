@@ -571,10 +571,6 @@ unsafe extern "C-unwind" fn midi_event(
 unsafe extern "C-unwind" fn sysex(this: NonNull<c_void>, data: *const u8, length: u32) -> OsStatus {
     // SAFETY: the caller passes `length` readable bytes.
     let bytes = unsafe { std::slice::from_raw_parts(data, length as usize) }.to_vec();
-    // MusicDeviceSysEx requires the complete F0...F7 message in one call.
-    if bytes.first() != Some(&0xF0) || bytes.last() != Some(&0xF7) {
-        return kAudioUnitErr_InvalidParameter;
-    }
     state(this).received.push((0, bytes));
     0
 }
@@ -630,20 +626,18 @@ unsafe extern "C-unwind" fn render(
         return 0;
     };
     for (offset, bytes) in received {
-        for bytes in bytes.chunks(256) {
-            let mut data = [0; 256];
-            data[..bytes.len()].copy_from_slice(bytes);
-            // A packet's time is its offset into the rendered block.
-            let list = PacketList {
-                count: 1,
-                packet: Packet {
-                    time: u64::from(offset),
-                    length: bytes.len() as u16,
-                    data,
-                },
-            };
-            unsafe { callback(user_data, time, 0, &list) };
-        }
+        let mut data = [0; 256];
+        data[..bytes.len()].copy_from_slice(&bytes);
+        // A packet's time is its offset into the rendered block.
+        let list = PacketList {
+            count: 1,
+            packet: Packet {
+                time: u64::from(offset),
+                length: bytes.len() as u16,
+                data,
+            },
+        };
+        unsafe { callback(user_data, time, 0, &list) };
     }
     0
 }
@@ -860,20 +854,4 @@ fn non_realtime_parameters_allow_edits_but_reject_block_automation() {
         .unwrap()
         .1;
     assert_eq!(steps, 0.0, "the valid prefix must not have been scheduled");
-}
-
-#[test]
-fn a_full_budget_sysex_reaches_v2_as_one_complete_native_message() {
-    let mut plugin = prepared();
-    let mut bytes = vec![1; plughost_core::MAX_BLOCK_SYSEX_BYTES];
-    bytes[0] = 0xF0;
-    *bytes.last_mut().unwrap() = 0xF7;
-    let events = block(&mut plugin, &[Event::sysex(7, bytes.clone())]);
-    assert_eq!(events.len(), 1);
-    let plughost_core::EventData::SysEx(received) = &events[0].data else {
-        panic!("expected SysEx");
-    };
-    assert_eq!(events[0].offset, 0); // MusicDeviceSysEx has no sample offset.
-    assert_eq!(received.len(), bytes.len());
-    assert!(received == &bytes);
 }

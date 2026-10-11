@@ -241,8 +241,19 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
         Err(error) => {
-            out!("result: FAILED {error}");
+            out!("result: FAILED {}", describe(&error));
             ExitCode::FAILURE
         }
     }
+}
+
+/// The error followed by each cause; plughost errors keep the native reason in `source()`.
+fn describe(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut cause = error.source();
+    while let Some(error) = cause {
+        text = format!("{text}: {error}");
+        cause = error.source();
+    }
+    text
 }

@@ -197,6 +197,50 @@ fn failed_delay_replacement_preserves_pending_audio_and_checks_the_whole_bank() 
 }
 
 #[test]
+fn delayed_channels_match_a_sample_queue_across_ring_wraps() {
+    let mut config = config(true);
+    config.inputs = vec![Layout::Stereo];
+    for slot in &mut config.slots {
+        for route in &mut slot.inputs {
+            route.bus.layout = Layout::Stereo;
+        }
+        for bus in &mut slot.outputs {
+            bus.layout = Layout::Stereo;
+        }
+    }
+    let timing = AudioTiming::new(&config, &[native(5, 0), native(0, 0)]).unwrap();
+    let mut delays = DelayBank::<f64>::new(&config, &timing).unwrap();
+    let mut queues = [[0.0; 5], [0.0; 5]].map(std::collections::VecDeque::from);
+    let mut next = 0.0;
+    // Block lengths below, at and above the delay wrap the ring at every phase.
+    for frames in [1, 3, 7, 2, 11, 4, 5, 9, 1, 13, 6] {
+        let mut channels: Vec<Vec<f64>> = (0..2)
+            .map(|channel| {
+                (0..frames)
+                    .map(|i| next + i as f64 + 1000.0 * channel as f64)
+                    .collect()
+            })
+            .collect();
+        next += frames as f64;
+        let expected: Vec<Vec<f64>> = channels
+            .iter()
+            .zip(&mut queues)
+            .map(|(input, queue)| {
+                input
+                    .iter()
+                    .map(|&sample| {
+                        queue.push_back(sample);
+                        queue.pop_front().unwrap()
+                    })
+                    .collect()
+            })
+            .collect();
+        delays.apply(1, 0, &mut channels);
+        assert_eq!(channels, expected, "{frames} frames");
+    }
+}
+
+#[test]
 #[ignore = "latency alignment benchmark; run in release mode with --nocapture"]
 fn delay_bank_benchmark() {
     use std::hint::black_box;

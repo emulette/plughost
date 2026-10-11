@@ -10,7 +10,8 @@ run() {
 }
 run scripts/build-test-plugins.sh
 run scripts/build-helper.sh
-run cargo test --workspace --locked -- --include-ignored
+# Benchmarks are ignored tests too; run them as crates/plughost/benches/README.md describes.
+run cargo test --workspace --locked -- --include-ignored --skip benchmark
 run cargo fmt --all -- --check
 run cargo clippy --workspace --all-targets --locked -- -D warnings
 export RUSTDOCFLAGS='-D warnings'

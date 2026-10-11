@@ -28,240 +28,80 @@ isolated path, and the plugin's processing.
 
 # PCM compatibility
 
-`--write-pcm` saves each verified warm-up render as `case-NNN.f32le`, numbered from zero in
-`results.jsonl` order. Files contain each complete output channel consecutively, as little-endian
-f32 samples without a header. Writing happens outside the measured interval.
-
-Copy `benches/offline/` into the 0.1.1 plughost crate, removing only `Counted::validate_events`
-from its `measure.rs` because that trait method was added later. Build each checkout's helper,
-then run this command from each repository root with the same current fixture directory:
+`--write-pcm` saves each verified warm-up render as `case-NNN.f32le`, numbered in `results.jsonl`
+order: every output channel in turn, as headerless little-endian f32, written outside the measured
+interval. To confirm that a change leaves output untouched, run the same command in both checkouts
+with the same fixture directory (copy `benches/offline/` into an older checkout first) and compare
+the files byte for byte:
 
 ```sh
 cargo bench -p plughost --bench offline --locked -- \
   --seconds 0.125 --trials 1 --blocks 64,128,512,4096 --write-pcm \
-  --assets /absolute/path/to/current/target/test-plugins --output "$PWD/target/pcm"
+  --assets /absolute/path/to/target/test-plugins --output "$PWD/target/pcm"
+for file in /path/to/other/target/pcm/*.f32le; do cmp "$file" "target/pcm/${file##*/}"; done
 ```
 
-Compare both outputs from the current repository root:
+0.1.2 matched 0.1.1 in all 192 cases.
 
-```sh
-python3 - /absolute/path/to/0.1.1/target/pcm "$PWD/target/pcm" <<'PY'
-import json
-from pathlib import Path
-import sys
+# Optimization workloads
 
-before, after = map(Path, sys.argv[1:])
-cases = lambda root: [json.loads(line)['case'] for line in
-                      (root / 'results.jsonl').read_text().splitlines()]
-baseline, current = cases(before), cases(after)
-assert baseline == current and len(current) == 192
-names = {f'case-{index:03}.f32le' for index in range(len(current))}
-assert {p.name for p in before.glob('*.f32le')} == names
-assert {p.name for p in after.glob('*.f32le')} == names
-for index, case in enumerate(current):
-    name = f'case-{index:03}.f32le'
-    left, right = (before / name).read_bytes(), (after / name).read_bytes()
-    channels = 4 if case['buses'] == 'multiple' else 2
-    assert len(left) == len(right) == case['frames'] * channels * 4, name
-    assert left == right, (name, case)
-print('All 192 cases have byte-identical PCM')
-PY
-```
+Each workload checks its own results. They are ignored tests; run them in release mode as shown.
+To compare with an earlier release, copy the test and its module declaration into that checkout
+and run the same command with that checkout's helper. Times are 0.1.1 → 0.1.2.
 
-All 192 cases, containing 5,184,000 samples, matched 0.1.1 byte for byte. The format-specific
-automation and f64 routing/alignment checks below cover their respective optimization workloads.
-
-# Idle timing observation
-
-```sh
-cargo test -p plughost --release --test timing_poll -- --ignored --nocapture
-```
-
-This observes eight prepared VST3 or CLAP delay slots 10,000 times through the helper and checks
-every timing snapshot. Copy `tests/timing_poll.rs` into the 0.1.1 crate and use the same command
-and current fixtures. With no other builds running, elapsed time fell from 179 to 165 ms for
-VST3 and 176 to 168 ms for CLAP; IPC dominates this quiet workload. Native CLAP tail reads per
-slot fell from 10,000 to zero. Native format tests also hold the processing engine on another
-thread and verify that an idle poll returns unavailable immediately, then succeeds after release.
-
-# Timeline scheduling
-
-```sh
-cargo bench -p plughost-core --bench timeline --locked
-```
-
-This native-plugin-free harness expands 5,000 successive ramps over 60 seconds at 48 kHz,
-5,000 unsorted ramps with 500 overlapping targets, and 2,048 ramps mixed with duplicate-time
-point edits and MIDI. It checks the sample count and fingerprints of every automation point,
-audio sample and output event against the 0.1.1 results. To compare with 0.1.1, copy
-`crates/plughost-core/benches/timeline.rs` and its `[[bench]]` entry into that checkout and run the same
-command. The scheduling change reduced these cases from 16,520 / 8.1 / 1,081 ms to
-94 / 1.7 / 21.5 ms; the output fingerprints and block counts were unchanged.
-
-# Latency alignment
-
-```sh
-cargo test -p plughost-helper --release --lib delay_bank_benchmark -- --ignored --nocapture
-```
-
-The fixture passes 100,000 blocks of 64 or 512 f64 samples through delays of 1, 480 and 8,192
-samples, checking every output's fingerprint and the final block against the expected delayed
-input. For 0.1.1, copy the benchmark function into its `process/audio_timing_tests.rs` and use
-the same command. Replacing per-sample queue operations with ring-buffer slice swaps reduced
-480/8,192-sample delay cases from 23–27 ms to 6.6–6.7 ms at 64 frames and from 198–216 ms to
-63 ms at 512 frames. One-sample delays fell from 46/220 ms to 40/146 ms. All fingerprints matched.
-
-# Prepared channel views
-
-```sh
-cargo test -p plughost-helper --release --lib prepared_channel_views_benchmark -- --ignored --nocapture
-```
-
-The fixture routes three input channels to two outputs for 1,000,000 one-frame and eight-frame
-blocks, checking the f64 result. Copy this benchmark function into 0.1.1's
-`process/prepared_tests.rs` for comparison. Reserving views for the actual channel counts reduced
-these cases from 434/406 ms to 67/47 ms. Existing routing tests also verify that processing does
-not allocate and that direct, adapted, silent and delayed routes retain their samples.
-
-# Output note tracking
-
-```sh
-cargo test -p plughost-formats --release --lib output_note_off_benchmark -- --ignored --nocapture
-```
-
-The fixture emits 100,000 note-offs with 4,096 held notes, checking ID and address matching,
-and repeats with wildcard IDs and an empty table. Copy the benchmark function into 0.1.1's
-`clap/plugin/output_events.rs` for comparison. Direct removal by ID reduced the first case
-from 915–952 ms to 3–13 ms. The empty-table case stayed near 1 ms after warm-up.
-
-# VST3 input staging
-
-```sh
-cargo test -p plughost-formats --release --test vst3 input_event_staging_benchmark -- --ignored --nocapture
-```
-
-The routing fixture holds 4,096 notes over 100,000 empty one-frame blocks and then checks that
-a wildcard note-off ends all of them. The delay fixture processes 1,000 one-frame blocks with
-4,096 mapped controllers per block. Both check exact audio. Copy `tests/vst3/event_benchmark.rs`
-and its module declaration in `tests/vst3.rs` into 0.1.1's formats crate for comparison.
-Reusing translated inputs and skipping empty-block note copies reduced the two cases from
-83/275 ms to 38/190 ms.
-
-# AU instantiation
-
-```sh
-cargo test -p plughost-formats --release --test au_state au_instantiation_benchmark -- --ignored --nocapture
-```
-
-The native AU fixture is registered once, then instantiated 300 times while checking its
-metadata and parameters. Copy `tests/au_state.rs` and its test target into 0.1.1's formats crate
-for comparison. Direct component lookup reduced the case from 55 ms to 5.5 ms.
-
-# AU idle waits
-
-```sh
-cargo test -p plughost-formats --release --lib au_wait_benchmark -- --ignored --nocapture
-```
-
-On a fresh non-main thread without run-loop sources, the benchmark waits 100 ms for
-notifications and for a completion from another thread. It checks completion values and elapsed
-duration and reports that thread's CPU time. Copy `au/wait_tests.rs`, its module declaration and
-the macOS `libc` dev dependency into 0.1.1's formats crate for comparison. CPU time fell from
-100/105 ms to 0.29/0.37 ms; elapsed time stayed near 100 ms.
-
-# IPC framing
-
-```sh
-cargo test -p plughost --release --lib supervised_framing_benchmark -- --ignored --nocapture
-cargo test -p plughost-core --release --lib socket_framing_benchmark -- --ignored --nocapture
-```
-
-The supervised transport exchanges 20,000 small requests and then four 16 MiB payloads, checking
-every reply and payload byte. Copy its benchmark function into 0.1.1's
-`helper/transport/tests.rs` for comparison. Buffered reads reduced these cases from 156/211 ms
-to 137/202 ms. The core benchmark needs `ipc/framing_read_tests.rs` and its module declaration;
-its bare blocking-socket exchange reduced read calls per endpoint from 40,000 to 20,000, while
-elapsed time increased from 99 to 113 ms. The supervised transport includes deadline polling.
-
-# State transfer memory
-
-```sh
-cargo test -p plughost --release --test state_memory state_transfer_benchmark -- --ignored --nocapture
-```
-
-The native CLAP delay fixture receives a 64 MiB state through restore and recovery. The harness
-counts additional requested heap bytes on the calling application thread and verifies the
-restored gain. The caller's existing state and helper process are outside the count. Copy
-`tests/state_memory.rs` into 0.1.1's plughost crate and use its matching helper for comparison.
-Peak additional heap fell from about 140.5 MiB to 65.5 MiB; retained heap fell from 76.5 MiB to
-64 KiB for restore and 129 KiB for recovery. The regression test bounds retained and peak heap
-with an 8 MiB state.
-
-# Control timing replies
-
-```sh
-cargo test -p plughost --release --test control_timing -- --ignored --nocapture
-```
-
-The prepared native CLAP delay fixture receives 1,000 parameter edits, text edits and resets,
-checking its final parameter, latency and tail. Copy `tests/control_timing.rs` into 0.1.1's
-plughost crate and use its matching helper for comparison. The cases take about 22/23–26/32 ms;
-0.1.1 took 22/22–28/38 ms, but deferred parameter delivery until a later call. With the pending
-edit fix present in both runs, combining replies reduced the cases from 33/33/43 ms to
-22/23–26/32 ms. Each operation now uses one request instead of two.
-
-# Render automation validation
-
-```sh
-cargo test -p plughost --release --test render_validation render_validation_benchmark -- --ignored --nocapture
-```
-
-The prepared native CLAP delay chain has eight slots and 4,096 scheduled points referring to
-eight distinct parameters. It performs 1,000 complete preflights and verifies that no parameter
-value changed. Copy `tests/render_validation.rs` into 0.1.1's plughost crate and use its matching
-helper for comparison. Preflight time fell from about 212 to 77 ms; each preflight uses one
-target-validation request instead of eight parameter-list requests.
-
-# Warm scan startup
-
-```sh
-cargo test -p plughost --release --lib warm_scan_benchmark -- --ignored --nocapture
-```
-
-After one warm-up, the native CLAP delay fixture is scanned in 30 fresh helpers, checking the
-complete class metadata on every scan. Copy `src/helper/scan_benchmark.rs` and its test module
-declaration into 0.1.1's plughost crate and use its matching helper for comparison. The 30 scans
-fell from about 1.61 s to 0.17 s. `PLUGHOST_SCAN_BUNDLE` selects another installed bundle. Licensed
-Pro-Q 4 and Pro-C 3 returned identical class metadata in both VST3 and CLAP; their 30-scan times
-fell from 1.50–1.81 s to 0.19–0.59 s.
-
-# Native automation staging
-
-```sh
-cargo test -p plughost-formats --release --test automation native_automation_benchmark -- --ignored --nocapture
-```
-
-The routing fixtures process 1,000 blocks of 512 frames with 4,096 interleaved gain/bypass points
-per block. Every sample must equal the independently calculated output, including duplicate
-edits and discrete bypass. The AU case uses Apple AUDelay with 512 dry-mix points per block and
-checks exact dry PCM. Copy `plughost-formats/tests/automation.rs` into 0.1.1 for comparison; run
-the two versions sequentially. VST3 fell from about 210 to 156 ms, and CLAP from 151–166 to
-110–112 ms. AU's improvement was small, from 825–832 to 813–819 ms.
-
-# Cached inspection and registry scheduling
-
-```sh
-cargo test -p plughost --release --lib cached_bundle_benchmark -- --ignored --nocapture
-cargo test -p plughost --release --test scan_parallel -- --ignored --nocapture
-```
-
-The first case inspects one cached native CLAP delay bundle 10,000 times and checks its class
-metadata. It fell from about 160 to 69 ms. The second scans that bundle and the AU registry in
-30 rounds, removing the scan cache between rounds and comparing every result. On macOS it took
-0.89 s with one job and 0.77 s with two; 0.1.1 took 3.8–4.0 s with either setting. This comparison
-also includes the helper startup improvements above. For 0.1.1, copy `src/scan/benchmark.rs`
-and its test module declaration, and `tests/scan_parallel.rs`; add `scanner.stall_timeout` before
-`ScanMode::Metadata` in 0.1.1's `scan_bundle` call and use the matching helper.
+- Ramp scheduling: 5,000 successive ramps over 60 s, 5,000 unsorted ramps on 500 targets, and
+  2,048 ramps mixed with point edits and MIDI, with unchanged output fingerprints.
+  `cargo bench -p plughost-core --bench timeline --locked`: 16,520 / 8.1 / 1,081 ms →
+  94 / 1.7 / 21.5 ms.
+- Render automation preflight: 1,000 preflights of 4,096 points on eight CLAP slots.
+  `cargo test -p plughost --release --test render_validation render_validation_benchmark -- --ignored --nocapture`:
+  212 → 77 ms, one validation request instead of eight parameter lists.
+- Warm scans: 30 scans of the CLAP delay fixture in fresh helpers.
+  `cargo test -p plughost --release --lib warm_scan_benchmark -- --ignored --nocapture`:
+  1.61 → 0.17 s.
+- Cached inspection and registry scheduling: 10,000 cached inspections of one bundle, and 30 scans
+  of a bundle alongside the AU registry.
+  `cargo test -p plughost --release --lib cached_bundle_benchmark -- --ignored --nocapture` and
+  `cargo test -p plughost --release --test scan_parallel -- --ignored --nocapture`:
+  160 → 69 ms and 3.8–4.0 → 0.77–0.89 s.
+- Idle timing observation: 10,000 polls of eight prepared VST3 or CLAP slots.
+  `cargo test -p plughost --release --test timing_poll -- --ignored --nocapture`:
+  179 → 165 ms (VST3) and 176 → 168 ms (CLAP); native CLAP tail reads per slot 10,000 → 0.
+- Control timing replies: 1,000 parameter edits, text edits and resets on a CLAP slot.
+  `cargo test -p plughost --release --test control_timing -- --ignored --nocapture`:
+  one request per operation instead of two.
+- State transfer memory: restore and recovery of a 64 MiB state.
+  `cargo test -p plughost --release --test state_memory state_transfer_benchmark -- --ignored --nocapture`:
+  peak additional heap 140.5 → 65.5 MiB; retained heap 76.5 MiB → under 130 KiB.
+- IPC framing: 20,000 small requests and four 16 MiB payloads over the supervised transport, and
+  a bare socket exchange.
+  `cargo test -p plughost --release --lib supervised_framing_benchmark -- --ignored --nocapture`
+  and `cargo test -p plughost-core --release --lib socket_framing_benchmark -- --ignored --nocapture`:
+  156 / 211 → 137 / 202 ms; read calls per endpoint 40,000 → 20,000.
+- Native automation: 1,000 blocks of 4,096 gain and bypass points per routing fixture, and AUDelay
+  with 512 points per block.
+  `cargo test -p plughost-formats --release --test automation native_automation_benchmark -- --ignored --nocapture`:
+  VST3 210 → 156 ms, CLAP 151–166 → 110–112 ms, AU 825–832 → 813–819 ms.
+- VST3 input staging: 100,000 empty blocks with 4,096 held notes, and 1,000 blocks of 4,096
+  mapped controllers.
+  `cargo test -p plughost-formats --release --test vst3 input_event_staging_benchmark -- --ignored --nocapture`:
+  83 / 275 → 38 / 190 ms.
+- Output note tracking: 100,000 CLAP note-offs with 4,096 held notes.
+  `cargo test -p plughost-formats --release --lib output_note_off_benchmark -- --ignored --nocapture`:
+  915–952 → 3–13 ms.
+- AU instantiation: 300 instances of a registered fixture.
+  `cargo test -p plughost-formats --release --test au_state au_instantiation_benchmark -- --ignored --nocapture`:
+  55 → 5.5 ms.
+- AU idle waits: 100 ms waits on a non-main thread without run-loop sources.
+  `cargo test -p plughost-formats --release --lib au_wait_benchmark -- --ignored --nocapture`:
+  thread CPU time 100–105 → under 0.4 ms.
+- Latency alignment: 100,000 blocks through 1-, 480- and 8,192-sample delays.
+  `cargo test -p plughost-helper --release --lib delay_bank_benchmark -- --ignored --nocapture`:
+  23–27 → 6.7 ms at 64 frames and 198–216 → 63 ms at 512 frames for the longer delays.
+- Prepared channel views: 1,000,000 one- and eight-frame blocks routing three inputs to two
+  outputs.
+  `cargo test -p plughost-helper --release --lib prepared_channel_views_benchmark -- --ignored --nocapture`:
+  434 / 406 → 67 / 47 ms.
 
 # Soak runs
 
@@ -315,6 +155,6 @@ it, such as the tests, then build the usual helper again:
 
 ```sh
 scripts/build-helper.sh --audit
-RTSAN_OPTIONS=halt_on_error=false cargo test --workspace --locked -- --include-ignored 2> audit.log
+RTSAN_OPTIONS=halt_on_error=false cargo test --workspace --locked -- --include-ignored --skip benchmark 2> audit.log
 scripts/build-helper.sh
 ```

@@ -135,7 +135,7 @@ impl Plugin {
         {
             return Err(AuError::UnknownEventPort { id });
         }
-        engine.prepare_audio(config, self.restored_unprepared)?;
+        engine.prepare_audio(config, self.restored_unprepared.as_ref())?;
         self.restored_unprepared = None;
         buses(engine.unit()?, Some(config))
     }

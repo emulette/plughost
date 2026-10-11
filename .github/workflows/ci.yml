@@ -22,8 +22,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-2022]
-        toolchain: ["1.92.0", stable]
         include:
           # Apple Silicon; the tests open editor windows in the runner's desktop session.
           - os: macos-15
@@ -33,15 +31,13 @@ jobs:
             verify: pwsh -NoProfile -File scripts/verify-windows.ps1
             python: python
     runs-on: ${{ matrix.os }}
-    env:
-      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Install the selected toolchain
-        run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --component clippy --component rustfmt
+      - name: Install the pinned toolchain
+        run: rustup show
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Cache the pinned VST3 SDK archive
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

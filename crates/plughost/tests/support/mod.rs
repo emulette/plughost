@@ -6,10 +6,13 @@
 
 pub mod stall;
 
-/// Desktop activation is process-global; editor tests in one test executable run serially.
+/// Desktop activation is process-global; editor tests in one test executable run serially. A
+/// failed editor test does not fail the ones after it.
 pub fn editor_test() -> std::sync::MutexGuard<'static, ()> {
     static EDITORS: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    EDITORS.lock().unwrap()
+    EDITORS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 use std::fs;

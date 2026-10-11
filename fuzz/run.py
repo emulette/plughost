@@ -21,10 +21,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seconds", type=int, default=60)
     parser.add_argument("--toolchain", default="nightly")
-    parser.add_argument("targets", nargs="*", choices=list(TARGETS))
+    # Older argparse, such as macOS's Python 3.9, rejects an empty list against `choices`.
+    parser.add_argument("targets", nargs="*", metavar="TARGET", help=", ".join(TARGETS))
     args = parser.parse_args()
     if args.seconds < 1:
         parser.error("--seconds must be positive")
+    unknown = sorted(set(args.targets) - TARGETS.keys())
+    if unknown:
+        parser.error(f"unknown targets: {', '.join(unknown)}")
     selected = args.targets or list(TARGETS)
     for name in selected:
         if name == "au_plist" and sys.platform != "darwin":

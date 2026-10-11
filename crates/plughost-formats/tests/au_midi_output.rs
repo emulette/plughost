@@ -444,21 +444,44 @@ fn the_main_configuration_prepares_the_first_output() {
 }
 
 #[test]
-fn system_exclusive_input_reaches_the_unit_at_the_full_byte_budget() {
+fn system_exclusive_input_longer_than_a_native_event_is_rejected_before_scheduling() {
     let mut plugin = prepared(vec![0]);
-    for length in [u16::MAX as usize, MAX_BLOCK_SYSEX_BYTES] {
+    let message = |length: usize| {
         let mut bytes = vec![1; length];
         bytes[0] = 0xF0;
         bytes[length - 1] = 0xF7;
-        let events = [Event::sysex(7, bytes.clone()), Event::note_on(8, 0, 60, 90)];
-        let produced = block(&mut plugin, &events).unwrap();
-        assert_eq!(produced.len(), 2, "length {length}");
-        assert_eq!(produced[0].offset, 7);
-        let plughost_core::EventData::SysEx(received) = &produced[0].data else {
-            panic!("expected SysEx");
-        };
-        assert_eq!(received.len(), length);
-        assert!(received == &bytes);
-        assert_eq!(produced[1], events[1]);
-    }
+        bytes
+    };
+    let longest = message(u16::MAX as usize);
+    let events = [
+        Event::sysex(7, longest.clone()),
+        Event::note_on(8, 0, 60, 90),
+    ];
+    let produced = block(&mut plugin, &events).unwrap();
+    assert_eq!(produced.len(), 2);
+    assert_eq!(produced[0].offset, 7);
+    let plughost_core::EventData::SysEx(received) = &produced[0].data else {
+        panic!("expected SysEx");
+    };
+    assert!(received == &longest);
+    assert_eq!(produced[1], events[1]);
+
+    let rejected = block(
+        &mut plugin,
+        &[
+            Event::note_on(3, 0, 64, 90),
+            Event::sysex(7, message(MAX_BLOCK_SYSEX_BYTES)),
+        ],
+    );
+    assert!(
+        matches!(
+            rejected,
+            Err(Error::Au(au::AuError::Input(
+                plughost_core::InputError::EventCapacity
+            )))
+        ),
+        "{rejected:?}"
+    );
+    // Nothing of the rejected block reached the unit.
+    assert!(block(&mut plugin, &[]).unwrap().is_empty());
 }

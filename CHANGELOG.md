@@ -20,9 +20,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   engine lock, and render sessions do not require the caller's processor to implement `Debug`.
 - `render::Process::validate_events` lets processors reject unavailable event ports across the
   whole render before processing begins; its default preserves existing implementations.
-- `InputError::BundlePathEncoding` identifies bundle paths that the helper's Unicode path
-  protocol cannot represent. Chain loading rejects them before starting a helper; scans report
-  them individually without caching them or interrupting other bundles.
+- `InputError::PathEncoding` identifies bundle and preset paths that the helper's Unicode path
+  protocol cannot represent. Chain loading and preset requests reject them before sending them to
+  a helper; scans report them individually without caching them or interrupting other bundles.
 
 ### Changed
 
@@ -64,6 +64,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   initialization, exact samples and existing preparation memory limits.
 - Offline ramp scheduling visits active ramps and indexes interval validation, preserving
   every per-sample point and equal-offset input order while avoiding scans of all ramps.
+- `Error` and `PresetSearchError` display their context while `source()` retains the cause,
+  avoiding duplicate messages when formatting an error chain. Format the source chain to
+  include the full diagnostic; portable scan failures still retain it.
 - The internal helper protocol is now 27. Applications and helpers with different protocol
   versions fail the handshake; rebuild and distribute the helper with the application.
 
@@ -74,17 +77,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Excessively nested VST3 `moduleinfo.json` metadata is ignored before recursive parsing can
   exhaust the application stack during discovery.
 - AU parameters marked `NonRealTime` remain editable but reject block automation.
-- AU SysEx input preserves the full 65,536-byte block budget: AUv3 receives timestamped
-  fragments, and AUv2 receives a complete message through its native SysEx API.
+- AU input rejects a system exclusive message longer than the 65,535 bytes an AU MIDI event
+  holds with `InputError::EventCapacity` before scheduling the block, instead of truncating its
+  length.
 - Helper OS event processing and editor updates run on a 10 ms deadline even while control
   requests keep arriving, so a busy caller does not starve native timers and UI events.
-- AU Cocoa editor metadata with a null bundle or no non-null class name reports `NoEditor`
-  without constructing an invalid retained pointer or indexing an empty class list.
+- AU Cocoa editor metadata with a null bundle or no non-null class name is treated like other
+  incomplete Cocoa view metadata, without constructing an invalid retained pointer or indexing an
+  empty class list.
 - AU preparation preserves parameter, editor and bypass edits made after an unprepared state
-  restore or factory preset selection, and reads timing after restoring that current state.
-- `Error` and `PresetSearchError` display their context while `source()` retains the cause,
-  avoiding duplicate messages when formatting an error chain. Format the source chain to
-  include the full diagnostic; portable scan failures still retain it.
+  restore or factory preset selection when the unit took that state, and reads timing after
+  restoring it. A unit whose state did not change still receives the restored state again after
+  allocation.
 - Scan caches survive library upgrades when their schema and architecture are unchanged.
   Helper startup, handshake and pre-request failures preserve cached plugin failure counts.
 - Plugin discovery follows each directory only once, preventing repeated scans through
@@ -105,7 +109,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   `InputError::EventCapacity` before processing, allowing a retry without reset.
 - Helper output events are validated for frame offsets, ordering, ports, note values and total
   SysEx bytes before caller audio or events change. Invalid slot reports and loaded plugin
-  counts also terminate the helper as protocol errors.
+  counts also terminate the helper as protocol errors; later requests report `Crashed`.
 - Every unexpected control response terminates the helper. Losing it during any request
   invalidates shared processing state, so later processing and rendering report `NotPrepared`.
 - Repreparation uses the load timeout for reloading plugins; reset uses the control timeout.

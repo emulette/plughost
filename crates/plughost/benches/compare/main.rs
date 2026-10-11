@@ -314,7 +314,7 @@ fn main() -> std::process::ExitCode {
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
-            out!("{error}");
+            out!("{}", errors::describe(&*error));
             std::process::ExitCode::FAILURE
         }
     }

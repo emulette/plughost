@@ -1,8 +1,8 @@
 name: Maintenance
 
-# Manual only. Fresh dependencies and the advisory database are inputs we do not control, so a push tier
-# would redden unchanged commits and an unchanged tag could stop publishing. Dispatch it before
-# tagging a release.
+# Manual only. Fresh dependencies, the latest stable Rust and the advisory database are inputs we
+# do not control, so a push tier would redden unchanged commits and an unchanged tag could stop
+# publishing. Dispatch it before tagging a release.
 on:
   workflow_dispatch:
 
@@ -32,6 +32,38 @@ jobs:
 
       - name: Check the workspace against today's advisories
         run: cargo deny --locked --all-features check advisories
+
+  stable:
+    name: Latest stable Rust on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            verify: scripts/verify-macos.sh
+          - os: windows-2022
+            verify: pwsh -NoProfile -File scripts/verify-windows.ps1
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install the latest stable toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy --component rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .vst3sdk/vst-sdk.zip
+          key: vst3-sdk-3.8.1-build-84
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-deny@0.20.2
+          fallback: none
+      - name: Build fixtures and helper, test, lint, document, check dependencies
+        run: ${{ matrix.verify }}
 
   dependencies:
     name: ${{ matrix.dependencies }} dependencies on ${{ matrix.os }}
@@ -75,7 +107,7 @@ jobs:
           pwsh -NoProfile -File scripts/build-helper.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test the resolved dependencies on the minimum supported Rust version
-        run: cargo test --workspace --locked -- --include-ignored
+        run: cargo test --workspace --locked -- --include-ignored --skip benchmark
 
   fuzz:
     name: Parser corpus and AddressSanitizer fuzzing

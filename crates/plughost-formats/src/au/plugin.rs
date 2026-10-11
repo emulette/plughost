@@ -25,9 +25,9 @@ use objc2::runtime::Bool;
 use objc2_audio_toolbox::{
     AUAudioFrameCount, AUAudioUnit, AUAudioUnitStatus, AUAudioUnitV2Bridge, AUEventSampleTime,
     AUHostTransportStateFlags, AUParameter, AUParameterAddress, AUParameterListenerNotify, AUValue,
-    AudioComponentDescription, AudioComponentInstantiationOptions, AudioUnit,
-    AudioUnitGetParameter, AudioUnitParameter, AudioUnitParameterOptions, AudioUnitParameterUnit,
-    AudioUnitRenderActionFlags, AudioUnitSetParameter, MusicDeviceSysEx, kAudioUnitScope_Global,
+    AudioComponentDescription, AudioComponentInstantiationOptions, AudioUnitGetParameter,
+    AudioUnitParameter, AudioUnitParameterOptions, AudioUnitParameterUnit,
+    AudioUnitRenderActionFlags, AudioUnitSetParameter, kAudioUnitScope_Global,
 };
 use objc2_core_audio_types::{AudioBufferList, AudioTimeStamp};
 use objc2_foundation::{NSError, NSInteger, NSPropertyListFormat};
@@ -73,6 +73,8 @@ pub const EDIT_SETTLE: Duration = Duration::from_millis(100);
 const NOTIFY_SETTLE: Duration = Duration::from_millis(50);
 /// Tails reported beyond this are treated as infinite.
 const MAX_TAIL_SECONDS: f64 = 3600.0;
+/// `AUMIDIEvent.length` is 16 bits.
+const MAX_NATIVE_SYSEX_BYTES: usize = u16::MAX as usize;
 
 /// Values handed between the completion queue of an asynchronous call and the waiting thread.
 struct Handoff<T>(T);
@@ -101,9 +103,6 @@ struct Prepared {
     schedule: RcBlock<Schedule>,
     /// None for units without MIDI input.
     schedule_midi: Option<RcBlock<ScheduleMidi>>,
-    /// The v2 SysEx API accepts a complete message with a 32-bit length. The v3 bridge's
-    /// scheduling block truncates lengths beyond the 16-bit AUMIDIEvent representation.
-    midi_v2: Option<AudioUnit>,
     /// Collects the unit's MIDI output when event outputs were requested.
     midi_output: Option<midi_output::Output>,
     /// Parameter ranges, to turn normalized changes into plain values.
@@ -151,9 +150,10 @@ pub struct Plugin {
     editor: Option<editor::Editor>,
     /// Parameters were set since the last save; see [`EDIT_SETTLE`].
     edited: bool,
-    /// The purpose of a state restored before first allocation. Some units reset their model
-    /// on allocation; capture its current state immediately before and reapply it afterward.
-    restored_unprepared: Option<plughost_core::StatePurpose>,
+    /// A state restored before render resources were first allocated, applied again after. Some
+    /// v2 units (Soundtoys EchoBoy) set up their parameters on allocation and drop a state
+    /// restored earlier.
+    restored_unprepared: Option<Restored>,
     observation: Option<events::Observation>,
     /// None for v3 units.
     value_strings: Option<events::ValueStrings>,
@@ -427,8 +427,10 @@ impl Plugin {
         let dictionary = plist::decode(&state.component)?;
         let engine = lock(&self.engine);
         let unit = engine.unit()?;
+        let before = engine.prepared.is_none().then(|| snapshot(unit, purpose));
         apply_state(unit, &dictionary, purpose);
-        self.restored_unprepared = engine.prepared.is_none().then_some(purpose);
+        self.restored_unprepared =
+            before.map(|before| Restored::new(unit, before, dictionary, purpose));
         Ok(())
     }
 
@@ -590,7 +592,7 @@ impl Engine {
     fn prepare_audio(
         &mut self,
         audio_config: &plughost_core::AudioConfig,
-        restore: Option<plughost_core::StatePurpose>,
+        restored: Option<&Restored>,
     ) -> Result<(), AuError> {
         audio_config.validate().map_err(AuError::Input)?;
         if audio_config.sample_format != SampleFormat::F32 {
@@ -699,11 +701,16 @@ impl Engine {
                 Arc::clone(&self.unconvertible),
             )?)
         };
-        // Allocation can reset an unprepared unit's restored state. Capture the current
-        // model here, including host, editor and bypass edits made since that restoration.
-        let state = restore
-            .map(|purpose| current_state(unit, purpose).map(|state| (state, purpose)))
-            .transpose()?;
+        // Allocation can reset an unprepared unit's restored state. A unit whose state changed
+        // when it was restored holds it now, with the host, editor and bypass edits made since:
+        // capture that. Otherwise the unit may have dropped it; apply the restored state itself.
+        let state = match restored {
+            Some(restored) if restored.taken => {
+                Some((current_state(unit, restored.purpose)?, restored.purpose))
+            }
+            Some(restored) => Some((restored.state.clone(), restored.purpose)),
+            None => None,
+        };
         unsafe {
             unit.allocateRenderResourcesAndReturnError()
                 .map_err(|error| AuError::Allocate(describe(&error)))?;
@@ -730,9 +737,6 @@ impl Engine {
             render,
             schedule,
             schedule_midi,
-            midi_v2: unit
-                .downcast_ref::<AUAudioUnitV2Bridge>()
-                .map(|bridge| unsafe { bridge.audioUnit() }),
             midi_output,
             ranges,
             automation,
@@ -808,6 +812,15 @@ impl Engine {
                 .map_err(AuError::Input)?;
         }
         plughost_core::validate_event_budget(automation.len(), events).map_err(AuError::Input)?;
+        // An AU MIDI event carries at most 65,535 bytes; longer messages fail before any part of
+        // the block is scheduled.
+        let native = |event: &Event| match &event.data {
+            EventData::SysEx(bytes) => bytes.len() <= MAX_NATIVE_SYSEX_BYTES,
+            _ => true,
+        };
+        if !events.iter().all(native) {
+            return Err(AuError::Input(plughost_core::InputError::EventCapacity));
+        }
         let midi_input = !prepared.config.events.inputs.is_empty();
         if let Some(event) = events.iter().find(|event| event.port != 0 || !midi_input) {
             return Err(AuError::Input(plughost_core::InputError::EventPort {
@@ -877,6 +890,7 @@ impl Engine {
         }
         if let Some(schedule) = &prepared.schedule_midi {
             for event in events {
+                // The block takes complete MIDI messages, system exclusive included.
                 // Notes and pressure go in their MIDI 1.0 form; other expressions have none.
                 let midi = event.data.to_midi();
                 let bytes = match (&event.data, &midi) {
@@ -886,25 +900,12 @@ impl Engine {
                     (_, None) => continue,
                 };
                 let _audit = plughost_core::audit::plugin();
-                if let (EventData::SysEx(_), Some(unit)) = (&event.data, prepared.midi_v2) {
-                    // MusicDeviceSysEx takes a whole message and has no sample offset.
-                    let status = unsafe {
-                        MusicDeviceSysEx(unit, NonNull::from(bytes).cast(), bytes.len() as u32)
-                    };
-                    if status != 0 {
-                        return Err(AuError::Render(status));
-                    }
-                    continue;
-                }
-                // Preserve the byte stream and timestamp across AUv3's 16-bit event lengths.
-                for bytes in bytes.chunks(u16::MAX as usize) {
-                    schedule.call((
-                        position as AUEventSampleTime + event.offset as AUEventSampleTime,
-                        0,
-                        bytes.len() as NSInteger,
-                        NonNull::from(bytes).cast(),
-                    ));
-                }
+                schedule.call((
+                    position as AUEventSampleTime + event.offset as AUEventSampleTime,
+                    0,
+                    bytes.len() as NSInteger,
+                    NonNull::from(bytes).cast(),
+                ));
             }
         }
 
@@ -1005,13 +1006,41 @@ fn current_state(
     unit: &AUAudioUnit,
     purpose: plughost_core::StatePurpose,
 ) -> Result<Retained<State>, AuError> {
+    snapshot(unit, purpose).ok_or(AuError::State)
+}
+
+fn snapshot(unit: &AUAudioUnit, purpose: plughost_core::StatePurpose) -> Option<Retained<State>> {
     unsafe {
         match purpose {
             plughost_core::StatePurpose::Project => unit.fullStateForDocument(),
             _ => unit.fullState(),
         }
     }
-    .ok_or(AuError::State)
+}
+
+/// A state restored before first allocation.
+struct Restored {
+    state: Retained<State>,
+    purpose: plughost_core::StatePurpose,
+    /// The unit's own state changed when it was restored.
+    taken: bool,
+}
+
+impl Restored {
+    /// `before` is the unit's state just before `state` was applied.
+    fn new(
+        unit: &AUAudioUnit,
+        before: Option<Retained<State>>,
+        state: Retained<State>,
+        purpose: plughost_core::StatePurpose,
+    ) -> Self {
+        let taken = snapshot(unit, purpose) != before;
+        Self {
+            state,
+            purpose,
+            taken,
+        }
+    }
 }
 
 fn apply_state(unit: &AUAudioUnit, state: &State, purpose: plughost_core::StatePurpose) {

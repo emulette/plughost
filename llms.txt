@@ -83,8 +83,9 @@ Each result includes its source, outcome, failure count,
 and exclusion state. `Catalog::plugins()` returns `(PluginRef, &PluginInfo)` entries.
 `PluginRef` contains `format`, optional `bundle`, and `class_id`; use discovered values.
 VST3/CLAP references require a bundle path, while Audio Unit references use their class ID.
-Bundle paths must be valid Unicode. `Chain::spawn` rejects unrepresentable paths with
-`InputError::BundlePathEncoding` before starting a helper. Scans report only that bundle as
+Bundle and preset paths must be valid Unicode. `Chain::spawn`, `load_discovered_preset`,
+`preset_providers` and `discover_presets` reject unrepresentable paths with
+`InputError::PathEncoding` before sending them to a helper. Scans report only that bundle as
 `Failed(InvalidInput)`, leave it uncached and continue with the other bundles.
 
 Neither metadata discovery nor native class inspection proves that instantiation,
@@ -328,7 +329,8 @@ already processed the block. CLAP ports that take the CLAP dialect receive notes
 and expressions as CLAP note and note expression events, and MIDI poly pressure as pressure when
 they take no MIDI; other channel messages go as MIDI to ports that take MIDI or MIDI with MPE,
 which receive notes and pressure in their MIDI 1.0 form where they have no CLAP dialect. System exclusive data goes only to ports that take MIDI. Audio Units take events on
-port 0 only, in their MIDI 1.0 form. An expression other than pressure has no MIDI 1.0 form and
+port 0 only, in their MIDI 1.0 form; an AU MIDI event holds at most 65,535 bytes, so a longer
+system exclusive message fails the block with `InputError::EventCapacity` before it is scheduled. An expression other than pressure has no MIDI 1.0 form and
 does not reach MIDI-only ports. MPE is MIDI 1.0 on member channels: it is delivered as MIDI,
 never converted into notes with IDs or note expressions.
 

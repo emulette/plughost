@@ -41,7 +41,7 @@ pub fn components() -> Vec<PluginInfo> {
     found
 }
 
-/// Looks up one supported component without visiting unrelated registrations or reading names.
+/// Looks up one supported component by its description, without visiting unrelated registrations.
 pub(crate) fn component(description: AudioComponentDescription) -> Option<PluginInfo> {
     if !TYPES.contains(&description.componentType) {
         return None;

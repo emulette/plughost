@@ -6,8 +6,6 @@ mod bundle;
 mod cache;
 mod control;
 mod execute;
-#[cfg(test)]
-mod tests;
 use control::Work;
 pub use control::{ScanControl, ScanEvent, ScanItem, ScanStage, ScanTarget};
 #[cfg(any(test, fuzzing))]
@@ -418,7 +416,7 @@ impl Scanner {
                 scan(
                     ScanOutcome::Failed(Failure::new(
                         plughost_core::FailureKind::InvalidInput,
-                        plughost_core::InputError::BundlePathEncoding.to_string(),
+                        plughost_core::InputError::PathEncoding.to_string(),
                     )),
                     Source::Inspected,
                     0,

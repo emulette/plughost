@@ -239,8 +239,8 @@ pub enum InputError {
     },
     /// Events that are not valid, in offset order, or inside the block.
     Events,
-    /// A bundle path cannot be represented by the helper's Unicode path protocol.
-    BundlePathEncoding,
+    /// A bundle or preset path cannot be represented by the helper's Unicode path protocol.
+    PathEncoding,
 }
 
 impl fmt::Display for InputError {
@@ -294,14 +294,14 @@ impl fmt::Display for InputError {
             Self::ParameterValue => f.write_str(PARAMETER_VALUE),
             Self::UnknownParameter { id } => write!(f, "{UNKNOWN_PARAMETER} ({id})"),
             Self::ReadOnlyParameter { id } => write!(f, "{READ_ONLY_PARAMETER} ({id})"),
-            Self::BundlePathEncoding => f.write_str(BUNDLE_PATH_ENCODING),
+            Self::PathEncoding => f.write_str(PATH_ENCODING),
         }
     }
 }
 
 impl std::error::Error for InputError {}
 
-const BUNDLE_PATH_ENCODING: &str = "plugin bundle paths must be valid Unicode";
+const PATH_ENCODING: &str = "plugin bundle and preset paths must be valid Unicode";
 
 const INPUT_LENGTH: &str = "input channels do not all have the requested number of frames";
 const INPUT_CHANNELS: &str = "input channel count does not match the processor";

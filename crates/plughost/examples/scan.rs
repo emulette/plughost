@@ -74,7 +74,7 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
             Err(error) => {
-                out!("{error}");
+                out!("{}", describe(&error));
                 ExitCode::FAILURE
             }
         };
@@ -132,7 +132,7 @@ fn main() -> ExitCode {
     let catalog = match result {
         Ok(catalog) => catalog,
         Err(error) => {
-            out!("{error}");
+            out!("{}", describe(&error));
             return ExitCode::FAILURE;
         }
     };
@@ -151,4 +151,15 @@ fn main() -> ExitCode {
     out!("outcomes {by_kind:?}");
     out!("sources {by_source:?}");
     ExitCode::SUCCESS
+}
+
+/// The error followed by each cause; plughost errors keep the native reason in `source()`.
+fn describe(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut cause = error.source();
+    while let Some(error) = cause {
+        text = format!("{text}: {error}");
+        cause = error.source();
+    }
+    text
 }

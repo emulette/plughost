@@ -6,7 +6,9 @@ mod support;
 
 use support::{fixture, helper, plugins, spawn_with};
 
-const TIMEOUT: Duration = Duration::from_secs(1);
+// Provider queries include helper startup and native loading on a cold runner.
+const TIMEOUT: Duration = Duration::from_secs(10);
+const HANG_TIMEOUT: Duration = Duration::from_secs(1);
 
 fn bundle() -> PathBuf {
     plugins().join("plughost-test-presets.clap")
@@ -79,10 +81,58 @@ fn provider_queries_are_isolated_and_failure_does_not_affect_live_chain() {
         let query = query(PresetLocation::File {
             path: plugins().join(format!("{suffix}.phcp")),
         });
-        let error = discover_presets(&helper(), &bundle(), &identity, &query, TIMEOUT).unwrap_err();
+        let timeout = if suffix == "hang" {
+            HANG_TIMEOUT
+        } else {
+            TIMEOUT
+        };
+        let error = discover_presets(&helper(), &bundle(), &identity, &query, timeout).unwrap_err();
         assert_eq!(error.kind(), kind, "{suffix}");
         assert_eq!(output(&mut chain), vec![1.0; 32]);
     }
+}
+/// A path the helper protocol cannot carry: invalid UTF-8, or a lone UTF-16 surrogate.
+fn unencodable() -> PathBuf {
+    #[cfg(unix)]
+    let name = {
+        use std::os::unix::ffi::OsStringExt;
+        std::ffi::OsString::from_vec(b"invalid-\xFF.phcp".to_vec())
+    };
+    #[cfg(windows)]
+    let name = {
+        use std::os::windows::ffi::OsStringExt;
+        std::ffi::OsString::from_wide(&[0xD800, 46, 112, 104, 99, 112])
+    };
+    plugins().join(name)
+}
+#[test]
+#[ignore = "needs helper and test plugins"]
+fn unencodable_preset_paths_are_rejected_without_stopping_the_chain() {
+    let identity = HostIdentity::default();
+    let mut chain = make_chain();
+    let location = PresetLocation::File {
+        path: unencodable(),
+    };
+    let rejected = |result: Result<(), Error>, slot| {
+        matches!(
+            result,
+            Err(Error::Input { slot: s, error: InputError::PathEncoding }) if s == slot
+        )
+    };
+    assert!(rejected(
+        chain.load_discovered_preset(0, &location, None),
+        Some(0)
+    ));
+    assert!(chain.helper_monitor().exit_status().is_none());
+    assert_eq!(output(&mut chain), vec![1.0; 32]);
+    assert!(rejected(
+        preset_providers(&helper(), &unencodable(), &identity, TIMEOUT).map(|_| ()),
+        None
+    ));
+    assert!(rejected(
+        discover_presets(&helper(), &bundle(), &identity, &query(location), TIMEOUT).map(|_| ()),
+        None
+    ));
 }
 #[test]
 #[ignore = "needs helper and test plugins"]

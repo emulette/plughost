@@ -8,7 +8,8 @@ use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
-/// Bounds traversal through deeply nested directories that cannot normally contain plugins.
+/// Plugin folders nest by vendor, but never this deep; the bound also stops cycles through
+/// directories that cannot be canonicalized.
 const MAX_DEPTH: usize = 12;
 /// Enough for a Mach-O fat header with many slices, or a PE header.
 const HEADER_BYTES: usize = 4096;
@@ -41,10 +42,11 @@ fn walk(
     visited: &mut HashSet<PathBuf>,
     cancelled: &dyn Fn() -> bool,
 ) {
-    let Ok(canonical) = directory.canonicalize() else {
-        return;
-    };
-    if !visited.insert(canonical) {
+    // Some Windows RAM and network drives list directories they cannot canonicalize.
+    let key = directory
+        .canonicalize()
+        .unwrap_or_else(|_| directory.to_path_buf());
+    if !visited.insert(key) {
         return;
     }
     let Ok(entries) = fs::read_dir(directory) else {

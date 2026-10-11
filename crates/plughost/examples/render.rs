@@ -129,7 +129,7 @@ fn run(helper: &Path, target: &Path, index: usize) -> Result<bool, Error> {
     let snapshot = match chain.save_state(0, StatePurpose::Project) {
         Ok(state) => vec![state],
         Err(error) if error.kind() == FailureKind::Unsupported => {
-            out!("no state snapshot: {error}");
+            out!("no state snapshot: {}", describe(&error));
             Vec::new()
         }
         Err(error) => return Err(error),
@@ -149,13 +149,16 @@ fn run(helper: &Path, target: &Path, index: usize) -> Result<bool, Error> {
                     if !recovered
                         && matches!(error.kind(), FailureKind::Crashed | FailureKind::TimedOut) =>
                 {
-                    out!("job {key}: {error}; recovering from the snapshot");
+                    out!(
+                        "job {key}: {}; recovering from the snapshot",
+                        describe(&error)
+                    );
                     // The failed chain stays usable for another attempt if recovery fails.
                     chain = chain.recover(&snapshot)?;
                     recovered = true;
                 }
                 Err(error) => {
-                    out!("job {key}: {error}");
+                    out!("job {key}: {}", describe(&error));
                     return Ok(false);
                 }
             }
@@ -184,8 +187,19 @@ fn main() -> ExitCode {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {
-            out!("{error}");
+            out!("{}", describe(&error));
             ExitCode::FAILURE
         }
     }
+}
+
+/// The error followed by each cause; plughost errors keep the native reason in `source()`.
+fn describe(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut cause = error.source();
+    while let Some(error) = cause {
+        text = format!("{text}: {error}");
+        cause = error.source();
+    }
+    text
 }

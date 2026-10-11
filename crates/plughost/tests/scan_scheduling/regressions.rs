@@ -150,7 +150,7 @@ fn unsupported_bundle_paths_do_not_poison_other_scans_or_start_a_chain() {
         ),
         Err(Error::Input {
             slot: Some(1),
-            error: InputError::BundlePathEncoding
+            error: InputError::PathEncoding
         })
     ));
     fs::write(root.join("release"), []).unwrap();
@@ -160,7 +160,7 @@ fn unsupported_bundle_paths_do_not_poison_other_scans_or_start_a_chain() {
         bad.outcome,
         ScanOutcome::Failed(Failure::new(
             FailureKind::InvalidInput,
-            InputError::BundlePathEncoding.to_string()
+            InputError::PathEncoding.to_string()
         ))
     );
     assert_eq!(bad.failures, 0);

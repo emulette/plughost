@@ -393,7 +393,7 @@ fn start(
         {
             return Err(Error::Input {
                 slot: Some(slot),
-                error: plughost_core::InputError::BundlePathEncoding,
+                error: plughost_core::InputError::PathEncoding,
             });
         }
     }
