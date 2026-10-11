@@ -280,28 +280,36 @@ impl Chain {
     }
 
     fn validate_render_automation(&mut self, automation: &[AutomationEvent]) -> Result<(), Error> {
-        let mut metadata = std::collections::HashMap::new();
-        for event in automation {
-            if let std::collections::hash_map::Entry::Vacant(entry) = metadata.entry(event.slot) {
-                entry.insert(self.parameters(event.slot)?);
-            }
-            let info = metadata[&event.slot]
-                .iter()
-                .find(|(info, _)| info.id == event.change.id)
-                .ok_or(Error::Input {
-                    slot: Some(event.slot),
-                    error: InputError::UnknownParameter {
-                        id: event.change.id,
-                    },
-                })?;
-            info.0
-                .automation_value(event.change.value)
-                .map_err(|error| Error::Input {
-                    slot: Some(event.slot),
-                    error,
-                })?;
+        if automation.is_empty() {
+            return Ok(());
         }
-        Ok(())
+        let mut seen = std::collections::HashSet::new();
+        let mut targets = Vec::new();
+        for event in automation {
+            if event.slot >= self.plugins.len() {
+                return Err(Error::Input {
+                    slot: Some(event.slot),
+                    error: InputError::Slot,
+                });
+            }
+            if !event.change.value.is_finite() || !(0.0..=1.0).contains(&event.change.value) {
+                return Err(Error::Input {
+                    slot: Some(event.slot),
+                    error: InputError::ParameterValue,
+                });
+            }
+            let target = (event.slot, event.change.id);
+            if seen.insert(target) {
+                targets.push(target);
+            }
+        }
+        match self.request(
+            Request::ValidateAutomation { targets },
+            self.timeouts.control,
+        )? {
+            Response::Done => Ok(()),
+            _ => Err(self.protocol_error()),
+        }
     }
 }
 

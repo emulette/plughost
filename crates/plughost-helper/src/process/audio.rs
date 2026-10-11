@@ -86,11 +86,7 @@ pub(super) fn process(
     }
     for event in automation {
         let result = pipeline.parameters[event.slot]
-            .iter()
-            .find(|info| info.id == event.change.id)
-            .ok_or(InputError::UnknownParameter {
-                id: event.change.id,
-            })
+            .get(event.change.id)
             .and_then(|info| info.automation_value(event.change.value));
         if let Err(error) = result {
             return responder.send(&Response::Rejected {

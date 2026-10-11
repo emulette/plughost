@@ -152,6 +152,18 @@ plughost crate and use its matching helper for comparison. The cases take about 
 edit fix present in both runs, combining replies reduced the cases from 33/33/43 ms to
 22/23–26/32 ms. Each operation now uses one request instead of two.
 
+# Render automation validation
+
+```sh
+cargo test -p plughost --release --test render_validation render_validation_benchmark -- --ignored --nocapture
+```
+
+The prepared native CLAP delay chain has eight slots and 4,096 scheduled points referring to
+eight distinct parameters. It performs 1,000 complete preflights and verifies that no parameter
+value changed. Copy `tests/render_validation.rs` into 0.1.1's plughost crate and use its matching
+helper for comparison. Preflight time fell from about 212 to 77 ms; each preflight uses one
+target-validation request instead of eight parameter-list requests.
+
 # Warm scan startup
 
 ```sh

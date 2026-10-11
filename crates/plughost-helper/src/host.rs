@@ -176,6 +176,21 @@ impl Host {
                 )))
             }),
             Request::Parameters { slot } => Response::Parameters(self.slots[slot].parameters()),
+            Request::ValidateAutomation { targets } => {
+                // Refresh native metadata before using the processing thread's indexed copy.
+                self.collect_parameter_events();
+                match self
+                    .processing
+                    .request(Command::ValidateAutomation(targets, None))
+                {
+                    Command::ValidateAutomation(_, Some((slot, error))) => Response::Rejected {
+                        slot: Some(slot),
+                        error,
+                    },
+                    Command::ValidateAutomation(_, None) => Response::Done,
+                    _ => unreachable!(),
+                }
+            }
             Request::SetParameter { slot, id, value } => self.with_slot(slot, |plugin| {
                 plugin.set_parameter(id, value)?;
                 Ok(Response::Done)
@@ -580,10 +595,12 @@ fn rejected_or_failed(slot: usize, error: &Error) -> Response {
     }
 }
 
-fn parameter_infos(plugin: &mut dyn HostedPlugin) -> Vec<plughost_core::ParameterInfo> {
-    plugin
-        .parameters()
-        .into_iter()
-        .map(|(info, _)| info)
-        .collect()
+fn parameter_infos(plugin: &mut dyn HostedPlugin) -> crate::process::Parameters {
+    crate::process::Parameters::new(
+        plugin
+            .parameters()
+            .into_iter()
+            .map(|(info, _)| info)
+            .collect(),
+    )
 }

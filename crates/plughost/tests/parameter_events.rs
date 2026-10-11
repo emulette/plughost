@@ -57,6 +57,13 @@ fn dynamic_flags_refresh_process_validation_without_consuming_app_events() {
             value: 0.75,
         },
     }];
+    assert!(matches!(
+        <Chain as plughost_core::render::Process<f32>>::validate_automation(&mut vst3, &automation),
+        Err(Error::Input {
+            slot: Some(0),
+            error: InputError::ReadOnlyParameter { id: 0 }
+        })
+    ));
     let error = vst3
         .process_audio_f32(
             &BlockContext::new(4),

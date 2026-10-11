@@ -10,6 +10,7 @@ mod audio;
 pub(crate) mod audio_timing;
 mod channel_views;
 pub(crate) mod events;
+mod parameters;
 pub(crate) mod prepared;
 pub(crate) mod shared;
 
@@ -20,12 +21,13 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, ThreadId};
 
 use plughost_core::ipc::shared::{Caller, Submission};
-use plughost_core::{BlockContext, ChangeBatch, ParameterInfo, PluginTiming, RoutedChainConfig};
+use plughost_core::{BlockContext, ChangeBatch, InputError, PluginTiming, RoutedChainConfig};
 use plughost_formats::BlockProcessor;
 
 use crate::Responder;
 use crate::calls::Calls;
 use audio_timing::{Alignment, AudioTiming, DelayReplacement};
+pub(crate) use parameters::Parameters;
 
 /// Blocks and commands waiting for the processing thread. The application sends one block at a
 /// time, and the main thread waits for each command it needs answered.
@@ -54,7 +56,7 @@ pub struct Pipeline {
     /// the plugin makes on its own (from a timer or its editor) is seen at the next tick; a block
     /// processed in between, or while a plugin holds up the main thread, is validated against the
     /// previous metadata.
-    pub parameters: Vec<Vec<ParameterInfo>>,
+    pub parameters: Vec<Parameters>,
     pub calls: Calls,
 }
 
@@ -83,7 +85,9 @@ pub(crate) enum Command {
     Replace(Box<Replace>),
     /// The alignment planned after a native reset, which also ended the notes slots held.
     Reset(Option<Alignment>),
-    Parameters(usize, Vec<ParameterInfo>),
+    Parameters(usize, Parameters),
+    /// Checks the complete render's distinct targets using the same metadata as block checks.
+    ValidateAutomation(Vec<(usize, u64)>, Option<(usize, InputError)>),
     /// Takes the timing changes collected so far.
     Changes(Option<ChangeBatch>),
     /// Runs one of a slot's audio-thread calls.
@@ -99,7 +103,7 @@ pub(crate) struct Prepare {
     pub audio_config: Option<RoutedChainConfig>,
     pub alignment: Option<Alignment>,
     pub events: Option<(events::EventPlan, events::EventBuffers)>,
-    pub parameters: Vec<Vec<ParameterInfo>>,
+    pub parameters: Vec<Parameters>,
     pub timings: Vec<PluginTiming>,
 }
 
@@ -111,7 +115,7 @@ pub(crate) struct Replace {
 }
 
 pub(crate) struct Retime {
-    pub parameters: Vec<ParameterInfo>,
+    pub parameters: Parameters,
     pub timing: PluginTiming,
     pub delays32: Option<DelayReplacement<f32>>,
     pub delays64: Option<DelayReplacement<f64>>,
@@ -168,6 +172,17 @@ impl Pipeline {
                 }
             }
             Command::Changes(changes) => *changes = Some(self.changes.take()),
+            Command::ValidateAutomation(targets, failure) => {
+                *failure = targets.iter().find_map(|&(slot, id)| {
+                    self.parameters
+                        .get(slot)
+                        .ok_or(InputError::Slot)
+                        .and_then(|parameters| parameters.get(id))
+                        .and_then(|info| info.automation_value(0.0))
+                        .err()
+                        .map(|error| (slot, error))
+                });
+            }
             Command::Run(slot, call) => {
                 let _call = self.calls.enter(Caller::Processing, *slot);
                 crate::events::with_pool(|| call.run());

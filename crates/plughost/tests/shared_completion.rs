@@ -46,6 +46,7 @@ fn main() {
         "loaded-count",
         "reprepare-timeout",
         "reset-timeout",
+        "render-targets",
     ] {
         caller(fault);
     }
@@ -71,6 +72,7 @@ fn peer(name: &str, token: u64) {
     let mut events = Vec::with_capacity(MAX_BLOCK_EVENTS);
     let mut blocks = 0;
     let mut preparations = 0;
+    let mut validations = 0;
     while let Ok(request) = read.read::<Request>() {
         match request {
             Request::Load {
@@ -204,6 +206,7 @@ fn peer(name: &str, token: u64) {
                     .unwrap();
             }
             Request::Parameters { .. } => {
+                assert_ne!(fault, "render-targets", "render must not download metadata");
                 let response = match fault.as_str() {
                     "control-crash" => std::process::exit(17),
                     "activity-slot" => {
@@ -230,6 +233,19 @@ fn peer(name: &str, token: u64) {
                     _ => Response::Done,
                 };
                 write.write(&response).unwrap();
+            }
+            Request::ValidateAutomation { targets } => {
+                assert_eq!(fault, "render-targets");
+                validations += 1;
+                assert_eq!(validations, 1);
+                assert_eq!(blocks, 0, "all targets must be checked before DSP");
+                assert_eq!(targets, [(0, 0), (0, 1), (0, 77)]);
+                write
+                    .write(&Response::Rejected {
+                        slot: Some(0),
+                        error: plughost::InputError::UnknownParameter { id: 77 },
+                    })
+                    .unwrap();
             }
             Request::Shutdown => return,
             _ => panic!("unexpected request: {request:?}"),
@@ -294,6 +310,43 @@ fn caller(fault: &str) {
         );
     } else {
         chain.prepare_audio(&config).unwrap();
+        if fault == "render-targets" {
+            let points = [(0, 0), (0, 1), (1, 32), (0, 64), (77, 95)].map(|(id, offset)| {
+                plughost::AutomationEvent {
+                    slot: 0,
+                    change: plughost::ParameterChange {
+                        id,
+                        offset,
+                        value: 0.5,
+                    },
+                }
+            });
+            let input = [1.0f32; 96];
+            let error = plughost::render_with_schedule(
+                &mut chain,
+                &[&input, &input],
+                input.len(),
+                &[],
+                &plughost::RenderOptions::new(plughost::TailPolicy::Reported, 0.0),
+                &plughost::RenderSchedule {
+                    automation: &points,
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    plughost::Error::Input {
+                        slot: Some(0),
+                        error: plughost::InputError::UnknownParameter { id: 77 }
+                    }
+                ),
+                "{error:?}"
+            );
+            assert!(chain.helper_monitor().exit_status().is_none());
+            return;
+        }
         if fault == "reprepare-timeout" {
             // Repreparation reloads plugins, so this response may take longer than control.
             chain.reprepare().unwrap();

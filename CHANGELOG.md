@@ -22,6 +22,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- Render preflight sends each distinct automation target to the helper once, without fetching
+  every slot's parameter list. The helper indexes metadata for both preflight and block checks;
+  invalid targets anywhere in the render still fail before its first DSP call.
 - Scan helpers initialize AppKit only when needed, and helper startup waits on socket/pipe
   readiness instead of sleeping between connection attempts. Interactive retries still
   initialize and activate the application before loading the plugin.
