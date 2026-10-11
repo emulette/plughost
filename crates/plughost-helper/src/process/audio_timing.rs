@@ -1,8 +1,6 @@
 //! Latency and tail follow connected audio paths. External inputs joining a delayed path are
 //! delayed to that path's arrival time, so a sidechain and its main input refer to the same sample.
 
-use std::collections::VecDeque;
-
 use plughost_core::ipc::shared::Caller;
 use plughost_core::render::Tail;
 use plughost_core::{
@@ -157,7 +155,8 @@ pub(crate) struct DelayBank<S: Sample> {
 
 struct RouteDelay<S: Sample> {
     delay: usize,
-    queues: Vec<VecDeque<S>>,
+    queues: Vec<Vec<S>>,
+    position: usize,
 }
 
 impl<S: Sample> DelayBank<S> {
@@ -215,16 +214,25 @@ impl<S: Sample> DelayBank<S> {
         if route.delay == 0 {
             return;
         }
-        for (channel, queue) in channels.iter_mut().zip(&mut route.queues) {
-            for sample in channel {
-                let input = *sample;
-                *sample = if queue.len() == route.delay {
-                    queue.pop_front().unwrap()
-                } else {
-                    S::default()
-                };
-                queue.push_back(input);
+        let position = route.position;
+        for (channel, history) in channels.iter_mut().zip(&mut route.queues) {
+            // Fill the reserved history lazily, preserving the initial delay as silence.
+            let leading = (route.delay - history.len()).min(channel.len());
+            history.extend_from_slice(&channel[..leading]);
+            channel[..leading].fill(S::default());
+            let mut position = position;
+            let mut offset = leading;
+            while offset < channel.len() {
+                let count = (route.delay - position).min(channel.len() - offset);
+                channel[offset..offset + count]
+                    .swap_with_slice(&mut history[position..position + count]);
+                offset += count;
+                position += count;
+                if position == route.delay {
+                    position = 0;
+                }
             }
+            route.position = position;
         }
     }
 }
@@ -304,8 +312,9 @@ impl<S: Sample> RouteDelay<S> {
         Self {
             delay,
             queues: (0..if delay == 0 { 0 } else { channels })
-                .map(|_| VecDeque::with_capacity(delay))
+                .map(|_| Vec::with_capacity(delay))
                 .collect(),
+            position: 0,
         }
     }
 }

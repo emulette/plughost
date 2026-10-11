@@ -40,6 +40,19 @@ audio sample and output event against the 0.1.1 results. To compare with 0.1.1, 
 command. The scheduling change reduced these cases from 16,520 / 8.1 / 1,081 ms to
 94 / 1.7 / 21.5 ms; the output fingerprints and block counts were unchanged.
 
+# Latency alignment
+
+```sh
+cargo test -p plughost-helper --release --lib delay_bank_benchmark -- --ignored --nocapture
+```
+
+The fixture passes 100,000 blocks of 64 or 512 f64 samples through delays of 1, 480 and 8,192
+samples, checking every output's fingerprint and the final block against the expected delayed
+input. For 0.1.1, copy the benchmark function into its `process/audio_timing_tests.rs` and use
+the same command. Replacing per-sample queue operations with ring-buffer slice swaps reduced
+480/8,192-sample delay cases from 23–27 ms to 6.6–6.7 ms at 64 frames and from 198–216 ms to
+63 ms at 512 frames. One-sample delays fell from 46/220 ms to 40/146 ms. All fingerprints matched.
+
 # Soak runs
 
 `cargo bench -p plughost --bench soak -- --plugin BUNDLE [--plugin BUNDLE ...] [--rounds 120]

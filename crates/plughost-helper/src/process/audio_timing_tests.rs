@@ -195,3 +195,45 @@ fn failed_delay_replacement_preserves_pending_audio_and_checks_the_whole_bank() 
         FailureKind::Configuration
     );
 }
+
+#[test]
+#[ignore = "latency alignment benchmark; run in release mode with --nocapture"]
+fn delay_bank_benchmark() {
+    use std::hint::black_box;
+    use std::io::Write;
+    use std::time::Instant;
+    const BLOCKS: usize = 100_000;
+    for (latency, fingerprints) in [
+        (1, [0x972e9f649d3f4325, 0xaa6ba19ffd0b2325]),
+        (480, [0xe415cc889d3f4325, 0x451cefebfd0b2325]),
+        (8192, [0xb7faacd89d3f4325, 0xa2817b3bfd0b2325]),
+    ] {
+        for (frames, expected) in [64, 512].into_iter().zip(fingerprints) {
+            let config = config(true);
+            let timing = AudioTiming::new(&config, &[native(latency, 0), native(0, 0)]).unwrap();
+            let mut delays = DelayBank::<f64>::new(&config, &timing).unwrap();
+            let mut channels = vec![vec![0.0f64; frames]];
+            let mut checksum = 0xcbf29ce484222325u64;
+            let started = Instant::now();
+            for index in 0..BLOCKS {
+                channels[0].fill(index as f64 + 0.25);
+                delays.apply(1, 0, black_box(&mut channels));
+                for &sample in &channels[0] {
+                    checksum = (checksum ^ sample.to_bits()).wrapping_mul(0x100000001b3);
+                }
+            }
+            let elapsed = started.elapsed();
+            assert_eq!(checksum, expected);
+            for (offset, &sample) in channels[0].iter().enumerate() {
+                let input_at = (BLOCKS - 1) * frames + offset - latency as usize;
+                assert_eq!(sample, (input_at / frames) as f64 + 0.25);
+            }
+            writeln!(
+                std::io::stdout(),
+                "delay={latency} frames={frames} blocks={BLOCKS} ms={:.3} checksum={checksum:016x}",
+                elapsed.as_secs_f64() * 1000.0
+            )
+            .unwrap();
+        }
+    }
+}
