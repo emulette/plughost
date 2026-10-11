@@ -10,22 +10,37 @@ mod platform {
         NSApplication, NSApplicationActivationOptions, NSApplicationActivationPolicy, NSEventMask,
         NSRunningApplication, NSWorkspace,
     };
+    use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
     use objc2_foundation::{NSDate, NSDefaultRunLoopMode};
+
+    unsafe extern "C" {
+        // objc2-app-kit's NSApp function calls sharedApplication, creating it unconditionally.
+        #[link_name = "NSApp"]
+        static APPLICATION: *mut NSApplication;
+    }
 
     thread_local! {
         /// The application that was frontmost when the helper last brought itself to the front.
         static PREVIOUS: Cell<Option<Retained<NSRunningApplication>>> = const { Cell::new(None) };
+        static LAUNCHED: Cell<bool> = const { Cell::new(false) };
     }
 
     /// Plugins create windows, timers, and dialogs, which need an application object. The helper
     /// is a background (`LSUIElement`) application.
     pub struct Runtime;
 
-    pub fn init() -> std::io::Result<Runtime> {
-        if let Some(mtm) = MainThreadMarker::new() {
-            let app = NSApplication::sharedApplication(mtm);
+    fn application(mtm: MainThreadMarker) -> Retained<NSApplication> {
+        let app = NSApplication::sharedApplication(mtm);
+        if !LAUNCHED.replace(true) {
             app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
             app.finishLaunching();
+        }
+        app
+    }
+
+    pub fn init(host: bool) -> std::io::Result<Runtime> {
+        if host && let Some(mtm) = MainThreadMarker::new() {
+            application(mtm);
         }
         Ok(Runtime)
     }
@@ -36,6 +51,7 @@ mod platform {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
+        let app = application(mtm);
         let previous = NSWorkspace::sharedWorkspace().frontmostApplication();
         if let Some(previous) =
             previous.filter(|app| *app != NSRunningApplication::currentApplication())
@@ -43,7 +59,7 @@ mod platform {
             PREVIOUS.set(Some(previous));
         }
         #[allow(deprecated)]
-        NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
+        app.activateIgnoringOtherApps(true);
     }
 
     /// An accessory application stays active after its last window closes, which leaves key input
@@ -75,7 +91,13 @@ mod platform {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
-        let app = NSApplication::sharedApplication(mtm);
+        // SAFETY: AppKit's application pointer is inspected only on the main thread. A scan
+        // does not need an application unless a plugin created one or an interactive retry did.
+        if unsafe { APPLICATION.is_null() } {
+            unsafe { CFRunLoop::run_in_mode(kCFRunLoopDefaultMode, 0.0, true) };
+            return;
+        }
+        let app = application(mtm);
         let now = NSDate::now();
         loop {
             let event = unsafe {
@@ -112,7 +134,7 @@ mod platform {
         }
     }
 
-    pub fn init() -> std::io::Result<Runtime> {
+    pub fn init(_host: bool) -> std::io::Result<Runtime> {
         use windows_sys::Win32::System::Diagnostics::Debug::{
             SEM_FAILCRITICALERRORS, SEM_NOGPFAULTERRORBOX, SetErrorMode,
         };

@@ -1,6 +1,9 @@
 //! Starting and supervising one helper process.
 
+mod listener;
 mod process;
+#[cfg(test)]
+mod scan_benchmark;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -10,11 +13,9 @@ use std::hash::{BuildHasher, RandomState};
 use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use interprocess::local_socket::prelude::*;
-use interprocess::local_socket::{GenericNamespaced, ListenerNonblockingMode, ListenerOptions};
 use plughost_core::HostIdentity;
 use plughost_core::PluginRef;
 use plughost_core::ipc::shared::{Activity, Caller, transfer};
@@ -87,15 +88,7 @@ impl Helper {
         };
         let name = format!("plughost-{:016x}{:016x}.sock", random(), random());
         let token = random();
-        let listener = ListenerOptions::new()
-            .name(
-                name.as_str()
-                    .to_ns_name::<GenericNamespaced>()
-                    .map_err(Error::HelperStart)?,
-            )
-            .nonblocking(ListenerNonblockingMode::Accept)
-            .create_sync()
-            .map_err(Error::HelperStart)?;
+        let mut listener = listener::Listener::new(&name).map_err(Error::HelperStart)?;
         let mut command = Command::new(path);
         if cancelled() {
             return Ok(None);
@@ -121,9 +114,15 @@ impl Helper {
                 let _ = child.kill();
                 return Ok(None);
             }
-            match listener.accept() {
-                Ok(stream) => break stream,
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match listener.wait(remaining.min(POLL)) {
+                Ok(true) => {
+                    break listener.accept().map_err(|error| {
+                        let _ = child.kill();
+                        Error::HelperStart(error)
+                    })?;
+                }
+                Ok(false) => {
                     if let Ok(Some(status)) = child.try_wait() {
                         return Err(Error::Crashed {
                             slot: None,
@@ -134,7 +133,6 @@ impl Helper {
                         let _ = child.kill();
                         return Err(Error::TimedOut { slot: None });
                     }
-                    thread::sleep(POLL);
                 }
                 Err(error) => {
                     let _ = child.kill();

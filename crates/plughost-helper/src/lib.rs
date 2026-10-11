@@ -94,7 +94,7 @@ pub fn run() -> ExitCode {
 }
 
 fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
-    let _runtime = events::init()?;
+    let _runtime = events::init(mode == Mode::Host)?;
     let stream = Stream::connect(name.to_ns_name::<GenericNamespaced>()?)?;
     let (receive, send) = stream.split();
     let mut send = MessageWriter::new(send);

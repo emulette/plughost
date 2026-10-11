@@ -152,6 +152,19 @@ plughost crate and use its matching helper for comparison. The cases take about 
 edit fix present in both runs, combining replies reduced the cases from 33/33/43 ms to
 22/23–26/32 ms. Each operation now uses one request instead of two.
 
+# Warm scan startup
+
+```sh
+cargo test -p plughost --release --lib warm_scan_benchmark -- --ignored --nocapture
+```
+
+After one warm-up, the native CLAP delay fixture is scanned in 30 fresh helpers, checking the
+complete class metadata on every scan. Copy `src/helper/scan_benchmark.rs` and its test module
+declaration into 0.1.1's plughost crate and use its matching helper for comparison. The 30 scans
+fell from about 1.61 s to 0.17 s. `PLUGHOST_SCAN_BUNDLE` selects another installed bundle. Licensed
+Pro-Q 4 and Pro-C 3 returned identical class metadata in both VST3 and CLAP; their 30-scan times
+fell from 1.50–1.81 s to 0.19–0.59 s.
+
 # Soak runs
 
 `cargo bench -p plughost --bench soak -- --plugin BUNDLE [--plugin BUNDLE ...] [--rounds 120]

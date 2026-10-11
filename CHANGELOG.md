@@ -22,6 +22,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- Scan helpers initialize AppKit only when needed, and helper startup waits on socket/pipe
+  readiness instead of sleeping between connection attempts. Interactive retries still
+  initialize and activate the application before loading the plugin.
 - Parameter edits, text edits and reset return the updated chain timing in their own reply,
   removing the follow-up timing request while preserving native parameter notifications.
 - State and preset requests borrow the caller's payload until encoding, avoiding a full input

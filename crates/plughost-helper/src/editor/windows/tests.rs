@@ -14,7 +14,7 @@ fn client_size(hwnd: HWND) -> (i32, i32) {
 #[test]
 #[ignore = "needs scripts/build-test-plugins.ps1; opens a window"]
 fn native_editor_scales_minimizes_closes_and_reopens() {
-    let _runtime = crate::events::init().unwrap();
+    let _runtime = crate::events::init(true).unwrap();
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-plugins/again.vst3");
     let module = Module::load(&path).unwrap();
     let mut plugin = Plugin::new(

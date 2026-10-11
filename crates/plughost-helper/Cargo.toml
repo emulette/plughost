@@ -20,6 +20,10 @@ targets = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
 [lints]
 workspace = true
 
+[[test]]
+name = "events"
+harness = false
+
 [features]
 # Audits the processing thread for allocations, locks and system calls (see `plughost_core::audit`);
 # not for shipping.
@@ -34,6 +38,7 @@ plughost-formats.workspace = true
 rustix = { workspace = true, features = ["process"] }
 objc2.workspace = true
 objc2-app-kit.workspace = true
+objc2-core-foundation.workspace = true
 objc2-foundation.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
