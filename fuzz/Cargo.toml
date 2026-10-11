@@ -1,0 +1,69 @@
+[package]
+name = "plughost-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+plughost = { path = "../crates/plughost" }
+plughost-core = { path = "../crates/plughost-core" }
+plughost-formats = { path = "../crates/plughost-formats", default-features = false, features = ["vst3", "au"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+
+[[bin]]
+name = "vstpreset"
+path = "fuzz_targets/vstpreset.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "au_plist"
+path = "fuzz_targets/au_plist.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "moduleinfo"
+path = "fuzz_targets/moduleinfo.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "binary_header"
+path = "fuzz_targets/binary_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cache"
+path = "fuzz_targets/cache.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "framing"
+path = "fuzz_targets/framing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "shared_output"
+path = "fuzz_targets/shared_output.rs"
+test = false
+doc = false
+bench = false

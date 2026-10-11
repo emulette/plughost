@@ -8,6 +8,8 @@
 
 mod activity;
 mod errors;
+#[cfg(any(test, fuzzing))]
+pub mod fuzz;
 mod memory;
 mod samples;
 #[cfg(test)]

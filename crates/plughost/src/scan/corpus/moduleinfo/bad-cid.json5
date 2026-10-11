@@ -1,0 +1,8 @@
+{ // SDK-style JSON5: comments, single quotes and trailing commas
+ 'Factory Info': { Vendor: 'Corpus vendor', },
+ Classes: [
+  { CID: 'bad', Name: 'Corpus synth',
+    Category: 'Audio Module Class', 'Sub Categories': ['Instrument', 'Synth'], },
+  { CID: 'controller', Category: 'Component Controller Class' },
+ ],
+}

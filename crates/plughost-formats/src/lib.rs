@@ -42,3 +42,6 @@ pub mod vst3;
 pub use audio_thread::AudioThread;
 pub use errors::Error;
 pub use hosted::{BlockProcessor, EditorRequest, EditorView, HostedPlugin, ResizeRequest, load};
+
+#[cfg(test)]
+mod preset_corpus;

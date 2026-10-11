@@ -13,3 +13,8 @@ _netrc
 *.p12
 *.pem
 *.pfx
+
+# cargo-fuzz output; checked-in seeds live beside the owning parsers.
+/fuzz/artifacts/
+/fuzz/corpus/
+/fuzz/coverage/

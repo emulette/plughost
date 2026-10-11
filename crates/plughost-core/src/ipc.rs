@@ -307,3 +307,6 @@ mod framing;
 pub use framing::{FrameDecoder, MessageReader, MessageWriter, encode_message, write_message};
 
 pub mod shared;
+
+#[cfg(any(test, fuzzing))]
+pub mod fuzz;

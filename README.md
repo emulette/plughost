@@ -162,6 +162,9 @@ builds a clean application and helper from the extracted crates. It scans and re
 fixtures and checks state restoration and exact output samples. `--allow-dirty` permits local work
 before committing.
 
+Parser corpus tests run with the normal test suite. For bounded AddressSanitizer fuzz sessions,
+install `cargo-fuzz` and run `python3 fuzz/run.py --seconds 60` with a nightly toolchain.
+
 ## License
 
 Licensed under either the [Apache License, Version 2.0](https://github.com/emulette/plughost/blob/v0.1.1/LICENSE-APACHE)

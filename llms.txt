@@ -108,8 +108,8 @@ AU registry results are never cached and are queried for every invocation. Enume
 effects, MIDI-controlled audio effects, instruments and MIDI-only processors; being listed does
 not imply that their event-processing capabilities are implemented.
 
-VST3 metadata is parsed as JSON5, as the VST3 SDK does; a file that does not parse is
-ignored. Only audio module classes are listed; compatibility mappings and snapshots
+VST3 metadata is parsed as JSON5, as the VST3 SDK does; malformed files and documents
+exceeding 64 nested value levels are ignored. Only audio module classes are listed; compatibility mappings and snapshots
 are not interpreted. Native factory enumeration supplies IPluginFactory3::setHostContext
 when supported, with a live IHostApplication retained for the module lifetime. Direct
 `Module::load_with_host(path, &HostIdentity)` and the generic formats loader use the caller's

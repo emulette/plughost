@@ -87,3 +87,8 @@ pub use scan::{
     BundleScan, Catalog, ScanAction, ScanControl, ScanEvent, ScanItem, ScanOutcome, ScanPolicy,
     ScanStage, ScanTarget, Scanner, Source, default_directories,
 };
+
+// Parser entry points for cargo-fuzz; absent from normal builds.
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub use scan::fuzz;

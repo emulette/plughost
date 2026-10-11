@@ -76,3 +76,27 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test the resolved dependencies on the minimum supported Rust version
         run: cargo test --workspace --locked -- --include-ignored
+
+  fuzz:
+    name: Parser corpus and AddressSanitizer fuzzing
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install nightly and cargo-fuzz
+        run: |
+          rustup toolchain install nightly --profile minimal
+          cargo +nightly install cargo-fuzz --version 0.13.2 --locked
+      - name: Replay parser regression corpus
+        run: cargo test -p plughost -p plughost-core -p plughost-formats --lib --locked corpus
+      - name: Fuzz each parser with AddressSanitizer and bounded resources
+        run: python3 fuzz/run.py --seconds 60
+      - name: Preserve failing fuzz inputs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: parser-fuzz-failures
+          path: target/fuzz-artifacts
+          if-no-files-found: ignore

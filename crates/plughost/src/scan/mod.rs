@@ -10,6 +10,8 @@ mod execute;
 mod tests;
 use control::Work;
 pub use control::{ScanControl, ScanEvent, ScanItem, ScanStage, ScanTarget};
+#[cfg(any(test, fuzzing))]
+pub mod fuzz;
 mod moduleinfo;
 mod policy;
 pub use policy::{ScanAction, ScanPolicy};

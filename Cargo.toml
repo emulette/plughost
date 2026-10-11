@@ -56,3 +56,6 @@ print_stderr = "deny"
 print_stdout = "deny"
 todo = "deny"
 unimplemented = "deny"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }

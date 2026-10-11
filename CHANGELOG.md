@@ -69,6 +69,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- Malformed Unicode in an AU binary preset name returns a state error instead of aborting
+  during conversion from Foundation strings.
+- Excessively nested VST3 `moduleinfo.json` metadata is ignored before recursive parsing can
+  exhaust the application stack during discovery.
 - AU parameters marked `NonRealTime` remain editable but reject block automation.
 - AU SysEx input preserves the full 65,536-byte block budget: AUv3 receives timestamped
   fragments, and AUv2 receives a complete message through its native SysEx API.

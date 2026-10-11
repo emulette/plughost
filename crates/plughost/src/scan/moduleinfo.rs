@@ -6,7 +6,8 @@ use std::fs;
 use std::path::Path;
 
 use plughost_core::{PluginFormat, PluginInfo, PluginKind};
-use serde_json::Value;
+mod errors;
+mod value;
 
 const AUDIO_MODULE_CLASS: &str = "Audio Module Class";
 
@@ -22,8 +23,8 @@ pub fn read(bundle: &Path) -> Option<Vec<PluginInfo>> {
     parse(&text)
 }
 
-fn parse(text: &str) -> Option<Vec<PluginInfo>> {
-    let root: Value = json5::from_str(text).ok()?;
+pub(super) fn parse(text: &str) -> Option<Vec<PluginInfo>> {
+    let root = json5::from_str::<value::Document>(text).ok()?.0;
     let factory_vendor = root["Factory Info"]["Vendor"].as_str().unwrap_or_default();
     root["Classes"]
         .as_array()?

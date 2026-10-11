@@ -48,10 +48,14 @@ fn read(path: &Path) -> io::Result<Cache> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Cache::default()),
         Err(error) => return Err(error),
     };
-    Ok(serde_json::from_slice::<Cache>(&bytes)
+    Ok(decode(&bytes))
+}
+
+pub(super) fn decode(bytes: &[u8]) -> Cache {
+    serde_json::from_slice::<Cache>(bytes)
         .ok()
         .filter(|cache| cache.schema == SCHEMA && cache.architecture == std::env::consts::ARCH)
-        .unwrap_or_default())
+        .unwrap_or_default()
 }
 
 pub(super) struct Writer {

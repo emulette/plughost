@@ -6,7 +6,7 @@ use objc2::runtime::AnyObject;
 use objc2_core_foundation::{CFBoolean, CFGetTypeID, CFType, ConcreteType};
 use objc2_foundation::{
     NSData, NSDictionary, NSPropertyListFormat, NSPropertyListMutabilityOptions,
-    NSPropertyListSerialization, NSString,
+    NSPropertyListSerialization, NSString, NSUTF8StringEncoding,
 };
 
 use super::errors::AuError;
@@ -111,10 +111,13 @@ fn inspect_dictionary(state: &State) -> Result<plughost_core::PresetInfo, AuErro
     let name = state
         .objectForKey(&NSString::from_str("name"))
         .map(|value| {
-            value
-                .downcast::<NSString>()
-                .map(|name| name.to_string())
-                .map_err(|_| AuError::State)
+            let name = value.downcast::<NSString>().map_err(|_| AuError::State)?;
+            // Malformed binary plists can produce NSStrings with invalid Unicode. Their
+            // UTF8String may be null, so Display/to_string is not a valid boundary conversion.
+            let bytes = name
+                .dataUsingEncoding(NSUTF8StringEncoding)
+                .ok_or(AuError::State)?;
+            String::from_utf8(bytes.to_vec()).map_err(|_| AuError::State)
         })
         .transpose()?;
     Ok(plughost_core::PresetInfo::new(
