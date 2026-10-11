@@ -11,7 +11,7 @@ use objc2::runtime::{AnyClass, AnyObject};
 use objc2::{MainThreadMarker, msg_send};
 use objc2_app_kit::{NSView, NSViewController};
 use objc2_audio_toolbox::{
-    AUAudioUnitV2Bridge, AudioUnitCocoaViewInfo, AudioUnitGetProperty, AudioUnitGetPropertyInfo,
+    AUAudioUnitV2Bridge, AudioUnitGetProperty, AudioUnitGetPropertyInfo,
     kAudioUnitProperty_CocoaUI, kAudioUnitScope_Global,
 };
 use objc2_core_audio_kit::{AUAudioUnit_ViewController, AUViewControllerBase};
@@ -157,15 +157,8 @@ impl Plugin {
         if status != 0 {
             return Ok(None);
         }
-        let info = storage.as_ptr().cast::<AudioUnitCocoaViewInfo>();
-        // SAFETY: the unit filled in the location and `count` class names, which the caller
-        // owns and releases.
-        let location = unsafe { CFRetained::from_raw((*info).mCocoaAUViewBundleLocation) };
-        let names: Vec<CFRetained<CFString>> = storage[1..]
-            .iter()
-            .filter_map(|&name| NonNull::new(name.cast::<CFString>()))
-            .map(|name| unsafe { CFRetained::from_raw(name) })
-            .collect();
+        // SAFETY: the property returned retained CF objects, owned by this call.
+        let (location, name) = unsafe { cocoa_metadata(&storage) }?;
         let Some(bundle) = CFBundle::new(None, Some(&location)) else {
             return Ok(None);
         };
@@ -173,7 +166,7 @@ impl Plugin {
         if !unsafe { bundle.load_executable() } {
             return Ok(None);
         }
-        let Some(class) = CString::new(names[0].to_string())
+        let Some(class) = CString::new(name.to_string())
             .ok()
             .and_then(|name| AnyClass::get(&name))
         else {
@@ -192,4 +185,70 @@ fn has_area(size: NSSize) -> bool {
 
 fn pixels(size: NSSize) -> (u32, u32) {
     (size.width.round() as u32, size.height.round() as u32)
+}
+
+/// Takes ownership of the CF objects returned by the native Cocoa UI property.
+/// Null entries are possible even when the property call succeeds.
+///
+/// # Safety
+/// Each non-null pointer must be the retained CFURL (first entry) or CFString (remaining
+/// entries) returned by the unit. The slice has at least one class-name entry.
+unsafe fn cocoa_metadata(
+    storage: &[*mut c_void],
+) -> Result<(CFRetained<CFURL>, CFRetained<CFString>), AuError> {
+    // Read nullable pointers from raw storage: the bindings' NonNull fields cannot represent
+    // a unit's malformed property. Still release every non-null object on either error path.
+    let location = NonNull::new(storage[0].cast::<CFURL>())
+        .map(|location| unsafe { CFRetained::from_raw(location) });
+    let names: Vec<CFRetained<CFString>> = storage[1..]
+        .iter()
+        .filter_map(|&name| NonNull::new(name.cast::<CFString>()))
+        .map(|name| unsafe { CFRetained::from_raw(name) })
+        .collect();
+    let name = names.into_iter().next();
+    Ok((
+        location.ok_or(AuError::NoEditor)?,
+        name.ok_or(AuError::NoEditor)?,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn location() -> *mut c_void {
+        CFRetained::into_raw(CFBundle::main_bundle().unwrap().bundle_url().unwrap())
+            .as_ptr()
+            .cast()
+    }
+
+    #[test]
+    fn cocoa_property_with_no_class_name_is_not_an_editor() {
+        let storage = [location(), std::ptr::null_mut(), std::ptr::null_mut()];
+        assert!(matches!(
+            unsafe { cocoa_metadata(&storage) },
+            Err(AuError::NoEditor)
+        ));
+    }
+
+    #[test]
+    fn cocoa_property_with_no_bundle_is_not_an_editor() {
+        let name = CFRetained::into_raw(CFString::from_str("ViewFactory"))
+            .as_ptr()
+            .cast();
+        assert!(matches!(
+            unsafe { cocoa_metadata(&[std::ptr::null_mut(), name]) },
+            Err(AuError::NoEditor)
+        ));
+    }
+
+    #[test]
+    fn cocoa_property_uses_the_first_nonnull_class_name() {
+        let name = CFRetained::into_raw(CFString::from_str("ViewFactory"))
+            .as_ptr()
+            .cast();
+        let storage = [location(), std::ptr::null_mut(), name];
+        let (_, name) = unsafe { cocoa_metadata(&storage) }.unwrap();
+        assert_eq!(name.to_string(), "ViewFactory");
+    }
 }

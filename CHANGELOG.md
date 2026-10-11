@@ -22,6 +22,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- AU Cocoa editor metadata with a null bundle or no non-null class name reports `NoEditor`
+  without constructing an invalid retained pointer or indexing an empty class list.
 - AU preparation preserves parameter, editor and bypass edits made after an unprepared state
   restore or factory preset selection, and reads timing after restoring that current state.
 - `Error` and `PresetSearchError` display their context while `source()` retains the cause,
