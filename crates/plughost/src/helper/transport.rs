@@ -137,8 +137,20 @@ mod pipe {
         write_event: OwnedHandle,
         /// A write that outlived its timeout. It is never cancelled while the connection is open:
         /// a cancelled pipe write can leave part of its buffer sent while reporting none sent.
-        pending_write: Option<Box<OVERLAPPED>>,
+        pending_write: Option<Box<PendingWrite>>,
     }
+
+    /// Kernel-owned progress for the one outstanding write. Boxing it keeps its address stable
+    /// when the transport moves to another thread.
+    struct PendingWrite(OVERLAPPED);
+
+    // SAFETY: no field is read or changed by Rust while Windows owns the operation. Every
+    // operation needs `&mut Pipe`; the event and pipe handles have no thread affinity. Pipe's
+    // Drop cancels and joins the operation before this box or its write buffer can be freed.
+    unsafe impl Send for PendingWrite {}
+    // SAFETY: shared references to Pipe expose no OVERLAPPED access or concurrent I/O. All
+    // progress is obtained through Windows' synchronization APIs under exclusive Pipe access.
+    unsafe impl Sync for PendingWrite {}
 
     fn event() -> io::Result<OwnedHandle> {
         // SAFETY: a manual-reset event with default security; the handle is owned below.
@@ -188,8 +200,8 @@ mod pipe {
             if self.pending_write.is_none() {
                 // SAFETY: OVERLAPPED is plain C data, boxed so it stays in place while the write
                 // is in progress.
-                let mut overlapped: Box<OVERLAPPED> = Box::new(unsafe { std::mem::zeroed() });
-                overlapped.hEvent = self.write_event.as_raw_handle();
+                let mut overlapped = Box::new(PendingWrite(unsafe { std::mem::zeroed() }));
+                overlapped.0.hEvent = self.write_event.as_raw_handle();
                 let length = u32::try_from(buffer.len()).unwrap_or(u32::MAX);
                 // SAFETY: the caller keeps `buffer` unchanged until the write completes, and
                 // `Drop` waits for a write still in progress.
@@ -199,7 +211,7 @@ mod pipe {
                         buffer.as_ptr(),
                         length,
                         std::ptr::null_mut(),
-                        &mut *overlapped,
+                        &mut overlapped.0,
                     )
                 };
                 if started == 0 {
@@ -217,7 +229,7 @@ mod pipe {
             let mut count = 0;
             // SAFETY: `overlapped` belongs to the write in progress on this handle.
             let done = unsafe {
-                GetOverlappedResultEx(handle, &**overlapped, &mut count, millis(timeout), 0)
+                GetOverlappedResultEx(handle, &overlapped.0, &mut count, millis(timeout), 0)
             };
             if done != 0 {
                 self.pending_write = None;
@@ -293,8 +305,8 @@ mod pipe {
                 let mut count = 0;
                 // SAFETY: `overlapped` belongs to the write in progress on this handle.
                 unsafe {
-                    CancelIoEx(handle, &**overlapped);
-                    GetOverlappedResult(handle, &**overlapped, &mut count, 1);
+                    CancelIoEx(handle, &overlapped.0);
+                    GetOverlappedResult(handle, &overlapped.0, &mut count, 1);
                 }
             }
         }
@@ -319,6 +331,7 @@ mod pipe {
         pub fn new(stream: Stream) -> io::Result<Self> {
             let Stream::UdSocket(socket) = stream;
             let stream = socket.inner().try_clone()?;
+            rustix::net::sockopt::set_socket_nosigpipe(&stream, true)?;
             stream.set_nonblocking(true)?;
             Ok(Self { stream })
         }

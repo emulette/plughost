@@ -349,6 +349,7 @@ version = "0.1.1"
 dependencies = [
  "interprocess",
  "json5",
+ "libc",
  "objc2-core-foundation",
  "plughost-core",
  "plughost-formats",

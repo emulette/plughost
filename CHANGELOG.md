@@ -14,6 +14,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- `Chain` is `Send + Sync` on Windows as on macOS, including while a timed-out overlapped
+  pipe write is pending.
+- A disconnected helper socket does not raise SIGPIPE in a C or Swift embedding process
+  that retains the signal's default action.
 - Rendering an unprepared chain reports `NotPrepared` before checking its input buffers, for
   both sample precisions and continuous render sessions.
 - Invalid event ports anywhere in a render are rejected before DSP state advances, including

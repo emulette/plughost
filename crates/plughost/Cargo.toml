@@ -39,6 +39,9 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Storage
 [dev-dependencies]
 plughost-formats.workspace = true
 
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+libc.workspace = true
+
 [target.'cfg(target_os = "windows")'.dev-dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 

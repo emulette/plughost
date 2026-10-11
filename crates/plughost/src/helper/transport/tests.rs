@@ -152,3 +152,37 @@ fn a_request_too_large_for_a_message_is_not_mistaken_for_a_closed_connection() {
     assert_eq!(reader.join().unwrap().unwrap(), Request::Shutdown);
     transport.close();
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn disconnected_writes_do_not_signal_the_embedding_process() {
+    const CHILD: &str = "PLUGHOST_TEST_DEFAULT_SIGPIPE";
+    if std::env::var_os(CHILD).is_some() {
+        // SAFETY: this subprocess runs only this test. Model a C/Swift embedding process,
+        // which need not ignore SIGPIPE as a Rust executable normally does.
+        unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+        let (mut transport, peer) = connection();
+        drop(peer);
+        transport.queue(&Request::Shutdown).unwrap();
+        assert!(matches!(
+            transport.flush(Duration::from_secs(1)),
+            Err(Stopped::Closed)
+        ));
+        return;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "helper::transport::tests::disconnected_writes_do_not_signal_the_embedding_process",
+            "--nocapture",
+        ])
+        .env(CHILD, "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "child ended with {}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
