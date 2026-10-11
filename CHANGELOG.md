@@ -9,6 +9,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Added
 
+- The main crate re-exports `ParameterFlags`, `Sample`, the render `Process` trait, and public
+  audio, text, preset and event/diagnostic buffer limits, avoiding a separate core dependency.
+- `Debug` for chains, scanners, helper monitors, scan controls, render sessions and native
+  plugins, modules and processors. Formatting does not invoke plugin code or acquire an
+  engine lock, and render sessions do not require the caller's processor to implement `Debug`.
 - `render::Process::validate_events` lets processors reject unavailable event ports across the
   whole render before processing begins; its default preserves existing implementations.
 - `InputError::BundlePathEncoding` identifies bundle paths that the helper's Unicode path

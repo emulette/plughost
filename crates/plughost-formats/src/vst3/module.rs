@@ -29,6 +29,14 @@ pub struct Module {
     _host: ComWrapper<HostApplication>,
 }
 
+impl std::fmt::Debug for Module {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Module")
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Module {
     /// Loads the module at `path`: a `.vst3` bundle, or on Windows also a single-file `.vst3`.
     pub fn load(path: &Path) -> Result<Rc<Module>, Vst3Error> {

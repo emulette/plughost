@@ -57,6 +57,19 @@ pub struct Chain {
     tail: Tail,
 }
 
+impl std::fmt::Debug for Chain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Chain")
+            .field("helper", &self.helper.monitor())
+            .field("plugins", &self.infos)
+            .field("config", &self.config)
+            .field("prepared", &self.shared.is_some())
+            .field("latency", &self.latency)
+            .field("tail", &self.tail)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Chain {
     /// Starts a helper and loads `plugins` into it, in chain order. `host` identifies the calling
     /// application to plugins and is retained across resets and recovery.

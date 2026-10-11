@@ -24,6 +24,17 @@ pub struct RenderSession<'a, S: Sample, P: Process<S>> {
     marker: std::marker::PhantomData<S>,
 }
 
+impl<S: Sample, P: Process<S>> std::fmt::Debug for RenderSession<'_, S, P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RenderSession")
+            .field("state", &self.state)
+            .field("latency", &self.latency)
+            .field("skip", &self.skip)
+            .field("transport", &self.transport)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
     pub fn new(processor: &'a mut P) -> Result<Self, P::Error> {
         processor.begin_render()?;

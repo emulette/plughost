@@ -16,6 +16,15 @@ pub struct HelperMonitor {
     ended: Arc<(Mutex<Option<ExitStatus>>, Condvar)>,
 }
 
+impl std::fmt::Debug for HelperMonitor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HelperMonitor")
+            .field("process_id", &self.pid)
+            .field("exit_status", &self.ended.0)
+            .finish_non_exhaustive()
+    }
+}
+
 impl HelperMonitor {
     pub fn process_id(&self) -> u32 {
         self.pid

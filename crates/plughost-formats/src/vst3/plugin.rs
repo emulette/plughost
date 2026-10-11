@@ -60,6 +60,15 @@ pub struct Plugin {
     _module: Rc<Module>,
 }
 
+impl std::fmt::Debug for Plugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Plugin")
+            .field("info", &self.info)
+            .field("editor_open", &self.editor.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Plugin {
     /// Creates and initializes an instance of the class with `class_id` from `module`.
     pub fn new(

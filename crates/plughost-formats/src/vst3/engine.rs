@@ -495,6 +495,14 @@ pub struct Processor {
     engine: Shared,
 }
 
+impl std::fmt::Debug for Processor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Processor")
+            .field("engine", &Arc::as_ptr(&self.engine))
+            .finish_non_exhaustive()
+    }
+}
+
 impl Processor {
     pub(crate) fn new(engine: &Shared) -> Processor {
         Processor {

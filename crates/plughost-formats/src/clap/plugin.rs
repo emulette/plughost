@@ -138,6 +138,15 @@ pub struct Plugin {
     audio_active: std::collections::HashMap<(bool, u64), bool>,
 }
 
+impl std::fmt::Debug for Plugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Plugin")
+            .field("info", &self.info)
+            .field("editor_open", &self.editor.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Plugin {
     pub fn new(
         bundle: &Path,
@@ -719,6 +728,14 @@ fn is_ambisonic(layout: Layout) -> bool {
 #[derive(Clone)]
 pub struct Processor {
     engine: Arc<Mutex<Engine>>,
+}
+
+impl std::fmt::Debug for Processor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Processor")
+            .field("engine", &Arc::as_ptr(&self.engine))
+            .finish_non_exhaustive()
+    }
 }
 
 impl Processor {

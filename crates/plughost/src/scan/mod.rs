@@ -156,6 +156,7 @@ pub fn default_directories() -> Vec<PathBuf> {
     directories
 }
 
+#[derive(Debug)]
 pub struct Scanner {
     helper: PathBuf,
     cache: PathBuf,

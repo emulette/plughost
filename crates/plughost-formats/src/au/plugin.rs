@@ -162,6 +162,15 @@ pub struct Plugin {
     unconvertible: Arc<AtomicU64>,
 }
 
+impl std::fmt::Debug for Plugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Plugin")
+            .field("info", &self.info)
+            .field("editor_open", &self.editor.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Plugin {
     /// Instantiates the registered Audio Unit with `class_id`. AUv3 units run in their extension
     /// process, as macOS does by default.
@@ -912,6 +921,14 @@ impl Engine {
 #[derive(Clone)]
 pub struct Processor {
     engine: Arc<Mutex<Engine>>,
+}
+
+impl std::fmt::Debug for Processor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Processor")
+            .field("engine", &Arc::as_ptr(&self.engine))
+            .finish_non_exhaustive()
+    }
 }
 
 impl Processor {

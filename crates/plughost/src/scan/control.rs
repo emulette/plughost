@@ -9,7 +9,7 @@ use super::{BundleScan, ScanOutcome};
 
 /// A shared stop handle for scanner operations. Cancellation is permanent for this handle;
 /// create a fresh one for a later independent scan. Clones control the same operation group.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ScanControl {
     cancelled: Arc<AtomicBool>,
 }
