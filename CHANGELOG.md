@@ -14,6 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- `Error` and `PresetSearchError` display their context while `source()` retains the cause,
+  avoiding duplicate messages when formatting an error chain. Format the source chain to
+  include the full diagnostic; portable scan failures still retain it.
 - Scan caches survive library upgrades when their schema and architecture are unchanged.
   Helper startup, handshake and pre-request failures preserve cached plugin failure counts.
 - Plugin discovery follows each directory only once, preventing repeated scans through

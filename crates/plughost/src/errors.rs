@@ -12,6 +12,8 @@ const OPERATION: &str = "the operation failed";
 const PROTOCOL: &str = "the helper sent an invalid or unexpected message";
 const SLOT: &str = "slot";
 const CACHE: &str = "could not access the scan cache";
+const INPUT: &str = "invalid input";
+const RENDER: &str = "rendering failed";
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -54,7 +56,7 @@ fn slot(f: &mut fmt::Formatter<'_>, slot: &Option<usize>) -> fmt::Result {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::HelperStart(error) => write!(f, "{HELPER_START}: {error}"),
+            Error::HelperStart(_) => f.write_str(HELPER_START),
             Error::Handshake => f.write_str(HANDSHAKE),
             Error::Crashed {
                 slot: which,
@@ -71,23 +73,19 @@ impl fmt::Display for Error {
                 f.write_str(TIMED_OUT)?;
                 slot(f, which)
             }
-            Error::Operation {
-                slot: which,
-                failure,
-            } => {
+            Error::Operation { slot: which, .. } => {
                 f.write_str(OPERATION)?;
-                slot(f, which)?;
-                write!(f, ": {failure}")
+                slot(f, which)
             }
             Error::Protocol => f.write_str(PROTOCOL),
             Error::NotPrepared => f.write_str(CHAIN_NOT_PREPARED),
-            Error::Input { slot: which, error } => {
-                error.fmt(f)?;
+            Error::Input { slot: which, .. } => {
+                f.write_str(INPUT)?;
                 slot(f, which)
             }
             Error::Buffers => f.write_str(BUFFERS),
-            Error::Render(error) => error.fmt(f),
-            Error::Cache(error) => write!(f, "{CACHE}: {error}"),
+            Error::Render(_) => f.write_str(RENDER),
+            Error::Cache(_) => f.write_str(CACHE),
         }
     }
 }
@@ -111,6 +109,18 @@ impl From<RenderError> for Error {
 }
 
 impl Error {
+    /// Flattens the full chain when a scan must store its diagnostic as a portable string.
+    pub(crate) fn diagnostic(&self) -> String {
+        let mut message = self.to_string();
+        let mut cause = std::error::Error::source(self);
+        while let Some(error) = cause {
+            message.push_str(": ");
+            message.push_str(&error.to_string());
+            cause = error.source();
+        }
+        message
+    }
+
     /// Common category for local errors and structured helper failures.
     pub fn kind(&self) -> FailureKind {
         match self {

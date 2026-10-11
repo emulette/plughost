@@ -456,7 +456,9 @@ frontmost before is activated again when the helper's last window closes.
 
 Match typed `Error` variants (`Error::Render` carries a `RenderError`, `Error::Input` an
 `InputError`) or use `Error::kind()` for the shared `FailureKind`; do not parse display text. `Error` and the scan enums are `#[non_exhaustive]`; `Error::source()`
-exposes wrapped I/O, render, input and operation errors. After a timeout or protocol error the
+exposes wrapped I/O, render, input and operation errors. `Display` gives the outer context;
+format the source chain to include each cause once. `PresetSearchError` follows the same rule.
+After a timeout or protocol error the
 helper is terminated; later requests return `Error::Crashed` (`NotPrepared` for processing)
 until the application recovers the chain. `Error::Crashed` and `Error::TimedOut` can include the last reported
 slot, which may be unavailable. Treat plugin failures as recoverable application events.

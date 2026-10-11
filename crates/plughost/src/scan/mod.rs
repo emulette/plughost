@@ -479,6 +479,6 @@ fn outcome_of(error: Error) -> ScanOutcome {
         }
         Error::TimedOut { .. } => ScanOutcome::TimedOut,
         Error::Operation { failure, .. } => ScanOutcome::Failed(failure),
-        error => ScanOutcome::Failed(Failure::new(error.kind(), error.to_string())),
+        error => ScanOutcome::Failed(Failure::new(error.kind(), error.diagnostic())),
     }
 }

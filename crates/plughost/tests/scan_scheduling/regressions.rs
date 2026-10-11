@@ -79,6 +79,19 @@ fn helper_start_failures_preserve_bundle_history() {
             assert_eq!(result.bundles[0].failures, 1, "{fault}");
             assert_eq!(result.bundles[1].failures, 0, "{fault}");
             assert!(result.bundles.iter().all(|scan| !scan.excluded));
+            if fault == "missing" {
+                let cause = std::process::Command::new(root.join("missing-helper"))
+                    .spawn()
+                    .unwrap_err()
+                    .to_string();
+                let ScanOutcome::Failed(failure) = &result.bundles[0].outcome else {
+                    panic!("missing helper must report an I/O failure")
+                };
+                assert_eq!(
+                    failure.message,
+                    format!("could not start the helper: {cause}")
+                );
+            }
             assert_eq!(
                 serde_json::from_slice::<serde_json::Value>(&fs::read(&cache).unwrap()).unwrap(),
                 snapshot

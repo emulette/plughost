@@ -27,7 +27,7 @@ pub enum PresetSearchError {
 impl fmt::Display for PresetSearchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io { path, source } => write!(f, "{SEARCH_IO} ({}): {source}", path.display()),
+            Self::Io { path, .. } => write!(f, "{SEARCH_IO} ({})", path.display()),
             Self::UnsupportedFormat(format) => write!(f, "{UNSUPPORTED}: {format:?}"),
         }
     }
