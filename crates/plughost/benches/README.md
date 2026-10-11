@@ -139,6 +139,19 @@ Peak additional heap fell from about 140.5 MiB to 65.5 MiB; retained heap fell f
 64 KiB for restore and 129 KiB for recovery. The regression test bounds retained and peak heap
 with an 8 MiB state.
 
+# Control timing replies
+
+```sh
+cargo test -p plughost --release --test control_timing -- --ignored --nocapture
+```
+
+The prepared native CLAP delay fixture receives 1,000 parameter edits, text edits and resets,
+checking its final parameter, latency and tail. Copy `tests/control_timing.rs` into 0.1.1's
+plughost crate and use its matching helper for comparison. The cases take about 22/23–26/32 ms;
+0.1.1 took 22/22–28/38 ms, but deferred parameter delivery until a later call. With the pending
+edit fix present in both runs, combining replies reduced the cases from 33/33/43 ms to
+22/23–26/32 ms. Each operation now uses one request instead of two.
+
 # Soak runs
 
 `cargo bench -p plughost --bench soak -- --plugin BUNDLE [--plugin BUNDLE ...] [--rounds 120]

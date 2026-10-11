@@ -65,9 +65,21 @@ impl Host {
     /// Handles one request. Parameter events and metadata are collected before the response
     /// leaves, so the next block is validated against metadata this request may have changed.
     pub fn handle(&mut self, request: Request<'_>) -> Response {
+        let refresh_timing = matches!(
+            &request,
+            Request::SetParameter { .. } | Request::SetParameterText { .. } | Request::Reset
+        );
         let response = self.dispatch(request);
         self.collect_parameter_events();
-        response
+        if refresh_timing && matches!(response, Response::Done) {
+            let timing = self.timing();
+            // Timing delivers pending host edits. Collect the resulting native notifications
+            // before replying, as the former separate Timing request did.
+            self.collect_parameter_events();
+            timing
+        } else {
+            response
+        }
     }
 
     fn dispatch(&mut self, request: Request<'_>) -> Response {

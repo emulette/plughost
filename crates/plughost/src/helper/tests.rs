@@ -85,6 +85,78 @@ fn prepare(
 }
 
 #[test]
+#[ignore = "needs helper and native delay fixture"]
+fn editing_controls_return_timing_in_their_own_response() {
+    let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    let path = target.join(if cfg!(target_os = "macos") {
+        "helper/PlughostHelper.app/Contents/MacOS/plughost-helper"
+    } else {
+        "helper/plughost-helper.exe"
+    });
+    let timeout = Duration::from_secs(10);
+    let mut helper = Helper::spawn(&path, Mode::Host).unwrap();
+    helper
+        .load(
+            &HostIdentity::default(),
+            &[PluginRef {
+                format: plughost_core::PluginFormat::Clap,
+                bundle: Some(target.join("test-plugins/plughost-test-delay.clap")),
+                class_id: "com.studio.plughost.test-delay.79000001".into(),
+            }],
+            timeout,
+        )
+        .unwrap();
+    let memory = memory(1);
+    prepare(&mut helper, &memory, stereo(), timeout).unwrap();
+    let Response::Parameters(parameters) = helper
+        .request(Request::Parameters { slot: 0 }, timeout)
+        .unwrap()
+    else {
+        panic!("expected parameters")
+    };
+    let id = parameters
+        .iter()
+        .find(|(info, _)| info.title == "Tail samples")
+        .unwrap()
+        .0
+        .id;
+    let Response::ParameterText(text) = helper
+        .request(
+            Request::ParameterText {
+                slot: 0,
+                id,
+                value: 0.25,
+            },
+            timeout,
+        )
+        .unwrap()
+    else {
+        panic!("expected parameter text")
+    };
+    for (request, tail) in [
+        (
+            Request::SetParameter {
+                slot: 0,
+                id,
+                value: 0.5,
+            },
+            16,
+        ),
+        (Request::SetParameterText { slot: 0, id, text }, 8),
+        (Request::Reset, 8),
+    ] {
+        assert_eq!(
+            helper.request(request, timeout).unwrap(),
+            Response::Timing {
+                latency: 480,
+                tail: plughost_core::render::Tail::Samples(tail),
+                latency_changed: false,
+            }
+        );
+    }
+}
+
+#[test]
 #[ignore = "needs the helper and timers CLAP fixture"]
 fn main_thread_ticks_during_queued_requests() {
     let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");

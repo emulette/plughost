@@ -183,7 +183,14 @@ fn peer(name: &str, token: u64) {
                 if fault == "reset-timeout" {
                     std::thread::sleep(Duration::from_millis(300));
                 }
-                if write.write(&Response::Done).is_err() {
+                if write
+                    .write(&Response::Timing {
+                        latency: 0,
+                        tail: plughost::Tail::Samples(0),
+                        latency_changed: false,
+                    })
+                    .is_err()
+                {
                     return;
                 }
             }

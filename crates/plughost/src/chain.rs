@@ -230,8 +230,7 @@ impl Chain {
     /// Changes a parameter the way an edit in the plugin's editor does.
     pub fn set_parameter(&mut self, slot: usize, id: u64, value: f64) -> Result<(), Error> {
         let request = Request::SetParameter { slot, id, value };
-        self.request_done(request, self.timeouts.control)?;
-        self.refresh_timing()
+        self.request_timing(request).map(|_| ())
     }
 
     /// Uses the native formatter without changing the parameter.
@@ -251,15 +250,12 @@ impl Chain {
             slot: Some(slot),
             error,
         })?;
-        self.request_done(
-            Request::SetParameterText {
-                slot,
-                id,
-                text: text.to_owned(),
-            },
-            self.timeouts.control,
-        )?;
-        self.refresh_timing()
+        self.request_timing(Request::SetParameterText {
+            slot,
+            id,
+            text: text.to_owned(),
+        })
+        .map(|_| ())
     }
 
     pub fn parameter_from_text(&mut self, slot: usize, id: u64, text: &str) -> Result<f64, Error> {
@@ -307,8 +303,7 @@ impl Chain {
 
     /// Clears every plugin's internal state (tails, delay lines), keeping its settings.
     pub fn reset(&mut self) -> Result<(), Error> {
-        self.request_done(Request::Reset, self.timeouts.control)?;
-        self.refresh_timing()
+        self.request_timing(Request::Reset).map(|_| ())
     }
 
     /// Opens the editor of the plugin in `slot` in a window of the helper. The chain keeps
@@ -347,17 +342,17 @@ impl Chain {
         }
     }
 
-    fn refresh_timing(&mut self) -> Result<(), Error> {
-        self.read_timing().map(|_| ())
-    }
-
     /// Reads the chain's latency and tail from the helper, and whether a plugin announced a
     /// latency that is not applied yet.
     fn read_timing(&mut self) -> Result<bool, Error> {
         if !self.is_prepared() {
             return Ok(false);
         }
-        match self.request(Request::Timing, self.timeouts.control)? {
+        self.request_timing(Request::Timing)
+    }
+
+    fn request_timing(&mut self, request: Request<'_>) -> Result<bool, Error> {
+        match self.request(request, self.timeouts.control)? {
             Response::Timing {
                 latency,
                 tail,
