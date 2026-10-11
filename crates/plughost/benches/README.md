@@ -72,7 +72,7 @@ and run the same command with that checkout's helper. Times are 0.1.1 → 0.1.2.
   one request per operation instead of two.
 - State transfer memory: restore and recovery of a 64 MiB state.
   `cargo test -p plughost --release --test state_memory state_transfer_benchmark -- --ignored --nocapture`:
-  peak additional heap 140.5 → 65.5 MiB; retained heap 76.5 MiB → under 130 KiB.
+  peak additional heap 140.5 → 64.1 MiB; retained heap 76.5 MiB → under 130 KiB.
 - IPC framing: 20,000 small requests and four 16 MiB payloads over the supervised transport, and
   a bare socket exchange.
   `cargo test -p plughost --release --lib supervised_framing_benchmark -- --ignored --nocapture`
