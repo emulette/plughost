@@ -1,4 +1,7 @@
 //! Per-connection framing storage; owned decoded messages remain independent of the scratch.
+#[cfg(test)]
+#[path = "framing_read_tests.rs"]
+mod read_tests;
 use super::MAX_MESSAGE_BYTES;
 use crate::errors::{MALFORMED_MESSAGE, MESSAGE_TOO_LARGE};
 use serde::{Serialize, de::DeserializeOwned};
@@ -10,22 +13,30 @@ const PREFIX_BYTES: usize = size_of::<u32>();
 
 /// A framed reader that retains bounded scratch between messages.
 /// Decoding owned strings/vectors may still allocate. This is blocking control/offline I/O.
+/// Keep the same reader for the connection: it reads ahead into subsequent frames.
 pub struct MessageReader<R> {
     reader: R,
-    bytes: Vec<u8>,
+    decoder: FrameDecoder,
 }
 impl<R: Read> MessageReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
             reader,
-            bytes: Vec::new(),
+            decoder: FrameDecoder::default(),
         }
     }
     pub fn read<T: DeserializeOwned>(&mut self) -> io::Result<T> {
-        let result = read_buffered_message(&mut self.reader, &mut self.bytes);
-        self.bytes.clear();
-        self.bytes.shrink_to(RETAINED_BYTES);
-        result
+        loop {
+            if let Some(message) = self.decoder.message() {
+                return message;
+            }
+            match self.reader.read(self.decoder.unfilled()?) {
+                Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
+                Ok(count) => self.decoder.advance(count),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        }
     }
 }
 
@@ -94,24 +105,41 @@ fn encode_bounded<T: Serialize>(bytes: &mut Vec<u8>, message: &T, limit: usize) 
 /// stop at a deadline and continue later without losing data.
 #[derive(Default)]
 pub struct FrameDecoder {
+    /// Initialized once and reused without clearing between frames.
     bytes: Vec<u8>,
+    consumed: usize,
     filled: usize,
+    /// Large payloads grow from received slices without zero-initializing unread bytes.
+    large: Option<LargePayload>,
+}
+
+struct LargePayload {
+    length: usize,
+    bytes: Vec<u8>,
 }
 
 impl FrameDecoder {
-    /// The bytes the current frame still needs: its length prefix, then its payload.
+    /// Space for the next read, which may contain several frames. Call [`Self::message`] until
+    /// it returns `None` before reading more; leftover bytes are kept across calls.
     pub fn unfilled(&mut self) -> io::Result<&mut [u8]> {
-        let end = match self.length() {
-            None => PREFIX_BYTES,
-            Some(length) if length > MAX_MESSAGE_BYTES => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    MESSAGE_TOO_LARGE,
-                ));
-            }
-            Some(length) => PREFIX_BYTES + length,
-        };
-        self.bytes.resize(end, 0);
+        if self.large.is_none()
+            && self
+                .length()
+                .is_some_and(|length| length > MAX_MESSAGE_BYTES)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                MESSAGE_TOO_LARGE,
+            ));
+        }
+        if self.bytes.is_empty() {
+            self.bytes.resize(RETAINED_BYTES, 0);
+        }
+        if self.consumed != 0 {
+            self.bytes.copy_within(self.consumed..self.filled, 0);
+            self.filled -= self.consumed;
+            self.consumed = 0;
+        }
         Ok(&mut self.bytes[self.filled..])
     }
 
@@ -120,23 +148,52 @@ impl FrameDecoder {
         self.filled += count;
     }
 
-    /// The current frame, once all of its bytes arrived. Scratch beyond the retained size is
-    /// released after each frame.
+    /// The next frame, once all of its bytes arrived. Following frames stay buffered, and large
+    /// payload storage is released after decoding. Partial large payloads consume received bytes.
     pub fn message<T: DeserializeOwned>(&mut self) -> Option<io::Result<T>> {
-        let length = self.length()?;
-        if length > MAX_MESSAGE_BYTES || self.filled < PREFIX_BYTES + length {
+        if self.large.is_none() {
+            let length = self.length()?;
+            if length > MAX_MESSAGE_BYTES {
+                return None;
+            }
+            let begin = self.consumed + PREFIX_BYTES;
+            if length + PREFIX_BYTES <= RETAINED_BYTES {
+                let end = begin + length;
+                if self.filled < end {
+                    return None;
+                }
+                let message = decode(&self.bytes[begin..end]);
+                self.consumed = end;
+                return Some(message);
+            }
+            self.consumed = begin;
+            self.large = Some(LargePayload {
+                length,
+                bytes: Vec::with_capacity(length),
+            });
+        }
+        let payload = self.large.as_mut().unwrap();
+        let take = (payload.length - payload.bytes.len()).min(self.filled - self.consumed);
+        payload
+            .bytes
+            .extend_from_slice(&self.bytes[self.consumed..self.consumed + take]);
+        self.consumed += take;
+        if payload.bytes.len() != payload.length {
             return None;
         }
-        let message = decode(&self.bytes[PREFIX_BYTES..PREFIX_BYTES + length]);
-        self.filled = 0;
-        self.bytes.clear();
-        self.bytes.shrink_to(RETAINED_BYTES);
+        let message = decode(&payload.bytes);
+        self.large = None;
         Some(message)
     }
 
     fn length(&self) -> Option<usize> {
-        (self.filled >= PREFIX_BYTES)
-            .then(|| u32::from_le_bytes(self.bytes[..PREFIX_BYTES].try_into().unwrap()) as usize)
+        (self.filled - self.consumed >= PREFIX_BYTES).then(|| {
+            u32::from_le_bytes(
+                self.bytes[self.consumed..self.consumed + PREFIX_BYTES]
+                    .try_into()
+                    .unwrap(),
+            ) as usize
+        })
     }
 }
 
@@ -168,24 +225,6 @@ impl postcard::ser_flavors::Flavor for MessageBuffer<'_> {
     fn finalize(self) -> postcard::Result<Self::Output> {
         Ok(())
     }
-}
-
-fn read_buffered_message<R: Read, T: DeserializeOwned>(
-    reader: &mut R,
-    bytes: &mut Vec<u8>,
-) -> io::Result<T> {
-    let mut length = [0; 4];
-    reader.read_exact(&mut length)?;
-    let length = u32::from_le_bytes(length) as usize;
-    if length > MAX_MESSAGE_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            MESSAGE_TOO_LARGE,
-        ));
-    }
-    bytes.resize(length, 0);
-    reader.read_exact(bytes)?;
-    decode(bytes)
 }
 
 /// Decodes one payload, which must be exactly one message.
@@ -240,15 +279,9 @@ mod tests {
         let mut wire = vec![];
         write_message(&mut wire, &Request::Reset).unwrap();
         write_message(&mut wire, &Request::Shutdown).unwrap();
-        let mut reader = wire.as_slice();
-        assert_eq!(
-            MessageReader::new(&mut reader).read::<Request>().unwrap(),
-            Request::Reset
-        );
-        assert_eq!(
-            MessageReader::new(&mut reader).read::<Request>().unwrap(),
-            Request::Shutdown
-        );
+        let mut reader = MessageReader::new(wire.as_slice());
+        assert_eq!(reader.read::<Request>().unwrap(), Request::Reset);
+        assert_eq!(reader.read::<Request>().unwrap(), Request::Shutdown);
         for bytes in [&[1, 0][..], &[2, 0, 0, 0, 0][..]] {
             assert_eq!(
                 MessageReader::new(&mut &*bytes)
@@ -303,9 +336,7 @@ mod tests {
         assert_eq!(received, [Request::Reset, Request::Shutdown]);
 
         let mut oversized = FrameDecoder::default();
-        oversized
-            .unfilled()
-            .unwrap()
+        oversized.unfilled().unwrap()[..PREFIX_BYTES]
             .copy_from_slice(&u32::try_from(MAX_MESSAGE_BYTES + 1).unwrap().to_le_bytes());
         oversized.advance(PREFIX_BYTES);
         assert!(oversized.message::<Request>().is_none());

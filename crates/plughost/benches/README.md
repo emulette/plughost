@@ -111,6 +111,20 @@ duration and reports that thread's CPU time. Copy `au/wait_tests.rs`, its module
 the macOS `libc` dev dependency into 0.1.1's formats crate for comparison. CPU time fell from
 100/105 ms to 0.29/0.37 ms; elapsed time stayed near 100 ms.
 
+# IPC framing
+
+```sh
+cargo test -p plughost --release --lib supervised_framing_benchmark -- --ignored --nocapture
+cargo test -p plughost-core --release --lib socket_framing_benchmark -- --ignored --nocapture
+```
+
+The supervised transport exchanges 20,000 small requests and then four 16 MiB payloads, checking
+every reply and payload byte. Copy its benchmark function into 0.1.1's
+`helper/transport/tests.rs` for comparison. Buffered reads reduced these cases from 156/211 ms
+to 137/202 ms. The core benchmark needs `ipc/framing_read_tests.rs` and its module declaration;
+its bare blocking-socket exchange reduced read calls per endpoint from 40,000 to 20,000, while
+elapsed time increased from 99 to 113 ms. The supervised transport includes deadline polling.
+
 # Soak runs
 
 `cargo bench -p plughost --bench soak -- --plugin BUNDLE [--plugin BUNDLE ...] [--rounds 120]

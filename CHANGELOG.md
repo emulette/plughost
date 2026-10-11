@@ -22,6 +22,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- IPC readers reuse initialized receive storage and retain bytes from subsequent frames. Large
+  payloads accumulate received slices without zero-filling the unread body. Partial frames and
+  deadlines remain resumable; `MessageReader` must be kept for the whole connection.
 - AU completion and notification waits sleep when a non-main thread's run loop has no sources,
   instead of spinning. Completion callbacks still wake the wait and run-loop callbacks run.
 - AU creation looks up its component description directly, avoiding enumeration and name

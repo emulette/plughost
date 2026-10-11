@@ -67,6 +67,61 @@ fn identify(transport: &mut Transport, peer: &mut Stream) {
 }
 
 #[test]
+#[ignore = "supervised socket benchmark; run in release mode with --nocapture"]
+fn supervised_framing_benchmark() {
+    use plughost_core::ipc::MessageWriter;
+    for payload in [0, 16 << 20] {
+        let rounds = if payload == 0 { 20_000 } else { 4 };
+        let request = if payload == 0 {
+            Request::Reset
+        } else {
+            Request::ImportPreset {
+                slot: 0,
+                bytes: vec![42; payload],
+            }
+        };
+        let (mut transport, mut peer) = connection();
+        identify(&mut transport, &mut peer);
+        let worker = std::thread::spawn(move || {
+            let mut reader = MessageReader::new(&peer);
+            let mut writer = MessageWriter::new(&peer);
+            for _ in 0..rounds {
+                let received = reader.read::<Request>().unwrap();
+                if payload == 0 {
+                    assert_eq!(received, Request::Reset);
+                } else {
+                    let Request::ImportPreset { slot, bytes } = received else {
+                        panic!("wrong request")
+                    };
+                    assert_eq!(slot, 0);
+                    assert_eq!(bytes.len(), payload);
+                    assert!(bytes.iter().all(|&byte| byte == 42));
+                }
+                writer.write(&Response::Done).unwrap();
+            }
+        });
+        let timeout = Duration::from_secs(5);
+        let started = Instant::now();
+        for _ in 0..rounds {
+            transport.queue(&request).unwrap();
+            transport.flush(timeout).unwrap();
+            assert!(matches!(
+                transport.receive(timeout),
+                Ok(Ok(Incoming::Response(Response::Done)))
+            ));
+        }
+        let elapsed = started.elapsed();
+        worker.join().unwrap();
+        writeln!(
+            std::io::stdout(),
+            "payload={payload} rounds={rounds} ms={:.3}",
+            elapsed.as_secs_f64() * 1000.0
+        )
+        .unwrap();
+    }
+}
+
+#[test]
 fn an_incomplete_frame_does_not_block_the_supervisors_deadline() {
     let (mut transport, mut peer) = connection();
     identify(&mut transport, &mut peer);
