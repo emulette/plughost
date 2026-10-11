@@ -318,7 +318,8 @@ pub fn render_stream<S: Sample, P: Process<S>>(
     schedule
         .validate(frames, end, sample_rate)
         .map_err(RenderError::Input)?;
-    schedule
+    let mut timeline = timeline::Timeline::new(schedule);
+    timeline
         .validate_capacity(events)
         .map_err(RenderError::Input)?;
     let targets: Vec<_> = schedule
@@ -361,7 +362,7 @@ pub fn render_stream<S: Sample, P: Process<S>>(
         }
         let boundary = schedule.next_transport(position).unwrap_or(end).min(end);
         let limit = position + block.min(boundary - position);
-        let block_end = schedule.fill_block(position, limit, pending, &mut automation);
+        let block_end = timeline.fill_block(position, limit, pending, &mut automation);
         let count = block_end - position;
         let start = position.min(frames);
         let available = count.min(frames - start);

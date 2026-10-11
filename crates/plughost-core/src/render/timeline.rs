@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::{AutomationEvent, InputError, Transport};
 
 /// Replaces the transport at this render-relative sample. `None` withdraws time information.
@@ -53,25 +55,40 @@ impl RenderSchedule<'_> {
         {
             return Err(InputError::Automation);
         }
-        for (index, ramp) in self.ramps.iter().enumerate() {
+        for ramp in self.ramps {
             if ramp.start >= ramp.end
                 || ramp.end >= frames
                 || !ramp.from.is_finite()
                 || !ramp.to.is_finite()
                 || !(0.0..=1.0).contains(&ramp.from)
                 || !(0.0..=1.0).contains(&ramp.to)
-                || self.automation.iter().any(|point| {
-                    point.slot == ramp.slot
-                        && point.change.id == ramp.id
-                        && (ramp.start..=ramp.end).contains(&point.change.offset)
-                })
-                || self.ramps[..index].iter().any(|other| {
-                    other.slot == ramp.slot
-                        && other.id == ramp.id
-                        && other.start <= ramp.end
-                        && ramp.start <= other.end
-                })
             {
+                return Err(InputError::Automation);
+            }
+        }
+        if self.ramps.is_empty() {
+            return Ok(());
+        }
+        // Validate each target's intervals in temporal order instead of comparing every pair.
+        let mut ramps: Vec<_> = self.ramps.iter().collect();
+        ramps.sort_unstable_by_key(|ramp| (ramp.slot, ramp.id, ramp.start));
+        if ramps.windows(2).any(|pair| {
+            pair[0].slot == pair[1].slot && pair[0].id == pair[1].id && pair[0].end >= pair[1].start
+        }) {
+            return Err(InputError::Automation);
+        }
+        let mut points: Vec<_> = self.automation.iter().collect();
+        points.sort_unstable_by_key(|point| (point.slot, point.change.id, point.change.offset));
+        for ramp in ramps {
+            let at = points.partition_point(|point| {
+                (point.slot, point.change.id, point.change.offset)
+                    < (ramp.slot, ramp.id, ramp.start)
+            });
+            if points.get(at).is_some_and(|point| {
+                point.slot == ramp.slot
+                    && point.change.id == ramp.id
+                    && point.change.offset <= ramp.end
+            }) {
                 return Err(InputError::Automation);
             }
         }
@@ -105,6 +122,53 @@ impl RenderSchedule<'_> {
             )
             .map(|point| point.offset)
     }
+}
+
+/// Forward-only scheduling state for one render. The active set follows the caller's ramp
+/// order, including when input ramps are not sorted by start time.
+pub(super) struct Timeline<'a> {
+    automation: &'a [AutomationEvent],
+    ramps: &'a [AutomationRamp],
+    starts: Vec<usize>,
+    ends: Vec<usize>,
+    next_start: usize,
+    next_end: usize,
+    active: BTreeSet<usize>,
+}
+
+impl<'a> Timeline<'a> {
+    pub(super) fn new(schedule: RenderSchedule<'a>) -> Self {
+        let mut starts: Vec<_> = (0..schedule.ramps.len()).collect();
+        starts.sort_unstable_by_key(|&index| schedule.ramps[index].start);
+        let mut ends: Vec<_> = (0..schedule.ramps.len()).collect();
+        ends.sort_unstable_by_key(|&index| schedule.ramps[index].end);
+        Self {
+            automation: schedule.automation,
+            ramps: schedule.ramps,
+            starts,
+            ends,
+            next_start: 0,
+            next_end: 0,
+            active: BTreeSet::new(),
+        }
+    }
+
+    fn advance(&mut self, time: usize) {
+        while let Some(&index) = self.starts.get(self.next_start) {
+            if self.ramps[index].start > time {
+                break;
+            }
+            self.active.insert(index);
+            self.next_start += 1;
+        }
+        while let Some(&index) = self.ends.get(self.next_end) {
+            if self.ramps[index].end >= time {
+                break;
+            }
+            self.active.remove(&index);
+            self.next_end += 1;
+        }
+    }
 
     /// A timestamp is indivisible: reject an impossible group before rendering earlier audio.
     pub(super) fn validate_capacity(&self, midi: &[crate::Event]) -> Result<(), InputError> {
@@ -123,10 +187,11 @@ impl RenderSchedule<'_> {
             let notes = &midi[midi.partition_point(|e| e.offset < time)
                 ..midi.partition_point(|e| e.offset <= time)];
             let ramps = self
-                .ramps
-                .iter()
-                .filter(|r| (r.start..=r.end).contains(&time))
-                .count();
+                .starts
+                .partition_point(|&index| self.ramps[index].start <= time)
+                - self
+                    .ends
+                    .partition_point(|&index| self.ramps[index].end < time);
             crate::validate_event_budget(points, notes)?;
             crate::validate_event_count(points + notes.len(), ramps)?;
         }
@@ -137,7 +202,7 @@ impl RenderSchedule<'_> {
     /// system exclusive budget. MIDI is counted here and copied by the render loop after the final
     /// end is known.
     pub(super) fn fill_block(
-        &self,
+        &mut self,
         start: usize,
         end: usize,
         midi: &[crate::Event],
@@ -149,29 +214,29 @@ impl RenderSchedule<'_> {
         let mut sysex = 0;
         let mut cursor = start;
         while cursor < end {
+            self.advance(cursor);
+            let next_ramp = if self.active.is_empty() {
+                self.starts
+                    .get(self.next_start)
+                    .map(|&index| self.ramps[index].start)
+            } else {
+                Some(cursor)
+            };
             let next = self
                 .automation
                 .get(point)
                 .map(|p| p.change.offset)
                 .into_iter()
                 .chain(midi.get(note).map(|e| e.offset))
-                .chain(
-                    self.ramps
-                        .iter()
-                        .filter_map(|ramp| (cursor <= ramp.end).then_some(cursor.max(ramp.start))),
-                )
+                .chain(next_ramp)
                 .min();
             let Some(time) = next.filter(|&time| time < end) else {
                 break;
             };
             let point_end = self.automation.partition_point(|p| p.change.offset <= time);
             let note_end = midi.partition_point(|e| e.offset <= time);
-            let active = || {
-                self.ramps
-                    .iter()
-                    .filter(|r| (r.start..=r.end).contains(&time))
-            };
-            let added = point_end - point + active().count();
+            self.advance(time);
+            let added = point_end - point + self.active.len();
             let added_sysex = crate::sysex_bytes(&midi[note..note_end]);
             if output.len() + added + note_end > crate::MAX_BLOCK_EVENTS
                 || sysex + added_sysex > crate::MAX_BLOCK_SYSEX_BYTES
@@ -190,21 +255,26 @@ impl RenderSchedule<'_> {
                         },
                     }),
             );
-            output.extend(active().map(|ramp| AutomationEvent {
-                slot: ramp.slot,
-                change: crate::ParameterChange {
-                    id: ramp.id,
-                    offset: time - start,
-                    value: if time == ramp.end {
-                        ramp.to
-                    } else {
-                        (ramp.from
-                            + (ramp.to - ramp.from) * (time - ramp.start) as f64
-                                / (ramp.end - ramp.start) as f64)
-                            .clamp(ramp.from.min(ramp.to), ramp.from.max(ramp.to))
-                    },
-                },
-            }));
+            output.extend(
+                self.active
+                    .iter()
+                    .map(|&index| &self.ramps[index])
+                    .map(|ramp| AutomationEvent {
+                        slot: ramp.slot,
+                        change: crate::ParameterChange {
+                            id: ramp.id,
+                            offset: time - start,
+                            value: if time == ramp.end {
+                                ramp.to
+                            } else {
+                                (ramp.from
+                                    + (ramp.to - ramp.from) * (time - ramp.start) as f64
+                                        / (ramp.end - ramp.start) as f64)
+                                    .clamp(ramp.from.min(ramp.to), ramp.from.max(ramp.to))
+                            },
+                        },
+                    }),
+            );
             point = point_end;
             note = note_end;
             cursor = time + 1;

@@ -26,6 +26,20 @@ median render time is included. Every render is checked against the fixture's ex
 after timing ends. Timing covers `render_with_schedule`, including chain routing, IPC for the
 isolated path, and the plugin's processing.
 
+# Timeline scheduling
+
+```sh
+cargo bench -p plughost-core --bench timeline --locked
+```
+
+This native-plugin-free harness expands 5,000 successive ramps over 60 seconds at 48 kHz,
+5,000 unsorted ramps with 500 overlapping targets, and 2,048 ramps mixed with duplicate-time
+point edits and MIDI. It checks the sample count and fingerprints of every automation point,
+audio sample and output event against the 0.1.1 results. To compare with 0.1.1, copy
+`crates/plughost-core/benches/timeline.rs` and its `[[bench]]` entry into that checkout and run the same
+command. The scheduling change reduced these cases from 16,520 / 8.1 / 1,081 ms to
+94 / 1.7 / 21.5 ms; the output fingerprints and block counts were unchanged.
+
 # Soak runs
 
 `cargo bench -p plughost --bench soak -- --plugin BUNDLE [--plugin BUNDLE ...] [--rounds 120]
