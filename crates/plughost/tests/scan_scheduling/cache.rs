@@ -253,15 +253,16 @@ fn failed_save_aborts_active_helpers_without_losing_previous_results() {
     let control = ScanControl::default();
     let permissions = fs::metadata(directory.path()).unwrap().permissions();
     let scanner = directory
-        .scanner()
+        .fault("registry")
         .directories(vec![plugins.clone()])
-        .jobs(2);
+        .jobs(3);
     let start = Instant::now();
     let result = scanner.scan_controlled(&control, &|event| {
         if let ScanEvent::BundleFinished(scan) = event {
             notified.lock().unwrap().push(scan.path.clone());
             if scan.path == plugins.join("a.clap") {
                 wait(&plugins.join("b.started"));
+                wait(&directory.path().join("registry.started"));
                 *snapshot.lock().unwrap() = fs::read(directory.path().join("cache.json")).unwrap();
                 fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o500)).unwrap();
             }
@@ -283,15 +284,19 @@ fn failed_save_aborts_active_helpers_without_losing_previous_results() {
     );
     assert_eq!(*notified.lock().unwrap(), [plugins.join("a.clap")]);
     assert!(!plugins.join("d.started").exists());
-    let pid = wait(&plugins.join("b.started"));
-    assert!(
-        !std::process::Command::new("/bin/kill")
-            .args(["-0", &pid.to_string()])
-            .output()
-            .unwrap()
-            .status
-            .success()
-    );
+    for pid in [
+        wait(&plugins.join("b.started")),
+        wait(&directory.path().join("registry.started")),
+    ] {
+        assert!(
+            !std::process::Command::new("/bin/kill")
+                .args(["-0", &pid.to_string()])
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    }
     // Only the failed item is retried; the earlier cached result is preserved.
     let retried = scanner.retry(&plugins.join("c.clap")).unwrap();
     assert!(matches!(retried.outcome, ScanOutcome::Found(_)));

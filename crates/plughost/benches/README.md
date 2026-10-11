@@ -177,6 +177,20 @@ fell from about 1.61 s to 0.17 s. `PLUGHOST_SCAN_BUNDLE` selects another install
 Pro-Q 4 and Pro-C 3 returned identical class metadata in both VST3 and CLAP; their 30-scan times
 fell from 1.50–1.81 s to 0.19–0.59 s.
 
+# Cached inspection and registry scheduling
+
+```sh
+cargo test -p plughost --release --lib cached_bundle_benchmark -- --ignored --nocapture
+cargo test -p plughost --release --test scan_parallel -- --ignored --nocapture
+```
+
+The first case inspects one cached native CLAP delay bundle 10,000 times and checks its class
+metadata. It fell from about 160 to 69 ms. The second scans that bundle and the AU registry in
+30 rounds, removing the scan cache between rounds and comparing every result. On macOS it took
+0.89 s with one job and 0.77 s with two; 0.1.1 took 3.8–4.0 s with either setting. This comparison
+also includes the helper startup improvements above. For 0.1.1, copy `src/scan/benchmark.rs`
+and its test module declaration, and `tests/scan_parallel.rs`; use the matching helper.
+
 # Soak runs
 
 `cargo bench -p plughost --bench soak -- --plugin BUNDLE [--plugin BUNDLE ...] [--rounds 120]

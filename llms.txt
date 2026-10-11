@@ -53,7 +53,8 @@ Construct `Scanner::new(helper_path, cache_path)`. Both arguments are `&Path`. T
 search covers standard VST3/CLAP directories, `CLAP_PATH`, and the macOS Audio Unit registry.
 Use `.directories(Vec<PathBuf>)` to choose bundle directories explicitly. Native inspection
 is serial by default; `.jobs(n)` explicitly enables parallel loading (`0` selects `1`).
-Audio Unit registry enumeration still occurs on macOS.
+On macOS, Audio Unit registry enumeration uses one of those worker slots and overlaps bundle
+inspection when the limit exceeds one. The serial default queries the registry after bundles.
 
 Use `.policy(ScanPolicy)` for explicit selection. `ScanPolicy::default()` allows all items;
 `ScanPolicy::new(ScanAction::Block)` allows only identities with an explicit Allow rule.

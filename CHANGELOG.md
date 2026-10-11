@@ -22,6 +22,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- Unchanged scan cache entries are reused before reading executable headers. Parallel native
+  scans query the Audio Unit registry within the same worker limit, alongside bundles; cache
+  write failures also terminate an active registry helper.
 - Render preflight sends each distinct automation target to the helper once, without fetching
   every slot's parameter list. The helper indexes metadata for both preflight and block checks;
   invalid targets anywhere in the render still fail before its first DSP call.

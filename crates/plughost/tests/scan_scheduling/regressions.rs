@@ -12,6 +12,86 @@ pub(super) fn run(only: Option<&str>) {
     if only.is_none_or(|name| name == "path-encoding") {
         unsupported_bundle_paths_do_not_poison_other_scans_or_start_a_chain();
     }
+    #[cfg(unix)]
+    if only.is_none_or(|name| name == "cached-header") {
+        unchanged_native_cache_does_not_read_the_executable();
+    }
+    #[cfg(target_os = "macos")]
+    if only.is_none_or(|name| name == "parallel-registry") {
+        audio_unit_registry_overlaps_a_blocked_bundle_within_the_job_budget();
+    }
+}
+
+#[cfg(unix)]
+fn unchanged_native_cache_does_not_read_the_executable() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = Directory::new();
+    let path = bundle(directory.path(), "a");
+    fs::write(directory.path().join("release"), []).unwrap();
+    let scanner = directory.scanner();
+    let original = scanner.retry(&path).unwrap();
+    let executable = path.join("Contents/MacOS/fixture");
+    let permissions = fs::metadata(&executable).unwrap().permissions();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o000)).unwrap();
+    assert_eq!(
+        fs::File::open(&executable).unwrap_err().kind(),
+        std::io::ErrorKind::PermissionDenied
+    );
+    let discovered = scanner.discover();
+    let scanned = scanner.scan(&|_| {}).unwrap();
+    fs::set_permissions(&executable, permissions).unwrap();
+    for catalog in [discovered, scanned] {
+        assert_eq!(catalog.bundles[0].source, Source::Cache);
+        assert_eq!(catalog.bundles[0].outcome, original.outcome);
+    }
+    // A changed stamp must inspect the header again instead of trusting cached success.
+    fs::write(executable, b"no longer a native executable").unwrap();
+    assert_eq!(
+        scanner.discover().bundles[0].outcome,
+        ScanOutcome::InvalidBundle
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn audio_unit_registry_overlaps_a_blocked_bundle_within_the_job_budget() {
+    use plughost::{ScanControl, ScanEvent, ScanStage, ScanTarget};
+    use std::sync::mpsc;
+    let directory = Directory::new();
+    let path = bundle(directory.path(), "a");
+    let scanner = directory.fault("registry").jobs(2);
+    bundle(directory.path(), "b");
+    let control = ScanControl::default();
+    let worker_control = control.clone();
+    let (sent, received) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        scanner
+            .scan_controlled(&worker_control, &|event| {
+                if let ScanEvent::Progress {
+                    item,
+                    stage: ScanStage::Loading,
+                } = event
+                {
+                    sent.send(item.target.clone()).unwrap();
+                }
+            })
+            .unwrap()
+    });
+    let first = received.recv_timeout(Duration::from_secs(3)).ok();
+    let second = received.recv_timeout(Duration::from_secs(3)).ok();
+    control.cancel();
+    let result = worker.join().unwrap();
+    assert!(
+        received.try_recv().is_err(),
+        "more than two active helper jobs"
+    );
+    let started = [first, second];
+    assert!(started.contains(&Some(ScanTarget::Bundle(path))));
+    assert!(
+        started.contains(&Some(ScanTarget::AudioUnits)),
+        "registry was serialized after bundles"
+    );
+    assert_eq!(result.bundles[0].outcome, ScanOutcome::Cancelled);
+    assert_eq!(result.audio_units, ScanOutcome::Cancelled);
 }
 
 fn unsupported_bundle_paths_do_not_poison_other_scans_or_start_a_chain() {

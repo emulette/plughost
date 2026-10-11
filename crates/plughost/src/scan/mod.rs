@@ -1,5 +1,7 @@
 //! Scanning installed plugins in helper processes, one helper per bundle.
 
+#[cfg(test)]
+mod benchmark;
 mod bundle;
 mod cache;
 mod control;
@@ -210,6 +212,8 @@ impl Scanner {
     }
 
     /// Native inspection helpers to run at the same time (default: one). Zero selects one.
+    /// The Audio Unit registry uses one of these slots and overlaps bundle inspection when
+    /// this limit exceeds one.
     /// Parallel inspection can open multiple plugin dialogs concurrently.
     pub fn jobs(mut self, jobs: usize) -> Scanner {
         self.jobs = jobs.max(1);
@@ -259,7 +263,7 @@ impl Scanner {
         }
         Catalog {
             bundles,
-            audio_units: self.list_audio_units(control, events),
+            audio_units: self.list_audio_units(control, events, None),
         }
     }
 
@@ -283,10 +287,16 @@ impl Scanner {
         &self,
         control: &ScanControl,
         events: &(dyn Fn(&ScanEvent) + Sync),
+        aborted: Option<&std::sync::atomic::AtomicBool>,
     ) -> ScanOutcome {
         let outcome = match control.begin(ScanTarget::AudioUnits, events) {
             None => ScanOutcome::Cancelled,
             Some(work) => {
+                let work = if let Some(aborted) = aborted {
+                    work.abort_on(aborted)
+                } else {
+                    work
+                };
                 if let Some(outcome) = work.stage(ScanStage::Inspecting) {
                     outcome
                 } else if cfg!(target_os = "macos") {
@@ -403,8 +413,30 @@ impl Scanner {
                 None,
             );
         }
-        let executable = match bundle::inspect(path) {
-            Inspection::Supported { executable } => executable,
+        let Some(executable) = bundle::executable(path) else {
+            return (
+                scan(ScanOutcome::InvalidBundle, Source::Inspected, 0, false),
+                None,
+            );
+        };
+        let fingerprint = bundle::fingerprint(path, &executable);
+        let unchanged = cached.filter(|entry| entry.fingerprint == fingerprint);
+        if let Some(entry) = unchanged
+            && mode != ScanMode::Retry
+        {
+            let excluded = entry.failures >= self.exclude_after;
+            if mode == ScanMode::Metadata || !entry.outcome.is_failure() || excluded {
+                let result = scan(
+                    entry.outcome.clone(),
+                    Source::Cache,
+                    entry.failures,
+                    excluded,
+                );
+                return (result, Some(entry.clone()));
+            }
+        }
+        match bundle::inspect(&executable) {
+            Inspection::Supported => {}
             Inspection::UnsupportedArchitecture => {
                 return (
                     scan(
@@ -421,22 +453,6 @@ impl Scanner {
                     scan(ScanOutcome::InvalidBundle, Source::Inspected, 0, false),
                     None,
                 );
-            }
-        };
-        let fingerprint = bundle::fingerprint(path, &executable);
-        let unchanged = cached.filter(|entry| entry.fingerprint == fingerprint);
-        if let Some(entry) = unchanged
-            && mode != ScanMode::Retry
-        {
-            let excluded = entry.failures >= self.exclude_after;
-            if mode == ScanMode::Metadata || !entry.outcome.is_failure() || excluded {
-                let result = scan(
-                    entry.outcome.clone(),
-                    Source::Cache,
-                    entry.failures,
-                    excluded,
-                );
-                return (result, Some(entry.clone()));
             }
         }
 

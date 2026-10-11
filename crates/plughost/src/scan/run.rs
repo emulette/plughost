@@ -5,13 +5,15 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 
 use super::{
-    BundleScan, Catalog, ScanControl, ScanEvent, ScanMode, ScanTarget, Scanner, bundle, cache,
+    BundleScan, Catalog, ScanControl, ScanEvent, ScanMode, ScanOutcome, ScanTarget, Scanner,
+    bundle, cache,
 };
 use crate::errors::Error;
 
 struct State {
     writer: cache::Writer,
     results: Vec<Option<BundleScan>>,
+    audio_units: Option<ScanOutcome>,
     error: Option<io::Error>,
 }
 
@@ -30,24 +32,35 @@ impl Scanner {
         if control.is_cancelled() {
             return Ok(Catalog {
                 bundles: Vec::new(),
-                audio_units: self.list_audio_units(control, events),
+                audio_units: self.list_audio_units(control, events, None),
             });
         }
         let state = Mutex::new(State {
             writer: cache::Writer::open(&self.cache).map_err(Error::Cache)?,
             results: vec![None; paths.len()],
+            audio_units: None,
             error: None,
         });
         let next = AtomicUsize::new(0);
         let aborted = AtomicBool::new(false);
+        // The registry uses one of the same worker slots. Start it alongside bundles when
+        // parallelism is requested; retain bundle-first ordering for the serial default.
+        let registry_index = if self.jobs > 1 { 0 } else { paths.len() };
         thread::scope(|scope| {
-            for _ in 0..self.jobs.min(paths.len()) {
+            for _ in 0..self.jobs.min(paths.len() + 1) {
                 scope.spawn(|| {
                     loop {
                         if aborted.load(Ordering::Acquire) {
                             break;
                         }
                         let index = next.fetch_add(1, Ordering::Relaxed);
+                        if index == registry_index {
+                            let outcome = self.list_audio_units(control, events, Some(&aborted));
+                            state.lock().unwrap_or_else(|e| e.into_inner()).audio_units =
+                                Some(outcome);
+                            continue;
+                        }
+                        let index = index - usize::from(index > registry_index);
                         let Some(path) = paths.get(index) else {
                             break;
                         };
@@ -94,7 +107,10 @@ impl Scanner {
         synced.map_err(Error::Cache)?;
         Ok(Catalog {
             bundles: state.results.into_iter().flatten().collect(),
-            audio_units: self.list_audio_units(control, events),
+            // Cancellation may stop admission before the serial registry job is reached.
+            audio_units: state
+                .audio_units
+                .unwrap_or_else(|| self.list_audio_units(control, events, None)),
         })
     }
 }

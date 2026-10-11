@@ -67,31 +67,28 @@ fn walk(
 }
 
 pub enum Inspection {
-    Supported { executable: PathBuf },
+    Supported,
     UnsupportedArchitecture,
     Invalid,
 }
 
-/// Checks that the bundle has a binary and that the binary contains this process's architecture.
-pub fn inspect(bundle: &Path) -> Inspection {
-    let Some(executable) = executable(bundle) else {
-        return Inspection::Invalid;
-    };
+/// Checks a resolved executable's header after a cache miss.
+pub fn inspect(executable: &Path) -> Inspection {
     let mut header = Vec::with_capacity(HEADER_BYTES);
-    let read = fs::File::open(&executable)
+    let read = fs::File::open(executable)
         .and_then(|file| file.take(HEADER_BYTES as u64).read_to_end(&mut header));
     if read.is_err() {
         return Inspection::Invalid;
     }
     match architectures(&header) {
         None => Inspection::Invalid,
-        Some(found) if found.contains(&HOST) => Inspection::Supported { executable },
+        Some(found) if found.contains(&HOST) => Inspection::Supported,
         Some(_) => Inspection::UnsupportedArchitecture,
     }
 }
 
 #[cfg(target_os = "macos")]
-fn executable(bundle: &Path) -> Option<PathBuf> {
+pub fn executable(bundle: &Path) -> Option<PathBuf> {
     use objc2_core_foundation::{CFBundle, CFURL};
     // Creating a CFBundle reads Info.plist; it does not load the binary.
     let url = CFURL::from_directory_path(bundle)?;
@@ -102,7 +99,7 @@ fn executable(bundle: &Path) -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "windows")]
-fn executable(bundle: &Path) -> Option<PathBuf> {
+pub fn executable(bundle: &Path) -> Option<PathBuf> {
     let path = match bundle.file_name() {
         Some(name) if bundle.is_dir() => bundle.join("Contents").join("x86_64-win").join(name),
         _ => bundle.to_path_buf(),
