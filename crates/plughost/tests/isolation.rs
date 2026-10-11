@@ -503,6 +503,7 @@ fn a_missing_helper_is_a_start_error() {
 #[test]
 #[ignore = "needs scripts/build-helper.sh and scripts/build-test-plugins.sh; opens a window"]
 fn editors_open_while_the_chain_processes() {
+    let _serial = support::editor_test();
     let mut chain = spawn(&[again()]);
     prepare(&mut chain);
     assert_eq!(
@@ -652,6 +653,7 @@ fn invalid_prepares_preserve_the_prepared_chain() {
 #[ignore = "needs scripts/build-helper.sh; opens a window"]
 #[cfg(target_os = "macos")]
 fn audio_unit_editors_open_in_the_helper() {
+    let _serial = support::editor_test();
     let mut chain = spawn(&[audio_unit(AU_DELAY)]);
     prepare(&mut chain);
     chain.open_editor(0).unwrap();

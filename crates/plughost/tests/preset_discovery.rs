@@ -27,7 +27,9 @@ fn make_chain() -> Chain {
         &HostIdentity::default(),
         {
             let mut timeouts = Timeouts::default();
-            timeouts.load = TIMEOUT;
+            // Startup and recovery include native loading, which can exceed the short
+            // provider-fault deadline on a cold runner. Bound a hanging preset load too.
+            timeouts.load = Duration::from_secs(10);
             timeouts
         },
     );

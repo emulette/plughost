@@ -104,16 +104,6 @@ fn peer(name: &str, token: u64) {
                     thread::sleep(Duration::from_millis(5));
                 }
                 write.write(&Response::ModuleLoaded).unwrap();
-                if gate.join("large-class").exists() {
-                    write
-                        .write(&Response::Class(plughost_core::PluginInfo::new(
-                            plughost_core::PluginFormat::Clap,
-                            "cache-write-boundary",
-                            "\n".repeat(4 << 20),
-                            plughost_core::PluginKind::Effect,
-                        )))
-                        .unwrap();
-                }
                 write.write(&Response::Done).unwrap();
             }
             Request::ListAudioUnits => {

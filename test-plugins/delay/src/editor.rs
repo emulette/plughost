@@ -12,10 +12,8 @@ use clack_extensions::gui::{
 };
 use clack_plugin::prelude::*;
 use objc2::rc::Retained;
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
-use objc2_app_kit::{
-    NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSResponder, NSView,
-};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType, NSResponder, NSView};
 use objc2_foundation::{NSObject, NSPoint, NSRect, NSSize, NSString};
 
 use crate::clap::MainThread;
@@ -50,8 +48,17 @@ define_class!(
         #[unsafe(method(becomeFirstResponder))]
         fn become_first_responder(&self) -> bool {
             self.ivars().focus.fetch_max(FOCUSED, Ordering::Relaxed);
-            self.send_key();
+            // Dispatch after NSWindow has finished installing its first responder.
+            unsafe {
+                let _: () = msg_send![self, performSelector: sel!(deliverTestKey),
+                    withObject: None::<&NSObject>, afterDelay: 0.0f64];
+            }
             true
+        }
+
+        #[unsafe(method(deliverTestKey))]
+        fn deliver_test_key(&self) {
+            self.send_key();
         }
 
         #[unsafe(method(keyDown:))]
@@ -62,8 +69,8 @@ define_class!(
 );
 
 impl FocusView {
-    /// Queues a key press for this view's window, which the application delivers as it does a
-    /// typed key: to its key window's first responder.
+    /// Sends a key through this view's owning window to its first responder. Another helper's
+    /// activation cannot redirect the event to a process-global key window.
     fn send_key(&self) {
         let Some(window) = self.window() else {
             return;
@@ -82,7 +89,7 @@ impl FocusView {
                 40,
             );
         if let Some(event) = event {
-            NSApplication::sharedApplication(self.mtm()).postEvent_atStart(&event, false);
+            window.sendEvent(&event);
         }
     }
 }

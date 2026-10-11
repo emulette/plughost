@@ -5,11 +5,11 @@
 use std::time::{Duration, Instant};
 
 use plughost::{BlockContext, Chain, Event, Layout, PluginFormat};
+use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GA_ROOT, GUITHREADINFO, GetAncestor, GetClassNameW, GetForegroundWindow,
-    GetGUIThreadInfo, IsWindowVisible,
+    EnumWindows, GA_ROOT, GUITHREADINFO, GetAncestor, GetClassNameW, GetGUIThreadInfo,
+    GetWindowThreadProcessId, IsWindowVisible,
 };
-use windows_sys::core::w;
 
 mod support;
 
@@ -22,16 +22,45 @@ fn class_name(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
 }
 
 /// Whether the synth's floating editor window exists, and if so whether it is visible.
-fn editor_window() -> Option<bool> {
-    let hwnd = unsafe { FindWindowW(w!("PlughostTestSynthEditor"), std::ptr::null()) };
-    (!hwnd.is_null()).then(|| unsafe { IsWindowVisible(hwnd) } != 0)
+fn editor_window(pid: u32) -> Option<bool> {
+    window(pid, "PlughostTestSynthEditor").map(|hwnd| unsafe { IsWindowVisible(hwnd) } != 0)
+}
+
+fn window(pid: u32, class: &str) -> Option<HWND> {
+    struct Search<'a> {
+        pid: u32,
+        class: &'a str,
+        found: HWND,
+    }
+    unsafe extern "system" fn visit(hwnd: HWND, data: isize) -> i32 {
+        // SAFETY: EnumWindows calls synchronously with this function's live Search.
+        let search = unsafe { &mut *(data as *mut Search<'_>) };
+        let mut pid = 0;
+        unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+        if pid == search.pid && class_name(hwnd) == search.class {
+            search.found = hwnd;
+            0
+        } else {
+            1
+        }
+    }
+    let mut search = Search {
+        pid,
+        class,
+        found: std::ptr::null_mut(),
+    };
+    unsafe { EnumWindows(Some(visit), std::ptr::from_mut(&mut search) as isize) };
+    (!search.found.is_null()).then_some(search.found)
 }
 
 /// Waits until the chain reports `open` and the window is in `window`.
 fn expect(chain: &mut Chain, open: bool, window: Option<bool>) {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let state = (chain.editor_open(0).unwrap(), editor_window());
+        let state = (
+            chain.editor_open(0).unwrap(),
+            editor_window(chain.helper_monitor().process_id()),
+        );
         if state == (open, window) {
             return;
         }
@@ -58,6 +87,7 @@ fn request(chain: &mut Chain, key: u8) {
 #[test]
 #[ignore = "needs helper and synth fixtures and a desktop session"]
 fn a_floating_editor_follows_its_own_requests_and_reopens() {
+    let _serial = support::editor_test();
     let mut chain = spawn(&[fixture(
         PluginFormat::Clap,
         "plughost-test-synth",
@@ -67,7 +97,7 @@ fn a_floating_editor_follows_its_own_requests_and_reopens() {
         .main_bus_config(48_000.0, 512, Layout::None, &[Layout::Stereo])
         .unwrap();
     chain.prepare_audio(&config).unwrap();
-    assert_eq!(editor_window(), None);
+    assert_eq!(editor_window(chain.helper_monitor().process_id()), None);
     chain.open_editor(0).unwrap();
     expect(&mut chain, true, Some(true));
     request(&mut chain, 0);
@@ -86,6 +116,7 @@ fn a_floating_editor_follows_its_own_requests_and_reopens() {
 #[test]
 #[ignore = "needs helper and SDK sample fixtures and a desktop session"]
 fn an_activated_editor_window_gives_the_editor_keyboard_focus() {
+    let _serial = support::editor_test();
     let mut chain = spawn(&[fixture(
         PluginFormat::Vst3,
         "again",
@@ -94,14 +125,17 @@ fn an_activated_editor_window_gives_the_editor_keyboard_focus() {
     prepare(&mut chain);
     chain.open_editor(0).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
+    let pid = chain.helper_monitor().process_id();
     let (window, focus) = loop {
         chain.editor_open(0).unwrap();
-        let window = unsafe { GetForegroundWindow() };
-        let mut info: GUITHREADINFO = unsafe { std::mem::zeroed() };
-        info.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
-        let found = unsafe { GetGUIThreadInfo(0, &mut info) } != 0;
-        if found && class_name(window) == "PlughostEditorWindow" && !info.hwndFocus.is_null() {
-            break (window, info.hwndFocus);
+        if let Some(window) = window(pid, "PlughostEditorWindow") {
+            let thread = unsafe { GetWindowThreadProcessId(window, std::ptr::null_mut()) };
+            let mut info: GUITHREADINFO = unsafe { std::mem::zeroed() };
+            info.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
+            let found = unsafe { GetGUIThreadInfo(thread, &mut info) } != 0;
+            if found && info.hwndActive == window && !info.hwndFocus.is_null() {
+                break (window, info.hwndFocus);
+            }
         }
         assert!(
             Instant::now() < deadline,
@@ -118,6 +152,7 @@ fn an_activated_editor_window_gives_the_editor_keyboard_focus() {
 #[test]
 #[ignore = "needs helper and SDK sample fixtures and a desktop session"]
 fn edits_and_saves_with_the_editor_open_survive_until_a_crash_and_recovery_reopens_it() {
+    let _serial = support::editor_test();
     const GAIN: u64 = 0;
     let mut chain = spawn(&[fixture(
         PluginFormat::Vst3,

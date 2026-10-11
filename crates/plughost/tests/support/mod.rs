@@ -6,6 +6,12 @@
 
 pub mod stall;
 
+/// Desktop activation is process-global; editor tests in one test executable run serially.
+pub fn editor_test() -> std::sync::MutexGuard<'static, ()> {
+    static EDITORS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    EDITORS.lock().unwrap()
+}
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

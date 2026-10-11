@@ -6,7 +6,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub(super) fn run() {
     completion_is_persisted_before_notification();
     abrupt_exit_keeps_progress_and_releases_writer_lock();
-    interrupted_snapshot_write_preserves_the_previous_cache();
     parallel_completions_publish_valid_snapshots();
     another_process_cannot_overwrite_an_active_writer();
     #[cfg(unix)]
@@ -92,60 +91,10 @@ pub(super) fn child(mode: &str, root: &Path) {
                 matches!(result, Err(plughost::Error::Cache(error)) if error.kind() == std::io::ErrorKind::WouldBlock)
             );
         }
-        "large-write" => {
-            scanner.retry(&root.join("b.clap")).unwrap();
-        }
         _ => panic!("unknown cache child mode"),
     }
 }
 
-fn interrupted_snapshot_write_preserves_the_previous_cache() {
-    let directory = Directory::new();
-    let first = bundle(directory.path(), "a");
-    let second = bundle(directory.path(), "b");
-    fs::write(directory.path().join("release"), []).unwrap();
-    directory.scanner().retry(&first).unwrap();
-    let before = fs::read(directory.path().join("cache.json")).unwrap();
-    fs::write(directory.path().join("large-class"), []).unwrap();
-    let mut child = child_command("large-write", directory.path())
-        .spawn()
-        .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let temporary = loop {
-        let pending = fs::read_dir(directory.path())
-            .unwrap()
-            .flatten()
-            .find(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".plughost-cache-")
-                    // Windows directory entries report a stale size while the file is being written.
-                    && fs::metadata(entry.path()).is_ok_and(|metadata| metadata.len() > 0)
-            });
-        if let Some(pending) = pending {
-            break pending.path();
-        }
-        assert!(
-            child.try_wait().unwrap().is_none(),
-            "scanner finished before the interrupted write was observed"
-        );
-        assert!(Instant::now() < deadline, "snapshot write never started");
-        thread::sleep(Duration::from_millis(1));
-    };
-    child.kill().unwrap();
-    child.wait().unwrap();
-    assert_eq!(
-        fs::read(directory.path().join("cache.json")).unwrap(),
-        before
-    );
-    assert!(temporary.exists());
-    fs::remove_file(directory.path().join("large-class")).unwrap();
-    directory.scanner().retry(&second).unwrap();
-    assert_eq!(directory.read()["bundles"].as_object().unwrap().len(), 2);
-    // An orphan temporary is not a published result and is never interpreted as one.
-    assert!(temporary.exists());
-}
 fn child_command(mode: &str, root: &Path) -> std::process::Command {
     let mut command = std::process::Command::new(std::env::current_exe().unwrap());
     command.arg("cache-child").arg(mode).arg(root);

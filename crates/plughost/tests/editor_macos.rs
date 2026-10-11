@@ -130,6 +130,7 @@ fn request(chain: &mut Chain, key: u8) {
 #[test]
 #[ignore = "needs helper and delay fixtures and a desktop session"]
 fn an_opened_editor_window_gives_the_editor_keyboard_focus() {
+    let _serial = support::editor_test();
     // The editor variant reports 1 once its view is its window's first responder, and 2 once a
     // key it sends to its window reaches it.
     const FOCUS: u64 = 15;
@@ -154,6 +155,7 @@ fn an_opened_editor_window_gives_the_editor_keyboard_focus() {
 #[test]
 #[ignore = "needs helper and synth fixtures and a desktop session"]
 fn a_floating_editor_follows_its_own_requests_and_reopens() {
+    let _serial = support::editor_test();
     let mut chain = spawn(&[fixture(
         PluginFormat::Clap,
         "plughost-test-synth",
@@ -189,6 +191,7 @@ fn a_floating_editor_follows_its_own_requests_and_reopens() {
 #[test]
 #[ignore = "needs scripts/build-helper.sh and a desktop session"]
 fn an_audio_unit_view_shows_in_a_window_that_fits_it_and_reopens() {
+    let _serial = support::editor_test();
     let mut chain = spawn(&[audio_unit(AU_DELAY)]);
     prepare(&mut chain);
     let pid = chain.helper_monitor().process_id();

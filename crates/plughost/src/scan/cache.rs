@@ -15,6 +15,9 @@ use serde::{Deserialize, Serialize};
 use super::ScanOutcome;
 use super::bundle::FileStamp;
 
+#[cfg(test)]
+mod tests;
+
 /// Increment when the meaning or representation of native results changes.
 const SCHEMA: u32 = 2;
 
@@ -118,18 +121,7 @@ impl Writer {
 
     /// Replaces the snapshot on disk with this writer's cache.
     fn publish(&mut self) -> io::Result<()> {
-        let mut temporary = tempfile::Builder::new()
-            .prefix(".plughost-cache-")
-            .tempfile_in(&self.parent)?;
-        {
-            let mut writer = BufWriter::new(temporary.as_file_mut());
-            serde_json::to_writer(&mut writer, &self.cache).map_err(io::Error::other)?;
-            writer.flush()?;
-        }
-        // Unlike tempfile's persist, std's rename replaces a snapshot a reader holds open on Windows.
-        // Dropping the renamed temporary path then finds nothing to delete.
-        let temporary = temporary.into_temp_path();
-        fs::rename(&temporary, &self.path)?;
+        snapshot(&self.path, &self.parent, &self.cache)?;
         self.unsynced = true;
         Ok(())
     }
@@ -144,4 +136,21 @@ impl Writer {
         }
         Ok(())
     }
+}
+
+/// Serialization completes before the old snapshot is replaced. Kept separate from the cache
+/// model so interruption tests can pause the serializer while the temporary is being written.
+fn snapshot(path: &Path, parent: &Path, value: &impl Serialize) -> io::Result<()> {
+    let mut temporary = tempfile::Builder::new()
+        .prefix(".plughost-cache-")
+        .tempfile_in(parent)?;
+    {
+        let mut writer = BufWriter::new(temporary.as_file_mut());
+        serde_json::to_writer(&mut writer, value).map_err(io::Error::other)?;
+        writer.flush()?;
+    }
+    // Unlike tempfile's persist, std's rename replaces a snapshot a reader holds open on Windows.
+    // Dropping the renamed temporary path then finds nothing to delete.
+    let temporary = temporary.into_temp_path();
+    fs::rename(&temporary, path)
 }
