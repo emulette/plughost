@@ -15,10 +15,12 @@ use serde::{Deserialize, Serialize};
 use super::ScanOutcome;
 use super::bundle::FileStamp;
 
+/// Increment when the meaning or representation of native results changes.
+const SCHEMA: u32 = 2;
+
 #[derive(Default, Serialize, Deserialize)]
 pub struct Cache {
     schema: u32,
-    library: String,
     architecture: String,
     pub bundles: BTreeMap<PathBuf, Entry>,
 }
@@ -29,13 +31,6 @@ pub struct Entry {
     pub outcome: ScanOutcome,
     /// Consecutive failed scans of this unchanged bundle.
     pub failures: u32,
-}
-
-fn current() -> (String, String) {
-    (
-        env!("CARGO_PKG_VERSION").to_owned(),
-        std::env::consts::ARCH.to_owned(),
-    )
 }
 
 /// Discovery tolerates a missing, unreadable, malformed or outdated cache.
@@ -50,12 +45,9 @@ fn read(path: &Path) -> io::Result<Cache> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Cache::default()),
         Err(error) => return Err(error),
     };
-    let (library, architecture) = current();
     Ok(serde_json::from_slice::<Cache>(&bytes)
         .ok()
-        .filter(|cache| {
-            cache.schema == 2 && cache.library == library && cache.architecture == architecture
-        })
+        .filter(|cache| cache.schema == SCHEMA && cache.architecture == std::env::consts::ARCH)
         .unwrap_or_default())
 }
 
@@ -86,7 +78,6 @@ impl Writer {
             .truncate(false)
             .open(lock_path)?;
         lock.try_lock().map_err(io::Error::from)?;
-        let (library, architecture) = current();
         let mut bundles = read(path)?.bundles;
         let cached = bundles.len();
         // An inaccessible bundle may still exist; prune only confirmed removals.
@@ -95,9 +86,8 @@ impl Writer {
             path: path.to_path_buf(),
             parent: parent.to_path_buf(),
             cache: Cache {
-                schema: 2,
-                library,
-                architecture,
+                schema: SCHEMA,
+                architecture: std::env::consts::ARCH.to_owned(),
                 bundles,
             },
             unsynced: false,

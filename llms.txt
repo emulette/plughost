@@ -86,10 +86,13 @@ Neither metadata discovery nor native class inspection proves that instantiation
 preparation, or processing will succeed. Audio Units are enumerated from the registry in
 both paths. Cache schema 2 contains native bundle results; earlier caches are invalidated
 because they did not distinguish static metadata from native inspection.
+Cache compatibility depends on the schema and architecture, not the plughost version.
 The default scan stall timeout is 30 seconds. Two consecutive failures of an unchanged
 bundle exclude it from automatic loading; the scan that reaches the limit already reports
 `excluded`. `Scanner::retry(path)` bypasses exclusion and
 uses a 24-hour stall timeout for interactive loading.
+Failures before the helper receives its scan request, including startup and handshake errors,
+do not replace cached native results or increase a bundle's failure count.
 
 Bundle cache fingerprints cover the executable, Contents/Info.plist and
 Contents/Resources/moduleinfo.json paths, sizes and modification times. Changes, addition or

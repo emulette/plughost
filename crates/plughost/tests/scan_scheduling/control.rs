@@ -3,7 +3,7 @@ use plughost::{ScanControl, ScanEvent, ScanItem, ScanStage, ScanTarget};
 use std::sync::{Arc, Mutex};
 
 impl Directory {
-    fn fault(&self, fault: &str) -> Scanner {
+    pub(super) fn fault(&self, fault: &str) -> Scanner {
         let helper = self.path().join(if cfg!(windows) {
             "helper.exe"
         } else {

@@ -290,6 +290,7 @@ impl Scanner {
                     outcome
                 } else if cfg!(target_os = "macos") {
                     self.execute(Request::ListAudioUnits, self.stall_timeout, &work)
+                        .unwrap_or_else(outcome_of)
                 } else {
                     ScanOutcome::Found(Vec::new())
                 }
@@ -431,14 +432,22 @@ impl Scanner {
             };
             return (scan(outcome, source, 0, false), None);
         }
-        let outcome = self.execute(
+        let outcome = match self.execute(
             Request::Scan {
                 bundle: path.to_path_buf(),
                 interactive: mode == ScanMode::Retry,
             },
             stall_timeout,
             work,
-        );
+        ) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                return (
+                    self.interrupted(path, cached, outcome_of(error), Source::Loaded),
+                    cached.cloned(),
+                );
+            }
+        };
         if matches!(outcome, ScanOutcome::Cancelled | ScanOutcome::Skipped) {
             return (
                 self.interrupted(path, cached, outcome, Source::Loaded),

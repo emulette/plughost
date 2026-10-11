@@ -3,6 +3,8 @@
 mod cache;
 #[path = "scan_scheduling/control.rs"]
 mod control;
+#[path = "scan_scheduling/regressions.rs"]
+mod regressions;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,17 +28,25 @@ fn main() {
         peer(&args[2], u64::from_str_radix(&args[3], 16).unwrap());
         return;
     }
+    if args.get(1).map(String::as_str) == Some("--regression") {
+        regressions::run(Some(&args[2]));
+        return;
+    }
     for jobs in [None, Some(0), Some(2)] {
         scheduling(jobs);
     }
     control::run();
     cache::run();
+    regressions::run(None);
 }
 
 fn peer(name: &str, token: u64) {
     let executable = std::env::current_exe().unwrap();
     let root = executable.parent().unwrap();
     let fault = fs::read_to_string(root.join("fault")).unwrap_or_default();
+    if fault == "exit-before-connect" {
+        return;
+    }
     if fault == "connect" {
         fs::write(root.join("boot.started"), std::process::id().to_string()).unwrap();
         loop {
@@ -58,9 +68,16 @@ fn peer(name: &str, token: u64) {
     write
         .write(&Hello {
             protocol: PROTOCOL_VERSION,
-            token,
+            token: if fault == "wrong-hello" {
+                token ^ 1
+            } else {
+                token
+            },
         })
         .unwrap();
+    if fault == "wrong-hello" {
+        return;
+    }
     if fault == "closed" {
         drop(read);
         drop(write);

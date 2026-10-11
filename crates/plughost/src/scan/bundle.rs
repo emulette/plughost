@@ -1,5 +1,6 @@
 //! Finding VST3 and CLAP bundles and inspecting them without loading their code.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -7,7 +8,7 @@ use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
-/// Plugin folders nest by vendor, but never this deep; the bound also stops symlink loops.
+/// Bounds traversal through deeply nested directories that cannot normally contain plugins.
 const MAX_DEPTH: usize = 12;
 /// Enough for a Mach-O fat header with many slices, or a PE header.
 const HEADER_BYTES: usize = 4096;
@@ -16,12 +17,13 @@ const HEADER_BYTES: usize = 4096;
 /// recursively, without descending into bundles. Directories keep their order; paths within one are sorted.
 pub fn find(directories: &[PathBuf], cancelled: &dyn Fn() -> bool) -> Vec<PathBuf> {
     let mut found = Vec::new();
+    let mut visited = HashSet::new();
     for directory in directories {
         if cancelled() {
             break;
         }
         let mut in_directory = Vec::new();
-        walk(directory, 0, &mut in_directory, cancelled);
+        walk(directory, 0, &mut in_directory, &mut visited, cancelled);
         in_directory.sort();
         for path in in_directory {
             if !found.contains(&path) {
@@ -32,7 +34,19 @@ pub fn find(directories: &[PathBuf], cancelled: &dyn Fn() -> bool) -> Vec<PathBu
     found
 }
 
-fn walk(directory: &Path, depth: usize, found: &mut Vec<PathBuf>, cancelled: &dyn Fn() -> bool) {
+fn walk(
+    directory: &Path,
+    depth: usize,
+    found: &mut Vec<PathBuf>,
+    visited: &mut HashSet<PathBuf>,
+    cancelled: &dyn Fn() -> bool,
+) {
+    let Ok(canonical) = directory.canonicalize() else {
+        return;
+    };
+    if !visited.insert(canonical) {
+        return;
+    }
     let Ok(entries) = fs::read_dir(directory) else {
         return;
     };
@@ -47,7 +61,7 @@ fn walk(directory: &Path, depth: usize, found: &mut Vec<PathBuf>, cancelled: &dy
         if is_module {
             found.push(path);
         } else if depth < MAX_DEPTH && path.is_dir() {
-            walk(&path, depth + 1, found, cancelled);
+            walk(&path, depth + 1, found, visited, cancelled);
         }
     }
 }
@@ -186,6 +200,25 @@ pub fn fingerprint(bundle: &Path, executable: &Path) -> Vec<FileStamp> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn directory_cycles_and_aliases_do_not_repeat_discovered_bundles() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let plugins = root.path().join("plugins");
+        fs::create_dir(&plugins).unwrap();
+        let bundle = plugins.join("fixture.clap");
+        fs::create_dir(&bundle).unwrap();
+        symlink(&plugins, plugins.join("loop")).unwrap();
+        let alias = root.path().join("alias");
+        symlink(&plugins, &alias).unwrap();
+        assert_eq!(find(&[plugins.clone(), alias.clone()], &|| false), [bundle]);
+        assert_eq!(
+            find(&[alias.clone(), plugins], &|| false),
+            [alias.join("fixture.clap")]
+        );
+    }
 
     #[test]
     fn fat_mach_o_lists_every_slice() {

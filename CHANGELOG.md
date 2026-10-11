@@ -14,6 +14,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- Scan caches survive library upgrades when their schema and architecture are unchanged.
+  Helper startup, handshake and pre-request failures preserve cached plugin failure counts.
+- Plugin discovery follows each directory only once, preventing repeated scans through
+  directory aliases or cyclic symlinks while retaining the caller's directory priority.
 - VST3 inactive parameter flushes receive the same initialized process context as prepared
   flushes, and their output parameter changes reach the controller.
 - VST3 MIDI assignment queries run outside the engine lock, allowing processing to continue
