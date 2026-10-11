@@ -22,6 +22,15 @@ mod parameter_choices;
 pub mod preset;
 #[cfg(feature = "clap")]
 mod state_stream;
+#[cfg(all(
+    test,
+    any(
+        feature = "clap",
+        feature = "vst3",
+        all(feature = "au", target_os = "macos")
+    )
+))]
+mod timing_tests;
 #[cfg(feature = "vst3")]
 pub mod vst3;
 

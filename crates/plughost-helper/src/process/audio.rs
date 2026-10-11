@@ -193,7 +193,7 @@ struct AudioState<'a, S: Sample> {
     plan: &'a audio_timing::AudioTiming,
     processors: &'a [Box<dyn BlockProcessor>],
     calls: &'a Calls,
-    changes: &'a mut plughost_core::ChangeBuffer,
+    changes: &'a mut Changes,
     storage: &'a mut prepared::Routed<S>,
     delays: &'a mut audio_timing::DelayBank<S>,
     events_plan: &'a events::EventPlan,

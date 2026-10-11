@@ -5,6 +5,8 @@ mod capabilities;
 mod events;
 mod parameters;
 mod programs;
+#[cfg(test)]
+mod timing_tests;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -195,6 +197,16 @@ impl Plugin {
         let mut engine = lock(&self.engine);
         engine.refresh_tail();
         engine.timing()
+    }
+
+    pub(crate) fn poll_timing(&self) -> Option<PluginTiming> {
+        let mut engine = match self.engine.try_lock() {
+            Ok(engine) => engine,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        engine.refresh_tail();
+        engine.timing().ok()
     }
 
     /// The optional VST3 processor's requested context flags, queried on the owning thread

@@ -90,6 +90,13 @@ pub trait HostedPlugin {
     /// until the next read: the tail the plugin reports now, and the latency it was activated
     /// with, with a change it announced pending until it is prepared again or reset.
     fn timing(&self) -> Result<PluginTiming, Error>;
+    /// Opportunistically reads timing on the owning thread. `None` means unavailable or not
+    /// implemented. Native hosts do not wait for their processing lock or flush pending edits;
+    /// use [`Self::timing`] when a fresh read or an error is required. CLAP reads native tail
+    /// only after a change notification; VST3 and AU query it on each successful poll.
+    fn poll_timing(&self) -> Option<PluginTiming> {
+        None
+    }
     /// Each parameter with its current normalized value.
     fn parameters(&mut self) -> Vec<(ParameterInfo, f64)>;
     fn parameter_details(&mut self, id: u64) -> Result<plughost_core::ParameterDetails, Error>;
@@ -274,6 +281,9 @@ impl HostedPlugin for vst3::Plugin {
     fn timing(&self) -> Result<PluginTiming, Error> {
         Ok(vst3::Plugin::timing(self)?)
     }
+    fn poll_timing(&self) -> Option<PluginTiming> {
+        vst3::Plugin::poll_timing(self)
+    }
 
     fn parameters(&mut self) -> Vec<(ParameterInfo, f64)> {
         vst3::Plugin::parameters(self)
@@ -455,6 +465,9 @@ impl HostedPlugin for au::Plugin {
     fn timing(&self) -> Result<PluginTiming, Error> {
         Ok(au::Plugin::timing(self)?)
     }
+    fn poll_timing(&self) -> Option<PluginTiming> {
+        au::Plugin::poll_timing(self)
+    }
 
     fn parameters(&mut self) -> Vec<(ParameterInfo, f64)> {
         au::Plugin::parameters(self)
@@ -617,6 +630,9 @@ impl HostedPlugin for clap::Plugin {
 
     fn timing(&self) -> Result<PluginTiming, Error> {
         Ok(clap::Plugin::timing(self)?)
+    }
+    fn poll_timing(&self) -> Option<PluginTiming> {
+        clap::Plugin::poll_timing(self)
     }
 
     fn parameters(&mut self) -> Vec<(ParameterInfo, f64)> {

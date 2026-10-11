@@ -13,6 +13,8 @@ mod parameter_cache;
 mod parameters;
 mod presets;
 mod render;
+#[cfg(test)]
+mod timing_tests;
 use std::ffi::{CString, c_void};
 mod capabilities;
 use std::io::Cursor;
@@ -293,8 +295,28 @@ impl Plugin {
         else {
             return Err(ClapError::NotPrepared);
         };
+        self.shared().tail_changed.store(false, Ordering::Relaxed);
         prepared.tail = read_tail(processor);
         Ok(timing(processor, prepared))
+    }
+
+    pub(crate) fn poll_timing(&self) -> Option<PluginTiming> {
+        let mut engine = match self.engine.try_lock() {
+            Ok(engine) => engine,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        let Engine {
+            processor: Some(processor),
+            prepared: Some(prepared),
+        } = &mut *engine
+        else {
+            return None;
+        };
+        if self.shared().tail_changed.swap(false, Ordering::Relaxed) {
+            prepared.tail = read_tail(processor);
+        }
+        Some(timing(processor, prepared))
     }
 
     /// The cached parameter list, read again after the plugin rescanned its parameter info. The

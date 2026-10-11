@@ -8,6 +8,7 @@
 
 mod audio;
 pub(crate) mod audio_timing;
+mod changes;
 mod channel_views;
 pub(crate) mod events;
 mod parameters;
@@ -27,6 +28,7 @@ use plughost_formats::BlockProcessor;
 use crate::Responder;
 use crate::calls::Calls;
 use audio_timing::{Alignment, AudioTiming, DelayReplacement};
+use changes::{Changes, Observations};
 pub(crate) use parameters::Parameters;
 
 /// Blocks and commands waiting for the processing thread. The application sends one block at a
@@ -46,7 +48,7 @@ pub struct Pipeline {
     /// Events overflowed a block's budget; processing waits for a reset, which clears the notes
     /// slots may still hold.
     pub resync: bool,
-    pub changes: plughost_core::ChangeBuffer,
+    pub changes: Changes,
     /// Each slot's parameter metadata, against which block automation is validated.
     ///
     /// The main thread refreshes a slot's entry whenever the plugin reports changed metadata: on
@@ -125,7 +127,20 @@ pub(crate) struct Retime {
 impl Pipeline {
     fn apply(&mut self, command: &mut Command) {
         match command {
-            Command::Load(pipeline) => swap(self, pipeline),
+            Command::Load(pipeline) => {
+                // Keep the sender's observation cache attached to the new pipeline. The
+                // replaced cache is handed back to the main thread with the old pipeline.
+                swap(
+                    &mut self.changes.observations,
+                    &mut pipeline.changes.observations,
+                );
+                swap(self, pipeline);
+                self.changes
+                    .observations
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
+            }
             Command::Processors(processors) => swap(&mut self.processors, processors),
             Command::Calls(calls) => swap(&mut self.calls, calls),
             Command::Prepare(prepare) => {
@@ -197,6 +212,7 @@ pub(crate) struct Processing {
     /// Commands handed back; the main thread waits for each before it sends the next.
     returned: Mutex<Receiver<Command>>,
     thread: ThreadId,
+    observations: Observations,
 }
 
 impl Processing {
@@ -205,13 +221,16 @@ impl Processing {
     pub fn spawn(responder: Responder) -> io::Result<(Arc<Processing>, SyncSender<Work>)> {
         let (work, queue) = mpsc::sync_channel(QUEUE);
         let (handed_back, returned) = mpsc::sync_channel(1);
+        let observations = Observations::default();
+        let observed = Arc::clone(&observations);
         let thread = thread::Builder::new()
             .name("plughost processing".to_owned())
-            .spawn(move || serve(&queue, &handed_back, &responder))?;
+            .spawn(move || serve(&queue, &handed_back, &responder, observed))?;
         let processing = Processing {
             work: work.clone(),
             returned: Mutex::new(returned),
             thread: thread.thread().id(),
+            observations,
         };
         Ok((Arc::new(processing), work))
     }
@@ -233,13 +252,33 @@ impl Processing {
 
     /// Records a slot's timing without waiting. A full queue skips it: the next idle tick reads
     /// the timing again.
-    pub fn observe(&self, slot: usize, timing: PluginTiming) {
-        let _ = self.work.try_send(Work::Observe(slot, timing));
+    pub fn observe(&self, slot: usize, timing: PluginTiming) -> bool {
+        let mut observed = match self.observations.try_lock() {
+            Ok(observed) => observed,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return false,
+        };
+        if observed.get(slot) == Some(&Some(timing)) {
+            return true;
+        }
+        if self.work.try_send(Work::Observe(slot, timing)).is_err() {
+            return false;
+        }
+        changes::publish(&mut observed, slot, timing);
+        true
     }
 }
 
-fn serve(queue: &Receiver<Work>, handed_back: &SyncSender<Command>, responder: &Responder) {
-    let mut pipeline = Pipeline::default();
+fn serve(
+    queue: &Receiver<Work>,
+    handed_back: &SyncSender<Command>,
+    responder: &Responder,
+    observations: Observations,
+) {
+    let mut pipeline = Pipeline {
+        changes: Changes::new(observations),
+        ..Default::default()
+    };
     while let Ok(work) = queue.recv() {
         let _audit = plughost_core::audit::processing();
         match work {

@@ -209,6 +209,7 @@ impl Host {
             .collect();
         self.audio_config = Some(config.clone());
         self.timing = Some(plan);
+        self.timing_polls = vec![super::timing::Poll::default(); self.slots.len()];
         // Retire the old processor handles, and the rest of the old state, before the old
         // instances are dropped.
         drop(

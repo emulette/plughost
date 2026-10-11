@@ -26,6 +26,19 @@ median render time is included. Every render is checked against the fixture's ex
 after timing ends. Timing covers `render_with_schedule`, including chain routing, IPC for the
 isolated path, and the plugin's processing.
 
+# Idle timing observation
+
+```sh
+cargo test -p plughost --release --test timing_poll -- --ignored --nocapture
+```
+
+This observes eight prepared VST3 or CLAP delay slots 10,000 times through the helper and checks
+every timing snapshot. Copy `tests/timing_poll.rs` into the 0.1.1 crate and use the same command
+and current fixtures. With no other builds running, elapsed time fell from 179 to 165 ms for
+VST3 and 176 to 168 ms for CLAP; IPC dominates this quiet workload. Native CLAP tail reads per
+slot fell from 10,000 to zero. Native format tests also hold the processing engine on another
+thread and verify that an idle poll returns unavailable immediately, then succeeds after release.
+
 # Timeline scheduling
 
 ```sh

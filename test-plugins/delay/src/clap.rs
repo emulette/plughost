@@ -127,6 +127,7 @@ impl DefaultPluginFactory for TestPlugin {
             timer_calls: AtomicU32::new(0),
             system_timer_calls: Arc::new(AtomicU32::new(0)),
             flush_calls: AtomicU32::new(0),
+            tail_reads: AtomicU32::new(0),
         })
     }
 
@@ -174,6 +175,7 @@ pub struct Shared {
     pub(crate) timer_calls: AtomicU32,
     system_timer_calls: Arc<AtomicU32>,
     flush_calls: AtomicU32,
+    tail_reads: AtomicU32,
 }
 
 /// The thread CLAP assigns a plugin function to.
@@ -322,13 +324,23 @@ impl PluginMainThreadParams for MainThread<'_> {
         self.check("params.count");
         15 + u32::from(matches!(
             variant(),
-            Variant::Editor | Variant::Timers | Variant::FlushRequest
+            Variant::Editor | Variant::Timers | Variant::FlushRequest | Variant::ThreadCheck
         )) + 2 * u32::from(variant() == Variant::Timers)
     }
 
     fn get_info(&self, index: u32, info: &mut ParamInfoWriter) {
         self.check("params.get_info");
         match index {
+            15 if variant() == Variant::ThreadCheck => info.set(&ParamInfo {
+                id: ClapId::new(15),
+                flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: b"Tail reads",
+                module: b"",
+                min_value: 0.0,
+                max_value: 1_000_000.0,
+                default_value: 0.0,
+            }),
             16 | 17 if variant() == Variant::Timers => info.set(&ParamInfo {
                 id: ClapId::new(index),
                 flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
@@ -485,6 +497,9 @@ impl PluginMainThreadParams for MainThread<'_> {
 
     fn get_value(&self, id: ClapId) -> Option<f64> {
         self.check("params.get_value");
+        if id.get() == 15 && variant() == Variant::ThreadCheck {
+            return Some(f64::from(self.shared.tail_reads.load(Ordering::Relaxed)));
+        }
         if id.get() == 15 && variant() == Variant::FlushRequest {
             return Some(f64::from(self.shared.flush_calls.load(Ordering::Relaxed)));
         }
@@ -918,6 +933,7 @@ clack_export_entry!(TestEntry);
 
 impl PluginTailImpl for Processor<'_> {
     fn get(&self) -> TailLength {
+        self.shared.tail_reads.fetch_add(1, Ordering::Relaxed);
         TailLength::Finite(self.shared.tail.load(Ordering::Relaxed))
     }
 }

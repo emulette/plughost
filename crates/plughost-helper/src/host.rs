@@ -5,6 +5,7 @@
 
 mod audio;
 mod state;
+mod timing;
 
 use std::sync::Arc;
 
@@ -35,6 +36,7 @@ pub struct Host {
     audio_config: Option<RoutedChainConfig>,
     audio_slots: Vec<AudioConfig>,
     timing: Option<AudioTiming>,
+    timing_polls: Vec<timing::Poll>,
     transfer: transfer::Receiver,
     calls: Calls,
 }
@@ -57,6 +59,7 @@ impl Host {
             audio_config: None,
             audio_slots: Vec::new(),
             timing: None,
+            timing_polls: Vec::new(),
             transfer,
             calls: Calls::default(),
         }
@@ -311,25 +314,6 @@ impl Host {
         }
     }
 
-    /// Reads every prepared slot's timing on this thread, which refreshes what its processor
-    /// reports while processing, and records changes for the application. A slot that cannot
-    /// report its timing now fails the next block or request that needs it.
-    fn observe_timing(&mut self) {
-        if self.audio_config.is_none() {
-            return;
-        }
-        let calls = self.calls.clone();
-        for (slot, plugin) in self.slots.iter().enumerate() {
-            let timing = {
-                let _call = calls.enter(Caller::Main, slot);
-                plugin.timing()
-            };
-            if let Ok(timing) = timing {
-                self.processing.observe(slot, timing);
-            }
-        }
-    }
-
     /// Serves the plugins' main-thread requests and drains their parameter events. A reported
     /// metadata change refreshes the processing thread's copy (see [`Pipeline::parameters`]).
     fn collect_parameter_events(&mut self) {
@@ -423,6 +407,7 @@ impl Host {
         self.audio_config = None;
         self.audio_slots.clear();
         self.timing = None;
+        self.timing_polls.clear();
         self.parameter_events.clear();
         self.slots.clear();
         self.references.clear();
@@ -525,7 +510,7 @@ impl Host {
         response
     }
 
-    fn timing(&self) -> Response {
+    fn timing(&mut self) -> Response {
         let Some(config) = &self.audio_config else {
             return Response::Timing {
                 latency: 0,
@@ -537,6 +522,11 @@ impl Host {
             Ok(timings) => timings,
             Err((slot, error)) => return failed(slot, &error),
         };
+        for (slot, &timing) in timings.iter().enumerate() {
+            if !self.processing.observe(slot, timing) {
+                self.timing_polls[slot].retry();
+            }
+        }
         // A slot that waits to be prepared again fails the blocks it would process, not this read.
         match AudioTiming::new(config, &timings) {
             Ok(plan) => Response::Timing {

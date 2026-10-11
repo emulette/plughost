@@ -9,6 +9,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Added
 
+- `HostedPlugin::poll_timing` offers an opportunistic owning-thread timing read. Its default
+  returns `None`, preserving existing trait implementations; `timing` remains the fresh read.
 - The main crate re-exports `ParameterFlags`, `Sample`, the render `Process` trait, and public
   audio, text, preset and event/diagnostic buffer limits, avoiding a separate core dependency.
 - `Debug` for chains, scanners, helper monitors, scan controls, render sessions and native
@@ -22,6 +24,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- Idle timing polls skip a busy processing engine and send only changed observations to the
+  worker. CLAP reads tail after change notifications; VST3 and AU poll at a 100 ms cadence,
+  retrying skipped reads. Explicit timing reads, control edits and render startup stay fresh.
 - Native automation resolves and validates block edits once. CLAP and AU reuse prepared native
   point storage; VST3 resolves parameter queue indices once per assembly and holds queue locks
   while filling the block, releasing them before plugin callbacks. Control-only flushes and

@@ -10,6 +10,8 @@ mod musical_context;
 mod parameters;
 mod programs;
 mod render_audio;
+#[cfg(test)]
+mod timing_tests;
 use std::collections::HashMap;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -299,6 +301,16 @@ impl Plugin {
         let mut engine = lock(&self.engine);
         engine.refresh_timing()?;
         engine.timing()
+    }
+
+    pub(crate) fn poll_timing(&self) -> Option<PluginTiming> {
+        let mut engine = match self.engine.try_lock() {
+            Ok(engine) => engine,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        engine.refresh_timing().ok()?;
+        engine.timing().ok()
     }
 
     /// Each parameter with its current value, normalized over its range.
