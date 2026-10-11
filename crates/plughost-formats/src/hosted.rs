@@ -27,7 +27,12 @@ pub type ResizeRequest = Box<dyn Fn(u32, u32) -> bool>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditorView {
     /// In the host's parent view, at this size.
-    Embedded { width: u32, height: u32 },
+    Embedded {
+        /// Width in the native view's coordinate system.
+        width: u32,
+        /// Height in the native view's coordinate system.
+        height: u32,
+    },
     /// In a window of the plugin's own; the host's parent view stays unused.
     Floating,
 }
@@ -51,16 +56,20 @@ pub trait HostedPlugin {
     fn take_diagnostics(&self) -> plughost_core::DiagnosticBatch {
         plughost_core::DiagnosticBatch::default()
     }
+    /// Drains parameter values, gestures, rescans, and dirty-state notifications.
     fn take_parameter_events(&mut self) -> plughost_core::ParameterEventBatch;
+    /// Lists native factory presets or programs. The default reports unsupported.
     fn factory_presets(&mut self) -> Result<Vec<plughost_core::FactoryPreset>, Error> {
         Err(Error::FactoryPresetsUnsupported)
     }
+    /// Selects a native factory preset or program. The default reports unsupported.
     fn select_factory_preset(
         &mut self,
         _preset: &plughost_core::FactoryPresetId,
     ) -> Result<(), Error> {
         Err(Error::FactoryPresetsUnsupported)
     }
+    /// Loads a provider-discovered preset by native location and optional load key.
     fn load_discovered_preset(
         &mut self,
         _location: &plughost_core::PresetLocation,
@@ -68,18 +77,26 @@ pub trait HostedPlugin {
     ) -> Result<(), Error> {
         Err(Error::PresetDiscoveryUnsupported)
     }
+    /// Reads native audio bus metadata in input-then-output order, retaining native indices.
     fn audio_buses(&mut self) -> Result<Vec<plughost_core::AudioBusInfo>, Error>;
     /// Native event ports in both directions, inputs first.
     fn event_ports(&mut self) -> Result<Vec<plughost_core::EventPortInfo>, Error>;
+    /// Lists named native bus configurations when the format supports them.
     fn audio_configurations(&mut self) -> Result<Vec<plughost_core::AudioConfiguration>, Error>;
+    /// Applies explicit audio and event bus configuration and returns the resulting bus metadata.
     fn prepare_audio(
         &mut self,
         config: &plughost_core::AudioConfig,
     ) -> Result<Vec<plughost_core::AudioBusInfo>, Error>;
+    /// Queries native bypass support and its current state.
     fn bypass(&mut self) -> Result<plughost_core::BypassState, Error>;
+    /// Requests native bypass; it does not implement a host-side dry signal path.
     fn set_bypass(&mut self, enabled: bool) -> Result<(), Error>;
+    /// Metadata identifying this loaded plugin instance.
     fn info(&self) -> &PluginInfo;
+    /// Queries the instance for currently available native features.
     fn capabilities(&mut self) -> Result<Capabilities, Error>;
+    /// Prepares the legacy main-bus processing configuration.
     fn prepare(&mut self, config: &ProcessConfig) -> Result<(), Error>;
     /// A handle that processes this plugin from another thread.
     fn processor(&self) -> Box<dyn BlockProcessor>;
@@ -99,6 +116,7 @@ pub trait HostedPlugin {
     }
     /// Each parameter with its current normalized value.
     fn parameters(&mut self) -> Vec<(ParameterInfo, f64)>;
+    /// Reads native units, grouping, flags, and value-range metadata for a parameter.
     fn parameter_details(&mut self, id: u64) -> Result<plughost_core::ParameterDetails, Error>;
     /// Reads a bounded page of native labels and values; does not edit the parameter.
     fn parameter_choices(
@@ -111,12 +129,17 @@ pub trait HostedPlugin {
     }
     /// Changes a parameter the way an edit in the plugin's editor does.
     fn set_parameter(&mut self, id: u64, value: f64) -> Result<(), Error>;
+    /// Formats a normalized value using the plugin's native display conversion.
     fn parameter_text(&mut self, id: u64, value: f64) -> Result<String, Error>;
+    /// Parses native display text to a normalized value without editing the parameter.
     fn parameter_from_text(&mut self, id: u64, text: &str) -> Result<f64, Error>;
+    /// Converts a normalized parameter value to native units.
     fn parameter_to_plain(&mut self, id: u64, value: f64) -> Result<f64, Error>;
+    /// Converts native parameter units to a normalized value.
     fn parameter_to_normalized(&mut self, id: u64, plain: f64) -> Result<f64, Error>;
     /// Saves the state, after pending edits reach the processor.
     fn save_state(&mut self, purpose: plughost_core::StatePurpose) -> Result<PluginState, Error>;
+    /// Restores opaque native state for this plugin identity and the requested context.
     fn restore_state(
         &mut self,
         state: &PluginState,
@@ -135,6 +158,7 @@ pub trait HostedPlugin {
         parent: *mut c_void,
         resize: ResizeRequest,
     ) -> Result<EditorView, Error>;
+    /// Closes and detaches this instance's editor, if open.
     fn close_editor(&mut self);
     /// Tells the open editor that its window was shown or hidden.
     fn set_editor_visible(&mut self, _visible: bool) {}
@@ -142,6 +166,7 @@ pub trait HostedPlugin {
     fn take_editor_request(&mut self) -> Option<EditorRequest> {
         None
     }
+    /// Whether the editor accepts host-requested resizing. The default is false.
     fn editor_can_resize(&mut self) -> bool {
         false
     }
@@ -176,6 +201,7 @@ pub trait BlockProcessor: Send {
         events: &[Event],
         produced: &mut Vec<Event>,
     ) -> Result<(), Error>;
+    /// Processes f64 audio with the event, automation, and capacity contracts of [`Self::process_audio_f32`].
     fn process_audio_f64(
         &self,
         context: &plughost_core::BlockContext,
@@ -188,6 +214,7 @@ pub trait BlockProcessor: Send {
     /// The timing the owning thread last read (see [`HostedPlugin::timing`]), without calling the
     /// plugin.
     fn timing(&self) -> Result<PluginTiming, Error>;
+    /// Whether a native restart request prevents further processing until re-preparation.
     fn restart_required(&self) -> bool {
         false
     }

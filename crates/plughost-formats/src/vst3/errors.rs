@@ -54,67 +54,124 @@ pub(crate) fn unconvertible_output_events(count: u64) -> String {
     format!("{UNCONVERTIBLE_OUTPUT_EVENTS} {count}")
 }
 
+/// VST3 loading, lifecycle, processing, state, and editor failures.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Vst3Error {
+    /// The plugin returned invalid audio bus metadata.
     AudioBusMetadata,
+    /// VST3 does not enumerate named audio configurations.
     AudioConfigurationsUnsupported,
+    /// The requested native audio bus does not exist.
     UnknownAudioBus {
+        /// Requested native audio bus ID.
         id: u64,
     },
+    /// The plugin rejected activation or deactivation of an audio bus.
     AudioBusActivation {
+        /// Requested native audio bus ID.
         id: u64,
+        /// The native result code returned by the plugin.
         code: i32,
     },
+    /// The plugin has no writable native bypass parameter.
     BypassUnsupported,
+    /// The plugin rejected the bypass change. The payload is a native result code.
     BypassEdit(i32),
+    /// The plugin does not support native factory program selection.
     FactoryPresetsUnsupported,
+    /// The factory program does not belong to this plugin.
     InvalidFactoryPreset,
+    /// The plugin returned invalid factory program metadata.
     FactoryPresetMetadata,
+    /// The plugin rejected the factory program. The payload is a native result code.
     FactoryPresetSelect(i32),
+    /// The plugin returned an invalid parameter group hierarchy.
     ParameterGroups,
+    /// Caller input violated a processing or control contract.
     Input(InputError),
+    /// The plugin does not support the requested state context.
     StatePurposeUnsupported,
+    /// The plugin does not support the requested parameter conversion.
     ParameterConversion,
+    /// The plugin returned a non-finite or otherwise invalid parameter conversion.
     ParameterResult,
+    /// Could not open the VST3 bundle.
     BundleOpen,
+    /// Could not load the VST3 module binary.
     BundleLoad,
+    /// The module does not export the named required entry point.
     NoEntryPoint(&'static str),
+    /// The module's entry function failed.
     EntryFailed,
+    /// GetPluginFactory returned no factory.
     NoFactory,
+    /// The factory has no plugin with the supplied class ID.
     ClassNotFound(String),
+    /// The factory could not create the component.
     CreateComponent,
+    /// The component failed to initialize. The payload is a native result code.
     InitializeComponent(i32),
+    /// The component does not implement IAudioProcessor.
     NoAudioProcessor,
+    /// The component names no edit controller class.
     NoControllerClass,
+    /// The factory could not create the edit controller.
     CreateController,
+    /// The edit controller failed to initialize. The payload is a native result code.
     InitializeController(i32),
+    /// The plugin cannot process samples in the supplied format.
     SampleFormatUnsupported(SampleFormat),
+    /// No main audio bus can provide the requested layout.
     NoBus(Layout),
+    /// The plugin refused the requested channel layout.
     LayoutRefused {
+        /// The layout the host requested.
         requested: Layout,
+        /// The channel count the plugin exposed instead.
         plugin_channels: usize,
     },
+    /// The plugin rejected the processing setup (sample rate, block size, sample format, or mode). The payload is a native result code.
     SetupRejected(i32),
+    /// The plugin failed to activate. The payload is a native result code.
     Activate(i32),
+    /// The plugin is not prepared for processing.
     NotPrepared,
+    /// The buffers' sample format differs from the prepared format.
     SampleFormatMismatch,
+    /// The buffers do not match the prepared layout or block size.
     Buffers,
+    /// Could not reserve the prepared VST3 audio buffers.
     ProcessingStorage,
+    /// Could not reserve the prepared VST3 event storage.
     EventStorage,
+    /// Native output exceeded the per-block event or system-exclusive budget; reset before processing again.
     OutputEventCapacity,
+    /// The requested native event port does not exist or is not enabled.
     UnknownEventPort {
+        /// Requested native event port ID.
         id: u64,
     },
+    /// The plugin's process call failed. The payload is a native result code.
     Process(i32),
+    /// The plugin changed its buses or asked to be reloaded; prepare it again. The payload contains native restart flags.
     RestartRequired(i32),
+    /// The plugin failed to save its state. The payload is a native result code.
     GetState(i32),
+    /// Aggregate native processor and controller state exceeds `MAX_STATE_BYTES`.
     StateTooLarge,
+    /// The plugin failed to restore its state. The payload is a native result code.
     SetState(i32),
+    /// Saved state belongs to a different plugin format or class.
     StateMismatch,
+    /// Not a valid .vstpreset file.
     Preset,
+    /// The owning plugin handle has been dropped; its processor is no longer usable.
     Closed,
+    /// The plugin has no editor for this platform.
     NoEditor,
+    /// The plugin's editor failed to attach. The payload is a native result code.
     EditorAttach(i32),
+    /// The render scheduler rejected its input or failed during delivery.
     Render(RenderError),
 }
 
@@ -194,6 +251,7 @@ impl fmt::Display for Vst3Error {
 impl std::error::Error for Vst3Error {}
 
 impl Vst3Error {
+    /// Classifies this failure for scan policy and helper diagnostics.
     pub fn kind(&self) -> FailureKind {
         match self {
             Self::AudioBusMetadata => FailureKind::Host,

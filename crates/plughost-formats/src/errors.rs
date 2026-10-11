@@ -71,21 +71,33 @@ pub(crate) fn state_too_large(f: &mut fmt::Formatter<'_>) -> fmt::Result {
     )
 }
 
+/// Failures shared by native format hosts or returned by an enabled format.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
+    /// Continuous parameters do not expose a discrete choice list.
     ContinuousParameter,
+    /// This format has no supported preset file codec.
     PresetUnsupported,
+    /// This format has no supported factory program interface.
     FactoryPresetsUnsupported,
+    /// This format has no supported discovery preset loader.
     PresetDiscoveryUnsupported,
+    /// Caller input violated a processing or control contract.
     Input(InputError),
     #[cfg(feature = "vst3")]
+    /// A VST3 host or native plugin failure.
     Vst3(Vst3Error),
     #[cfg(all(feature = "au", target_os = "macos"))]
+    /// An Audio Unit host or native plugin failure.
     Au(AuError),
     #[cfg(feature = "clap")]
+    /// A CLAP host or native plugin failure.
     Clap(ClapError),
+    /// The requested native format is unavailable in this build.
     UnsupportedFormat(PluginFormat),
+    /// VST3 and CLAP plugins need a bundle path.
     NoBundle,
+    /// The render scheduler rejected its input or failed during delivery.
     Render(RenderError),
 }
 
@@ -154,6 +166,7 @@ impl Error {
         }
     }
 
+    /// Classifies this failure for scan policy and helper diagnostics.
     pub fn kind(&self) -> FailureKind {
         match self {
             Self::Input(_) | Self::NoBundle => FailureKind::InvalidInput,
@@ -186,6 +199,7 @@ impl Error {
         }
     }
 
+    /// Copies the failure category and diagnostic into a transportable report.
     pub fn failure(&self) -> Failure {
         Failure::new(self.kind(), self.to_string())
     }

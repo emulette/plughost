@@ -144,6 +144,7 @@ fn describe(error: &NSError) -> String {
     error.localizedDescription().to_string()
 }
 
+/// An in-process native plugin owned and controlled by the thread that created it.
 pub struct Plugin {
     info: PluginInfo,
     engine: Arc<Mutex<Engine>>,

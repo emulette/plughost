@@ -11,6 +11,11 @@
 //! variants of [`Error`]. An owner that processes plugins on a thread of its own gives them an
 //! [`AudioThread`], so the audio-thread calls they need between blocks run there too.
 
+//! The [detailed API guide](https://github.com/emulette/plughost/blob/v0.1.1/llms.txt)
+//! describes format capabilities and the application-level processing contracts.
+
+#![warn(missing_docs)]
+
 #[cfg(all(feature = "au", target_os = "macos"))]
 pub mod au;
 mod audio_thread;

@@ -135,6 +135,7 @@ impl Plugin {
         lock(&self.engine).unprepare();
     }
 
+    /// The active legacy processing configuration, or `None` before preparation.
     pub fn config(&self) -> Option<ProcessConfig> {
         lock(&self.engine)
             .prepared

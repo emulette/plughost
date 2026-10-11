@@ -67,6 +67,7 @@ impl Module {
         }))
     }
 
+    /// The bundle or module path used to load this factory.
     pub fn path(&self) -> &Path {
         &self.path
     }

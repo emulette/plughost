@@ -133,6 +133,7 @@ fn lock(engine: &Mutex<Engine>) -> MutexGuard<'_, Engine> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// An in-process native plugin owned and controlled by the thread that created it.
 pub struct Plugin {
     diagnostics: DiagnosticBuffer,
     info: PluginInfo,
@@ -154,6 +155,7 @@ impl std::fmt::Debug for Plugin {
 }
 
 impl Plugin {
+    /// Loads the CLAP bundle and creates the named class with the supplied host identity.
     pub fn new(
         bundle: &Path,
         class_id: &str,
@@ -248,6 +250,7 @@ impl Plugin {
         }
     }
 
+    /// The active legacy processing configuration, or `None` before preparation.
     pub fn config(&self) -> Option<ProcessConfig> {
         lock(&self.engine)
             .prepared

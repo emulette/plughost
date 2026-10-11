@@ -2,12 +2,17 @@
 use crate::Error;
 use plughost_core::{InputError, MAX_PRESET_BYTES, PluginFormat, PluginState, PresetInfo};
 
+/// Validated native preset identity and opaque processor/controller payloads.
 pub struct DecodedPreset {
+    /// Plugin class identity and format-specific container metadata.
     pub info: PresetInfo,
+    /// Processor state, or the format's single state blob.
     pub component: Vec<u8>,
+    /// Optional VST3 controller state; empty for formats with one state blob.
     pub controller: Vec<u8>,
 }
 
+/// Whether this build can encode and decode the format's native preset files.
 pub fn supports(format: PluginFormat) -> bool {
     match format {
         #[cfg(feature = "vst3")]
@@ -18,6 +23,7 @@ pub fn supports(format: PluginFormat) -> bool {
     }
 }
 
+/// Validates a bounded native preset container without loading a plugin.
 pub fn decode(format: PluginFormat, bytes: &[u8]) -> Result<DecodedPreset, Error> {
     if bytes.len() > MAX_PRESET_BYTES {
         return Err(Error::Input(InputError::PresetSize));

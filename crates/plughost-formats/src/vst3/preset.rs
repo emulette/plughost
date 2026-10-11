@@ -9,16 +9,21 @@ const COMPONENT_ID: &[u8; 4] = b"Comp";
 const CONTROLLER_ID: &[u8; 4] = b"Cont";
 const INFO_ID: &[u8; 4] = b"Info";
 
+/// A `.vstpreset` container with independent processor, controller, and XML metadata chunks.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Preset {
+    /// Target VST3 class ID as 32 hexadecimal digits.
     pub class_id: String,
+    /// Opaque component state from the `Comp` chunk.
     pub component: Vec<u8>,
+    /// Opaque optional controller state from the `Cont` chunk.
     pub controller: Vec<u8>,
     /// Opaque XML metadata. Native/vendor attributes are preserved without reinterpretation.
     pub info: Vec<u8>,
 }
 
 impl Preset {
+    /// Copies native state into a container with no XML annotations.
     pub fn from_state(state: &PluginState) -> Self {
         Self {
             class_id: state.class_id.clone(),
@@ -28,6 +33,7 @@ impl Preset {
         }
     }
 
+    /// Encodes a size-bounded container after validating its class ID and chunk lengths.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Vst3Error> {
         if !valid_class(&self.class_id) {
             return Err(Vst3Error::Preset);
@@ -72,6 +78,7 @@ impl Preset {
         Ok(bytes)
     }
 
+    /// Validates the header, chunk table, offsets, lengths, and overlaps before copying state.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Vst3Error> {
         if bytes.len() > MAX_PRESET_BYTES
             || bytes.get(..4) != Some(b"VST3")

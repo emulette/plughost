@@ -35,36 +35,69 @@ pub(crate) fn unconvertible_output_events(count: u64) -> String {
     format!("{UNCONVERTIBLE_OUTPUT_EVENTS} {count}")
 }
 
+/// Audio Unit loading, configuration, rendering, state, and editor failures.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AuError {
+    /// Caller input violated a processing or control contract.
     Input(InputError),
-    UnknownEventPort { id: u64 },
+    /// The requested native event port does not exist or is not enabled.
+    UnknownEventPort {
+        /// Requested native event port ID.
+        id: u64,
+    },
+    /// The Audio Unit returned invalid audio bus metadata.
     AudioBusMetadata,
+    /// The Audio Unit does not support the requested bus configuration.
     AudioConfiguration,
+    /// The Audio Unit does not support the requested bypass state.
     BypassUnsupported,
+    /// The encoded native state exceeds `MAX_STATE_BYTES`.
     StateTooLarge,
+    /// The Audio Unit factory preset is unavailable.
     FactoryPreset,
+    /// The Audio Unit returned invalid or excessive factory preset metadata.
     FactoryPresetMetadata,
+    /// The Audio Unit did not select the requested factory preset.
     FactoryPresetSelection,
+    /// The plugin does not support the requested state context.
     StatePurposeUnsupported,
+    /// The plugin does not support the requested parameter conversion.
     ParameterConversion,
+    /// The plugin returned a non-finite or otherwise invalid parameter conversion.
     ParameterResult,
+    /// The supplied Audio Unit class ID is not 24 hexadecimal digits.
     ClassId(String),
+    /// The Audio Unit could not be instantiated. The payload contains the native diagnostic.
     Instantiate(String),
+    /// Audio Units process 32-bit float samples only.
     SampleFormatUnsupported(SampleFormat),
+    /// No main audio bus can provide the requested layout.
     NoBus(Layout),
+    /// The Audio Unit refused the requested layout.
     LayoutRefused(Layout, String),
+    /// The Audio Unit could not allocate render resources. The payload contains the native diagnostic.
     Allocate(String),
+    /// The plugin is not prepared for processing.
     NotPrepared,
+    /// The buffers do not match the prepared layout or block size.
     Buffers,
+    /// Could not reserve the prepared Audio Unit audio buffers.
     ProcessingStorage,
+    /// The native render call returned the supplied OSStatus error code.
     Render(i32),
+    /// The Audio Unit returned no render or parameter scheduling block.
     RenderBlocks,
+    /// Native output exceeded the per-block event or system-exclusive budget; reset before processing again.
     OutputEventCapacity,
+    /// The Audio Unit state could not be encoded or decoded.
     State,
+    /// Saved state belongs to a different plugin format or class.
     StateMismatch,
+    /// The owning plugin handle has been dropped; its processor is no longer usable.
     Closed,
+    /// The Audio Unit extension connection was invalidated; create a new instance.
     Invalidated,
+    /// The Audio Unit has no editor view.
     NoEditor,
 }
 
@@ -111,6 +144,7 @@ impl fmt::Display for AuError {
 impl std::error::Error for AuError {}
 
 impl AuError {
+    /// Classifies this failure for scan policy and helper diagnostics.
     pub fn kind(&self) -> FailureKind {
         match self {
             Self::AudioBusMetadata | Self::RenderBlocks => FailureKind::Host,

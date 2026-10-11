@@ -42,51 +42,94 @@ pub(crate) fn unconvertible_output_events(count: u64) -> String {
     format!("{UNCONVERTIBLE_OUTPUT_EVENTS} {count}")
 }
 
+/// CLAP loading, extensions, processing, state, and editor failures.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClapError {
+    /// Caller input violated a processing or control contract.
     Input(InputError),
+    /// The render scheduler rejected its input or failed during delivery.
     Render(plughost_core::RenderError),
+    /// The CLAP plugin returned invalid audio bus metadata.
     AudioMetadata,
+    /// The CLAP plugin does not support this audio bus operation.
     AudioUnsupported,
+    /// The CLAP plugin refused the requested audio bus configuration.
     AudioConfiguration,
+    /// The CLAP plugin does not provide a writable bypass parameter.
     BypassUnsupported,
+    /// The CLAP module does not support the requested preset operation.
     PresetUnsupported,
+    /// The CLAP provider failed to discover presets.
     PresetDiscovery,
+    /// The CLAP provider returned malformed preset metadata.
     PresetMetadata,
+    /// The CLAP plugin failed to load the preset.
     PresetLoad,
+    /// The CLAP preset location, provider ID, or load key is invalid.
     PresetInput,
+    /// The CLAP plugin returned invalid note port metadata.
     NotePortMetadata,
+    /// The requested native event port does not exist or is not enabled.
     UnknownEventPort {
+        /// Requested native event port ID.
         id: u64,
     },
+    /// Native output exceeded the per-block event or system-exclusive budget; reset before processing again.
     OutputEventCapacity,
+    /// The CLAP preset location could not be read.
     PresetLocation(std::io::ErrorKind),
+    /// The plugin does not support the requested state context.
     StatePurposeUnsupported,
+    /// The plugin does not support the requested parameter conversion.
     ParameterConversion,
+    /// The plugin returned a non-finite or otherwise invalid parameter conversion.
     ParameterResult,
+    /// The CLAP module could not be loaded. The payload contains the native diagnostic.
     Load(String),
+    /// The CLAP module has no plugin factory.
     NoFactory,
+    /// The factory has no plugin with the supplied class ID.
     ClassNotFound(String),
+    /// The CLAP plugin could not be created. The payload contains the native diagnostic.
     Instantiate(String),
+    /// The CLAP audio ports do not support the requested sample format.
     SampleFormatUnsupported(SampleFormat),
+    /// The plugin refused the requested channel layout.
     LayoutRefused {
+        /// The layout the host requested.
         requested: Layout,
+        /// The channel count the plugin exposed instead.
         plugin_channels: u32,
     },
+    /// The plugin cannot render offline (hard real-time requirement).
     RealtimeOnly,
+    /// The plugin failed to activate. The payload contains the native diagnostic.
     Activate(String),
+    /// The plugin is not prepared for processing.
     NotPrepared,
+    /// The plugin requested explicit re-preparation.
     RestartRequired,
+    /// CLAP beat transport requires an explicit bar position because it has no separate bar-valid flag.
     BarPositionRequired,
+    /// The buffers do not match the prepared layout or block size.
     Buffers,
+    /// Could not reserve the prepared CLAP audio buffers.
     ProcessingStorage,
+    /// Could not reserve the prepared CLAP input events.
     EventStorage,
+    /// The plugin's process call failed. The payload contains the native diagnostic.
     Process(String),
+    /// The plugin failed to save or load its state.
     State,
+    /// The encoded native state exceeds `MAX_STATE_BYTES`.
     StateTooLarge,
+    /// The plugin does not provide the CLAP state extension.
     StateUnsupported,
+    /// Saved state belongs to a different plugin format or class.
     StateMismatch,
+    /// The plugin has no editor for this platform.
     NoEditor,
+    /// The plugin's editor failed to open. The payload contains the native diagnostic.
     Editor(String),
 }
 
@@ -147,6 +190,7 @@ impl fmt::Display for ClapError {
 impl std::error::Error for ClapError {}
 
 impl ClapError {
+    /// Classifies this failure for scan policy and helper diagnostics.
     pub fn kind(&self) -> FailureKind {
         match self {
             Self::AudioMetadata => FailureKind::Host,
