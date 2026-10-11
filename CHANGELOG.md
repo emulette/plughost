@@ -22,6 +22,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- AU parameters marked `NonRealTime` remain editable but reject block automation.
+- AU SysEx input preserves the full 65,536-byte block budget: AUv3 receives timestamped
+  fragments, and AUv2 receives a complete message through its native SysEx API.
 - Helper OS event processing and editor updates run on a 10 ms deadline even while control
   requests keep arriving, so a busy caller does not starve native timers and UI events.
 - AU Cocoa editor metadata with a null bundle or no non-null class name reports `NoEditor`

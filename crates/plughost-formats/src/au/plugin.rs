@@ -23,9 +23,9 @@ use objc2::runtime::Bool;
 use objc2_audio_toolbox::{
     AUAudioFrameCount, AUAudioUnit, AUAudioUnitStatus, AUAudioUnitV2Bridge, AUEventSampleTime,
     AUHostTransportStateFlags, AUParameter, AUParameterAddress, AUParameterListenerNotify, AUValue,
-    AudioComponentDescription, AudioComponentInstantiationOptions, AudioUnitGetParameter,
-    AudioUnitParameter, AudioUnitParameterOptions, AudioUnitParameterUnit,
-    AudioUnitRenderActionFlags, AudioUnitSetParameter, kAudioUnitScope_Global,
+    AudioComponentDescription, AudioComponentInstantiationOptions, AudioUnit,
+    AudioUnitGetParameter, AudioUnitParameter, AudioUnitParameterOptions, AudioUnitParameterUnit,
+    AudioUnitRenderActionFlags, AudioUnitSetParameter, MusicDeviceSysEx, kAudioUnitScope_Global,
 };
 use objc2_core_audio_types::{AudioBufferList, AudioTimeStamp};
 use objc2_foundation::{NSError, NSInteger, NSPropertyListFormat};
@@ -99,6 +99,9 @@ struct Prepared {
     schedule: RcBlock<Schedule>,
     /// None for units without MIDI input.
     schedule_midi: Option<RcBlock<ScheduleMidi>>,
+    /// The v2 SysEx API accepts a complete message with a 32-bit length. The v3 bridge's
+    /// scheduling block truncates lengths beyond the 16-bit AUMIDIEvent representation.
+    midi_v2: Option<AudioUnit>,
     /// Collects the unit's MIDI output when event outputs were requested.
     midi_output: Option<midi_output::Output>,
     /// Parameter ranges, to turn normalized changes into plain values.
@@ -541,7 +544,8 @@ fn parameter_info(parameter: &AUParameter) -> ParameterInfo {
     };
     let writable = options.contains(AudioUnitParameterOptions::Flag_IsWritable);
     info.flags.discrete = discrete;
-    info.flags.automatable = writable;
+    info.flags.automatable =
+        writable && !options.contains(AudioUnitParameterOptions::Flag_NonRealTime);
     info.flags.read_only = !writable;
     info.flags.list = unsafe { parameter.valueStrings() }.is_some();
     info
@@ -699,6 +703,9 @@ impl Engine {
             render,
             schedule,
             schedule_midi,
+            midi_v2: unit
+                .downcast_ref::<AUAudioUnitV2Bridge>()
+                .map(|bridge| unsafe { bridge.audioUnit() }),
             midi_output,
             ranges,
             position: 0.0,
@@ -830,9 +837,11 @@ impl Engine {
             *timeline = context.transport;
         }
         let position = prepared.position;
+        if let Some(midi_output) = &prepared.midi_output {
+            midi_output.begin(position, frames);
+        }
         if let Some(schedule) = &prepared.schedule_midi {
             for event in events {
-                // The block takes complete MIDI messages of any length, system exclusive included.
                 // Notes and pressure go in their MIDI 1.0 form; other expressions have none.
                 let midi = event.data.to_midi();
                 let bytes = match (&event.data, &midi) {
@@ -842,19 +851,29 @@ impl Engine {
                     (_, None) => continue,
                 };
                 let _audit = plughost_core::audit::plugin();
-                schedule.call((
-                    position as AUEventSampleTime + event.offset as AUEventSampleTime,
-                    0,
-                    bytes.len() as NSInteger,
-                    NonNull::from(bytes).cast(),
-                ));
+                if let (EventData::SysEx(_), Some(unit)) = (&event.data, prepared.midi_v2) {
+                    // MusicDeviceSysEx takes a whole message and has no sample offset.
+                    let status = unsafe {
+                        MusicDeviceSysEx(unit, NonNull::from(bytes).cast(), bytes.len() as u32)
+                    };
+                    if status != 0 {
+                        return Err(AuError::Render(status));
+                    }
+                    continue;
+                }
+                // Preserve the byte stream and timestamp across AUv3's 16-bit event lengths.
+                for bytes in bytes.chunks(u16::MAX as usize) {
+                    schedule.call((
+                        position as AUEventSampleTime + event.offset as AUEventSampleTime,
+                        0,
+                        bytes.len() as NSInteger,
+                        NonNull::from(bytes).cast(),
+                    ));
+                }
             }
         }
 
         let prepared = self.prepared.as_mut().unwrap();
-        if let Some(midi_output) = &prepared.midi_output {
-            midi_output.begin(position, frames);
-        }
         // The timeline moves on whether or not the unit rendered, as VST3's does: a unit asked
         // for the same time again can hand back the output it made for it.
         let rendered = render_audio::render(prepared, input, output, frames, position);

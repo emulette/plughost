@@ -442,3 +442,23 @@ fn the_main_configuration_prepares_the_first_output() {
     let produced = block(&mut plugin, &[Event::note_on(3, 0, 64, 90)]).unwrap();
     assert_eq!(produced, [Event::note_on(3, 0, 64, 90)]);
 }
+
+#[test]
+fn system_exclusive_input_reaches_the_unit_at_the_full_byte_budget() {
+    let mut plugin = prepared(vec![0]);
+    for length in [u16::MAX as usize, MAX_BLOCK_SYSEX_BYTES] {
+        let mut bytes = vec![1; length];
+        bytes[0] = 0xF0;
+        bytes[length - 1] = 0xF7;
+        let events = [Event::sysex(7, bytes.clone()), Event::note_on(8, 0, 60, 90)];
+        let produced = block(&mut plugin, &events).unwrap();
+        assert_eq!(produced.len(), 2, "length {length}");
+        assert_eq!(produced[0].offset, 7);
+        let plughost_core::EventData::SysEx(received) = &produced[0].data else {
+            panic!("expected SysEx");
+        };
+        assert_eq!(received.len(), length);
+        assert!(received == &bytes);
+        assert_eq!(produced[1], events[1]);
+    }
+}
