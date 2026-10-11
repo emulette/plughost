@@ -235,7 +235,7 @@ fn follow(sounding: &mut Sounding, event: &Event, delivered: Option<&EventData>)
             let off = unsafe { event.__field0.noteOff };
             if off.noteId != -1 {
                 sounding.remove(&off.noteId);
-            } else {
+            } else if !sounding.is_empty() {
                 sounding.retain(|_, &mut (bus, channel, key)| {
                     (bus, i16::from(channel), i16::from(key)) != (port, off.channel, off.pitch)
                 });

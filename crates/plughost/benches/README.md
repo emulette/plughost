@@ -65,6 +65,17 @@ blocks, checking the f64 result. Copy this benchmark function into 0.1.1's
 these cases from 434/406 ms to 67/47 ms. Existing routing tests also verify that processing does
 not allocate and that direct, adapted, silent and delayed routes retain their samples.
 
+# Output note tracking
+
+```sh
+cargo test -p plughost-formats --release --lib output_note_off_benchmark -- --ignored --nocapture
+```
+
+The fixture emits 100,000 note-offs with 4,096 held notes, checking ID and address matching,
+and repeats with wildcard IDs and an empty table. Copy the benchmark function into 0.1.1's
+`clap/plugin/output_events.rs` for comparison. Direct removal by ID reduced the first case
+from 915–952 ms to 3–13 ms. The empty-table case stayed near 1 ms after warm-up.
+
 # Soak runs
 
 `cargo bench -p plughost --bench soak -- --plugin BUNDLE [--plugin BUNDLE ...] [--rounds 120]

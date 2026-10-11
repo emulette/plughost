@@ -83,6 +83,23 @@ impl ProcessOutput<'_> {
 
     /// Forgets the notes a note off names.
     fn end(&mut self, pckn: Pckn) {
+        if let Some(id) = pckn.note_id.into_specific() {
+            if let std::collections::hash_map::Entry::Occupied(entry) = self.sounding.entry(id) {
+                let &(port, channel, key) = entry.get();
+                if pckn.matches(&Pckn::new(
+                    port as u16,
+                    u16::from(channel),
+                    u16::from(key),
+                    id,
+                )) {
+                    entry.remove();
+                }
+            }
+            return;
+        }
+        if self.sounding.is_empty() {
+            return;
+        }
         self.sounding.retain(|&id, &mut (port, channel, key)| {
             !pckn.matches(&Pckn::new(
                 port as u16,
@@ -235,5 +252,70 @@ mod tests {
         // The note ended; its ID names no note any more.
         let (data, unconvertible) = block(&mut sounding, &[tuning.as_unknown()]);
         assert_eq!((data, unconvertible), (vec![], 1));
+    }
+
+    #[test]
+    #[ignore = "CLAP output-note benchmark; run in release mode with --nocapture"]
+    fn output_note_off_benchmark() {
+        use std::io::Write;
+        use std::time::Instant;
+        for identified in [true, false] {
+            let mut sounding = sounding().unwrap();
+            if identified {
+                sounding.extend((0..MAX_BLOCK_EVENTS as u32).map(|id| (id, (0, 0, 60))));
+            }
+            let parameters = ParameterCache::default();
+            let queue = ParameterEventBuffer::default();
+            let mut produced = Vec::with_capacity(MAX_BLOCK_EVENTS);
+            let mut output = ProcessOutput {
+                parameters: events::ParameterOutput {
+                    parameters: &parameters,
+                    queue: &queue,
+                },
+                events: &mut produced,
+                sounding: &mut sounding,
+                frames: 64,
+                sysex: 0,
+                overflow: false,
+                unconvertible: 0,
+            };
+            let note_id = if identified {
+                Match::Specific(0u32)
+            } else {
+                Match::All
+            };
+            let off = NoteOffEvent::new(0, Pckn::new(0u16, 0u16, 60u16, note_id), 0.0);
+            let started = Instant::now();
+            for _ in 0..100_000 {
+                if identified {
+                    output.sounding.insert(0, (0, 0, 60));
+                }
+                output.events.clear();
+                output
+                    .try_push(std::hint::black_box(off.as_unknown()))
+                    .unwrap();
+            }
+            let elapsed = started.elapsed();
+            assert_eq!(output.events.len(), 1);
+            assert_eq!(
+                output.sounding.len(),
+                if identified { MAX_BLOCK_EVENTS - 1 } else { 0 }
+            );
+            // An exact ID must still obey explicitly supplied port/channel/key constraints.
+            output.sounding.insert(0, (0, 0, 60));
+            let wrong_port = NoteOffEvent::new(0, Pckn::new(1u16, 0u16, 60u16, 0u32), 0.0);
+            output.try_push(wrong_port.as_unknown()).unwrap();
+            assert!(output.sounding.contains_key(&0));
+            let by_id =
+                NoteOffEvent::new(0, Pckn::new(Match::All, Match::All, Match::All, 0u32), 0.0);
+            output.try_push(by_id.as_unknown()).unwrap();
+            assert!(!output.sounding.contains_key(&0));
+            writeln!(
+                std::io::stdout(),
+                "identified={identified} note_offs=100000 ms={:.3}",
+                elapsed.as_secs_f64() * 1000.0
+            )
+            .unwrap();
+        }
     }
 }
