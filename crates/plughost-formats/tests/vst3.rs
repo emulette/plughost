@@ -19,6 +19,8 @@ const NEEDS_PLUGINS: &str = "needs scripts/build-test-plugins.sh";
 mod audio;
 #[path = "vst3/factory_programs.rs"]
 mod factory_programs;
+#[path = "vst3/lifecycle.rs"]
+mod lifecycle;
 #[path = "vst3/sdk_samples.rs"]
 mod sdk_samples;
 const AGAIN_CLASS: &str = "84E8DE5F92554F5396FAE4133C935A18";

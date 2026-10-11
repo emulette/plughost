@@ -170,11 +170,12 @@ impl Plugin {
     /// thread, so a prepared processor takes it on its audio thread; an unprepared one is
     /// activated for it on this thread, which owns activation.
     fn deliver_edits(&self) -> Result<(), Vst3Error> {
+        let parameters = self.parameter_cache();
         if lock(&self.engine).prepared.is_none() {
-            return lock(&self.engine).flush();
+            return lock(&self.engine).flush(&parameters);
         }
         let engine = Arc::clone(&self.engine);
-        self.audio.run(move || lock(&engine).flush())
+        self.audio.run(move || lock(&engine).flush(&parameters))
     }
 
     /// The prepared plugin's timing, with the tail read again on this thread.
@@ -438,9 +439,15 @@ impl Plugin {
         self.sync_controller();
         if self.handler.take_midi_mapping_changed() {
             let parameters = self.parameter_cache();
-            if let Some(prepared) = &mut lock(&self.engine).prepared {
-                prepared.midi_assignments =
-                    midi_assignments(&self.controller, &parameters, &prepared.event_inputs);
+            let inputs = lock(&self.engine)
+                .prepared
+                .as_ref()
+                .map(|prepared| prepared.event_inputs.clone());
+            if let Some(inputs) = inputs {
+                let assignments = midi_assignments(&self.controller, &parameters, &inputs);
+                if let Some(prepared) = &mut lock(&self.engine).prepared {
+                    prepared.midi_assignments = assignments;
+                }
             }
         }
     }

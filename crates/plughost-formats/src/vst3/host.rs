@@ -195,6 +195,9 @@ impl IAttributeListTrait for AttributeList {
     }
 
     unsafe fn getInt(&self, id: AttrID, value: *mut int64) -> tresult {
+        if id.is_null() || value.is_null() {
+            return kInvalidArgument;
+        }
         match lock(&self.values).get(unsafe { CStr::from_ptr(id) }) {
             Some(Attribute::Int(v)) => {
                 unsafe { *value = *v };
@@ -209,6 +212,9 @@ impl IAttributeListTrait for AttributeList {
     }
 
     unsafe fn getFloat(&self, id: AttrID, value: *mut f64) -> tresult {
+        if id.is_null() || value.is_null() {
+            return kInvalidArgument;
+        }
         match lock(&self.values).get(unsafe { CStr::from_ptr(id) }) {
             Some(Attribute::Float(v)) => {
                 unsafe { *value = *v };
@@ -219,6 +225,9 @@ impl IAttributeListTrait for AttributeList {
     }
 
     unsafe fn setString(&self, id: AttrID, string: *const TChar) -> tresult {
+        if id.is_null() || string.is_null() {
+            return kInvalidArgument;
+        }
         let mut chars = Vec::new();
         let mut cursor = string;
         unsafe {
@@ -231,6 +240,9 @@ impl IAttributeListTrait for AttributeList {
     }
 
     unsafe fn getString(&self, id: AttrID, string: *mut TChar, size_in_bytes: u32) -> tresult {
+        if id.is_null() || string.is_null() {
+            return kInvalidArgument;
+        }
         match lock(&self.values).get(unsafe { CStr::from_ptr(id) }) {
             Some(Attribute::String(chars)) => {
                 let capacity = size_in_bytes as usize / size_of::<TChar>();
@@ -249,8 +261,14 @@ impl IAttributeListTrait for AttributeList {
     }
 
     unsafe fn setBinary(&self, id: AttrID, data: *const c_void, size_in_bytes: u32) -> tresult {
-        let bytes =
-            unsafe { std::slice::from_raw_parts(data as *const u8, size_in_bytes as usize) };
+        if id.is_null() || (data.is_null() && size_in_bytes != 0) {
+            return kInvalidArgument;
+        }
+        let bytes = if size_in_bytes == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(data as *const u8, size_in_bytes as usize) }
+        };
         self.set(id, Attribute::Binary(bytes.to_vec()))
     }
 
@@ -260,6 +278,9 @@ impl IAttributeListTrait for AttributeList {
         data: *mut *const c_void,
         size_in_bytes: *mut u32,
     ) -> tresult {
+        if id.is_null() || data.is_null() || size_in_bytes.is_null() {
+            return kInvalidArgument;
+        }
         match lock(&self.values).get(unsafe { CStr::from_ptr(id) }) {
             Some(Attribute::Binary(bytes)) => {
                 // The pointer stays valid while the attribute is not replaced, as in the SDK.
@@ -286,6 +307,10 @@ pub(crate) enum StateKind {
 #[cfg(test)]
 #[path = "host/state_tests.rs"]
 mod state_tests;
+
+#[cfg(test)]
+#[path = "host/attribute_tests.rs"]
+mod attribute_tests;
 
 #[cfg(test)]
 #[path = "host/editor_tests.rs"]

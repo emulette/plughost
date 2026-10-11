@@ -57,6 +57,7 @@ mod clap;
 #[cfg(target_os = "macos")]
 mod editor;
 mod errors;
+mod mapping_probe;
 mod state_payload;
 mod timers;
 mod units;
@@ -79,7 +80,7 @@ const HOST_NAME: ParamID = 3;
 const PROGRAM: ParamID = 6;
 const EVENT_PROBE: ParamID = 7;
 const RESTART_PROBE: ParamID = 8;
-const PARAMETERS: [(&str, i32, ParamValue, i32); 10] = [
+const PARAMETERS: [(&str, i32, ParamValue, i32); 11] = [
     ("Gain", 0, 1.0, ParameterFlags_::kCanAutomate),
     ("Project State", 1, 0.0, ParameterFlags_::kIsReadOnly),
     ("Gain Controller", 1, 0.0, ParameterFlags_::kIsList),
@@ -95,6 +96,7 @@ const PARAMETERS: [(&str, i32, ParamValue, i32); 10] = [
     ("Event probe", 1, 0.0, ParameterFlags_::kCanAutomate),
     ("Restart probe", 1, 0.0, 0),
     ("Tail samples", 32, 0.0, ParameterFlags_::kCanAutomate),
+    ("Concurrent mapping", 1, 0.0, ParameterFlags_::kIsReadOnly),
 ];
 
 fn class_id() -> TUID {
@@ -152,6 +154,7 @@ fn copy_wide(text: &str, out: &mut [TChar]) {
 }
 
 struct Delay {
+    mapping_probe: mapping_probe::Probe,
     host_name: Mutex<String>,
     lines: Mutex<Vec<VecDeque<f64>>>,
     /// The gain the processor applies, as delivered with parameter changes or restored state.
@@ -176,6 +179,7 @@ unsafe impl Sync for Delay {}
 impl Delay {
     fn new() -> Delay {
         Delay {
+            mapping_probe: mapping_probe::Probe::default(),
             host_name: Mutex::new(String::new()),
             lines: Mutex::new(vec![VecDeque::from(vec![0.0; LATENCY]); 2]),
             gain: Mutex::new(1.0),
@@ -514,6 +518,22 @@ impl IAudioProcessorTrait for Delay {
 
     unsafe fn process(&self, data: *mut ProcessData) -> tresult {
         let data = unsafe { &*data };
+        if variant() == Variant::MappingProbe {
+            self.mapping_probe.process();
+        }
+        if variant() == Variant::ContextRequired {
+            let Some(context) = (unsafe { data.processContext.as_ref() }) else {
+                return kInvalidArgument;
+            };
+            if context.sampleRate != 48_000.0
+                || context.continousTimeSamples != 0
+                || context.projectTimeSamples != 0
+                || context.state
+                    != vst3::Steinberg::Vst::ProcessContext_::StatesAndFlags_::kContTimeValid as u32
+            {
+                return kInvalidArgument;
+            }
+        }
         let mut gains = vec![*lock(&self.gain); data.numSamples as usize];
         if let Some(changes) = unsafe { ComRef::from_raw(data.inputParameterChanges) } {
             for index in 0..unsafe { changes.getParameterCount() } {
@@ -742,6 +762,9 @@ impl IEditControllerTrait for Delay {
     }
 
     unsafe fn getParamNormalized(&self, id: ParamID) -> ParamValue {
+        if id == 10 {
+            return f64::from(self.mapping_probe.processed());
+        }
         lock(&self.values).get(id as usize).copied().unwrap_or(0.0)
     }
 
@@ -824,6 +847,9 @@ impl IMidiMappingTrait for Delay {
         let mapped = if lock(&self.values)[GAIN_CONTROLLER as usize] < 0.5 {
             kCtrlVolume
         } else {
+            if variant() == Variant::MappingProbe {
+                self.mapping_probe.query();
+            }
             kCtrlExpression
         };
         if bus != 0 || controller as i64 != mapped as i64 {

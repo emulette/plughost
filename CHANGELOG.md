@@ -14,6 +14,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- VST3 inactive parameter flushes receive the same initialized process context as prepared
+  flushes, and their output parameter changes reach the controller.
+- VST3 MIDI assignment queries run outside the engine lock, allowing processing to continue
+  while the controller responds.
+- The VST3 host attribute list accepts empty binary values with null data and rejects null
+  IDs, strings, nonempty binary data and output pointers without dereferencing them.
 - Timing queries deliver pending CLAP and VST3 host edits before reading the tail, so
   `Chain::tail()` and reported-tail renders use parameter edits immediately.
 - Failed CLAP processing starts preserve queued host edits for retry. MPE-only note ports

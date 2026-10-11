@@ -356,13 +356,13 @@ impl Engine {
 
     /// Delivers edits that have not reached the processor yet, with a process call that carries
     /// no audio (`numSamples = 0`). Events the plugin outputs meanwhile go with the next block.
-    pub fn flush(&mut self) -> Result<(), Vst3Error> {
+    pub fn flush(&mut self, parameters: &ParameterCache) -> Result<(), Vst3Error> {
         let instance = self.instance.as_ref().ok_or(Vst3Error::Closed)?;
         if !instance.handler.has_pending() {
             return Ok(());
         }
         let Some(prepared) = self.prepared.as_mut() else {
-            return flush_inactive(instance);
+            return flush_inactive(instance, parameters);
         };
         prepared.begin(&instance.handler);
         let result = call_process(instance, prepared, &plughost_core::BlockContext::new(0));
@@ -405,7 +405,7 @@ const FLUSH_SETUP: (f64, i32) = (48_000.0, 512);
 
 /// Delivers pending edits to an unprepared plugin the way the SDK's validator flushes: activated
 /// on its current buses for one process call without audio buffers, then deactivated.
-fn flush_inactive(instance: &Instance) -> Result<(), Vst3Error> {
+fn flush_inactive(instance: &Instance, parameters: &ParameterCache) -> Result<(), Vst3Error> {
     let limit = plughost_core::MAX_BLOCK_EVENTS;
     let changes = ComWrapper::new(ParameterChanges::new(limit, limit)?);
     let output_changes = ComWrapper::new(ParameterChanges::latest(limit)?);
@@ -431,6 +431,7 @@ fn flush_inactive(instance: &Instance) -> Result<(), Vst3Error> {
     instance
         .handler
         .drain_pending(|id, value| changes.push(id, 0, value));
+    let mut context = process_context(sample_rate, 0);
     let mut data = ProcessData {
         processMode: setup.processMode,
         symbolicSampleSize: setup.symbolicSampleSize,
@@ -443,7 +444,7 @@ fn flush_inactive(instance: &Instance) -> Result<(), Vst3Error> {
         outputParameterChanges: ParameterChanges::ptr(&output_changes),
         inputEvents: EventList::ptr(&events),
         outputEvents: OutputEventList::ptr(&output_events),
-        processContext: std::ptr::null_mut(),
+        processContext: &mut context,
     };
     let result = unsafe {
         let result = processor.process(&mut data);
@@ -451,6 +452,11 @@ fn flush_inactive(instance: &Instance) -> Result<(), Vst3Error> {
         instance.component.setActive(0);
         result
     };
+    output_changes.each_last_value(|id, value| {
+        if let Some(index) = parameters.index(u64::from(id)) {
+            parameters.hand_to_controller(index, value, true);
+        }
+    });
     if result != kResultOk {
         return Err(Vst3Error::Process(result));
     }
@@ -916,17 +922,23 @@ fn symbolic_sample_size(format: SampleFormat) -> i32 {
     }
 }
 
+/// Context present for every process call, including an inactive parameter flush.
+fn process_context(sample_rate: f64, position: i64) -> ProcessContext {
+    // SAFETY: ProcessContext is plain C data. Only the populated fields are marked valid.
+    let mut context: ProcessContext = unsafe { std::mem::zeroed() };
+    context.state = StatesAndFlags_::kContTimeValid as u32;
+    context.sampleRate = sample_rate;
+    context.continousTimeSamples = position;
+    context
+}
+
 fn call_process(
     instance: &Instance,
     prepared: &mut Prepared,
     block: &plughost_core::BlockContext,
 ) -> i32 {
     let config = &prepared.config;
-    // SAFETY: ProcessContext is plain C data; the fields that matter offline are set below.
-    let mut context: ProcessContext = unsafe { std::mem::zeroed() };
-    context.state = StatesAndFlags_::kContTimeValid as u32;
-    context.sampleRate = config.sample_rate;
-    context.continousTimeSamples = prepared.position;
+    let mut context = process_context(config.sample_rate, prepared.position);
     if let Some(transport) = block.transport {
         context.projectTimeSamples = transport.sample_position;
         if transport.playing {

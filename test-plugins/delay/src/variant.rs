@@ -26,10 +26,12 @@ pub enum Variant {
     StartFailure,
     FlushRequest,
     MpePorts,
+    ContextRequired,
+    MappingProbe,
 }
 
 /// Module file name (without extension), class ID suffix, and plugin name of each variant.
-const VARIANTS: [(Variant, &str, u32, &str); 18] = [
+const VARIANTS: [(Variant, &str, u32, &str); 20] = [
     (
         Variant::Delay,
         "plughost-test-delay",
@@ -137,6 +139,18 @@ const VARIANTS: [(Variant, &str, u32, &str); 18] = [
         "plughost-test-mpe-ports",
         0x79000012,
         "plughost test MPE ports",
+    ),
+    (
+        Variant::ContextRequired,
+        "plughost-test-context-required",
+        0x79000013,
+        "plughost test context required",
+    ),
+    (
+        Variant::MappingProbe,
+        "plughost-test-mapping-probe",
+        0x79000014,
+        "plughost test mapping probe",
     ),
 ];
 
