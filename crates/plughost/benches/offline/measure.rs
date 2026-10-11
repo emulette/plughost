@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::Path;
 use std::time::Instant;
 
 use plughost::{RenderOptions, TailPolicy};
@@ -83,6 +86,7 @@ pub fn run<P: Process<f32>>(
     case: Case,
     repetitions: usize,
     lifecycle: crate::lifecycle::Lifecycle,
+    pcm: Option<&Path>,
 ) -> Result<Measurement>
 where
     P::Error: Into<crate::errors::BenchError>,
@@ -114,6 +118,17 @@ where
         let seconds = start.elapsed().as_secs_f64();
         let allocations = crate::allocations::count() - allocations;
         case.verify(&input, &output)?;
+        if trial == 0
+            && let Some(path) = pcm
+        {
+            let mut writer = BufWriter::new(File::create(path)?);
+            for channel in &output.channels {
+                for sample in channel {
+                    writer.write_all(&sample.to_le_bytes())?;
+                }
+            }
+            writer.flush()?;
+        }
         std::hint::black_box(&output);
         if trial > 0 {
             trials.push(Trial {

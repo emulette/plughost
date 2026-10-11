@@ -17,7 +17,7 @@ use plughost::{Chain, HostIdentity, Layout, PluginFormat, PluginRef, Timeouts};
 use cases::Case;
 use errors::Result;
 
-const USAGE: &str = "cargo bench -p plughost --bench offline -- [--seconds 1] [--trials 3] [--blocks 64,128,512,4096] [--output DIR] [--helper FILE] [--assets DIR]\n\
+const USAGE: &str = "cargo bench -p plughost --bench offline -- [--seconds 1] [--trials 3] [--blocks 64,128,512,4096] [--output DIR] [--helper FILE] [--assets DIR] [--write-pcm]\n\
 Runs 48 VST3 routing-fixture cases per block size in release mode, with one warm-up render per case.\n\
 Build repository test plugins and the matching helper first. Only plughost-test-routing.vst3 is loaded.";
 
@@ -28,6 +28,7 @@ struct Options {
     output: PathBuf,
     helper: PathBuf,
     assets: PathBuf,
+    write_pcm: bool,
 }
 
 fn root() -> PathBuf {
@@ -53,10 +54,12 @@ fn options() -> Result<Option<Options>> {
             "helper/plughost-helper.exe"
         }),
         assets: target.join("test-plugins"),
+        write_pcm: false,
     };
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
+            "--write-pcm" => options.write_pcm = true,
             "--bench" => continue, // Cargo supplies this to custom benchmark harnesses.
             "--help" => {
                 writeln!(std::io::stdout(), "{USAGE}")?;
@@ -107,7 +110,12 @@ fn options() -> Result<Option<Options>> {
     Ok(Some(options))
 }
 
-fn isolated(case: Case, options: &Options, plugin: &PluginRef) -> Result<measure::Measurement> {
+fn isolated(
+    case: Case,
+    options: &Options,
+    plugin: &PluginRef,
+    pcm: Option<&Path>,
+) -> Result<measure::Measurement> {
     let (mut chain, load) = lifecycle::timed(|| {
         Chain::spawn(
             &options.helper,
@@ -159,6 +167,7 @@ fn isolated(case: Case, options: &Options, plugin: &PluginRef) -> Result<measure
             prepare_seconds: prepare,
             states,
         },
+        pcm,
     )
 }
 
@@ -191,8 +200,11 @@ fn run(options: Options) -> Result<()> {
             cases.len(),
             case
         )?;
+        let pcm = options
+            .write_pcm
+            .then(|| options.output.join(format!("case-{index:03}.f32le")));
         let measurement = match case.path {
-            cases::Path::Isolated => isolated(case, &options, &plugin)?,
+            cases::Path::Isolated => isolated(case, &options, &plugin, pcm.as_deref())?,
             cases::Path::Direct => {
                 let native::Prepared {
                     owners,
@@ -200,10 +212,11 @@ fn run(options: Options) -> Result<()> {
                     lifecycle,
                 } = native::prepare(case, &plugin)?;
                 let trials = options.trials;
-                let result =
-                    std::thread::spawn(move || measure::run(processor, case, trials, lifecycle))
-                        .join()
-                        .map_err(|_| errors::fail(errors::THREAD))?;
+                let result = std::thread::spawn(move || {
+                    measure::run(processor, case, trials, lifecycle, pcm.as_deref())
+                })
+                .join()
+                .map_err(|_| errors::fail(errors::THREAD))?;
                 drop(owners);
                 result?
             }

@@ -16,8 +16,8 @@ of 64, 128, 512, and 4096 frames.
 
 Options: `--seconds` (audio per render, default 1), `--trials` (timed renders per case after one
 warm-up, default 3), `--blocks` (comma-separated maximum block sizes), `--output DIR`, `--helper
-FILE`, and `--assets DIR`. Relative paths resolve against `crates/plughost/`, the working directory
-Cargo sets. `--help` lists them.
+FILE`, `--assets DIR`, and `--write-pcm`. Relative paths resolve against `crates/plughost/`, the
+working directory Cargo sets. `--help` lists them.
 
 Each case appends one line to `results.jsonl` in the output directory (default: a new directory
 under `target/benchmarks/`): its load, prepare, and state save/restore times, and per trial the
@@ -25,6 +25,51 @@ render time, audio seconds per wall second, process calls, frames, and host heap
 median render time is included. Every render is checked against the fixture's expected output
 after timing ends. Timing covers `render_with_schedule`, including chain routing, IPC for the
 isolated path, and the plugin's processing.
+
+# PCM compatibility
+
+`--write-pcm` saves each verified warm-up render as `case-NNN.f32le`, numbered from zero in
+`results.jsonl` order. Files contain each complete output channel consecutively, as little-endian
+f32 samples without a header. Writing happens outside the measured interval.
+
+Copy `benches/offline/` into the 0.1.1 plughost crate, removing only `Counted::validate_events`
+from its `measure.rs` because that trait method was added later. Build each checkout's helper,
+then run this command from each repository root with the same current fixture directory:
+
+```sh
+cargo bench -p plughost --bench offline --locked -- \
+  --seconds 0.125 --trials 1 --blocks 64,128,512,4096 --write-pcm \
+  --assets /absolute/path/to/current/target/test-plugins --output "$PWD/target/pcm"
+```
+
+Compare both outputs from the current repository root:
+
+```sh
+python3 - /absolute/path/to/0.1.1/target/pcm "$PWD/target/pcm" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+before, after = map(Path, sys.argv[1:])
+cases = lambda root: [json.loads(line)['case'] for line in
+                      (root / 'results.jsonl').read_text().splitlines()]
+baseline, current = cases(before), cases(after)
+assert baseline == current and len(current) == 192
+names = {f'case-{index:03}.f32le' for index in range(len(current))}
+assert {p.name for p in before.glob('*.f32le')} == names
+assert {p.name for p in after.glob('*.f32le')} == names
+for index, case in enumerate(current):
+    name = f'case-{index:03}.f32le'
+    left, right = (before / name).read_bytes(), (after / name).read_bytes()
+    channels = 4 if case['buses'] == 'multiple' else 2
+    assert len(left) == len(right) == case['frames'] * channels * 4, name
+    assert left == right, (name, case)
+print('All 192 cases have byte-identical PCM')
+PY
+```
+
+All 192 cases, containing 5,184,000 samples, matched 0.1.1 byte for byte. The format-specific
+automation and f64 routing/alignment checks below cover their respective optimization workloads.
 
 # Idle timing observation
 
