@@ -4,11 +4,16 @@ use super::{
 };
 use crate::{AutomationEvent, BlockContext, Event, RenderError, Sample, Transport};
 
+/// Lifecycle of a continuous render session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionState {
+    /// Accepts more input segments or a final latency/tail flush.
     Active,
+    /// The final latency/tail flush completed successfully.
     Finished,
+    /// A cancellation callback stopped processing; reset the processor before independent reuse.
     Cancelled,
+    /// A processing or render error ended the session.
     Failed,
 }
 
@@ -36,6 +41,7 @@ impl<S: Sample, P: Process<S>> std::fmt::Debug for RenderSession<'_, S, P> {
 }
 
 impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
+    /// Begins a continuous render and captures latency without resetting the processor.
     pub fn new(processor: &'a mut P) -> Result<Self, P::Error> {
         processor.begin_render()?;
         let latency = processor.latency()?;
@@ -49,6 +55,7 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
         })
     }
 
+    /// Current lifecycle state; only `Active` accepts further input.
     pub fn state(&self) -> SessionState {
         self.state
     }
@@ -67,6 +74,8 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
         self.run(request, &options, None, consume, cancelled)
     }
 
+    /// Flushes the remaining latency and tail once, then closes the session.
+    /// Output event offsets are relative to this flush; cancellation or errors close the session too.
     pub fn finish(
         &mut self,
         options: &RenderOptions,

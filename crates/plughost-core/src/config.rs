@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 pub enum Layout {
     /// No bus, for example the input of an instrument.
     None,
+    /// One center channel.
     Mono,
+    /// Left, right.
     Stereo,
     /// L R C LFE Ls Rs
     Surround51,
@@ -71,6 +73,7 @@ impl Layout {
         Layout::Ambisonics4,
     ];
 
+    /// Number of planar channels in this layout.
     pub fn channels(self) -> usize {
         match self {
             Layout::None => 0,
@@ -91,9 +94,12 @@ impl Layout {
     }
 }
 
+/// Floating-point precision of the prepared audio buffers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SampleFormat {
+    /// IEEE 754 single-precision samples.
     F32,
+    /// IEEE 754 double-precision samples.
     F64,
 }
 
@@ -101,18 +107,27 @@ pub enum SampleFormat {
 /// `Realtime` only changes what the plugin is told, for plugins that misbehave in offline mode.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ProcessMode {
+    /// Tell the plugin it may use its offline rendering mode. This is the default.
     #[default]
     Offline,
+    /// Tell the plugin it is processing in real time; this does not provide real-time scheduling.
     Realtime,
 }
 
+/// Processing configuration for a plugin’s main input and output buses.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProcessConfig {
+    /// Samples per second; must be finite and greater than zero.
     pub sample_rate: f64,
+    /// Maximum frames per processing call, from 1 through `i32::MAX`.
     pub max_block_size: usize,
+    /// Sample precision used by every channel.
     pub sample_format: SampleFormat,
+    /// Requested main input bus layout; `None` for an instrument without input.
     pub input: Layout,
+    /// Requested main output bus layout.
     pub output: Layout,
+    /// Processing mode reported to the plugin.
     pub mode: ProcessMode,
 }
 

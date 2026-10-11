@@ -16,10 +16,13 @@ use crate::sample::Sample;
 /// The tail length a processor reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Tail {
+    /// Finite tail duration in frames.
     Samples(u32),
+    /// Unbounded tail, still limited by `RenderOptions::max_tail_seconds`.
     Infinite,
 }
 
+/// Rule for determining how much post-input audio to deliver.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum TailPolicy {
@@ -30,12 +33,22 @@ pub enum TailPolicy {
     /// `hold_seconds`, then cut after the last sample above it. Both values must be finite and
     /// non-negative; zero is allowed, and a linear peak threshold may exceed one. Plugins often report a wrong
     /// tail, so this is the default.
-    UntilSilence { threshold: f64, hold_seconds: f64 },
+    UntilSilence {
+        /// Maximum absolute sample amplitude considered silent.
+        threshold: f64,
+        /// Continuous silence required before stopping, in seconds.
+        hold_seconds: f64,
+    },
 }
 
+/// Offline tail policy and duration limit.
+///
+/// The default detects one second of silence below a linear peak of `1.585e-5`
+/// (approximately −96 dBFS), with at most 30 seconds of tail.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct RenderOptions {
+    /// How to determine the delivered tail length.
     pub tail: TailPolicy,
     /// Upper bound on the rendered tail, whatever the policy. Must be finite and non-negative.
     pub max_tail_seconds: f64,
@@ -55,6 +68,7 @@ impl Default for RenderOptions {
 }
 
 impl RenderOptions {
+    /// Constructs explicit tail options, validated when rendering starts.
     pub const fn new(tail: TailPolicy, max_tail_seconds: f64) -> RenderOptions {
         RenderOptions {
             tail,
@@ -84,16 +98,22 @@ impl RenderOptions {
 
 /// A prepared processor the render rules can drive.
 pub trait Process<S: Sample> {
+    /// Processor error that can also represent the render scheduler’s input and timing errors.
     type Error: From<RenderError>;
 
+    /// Prepared sample rate in samples per second.
     fn sample_rate(&self) -> f64;
+    /// Prepared maximum frames per processing call.
     fn max_block_size(&self) -> usize;
+    /// Number of input channels required in planar buffer order.
     fn input_channels(&self) -> usize;
+    /// Number of output channels produced in planar buffer order.
     fn output_channels(&self) -> usize;
     /// The latency the processor's output has. It must not change while a render runs, so that
     /// one alignment holds; plughost's processors keep the latency they were prepared or last
     /// reset with.
     fn latency(&self) -> Result<u32, Self::Error>;
+    /// Current native tail duration at render start.
     fn tail(&self) -> Result<Tail, Self::Error>;
     /// Called once as a render starts, before validating input or reading the latency and tail.
     /// Refuse here if the processor is not prepared. A processor whose
@@ -145,9 +165,11 @@ pub trait Process<S: Sample> {
 pub struct Delivery<'a, S> {
     /// One slice per output channel, all of one length, which may be zero.
     pub audio: &'a [&'a [S]],
+    /// Output events with offsets on the processing timeline, without audio latency alignment.
     pub events: &'a [Event],
 }
 
+/// Owned output of a completed render, with audio aligned by removing native latency.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct Rendered<S> {
@@ -228,29 +250,42 @@ pub fn render_with_schedule<S: Sample, P: Process<S>>(
     })
 }
 
+/// Borrowed planar audio, events, and automation for a render or session segment.
 #[derive(Clone, Copy, Debug)]
 pub struct RenderInput<'a, S> {
+    /// Planar input channels, each containing exactly `frames` samples.
     pub audio: &'a [&'a [S]],
+    /// Input duration in frames; explicit even when the processor has no input channels.
     pub frames: usize,
+    /// Input events in nondecreasing offset order, strictly before `frames`.
     pub events: &'a [Event],
+    /// Transport and automation offsets relative to this input segment.
     pub schedule: RenderSchedule<'a>,
 }
 
+/// Whether rendering completed or stopped at a caller cancellation boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RenderStatus {
+    /// All planned audio and tail have been processed.
     Complete,
+    /// The caller cancelled before the next processing block.
     Cancelled,
 }
 
+/// Output-only report of work completed and audio delivered by a streaming render.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RenderProgress {
+    /// Completion or cancellation status.
     pub status: RenderStatus,
     /// Native frames processed, including latency and tail. Cancellation never interrupts a call.
     pub processed_frames: usize,
+    /// Aligned audio frames delivered to the consumer.
     pub output_frames: usize,
+    /// Native latency removed from audio, in frames.
     pub latency: u32,
+    /// Delivered frames after the input, excluding trimmed silence.
     pub tail: usize,
 }
 

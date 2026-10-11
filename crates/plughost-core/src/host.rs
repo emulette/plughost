@@ -8,7 +8,9 @@ use crate::InputError;
 pub struct HostIdentity {
     /// Non-empty, at most 127 UTF-16 code units (the VST3 String128 limit).
     pub name: String,
+    /// Application vendor; must not contain NUL.
     pub vendor: String,
+    /// Application version; must not contain NUL.
     pub version: String,
 }
 

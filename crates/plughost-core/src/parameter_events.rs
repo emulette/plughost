@@ -3,25 +3,49 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+/// Maximum queued parameter notifications before the oldest records are dropped.
 pub const PARAMETER_EVENT_CAPACITY: usize = 256;
 
 /// Notifications reported by the plugin, in observed order. Values are normalized to 0..=1.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ParameterEvent {
-    Value { id: u64, normalized: f64 },
-    BeginEdit { id: u64 },
-    EndEdit { id: u64 },
+    /// A parameter’s normalized value changed.
+    Value {
+        /// Native parameter ID or Audio Unit address.
+        id: u64,
+        /// Finite normalized value in `0..=1`.
+        normalized: f64,
+    },
+    /// A native parameter edit gesture began.
+    BeginEdit {
+        /// Native parameter ID or Audio Unit address.
+        id: u64,
+    },
+    /// A native parameter edit gesture ended.
+    EndEdit {
+        /// Native parameter ID or Audio Unit address.
+        id: u64,
+    },
+    /// Parameter metadata should be queried again.
     MetadataChanged,
+    /// Current parameter values should be queried again.
     ValuesChanged,
-    Dirty { dirty: bool },
+    /// The plugin reported its persistent state’s dirty status.
+    Dirty {
+        /// Whether the plugin reports unsaved changes.
+        dirty: bool,
+    },
 }
 
 /// Overflow loses ordering continuity: cancel open gestures and requery metadata and values.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ParameterEventBatch {
+    /// Notifications retained in observed order.
     pub events: Vec<ParameterEvent>,
+    /// Cancel open gestures and requery metadata and values when true.
     pub resync_required: bool,
+    /// Number of lost records since the previous drain, including upstream loss.
     pub dropped: u64,
 }
 
@@ -60,6 +84,7 @@ impl ParameterEventBuffer {
         }
     }
 
+    /// Appends one notification, dropping the oldest on capacity overflow.
     pub fn record(&self, event: ParameterEvent) {
         let mut pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
         if pending.events.len() == PARAMETER_EVENT_CAPACITY {
@@ -69,6 +94,7 @@ impl ParameterEventBuffer {
         pending.events.push_back(event);
     }
 
+    /// Drains notifications and loss counters into an owned batch.
     pub fn take(&self) -> ParameterEventBatch {
         let mut pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
         let dropped = std::mem::take(&mut pending.dropped);

@@ -44,10 +44,12 @@ pub fn validate_event_budget(automation: usize, events: &[Event]) -> Result<(), 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Event {
+    /// Zero-based sample offset in the block or render input.
     pub offset: usize,
     /// For a chain, the index of one of its external event inputs or outputs; for a plugin hosted
     /// directly, the index of its native event port in that direction.
     pub port: usize,
+    /// MIDI, SysEx, note, or note-expression payload.
     pub data: EventData,
 }
 
@@ -69,9 +71,11 @@ pub enum EventData {
     Midi([u8; 3]),
     /// A complete system exclusive message, from its F0 to its F7.
     SysEx(Vec<u8>),
+    /// Starts a note with normalized velocity and an optional independent note ID.
     NoteOn(Note),
     /// Ends the notes it addresses; `velocity` is the release velocity.
     NoteOff(Note),
+    /// Changes an expression of the addressed note or notes.
     Expression(NoteExpression),
 }
 
@@ -102,6 +106,7 @@ pub struct NoteExpression {
     pub channel: u8,
     /// 0..=127.
     pub key: u8,
+    /// Expression dimension and its allowed value range.
     pub kind: ExpressionKind,
     /// In the range of `kind`, see [`ExpressionKind::range`].
     pub value: f64,
@@ -155,6 +160,7 @@ impl ExpressionKind {
 }
 
 impl Note {
+    /// Constructs a note without an independent ID; input validation occurs at processing.
     pub fn new(channel: u8, key: u8, velocity: f64) -> Note {
         Note {
             id: None,
@@ -180,6 +186,7 @@ impl Note {
 }
 
 impl NoteExpression {
+    /// Constructs an expression addressing notes by channel and key, without an ID.
     pub fn new(channel: u8, key: u8, kind: ExpressionKind, value: f64) -> NoteExpression {
         NoteExpression {
             id: None,
@@ -251,36 +258,61 @@ impl EventData {
 /// bend (8192 is the center).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Message {
+    /// Ends a MIDI note; velocity is release velocity.
     NoteOff {
+        /// MIDI channel in `0..=15`.
         channel: u8,
+        /// MIDI key in `0..=127`; 60 is middle C.
         key: u8,
+        /// Seven-bit attack or release velocity.
         velocity: u8,
     },
+    /// Starts a MIDI note.
     NoteOn {
+        /// MIDI channel in `0..=15`.
         channel: u8,
+        /// MIDI key in `0..=127`; 60 is middle C.
         key: u8,
+        /// Seven-bit attack or release velocity.
         velocity: u8,
     },
+    /// Changes pressure for a channel/key pair.
     PolyPressure {
+        /// MIDI channel in `0..=15`.
         channel: u8,
+        /// MIDI key in `0..=127`; 60 is middle C.
         key: u8,
+        /// Seven-bit pressure value.
         pressure: u8,
     },
+    /// Changes a MIDI controller value.
     ControlChange {
+        /// MIDI channel in `0..=15`.
         channel: u8,
+        /// MIDI controller number in `0..=127`.
         controller: u8,
+        /// Seven-bit controller value.
         value: u8,
     },
+    /// Selects a MIDI program.
     ProgramChange {
+        /// MIDI channel in `0..=15`.
         channel: u8,
+        /// Zero-based MIDI program number in `0..=127`.
         program: u8,
     },
+    /// Changes pressure for every note on the channel.
     ChannelPressure {
+        /// MIDI channel in `0..=15`.
         channel: u8,
+        /// Seven-bit pressure value.
         pressure: u8,
     },
+    /// Changes the channel’s 14-bit pitch-bend value.
     PitchBend {
+        /// MIDI channel in `0..=15`.
         channel: u8,
+        /// Pitch bend in `0..=16383`; 8192 is center.
         value: u16,
     },
 }
@@ -316,6 +348,7 @@ impl Event {
         )
     }
 
+    /// Constructs a MIDI controller event on port 0, masking channel and data to MIDI widths.
     pub fn control_change(offset: usize, channel: u8, controller: u8, value: u8) -> Event {
         Self::midi(
             offset,

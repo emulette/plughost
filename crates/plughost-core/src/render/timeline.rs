@@ -5,14 +5,20 @@ use crate::{AutomationEvent, InputError, Transport};
 /// Replaces the transport at this render-relative sample. `None` withdraws time information.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TransportChange {
+    /// Zero-based sample offset relative to the render or session segment.
     pub offset: usize,
+    /// Replacement snapshot, or `None` to withdraw transport information.
     pub transport: Option<Transport>,
 }
 
+/// Borrowed render-relative transport and automation lanes. The default has no changes.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RenderSchedule<'a> {
+    /// Transport changes in strictly increasing offset order, up to the input end.
     pub transport: &'a [TransportChange],
+    /// Point edits in nondecreasing offset order, strictly inside the input.
     pub automation: &'a [AutomationEvent],
+    /// Ramps may be unordered, but cannot overlap each other or point edits on the same parameter.
     pub ramps: &'a [AutomationRamp],
 }
 
@@ -20,11 +26,17 @@ pub struct RenderSchedule<'a> {
 /// bounded block at a time. Native parameter metadata quantizes discrete parameters.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AutomationRamp {
+    /// Zero-based plugin slot receiving the ramp.
     pub slot: usize,
+    /// Native parameter ID or Audio Unit address.
     pub id: u64,
+    /// Inclusive first sample offset; must be less than `end`.
     pub start: usize,
+    /// Inclusive last sample offset, strictly before the input end.
     pub end: usize,
+    /// Finite normalized value at `start`, in `0..=1`.
     pub from: f64,
+    /// Finite normalized value at `end`, in `0..=1`.
     pub to: f64,
 }
 

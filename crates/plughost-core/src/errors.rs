@@ -5,33 +5,53 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum FailureKind {
+    /// Caller input violated a host contract.
     InvalidInput,
+    /// The format or plugin does not implement the requested operation.
     Unsupported,
+    /// The requested plugin or native object was not found.
     NotFound,
+    /// A module or plugin instance could not be loaded or initialized.
     Load,
+    /// The requested processing configuration could not be applied.
     Configuration,
+    /// Processing was requested before successful preparation.
     NotPrepared,
+    /// The instance or its owning handle is closed.
     Closed,
+    /// Processing cannot continue until the reported restart condition is handled.
     RestartRequired,
+    /// The operation requires the editor to be closed.
     EditorOpen,
+    /// The saved state belongs to another plugin identity.
     StateMismatch,
+    /// Native state could not be saved, decoded, or restored.
     State,
+    /// A plugin processing call or its output failed validation.
     Processing,
+    /// A native editor operation failed.
     Editor,
+    /// The host could not complete a platform or resource operation.
     Host,
+    /// A helper response or shared-memory message violated the internal protocol.
     Protocol,
+    /// The helper exited unexpectedly or was terminated.
     Crashed,
+    /// An operation exceeded its configured deadline.
     TimedOut,
 }
 
 /// A portable category with the original diagnostic message, including native codes when provided.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Failure {
+    /// Portable category for programmatic handling.
     pub kind: FailureKind,
+    /// Human-readable diagnostic; do not parse it as a stable error code.
     pub message: String,
 }
 
 impl Failure {
+    /// Constructs a category and diagnostic report.
     pub fn new(kind: FailureKind, message: impl Into<String>) -> Self {
         Self {
             kind,
@@ -96,73 +116,125 @@ const HOST_IDENTITY: &str =
 
 /// Messages shared by several plughost crates.
 pub const MAIN_BUS: &str = "the plugin has no main audio bus for the requested layout";
+/// Diagnostic for excessive native output; reset is required before further processing.
 pub const OUTPUT_EVENT_CAPACITY: &str = "the plugin produced more events or system exclusive bytes in one block than MAX_BLOCK_EVENTS or MAX_BLOCK_SYSEX_BYTES allow; reset before processing again";
+/// Diagnostic for a missing native event port.
 pub const UNKNOWN_EVENT_PORT: &str = "the plugin has no event port with this ID";
+/// Prefix identifying processing-path audit diagnostics.
 pub const AUDIT: &str = "real-time audit:";
+/// Diagnostic prefix for output event kinds with no portable representation.
 pub const UNCONVERTIBLE_OUTPUT_EVENTS: &str = "output events with no portable form (chords, scales, choke, text expression, MIDI 2.0) were not delivered:";
+/// Diagnostic for state belonging to another plugin class.
 pub const STATE_MISMATCH: &str = "the state belongs to a different plugin class";
+/// Diagnostic for mismatched audio buffers or block length.
 pub const BUFFERS: &str = "the buffers do not match the prepared layout or block size";
+/// Diagnostic for a chain without a prepared processing configuration.
 pub const CHAIN_NOT_PREPARED: &str = "the chain is not prepared";
 
 /// A request rejected before changing the plugin or its processing configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum InputError {
+    /// Routing entries do not match the number of loaded plugin slots.
     AudioSlotCount,
+    /// A direction exceeds `MAX_AUDIO_BUSES`.
     AudioBusCount,
+    /// A direction exceeds `MAX_AUDIO_CHANNELS` active channels.
     AudioChannelCount,
+    /// A native bus ID occurs more than once in one direction.
     DuplicateAudioBus {
+        /// Native ID associated with the invalid request.
         id: u64,
     },
+    /// An active bus requested the empty layout.
     AudioBusLayout {
+        /// Native ID associated with the invalid request.
         id: u64,
     },
+    /// An active input bus names a missing or inactive source.
     AudioRoute {
+        /// Zero-based destination plugin slot.
         slot: usize,
+        /// Native destination input bus ID.
         bus: u64,
     },
+    /// The requested conversion does not match the two layouts.
     ChannelAdaptation {
+        /// Layout supplied by the source.
         source: crate::Layout,
+        /// Layout requested by the destination.
         target: crate::Layout,
     },
+    /// Channel counts or per-channel frame lengths do not match the prepared buses.
     AudioBuffers,
+    /// Sample precision differs from the prepared configuration.
     AudioSampleFormat,
+    /// Aggregate component and controller state exceeds `MAX_STATE_BYTES`.
     StateSize,
+    /// A discrete-choice page has an invalid start index or count.
     ParameterChoicePage,
+    /// Native preset bytes exceed `MAX_PRESET_BYTES`.
     PresetSize,
+    /// Transport contains a non-finite, unrepresentable, or inconsistent value.
     Transport,
+    /// Automation is unordered, out of range, outside the block, or names a missing slot.
     Automation,
+    /// The addressed parameter does not support sample-timed automation.
     NotAutomatable {
+        /// Native ID associated with the invalid request.
         id: u64,
     },
+    /// Host text contains NUL, or its name is empty or exceeds 127 UTF-16 code units.
     HostIdentity,
+    /// A chain was created or configured without a plugin.
     EmptyChain,
     /// Recovery states neither empty nor one per plugin.
     StateCount,
+    /// The sample rate is not finite and greater than zero.
     SampleRate,
+    /// Maximum block size is outside `1..=i32::MAX`.
     BlockSize,
+    /// The legacy configuration does not provide one output layout per plugin.
     OutputCount,
+    /// The plugin has no main audio bus with the requested layout.
     MainBus,
+    /// The slot index does not address a loaded plugin.
     Slot,
+    /// The parameter value is not finite and normalized to `0..=1`.
     ParameterValue,
+    /// Display text is excessive, contains NUL, or is rejected by the plugin.
     ParameterText,
+    /// The native-unit parameter value is non-finite or outside the native range.
     PlainParameterValue,
+    /// The requested parameter ID does not exist.
     UnknownParameter {
+        /// Native ID associated with the invalid request.
         id: u64,
     },
+    /// A host edit addressed a read-only parameter.
     ReadOnlyParameter {
+        /// Native ID associated with the invalid request.
         id: u64,
     },
+    /// Combined automation/events or SysEx bytes exceed the per-block capacity.
     EventCapacity,
+    /// An event routing direction exceeds `MAX_EVENT_PORTS`.
     EventPortCount,
+    /// An output port ID occurs more than once in a slot.
     DuplicateEventPort {
+        /// Native ID associated with the invalid request.
         id: u64,
     },
+    /// An event input route names an unavailable source.
     EventRoute {
+        /// Zero-based destination plugin slot.
         slot: usize,
+        /// Native destination event input port ID.
         port: u64,
     },
+    /// An event names an external port the chain does not expose.
     EventPort {
+        /// Invalid zero-based external event port index.
         port: usize,
     },
     /// Events that are not valid, in offset order, or inside the block.
@@ -251,20 +323,34 @@ pub(crate) const MALFORMED_MESSAGE: &str = "the message could not be decoded";
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RenderError {
+    /// The streaming render session has already finished or failed.
     SessionClosed,
+    /// A shared processing or control input contract was violated.
     Input(InputError),
+    /// Maximum tail duration is not finite and non-negative.
     TailDuration,
+    /// Silence threshold is not finite and non-negative.
     SilenceThreshold,
+    /// Silence hold duration is not finite and non-negative.
     SilenceHold,
+    /// Render duration or sample storage exceeds the representable range.
     LengthOverflow,
+    /// Input channels do not contain the requested equal frame count.
     InputLength,
+    /// The supplied channel count differs from the prepared processor.
     InputChannels {
+        /// Prepared channel count.
         expected: usize,
+        /// Supplied channel count.
         actual: usize,
     },
+    /// Events are invalid, unordered, outside the render input, or address a missing port.
     Events,
+    /// The processor’s latency changed during a render.
     LatencyChanged {
+        /// Latency at render start, in frames.
         before: u32,
+        /// New latency, in frames.
         after: u32,
     },
     /// A plugin announced a new latency before the render started, and the processor has not
@@ -273,6 +359,7 @@ pub enum RenderError {
 }
 
 impl RenderError {
+    /// Classifies a render error without deriving a retry policy.
     pub fn kind(&self) -> FailureKind {
         match self {
             Self::SessionClosed => FailureKind::NotPrepared,

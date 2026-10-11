@@ -6,7 +6,9 @@ pub enum Support {
     /// The format has no safe query, or the query did not determine support.
     #[default]
     Unknown,
+    /// The native query explicitly reported that the feature is unavailable.
     Unsupported,
+    /// The native query reported support for the current configuration.
     Supported,
 }
 
@@ -31,13 +33,17 @@ pub struct Capabilities {
     pub bus_discovery: Support,
     /// Note on/off input and output; does not imply support for all MIDI messages or dialects.
     pub note_input: Support,
+    /// Producing note on/off events; other event kinds require their own port capabilities.
     pub note_output: Support,
+    /// Applying normalized parameter edits at sample offsets within a block.
     pub sample_accurate_automation: Support,
+    /// Saving and restoring native plugin state.
     pub state: Support,
     /// Enumerating factory programs/presets. File-based preset loading is a separate operation.
     pub factory_presets: Support,
     /// Processing all exposed audio ports in this precision. Layout negotiation may still fail.
     pub f32: Support,
+    /// Processing all exposed audio ports in double precision; layout negotiation can still fail.
     pub f64: Support,
 }
 
@@ -46,11 +52,14 @@ pub struct Capabilities {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct CapabilityReport {
+    /// Features reported by the native plugin.
     pub plugin: Capabilities,
+    /// Features implemented by the isolated host path.
     pub host: Capabilities,
 }
 
 impl CapabilityReport {
+    /// Combines independent plugin evidence and host implementation support.
     pub fn new(plugin: Capabilities, host: Capabilities) -> CapabilityReport {
         CapabilityReport { plugin, host }
     }

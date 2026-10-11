@@ -18,30 +18,43 @@ pub const DIAGNOSTIC_MESSAGE_BYTES: usize = 4096;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum DiagnosticSeverity {
+    /// Low-level debugging information.
     Debug,
+    /// Informational status.
     Info,
+    /// Recoverable or suspicious condition.
     Warning,
+    /// An operation failed.
     Error,
+    /// The producer reported a fatal condition.
     Fatal,
+    /// The plugin reported a host contract violation.
     HostMisbehaving,
+    /// A plugin contract violation was reported.
     PluginMisbehaving,
 }
 
+/// One bounded diagnostic record with optional plugin and slot context.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Diagnostic {
+    /// Severity reported by the producer.
     pub severity: DiagnosticSeverity,
+    /// Human-readable UTF-8 text; not a stable machine-readable code.
     pub message: String,
     /// Present for messages from a plugin; helper failures can identify only the slot.
     pub plugin: Option<PluginRef>,
+    /// Zero-based plugin slot, when known.
     pub slot: Option<usize>,
     /// Present for host operation failures, absent for plugin-authored log messages.
     pub failure_kind: Option<FailureKind>,
+    /// The original message exceeded the retained UTF-8 byte limit.
     pub truncated: bool,
 }
 
 /// Records drained since the last snapshot. Loss is explicit; this is not an audit log.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiagnosticBatch {
+    /// Retained diagnostics in observed order.
     pub records: Vec<Diagnostic>,
     /// Records lost to capacity, concurrent access, or snapshot aggregation.
     pub dropped: u64,
@@ -73,6 +86,7 @@ struct Buffer {
 pub struct DiagnosticBuffer(Arc<Buffer>);
 
 impl DiagnosticBuffer {
+    /// Tries to append a bounded diagnostic; counts loss on contention or capacity exhaustion.
     pub fn record(
         &self,
         severity: DiagnosticSeverity,

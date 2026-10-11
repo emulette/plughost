@@ -1,4 +1,9 @@
 //! Shared types and offline render rules for plughost.
+//!
+//! See the [integration guide](https://github.com/emulette/plughost/blob/v0.1.1/llms.txt)
+//! for end-to-end processing, routing, scanning, and recovery contracts.
+
+#![warn(missing_docs)]
 
 mod audio;
 mod capabilities;

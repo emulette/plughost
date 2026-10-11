@@ -13,9 +13,13 @@ pub const MAX_EVENT_PORTS: usize = 16;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct EventPortInfo {
+    /// Native event port ID, scoped to its direction.
     pub id: u64,
+    /// Native port position used by directly hosted processing.
     pub index: u32,
+    /// Native display name.
     pub name: String,
+    /// Whether this port receives or produces events.
     pub direction: AudioDirection,
     /// MIDI 1.0 channel messages, natively or through the format's note events and parameter
     /// mapping. Which messages a plugin uses remains its own choice.
@@ -51,17 +55,25 @@ impl EventPortInfo {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventSource {
     /// One of the chain's external event inputs, by index.
-    External { port: usize },
+    External {
+        /// Zero-based index into the chain’s external event inputs.
+        port: usize,
+    },
     /// An event output port of the previous slot, by native ID; it must be one of that slot's
     /// collected outputs.
-    Previous { port: u64 },
+    Previous {
+        /// Native output port ID of the immediately preceding slot.
+        port: u64,
+    },
 }
 
 /// One source delivered to a native event input port. Several routes to one port merge in offset
 /// order; at equal offsets, events keep the order of the routes, then their source order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventInputRoute {
+    /// Native input port ID receiving this route.
     pub port: u64,
+    /// External input or collected output of the preceding slot.
     pub source: EventSource,
 }
 
@@ -69,6 +81,7 @@ pub struct EventInputRoute {
 /// allows. The last slot's collected outputs, in this order, are the chain's event outputs.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlotEventConfig {
+    /// Routes merged by offset; equal-offset events retain route and source order.
     pub inputs: Vec<EventInputRoute>,
     /// Native event output ports whose events are collected.
     pub outputs: Vec<u64>,
@@ -77,7 +90,9 @@ pub struct SlotEventConfig {
 /// The event ports a slot's native preparation activates.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventConfig {
+    /// Native input port IDs to activate.
     pub inputs: Vec<u64>,
+    /// Native output port IDs to activate and collect.
     pub outputs: Vec<u64>,
 }
 

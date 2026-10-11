@@ -13,15 +13,21 @@ pub const MAX_AUDIO_CHANNELS: usize = 512;
 /// During replacement both the old bank and its prepared replacement may coexist.
 pub const MAX_ALIGNMENT_BYTES: usize = 256 * 1024 * 1024;
 
+/// Direction of an audio or event port relative to its plugin.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AudioDirection {
+    /// Data delivered to the plugin.
     Input,
+    /// Data produced by the plugin.
     Output,
 }
 
+/// Native distinction between a main bus and an additional bus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AudioBusRole {
+    /// Primary audio signal.
     Main,
+    /// Additional signal, such as a sidechain or instrument output.
     Auxiliary,
 }
 
@@ -30,15 +36,25 @@ pub enum AudioBusRole {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct AudioBusInfo {
+    /// Native bus ID, scoped to its direction; not a position in the returned list.
     pub id: u64,
+    /// Native bus index within its direction.
     pub index: u32,
+    /// Native display name.
     pub name: String,
+    /// Whether this bus receives or produces audio.
     pub direction: AudioDirection,
+    /// Native main or auxiliary designation.
     pub role: AudioBusRole,
+    /// Recognized portable layout, or `None` when the native arrangement is unknown.
     pub layout: Option<Layout>,
+    /// Native channel count, including when the layout is unknown.
     pub channels: u32,
+    /// Current activation state, or `None` if the format cannot report it.
     pub active: Option<bool>,
+    /// Whether this bus supports single-precision processing.
     pub f32: Support,
+    /// Whether this bus supports double-precision processing.
     pub f64: Support,
 }
 
@@ -67,18 +83,27 @@ impl AudioBusInfo {
     }
 }
 
+/// A named native bus configuration, such as a CLAP audio-port configuration.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudioConfiguration {
+    /// Native configuration ID; not a position in the returned list.
     pub id: u64,
+    /// Native display name.
     pub name: String,
+    /// Input buses belonging to this configuration.
     pub inputs: Vec<AudioBusInfo>,
+    /// Output buses belonging to this configuration.
     pub outputs: Vec<AudioBusInfo>,
 }
 
+/// Requested layout and activation for one native audio bus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudioBusConfig {
+    /// Native bus ID, scoped to its direction; not a position in the returned list.
     pub id: u64,
+    /// Requested channel layout; an active bus cannot use `Layout::None`.
     pub layout: Layout,
+    /// Whether to activate this bus for processing.
     pub active: bool,
 }
 
@@ -86,26 +111,37 @@ pub struct AudioBusConfig {
 /// negotiation follows validation; successful preparation returns the complete negotiated map.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AudioConfig {
+    /// Samples per second; must be finite and greater than zero.
     pub sample_rate: f64,
+    /// Maximum frames per processing call, from 1 through `i32::MAX`.
     pub max_block_size: usize,
+    /// Sample precision shared by all buses and slots.
     pub sample_format: SampleFormat,
+    /// Processing mode reported to the plugin.
     pub mode: ProcessMode,
+    /// Native named configuration to select, or `None` to retain the current selection.
     pub configuration: Option<u64>,
+    /// Requested input buses; omitted buses are inactive.
     pub inputs: Vec<AudioBusConfig>,
+    /// Requested output buses; omitted buses are inactive.
     pub outputs: Vec<AudioBusConfig>,
     /// Native event ports to activate; ports not named are left inactive where the format allows.
     pub events: crate::EventConfig,
 }
 
+/// Native bypass support and its last queried state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BypassState {
+    /// Whether the plugin exposes writable native bypass.
     pub support: Support,
+    /// Current bypass state, or `None` when unavailable.
     pub enabled: Option<bool>,
 }
 
 /// Explicit channel adaptation. Surround layouts are never inferred, reordered or downmixed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChannelAdaptation {
+    /// Require identical source and destination layouts.
     Exact,
     /// Duplicate the mono sample into left and right with unity gain.
     MonoToStereo,
@@ -113,52 +149,83 @@ pub enum ChannelAdaptation {
     StereoToMono,
 }
 
+/// Source of one slot’s input bus in a serial chain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AudioSource {
-    External { bus: usize },
-    Previous { bus: u64 },
+    /// Read an external bus supplied by the caller.
+    External {
+        /// Index into `RoutedChainConfig::inputs`.
+        bus: usize,
+    },
+    /// Read an active output bus of the immediately preceding slot.
+    Previous {
+        /// Native output bus ID in the immediately preceding slot.
+        bus: u64,
+    },
+    /// Fill the destination bus with zero samples.
     Silence,
 }
 
+/// An input bus request together with its source and explicit channel conversion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudioInputRoute {
+    /// Destination native input bus and requested layout.
     pub bus: AudioBusConfig,
+    /// Signal source for the destination.
     pub source: AudioSource,
+    /// Conversion to apply between source and destination layouts.
     pub adaptation: ChannelAdaptation,
 }
 
+/// Audio and event routing for a single plugin slot.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlotAudioConfig {
+    /// Native named configuration to select, or `None` to retain the current selection.
     pub configuration: Option<u64>,
+    /// Input bus requests in caller order; native processing retains native bus order.
     pub inputs: Vec<AudioInputRoute>,
+    /// Requested output buses; omitted buses are inactive.
     pub outputs: Vec<AudioBusConfig>,
+    /// Native event ports and their serial-chain routing.
     pub events: crate::SlotEventConfig,
 }
 
+/// Explicit serial-chain configuration, validated before native preparation.
+///
+/// Each direction permits at most 64 audio buses and 512 active channels. External inputs
+/// are flattened in caller order; a slot’s native bus IDs do not imply buffer positions.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RoutedChainConfig {
+    /// Samples per second; must be finite and greater than zero.
     pub sample_rate: f64,
+    /// Maximum frames per processing call, from 1 through `i32::MAX`.
     pub max_block_size: usize,
+    /// Sample precision shared by all buses and slots.
     pub sample_format: SampleFormat,
+    /// Processing mode reported to the plugin.
     pub mode: ProcessMode,
     /// External bus layouts in caller buffer order.
     pub inputs: Vec<Layout>,
     /// The chain's external event inputs, which events name by index.
     pub event_inputs: usize,
+    /// Per-plugin requests, in the same order as the chain’s instances.
     pub slots: Vec<SlotAudioConfig>,
 }
 
 impl AudioConfig {
+    /// Checks scalar processing values, unique bus IDs, layouts, and audio capacity limits.
     pub fn validate(&self) -> Result<(), InputError> {
         crate::config::validate_processing(self.sample_rate, self.max_block_size)?;
         validate_buses(&self.inputs)?;
         validate_buses(&self.outputs)
     }
 
+    /// Total active input channels across the requested native buses.
     pub fn input_channels(&self) -> usize {
         active_channels(&self.inputs)
     }
 
+    /// Total active output channels across the requested native buses.
     pub fn output_channels(&self) -> usize {
         active_channels(&self.outputs)
     }
@@ -224,10 +291,12 @@ impl RoutedChainConfig {
         Ok(())
     }
 
+    /// Total external input channels in caller buffer order.
     pub fn input_channels(&self) -> usize {
         self.inputs.iter().map(|layout| layout.channels()).sum()
     }
 
+    /// Total active output channels of the final slot.
     pub fn output_channels(&self) -> usize {
         self.slots
             .last()
@@ -258,6 +327,7 @@ impl RoutedChainConfig {
 }
 
 impl ChannelAdaptation {
+    /// Checks whether this conversion supports the exact source and target layouts.
     pub fn validate(self, source: Layout, target: Layout) -> Result<(), InputError> {
         let valid = match self {
             Self::Exact => source == target,

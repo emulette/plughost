@@ -1,6 +1,7 @@
 use crate::render::Tail;
 use serde::{Deserialize, Serialize};
 
+/// Maximum retained timing changes before consumers must resynchronize.
 pub const CHANGE_CAPACITY: usize = 128;
 
 /// A plugin's timing as its owning thread last read it. The latency is the one the plugin was
@@ -9,7 +10,9 @@ pub const CHANGE_CAPACITY: usize = 128;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct PluginTiming {
+    /// Applied processing latency in frames.
     pub latency: u32,
+    /// Most recently observed native tail duration.
     pub tail: Tail,
     /// The plugin asked to be prepared again; processing is refused until it is.
     pub restart_required: bool,
@@ -30,9 +33,12 @@ impl PluginTiming {
     }
 }
 
+/// Latest timing observation for one plugin in a chain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlotChange {
+    /// Zero-based plugin slot.
     pub slot: usize,
+    /// Last observed timing and pending restart flags.
     pub timing: PluginTiming,
 }
 
@@ -40,8 +46,11 @@ pub struct SlotChange {
 /// are not an audit trail. On overflow use `snapshot` to replace the entire consumer view.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangeBatch {
+    /// Coalesced slot changes in last-observed order.
     pub changes: Vec<SlotChange>,
+    /// Whether overflow requires replacing the consumer view with `snapshot`.
     pub resync_required: bool,
+    /// Last known timing per slot; `None` for a slot never observed.
     pub snapshot: Vec<Option<PluginTiming>>,
 }
 
@@ -63,6 +72,7 @@ impl Default for ChangeBuffer {
 }
 
 impl ChangeBuffer {
+    /// Records a changed timing value, coalescing that slot and tracking overflow.
     pub fn observe(&mut self, slot: usize, timing: PluginTiming) {
         if self.snapshot.len() <= slot {
             self.snapshot.resize(slot + 1, None);
@@ -79,6 +89,7 @@ impl ChangeBuffer {
         self.pending.push(SlotChange { slot, timing });
     }
 
+    /// Drains pending changes and overflow, retaining and returning the latest complete snapshot.
     pub fn take(&mut self) -> ChangeBatch {
         // Preserve the producer's reserved storage while returning an owned batch.
         let changes = self.pending.clone();

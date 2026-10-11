@@ -2,8 +2,10 @@ use crate::config::SampleFormat;
 
 /// An audio sample type the plugin formats can process.
 pub trait Sample: Copy + Default + Send + Sync + 'static {
+    /// Native sample precision corresponding to this Rust type.
     const FORMAT: SampleFormat;
 
+    /// Converts a sample for peak measurement and silence detection.
     fn to_f64(self) -> f64;
 }
 

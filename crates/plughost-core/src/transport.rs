@@ -4,24 +4,34 @@ use serde::{Deserialize, Serialize};
 
 use crate::InputError;
 
+/// Musical meter; numerator must be nonzero and denominator a power of two.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimeSignature {
+    /// Number of denominator note units in a bar.
     pub numerator: u16,
+    /// Note unit, such as 4 for quarter notes or 8 for eighth notes.
     pub denominator: u16,
 }
 
 /// Musical positions are quarter notes, including for compound meters.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoopRegion {
+    /// Start position in quarter notes.
     pub start: f64,
+    /// Exclusive loop end in quarter notes; greater than `start`.
     pub end: f64,
+    /// Loop start on the caller’s absolute sample timeline.
     pub sample_start: i64,
+    /// Exclusive loop end in samples; greater than `sample_start`.
     pub sample_end: i64,
 }
 
+/// Caller-supplied start and numbering of the current musical bar.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BarPosition {
+    /// Start position in quarter notes.
     pub start: f64,
+    /// Caller-supplied bar number; advancement increments it at bar boundaries.
     pub number: i32,
 }
 
@@ -30,12 +40,19 @@ pub struct BarPosition {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Transport {
+    /// Signed absolute sample position of the block’s first frame.
     pub sample_position: i64,
+    /// Absolute musical position in quarter notes, when available.
     pub beat_position: Option<f64>,
+    /// Current bar start and number; requires an available beat position.
     pub bar_position: Option<BarPosition>,
+    /// Finite, positive quarter notes per minute, when available.
     pub tempo: Option<f64>,
+    /// Current musical meter, when available.
     pub time_signature: Option<TimeSignature>,
+    /// Whether transport advances while samples are processed.
     pub playing: bool,
+    /// Active loop boundaries, when available; wrapping remains caller-owned.
     pub loop_region: Option<LoopRegion>,
 }
 
@@ -53,6 +70,8 @@ impl Transport {
         }
     }
 
+    /// Checks scalar ranges and consistency without querying a plugin.
+    /// `Transport::validate_at_rate` additionally checks sample positions at the prepared rate.
     pub fn validate(&self) -> Result<(), InputError> {
         // CLAP represents beats/seconds as signed 31-bit fixed point. Keep positions in the
         // common representable range instead of silently saturating at the format boundary.
@@ -138,11 +157,14 @@ impl Transport {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct BlockContext {
+    /// Frames to process, independent of audio channel count; may be zero.
     pub frames: usize,
+    /// Snapshot at the first frame, or `None` when time information is unavailable.
     pub transport: Option<Transport>,
 }
 
 impl BlockContext {
+    /// Constructs a block duration with no transport snapshot.
     pub const fn new(frames: usize) -> Self {
         Self {
             frames,
@@ -158,6 +180,7 @@ impl BlockContext {
         }
     }
 
+    /// Checks that the frame count fits native block lengths and validates any transport.
     pub fn validate(&self) -> Result<(), InputError> {
         if self.frames > i32::MAX as usize {
             return Err(InputError::BlockSize);
