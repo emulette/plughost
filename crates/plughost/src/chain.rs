@@ -21,9 +21,10 @@ use crate::helper::{Helper, Mode};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Timeouts {
-    /// Loading plugins and restoring state; large instruments take minutes.
+    /// Loading plugins, restoring state, opening editors and preparing an already configured
+    /// chain again (which reloads its plugins). Large instruments take minutes.
     pub load: Duration,
-    /// Preparing, resetting, saving state, and parameter access.
+    /// Initial preparation, resetting, saving state, parameter access and other control calls.
     pub control: Duration,
     /// Processing one block.
     pub process: Duration,
@@ -122,24 +123,18 @@ impl Chain {
     /// Drains bounded plugin and helper diagnostics. Poll from application/control code.
     /// Unread child-local logs are lost when the helper exits.
     pub fn take_diagnostics(&mut self) -> Result<plughost_core::DiagnosticBatch, Error> {
-        match self
-            .helper
-            .request(Request::Diagnostics, self.timeouts.control)?
-        {
+        match self.request(Request::Diagnostics, self.timeouts.control)? {
             Response::Diagnostics(batch) => Ok(batch),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
     /// Queries the loaded plugin without opening its editor or saving state. Results are a
     /// fresh snapshot, separate from scan/cache metadata. Re-query after configuration changes.
     pub fn capabilities(&mut self, slot: usize) -> Result<CapabilityReport, Error> {
-        match self
-            .helper
-            .request(Request::Capabilities { slot }, self.timeouts.control)?
-        {
+        match self.request(Request::Capabilities { slot }, self.timeouts.control)? {
             Response::Capabilities(report) => Ok(report),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
@@ -147,12 +142,9 @@ impl Chain {
     /// an idle consumer cannot backpressure processing or shutdown. A recovered chain has its own
     /// stream.
     pub fn take_changes(&mut self) -> Result<plughost_core::ChangeBatch, Error> {
-        match self
-            .helper
-            .request(Request::Changes, self.timeouts.control)?
-        {
+        match self.request(Request::Changes, self.timeouts.control)? {
             Response::Changes(batch) => Ok(batch),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
@@ -175,12 +167,9 @@ impl Chain {
 
     /// Each parameter of the plugin in `slot`, with its current normalized value.
     pub fn parameters(&mut self, slot: usize) -> Result<Vec<(ParameterInfo, f64)>, Error> {
-        match self
-            .helper
-            .request(Request::Parameters { slot }, self.timeouts.control)?
-        {
+        match self.request(Request::Parameters { slot }, self.timeouts.control)? {
             Response::Parameters(parameters) => Ok(parameters),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
@@ -190,12 +179,12 @@ impl Chain {
         slot: usize,
         id: u64,
     ) -> Result<plughost_core::ParameterDetails, Error> {
-        match self.helper.request(
+        match self.request(
             Request::ParameterDetails { slot, id },
             self.timeouts.control,
         )? {
             Response::ParameterDetails(details) => Ok(details),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
@@ -211,7 +200,7 @@ impl Chain {
             slot: Some(slot),
             error,
         })?;
-        match self.helper.request(
+        match self.request(
             Request::ParameterChoices {
                 slot,
                 id,
@@ -221,25 +210,25 @@ impl Chain {
             self.timeouts.control,
         )? {
             Response::ParameterChoices(page) => Ok(page),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
     /// Changes a parameter the way an edit in the plugin's editor does.
     pub fn set_parameter(&mut self, slot: usize, id: u64, value: f64) -> Result<(), Error> {
         let request = Request::SetParameter { slot, id, value };
-        expect_done(self.helper.request(request, self.timeouts.control)?)?;
+        self.request_done(request, self.timeouts.control)?;
         self.refresh_timing()
     }
 
     /// Uses the native formatter without changing the parameter.
     pub fn parameter_text(&mut self, slot: usize, id: u64, value: f64) -> Result<String, Error> {
-        match self.helper.request(
+        match self.request(
             Request::ParameterText { slot, id, value },
             self.timeouts.control,
         )? {
             Response::ParameterText(text) => Ok(text),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
@@ -249,14 +238,14 @@ impl Chain {
             slot: Some(slot),
             error,
         })?;
-        expect_done(self.helper.request(
+        self.request_done(
             Request::SetParameterText {
                 slot,
                 id,
                 text: text.to_owned(),
             },
             self.timeouts.control,
-        )?)?;
+        )?;
         self.refresh_timing()
     }
 
@@ -265,7 +254,7 @@ impl Chain {
             slot: Some(slot),
             error,
         })?;
-        match self.helper.request(
+        match self.request(
             Request::ParameterFromText {
                 slot,
                 id,
@@ -274,17 +263,17 @@ impl Chain {
             self.timeouts.control,
         )? {
             Response::ParameterValue(value) => Ok(value),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
     pub fn parameter_to_plain(&mut self, slot: usize, id: u64, value: f64) -> Result<f64, Error> {
-        match self.helper.request(
+        match self.request(
             Request::ParameterToPlain { slot, id, value },
             self.timeouts.control,
         )? {
             Response::ParameterValue(value) => Ok(value),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
@@ -294,45 +283,54 @@ impl Chain {
         id: u64,
         plain: f64,
     ) -> Result<f64, Error> {
-        match self.helper.request(
+        match self.request(
             Request::ParameterToNormalized { slot, id, plain },
             self.timeouts.control,
         )? {
             Response::ParameterValue(value) => Ok(value),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
     /// Clears every plugin's internal state (tails, delay lines), keeping its settings.
     pub fn reset(&mut self) -> Result<(), Error> {
-        expect_done(self.helper.request(Request::Reset, self.timeouts.load)?)?;
+        self.request_done(Request::Reset, self.timeouts.control)?;
         self.refresh_timing()
     }
 
     /// Opens the editor of the plugin in `slot` in a window of the helper. The chain keeps
     /// processing while it is open, and edits in it reach the processor.
     pub fn open_editor(&mut self, slot: usize) -> Result<(), Error> {
-        expect_done(
-            self.helper
-                .request(Request::OpenEditor { slot }, self.timeouts.load)?,
-        )
+        self.request_done(Request::OpenEditor { slot }, self.timeouts.load)
     }
 
     pub fn close_editor(&mut self, slot: usize) -> Result<(), Error> {
-        expect_done(
-            self.helper
-                .request(Request::CloseEditor { slot }, self.timeouts.control)?,
-        )
+        self.request_done(Request::CloseEditor { slot }, self.timeouts.control)
     }
 
     /// Whether the editor of `slot` is open; the user may have closed its window.
     pub fn editor_open(&mut self, slot: usize) -> Result<bool, Error> {
-        match self
-            .helper
-            .request(Request::EditorOpen { slot }, self.timeouts.control)?
-        {
+        match self.request(Request::EditorOpen { slot }, self.timeouts.control)? {
             Response::EditorOpen(open) => Ok(open),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
+        }
+    }
+
+    fn request(&mut self, request: Request, timeout: Duration) -> Result<Response, Error> {
+        let result = self.helper.request(request, timeout);
+        if matches!(
+            result,
+            Err(Error::Protocol | Error::Crashed { .. } | Error::TimedOut { .. })
+        ) {
+            self.shared = None;
+        }
+        result
+    }
+
+    fn request_done(&mut self, request: Request, timeout: Duration) -> Result<(), Error> {
+        match self.request(request, timeout)? {
+            Response::Done => Ok(()),
+            _ => Err(self.protocol_error()),
         }
     }
 
@@ -346,10 +344,7 @@ impl Chain {
         if !self.is_prepared() {
             return Ok(false);
         }
-        match self
-            .helper
-            .request(Request::Timing, self.timeouts.control)?
-        {
+        match self.request(Request::Timing, self.timeouts.control)? {
             Response::Timing {
                 latency,
                 tail,
@@ -359,12 +354,12 @@ impl Chain {
                 self.tail = tail;
                 Ok(latency_changed)
             }
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
     fn is_prepared(&self) -> bool {
-        self.config.is_some()
+        self.shared.is_some()
     }
 }
 
@@ -378,7 +373,7 @@ fn start(
 ) -> Result<Chain, Error> {
     let mut process = Helper::spawn(helper, Mode::Host)?;
     let infos = match process.load(host, plugins, timeouts.load)? {
-        Response::Loaded(infos) => infos,
+        Response::Loaded(infos) if infos.len() == plugins.len() => infos,
         _ => return Err(Error::Protocol),
     };
     for (slot, state) in states.iter().enumerate() {

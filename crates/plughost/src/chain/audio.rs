@@ -13,36 +13,27 @@ impl Chain {
     /// Current native bus map, including auxiliary and inactive buses. IDs are scoped to the
     /// direction and selected native configuration; `index` defines channel buffer order.
     pub fn audio_buses(&mut self, slot: usize) -> Result<Vec<AudioBusInfo>, Error> {
-        match self
-            .helper
-            .request(Request::AudioBuses { slot }, self.timeouts.control)?
-        {
+        match self.request(Request::AudioBuses { slot }, self.timeouts.control)? {
             Response::AudioBuses(buses) => Ok(buses),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
     /// Native event ports in both directions, inputs first. IDs are scoped to the direction;
     /// routes name them in [`SlotEventConfig`].
     pub fn event_ports(&mut self, slot: usize) -> Result<Vec<EventPortInfo>, Error> {
-        match self
-            .helper
-            .request(Request::EventPorts { slot }, self.timeouts.control)?
-        {
+        match self.request(Request::EventPorts { slot }, self.timeouts.control)? {
             Response::EventPorts(ports) => Ok(ports),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
     /// Enumerates selectable native configurations. An empty list does not imply that the
     /// current buses cannot be configured individually.
     pub fn audio_configurations(&mut self, slot: usize) -> Result<Vec<AudioConfiguration>, Error> {
-        match self
-            .helper
-            .request(Request::AudioConfigurations { slot }, self.timeouts.control)?
-        {
+        match self.request(Request::AudioConfigurations { slot }, self.timeouts.control)? {
             Response::AudioConfigurations(configurations) => Ok(configurations),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
@@ -147,24 +138,18 @@ impl Chain {
     }
 
     pub fn bypass(&mut self, slot: usize) -> Result<BypassState, Error> {
-        match self
-            .helper
-            .request(Request::Bypass { slot }, self.timeouts.control)?
-        {
+        match self.request(Request::Bypass { slot }, self.timeouts.control)? {
             Response::Bypass(state) => Ok(state),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
     /// Sets native bypass. Unsupported plugins return an explicit failure; audio routing is
     /// unchanged and no host dry/wet substitution is performed.
     pub fn set_bypass(&mut self, slot: usize, enabled: bool) -> Result<(), Error> {
-        match self
-            .helper
-            .request(Request::SetBypass { slot, enabled }, self.timeouts.control)?
-        {
+        match self.request(Request::SetBypass { slot, enabled }, self.timeouts.control)? {
             Response::Bypass(_) => Ok(()),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
@@ -279,6 +264,7 @@ impl Chain {
     }
 
     fn validate_render_precision(&self, format: SampleFormat) -> Result<(), Error> {
+        self.shared.as_ref().ok_or(Error::NotPrepared)?;
         let prepared = self
             .config
             .as_ref()

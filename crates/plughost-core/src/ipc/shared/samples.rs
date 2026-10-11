@@ -144,10 +144,16 @@ impl SharedAudio {
         submission: Submission,
         output: &mut [&mut [T]],
         event_count: usize,
+        event_ports: usize,
         events: &mut Vec<Event>,
     ) -> io::Result<()> {
         self.check_submission(submission)?;
         self.read_events(self.layout.output_events, event_count, events)?;
+        if !crate::events_fit(events, submission.frames)
+            || events.iter().any(|event| event.port >= event_ports)
+        {
+            return Err(invalid(EVENTS));
+        }
         if self.descriptor.config.sample_format != T::FORMAT
             || output.len() != self.descriptor.config.output_channels
             || output
@@ -210,15 +216,18 @@ macro_rules! samples {
             }
             /// Copies a complete output into one buffer of `submission.frames` samples per output
             /// channel, and `event_count` output events into `events`, whose capacity must hold
-            /// them. The audio buffers are unchanged on error.
+            /// them. Events must be valid, ordered, within the block and on one of `event_ports`
+            /// collected output ports. The audio buffers are unchanged on error; `events` is
+            /// scratch and must be discarded on error.
             pub fn $read_output(
                 &mut self,
                 submission: Submission,
                 output: &mut [&mut [$sample]],
                 event_count: usize,
+                event_ports: usize,
                 events: &mut Vec<Event>,
             ) -> io::Result<()> {
-                self.read_output(submission, output, event_count, events)
+                self.read_output(submission, output, event_count, event_ports, events)
             }
         }
     };

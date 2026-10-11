@@ -7,6 +7,7 @@ use super::*;
 pub(super) struct Transport {
     pub memory: SharedAudio,
     sequence: u64,
+    events: Vec<Event>,
 }
 
 fn storage_error(error: std::io::Error) -> Error {
@@ -22,9 +23,14 @@ impl Chain {
         candidate: &Transport,
         request: impl FnOnce(u64) -> Request,
     ) -> Result<Response, Error> {
+        let timeout = if self.config.is_some() {
+            self.timeouts.load
+        } else {
+            self.timeouts.control
+        };
         let result = self
             .helper
-            .prepare_shared(&candidate.memory, request, self.timeouts.control);
+            .prepare_shared(&candidate.memory, request, timeout);
         if matches!(
             result,
             Err(Error::Protocol | Error::Crashed { .. } | Error::TimedOut { .. })
@@ -40,6 +46,7 @@ impl Chain {
         Ok(Transport {
             memory,
             sequence: 0,
+            events: Vec::with_capacity(plughost_core::MAX_BLOCK_EVENTS),
         })
     }
 
@@ -95,12 +102,28 @@ macro_rules! process {
                     if completed != submission {
                         return Err(Error::Protocol);
                     }
-                    produced.clear();
-                    produced.reserve(event_count.min(plughost_core::MAX_BLOCK_EVENTS));
+                    let event_ports = self
+                        .config
+                        .as_ref()
+                        .ok_or(Error::NotPrepared)?
+                        .slots
+                        .last()
+                        .unwrap()
+                        .events
+                        .outputs
+                        .len();
                     transport
                         .memory
-                        .$read(submission, output, event_count, produced)
+                        .$read(
+                            submission,
+                            output,
+                            event_count,
+                            event_ports,
+                            &mut transport.events,
+                        )
                         .map_err(|_| Error::Protocol)?;
+                    produced.clear();
+                    produced.append(&mut transport.events);
                     self.latency = latency;
                     self.tail = tail;
                     Ok(())

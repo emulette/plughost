@@ -71,37 +71,7 @@ impl Host {
     }
 
     fn dispatch(&mut self, request: Request) -> Response {
-        let slot = match &request {
-            Request::AudioBuses { slot }
-            | Request::EventPorts { slot }
-            | Request::AudioConfigurations { slot }
-            | Request::Bypass { slot }
-            | Request::SetBypass { slot, .. }
-            | Request::ParameterEvents { slot }
-            | Request::FactoryPresets { slot }
-            | Request::SelectFactoryPreset { slot, .. }
-            | Request::LoadDiscoveredPreset { slot, .. }
-            | Request::Parameters { slot }
-            | Request::Capabilities { slot }
-            | Request::SetParameter { slot, .. }
-            | Request::ParameterDetails { slot, .. }
-            | Request::ParameterChoices { slot, .. }
-            | Request::ParameterText { slot, .. }
-            | Request::ParameterFromText { slot, .. }
-            | Request::ParameterToPlain { slot, .. }
-            | Request::ParameterToNormalized { slot, .. }
-            | Request::SetParameterText { slot, .. }
-            | Request::InspectPreset { slot, .. }
-            | Request::ExportPreset { slot }
-            | Request::ImportPreset { slot, .. }
-            | Request::SaveState { slot, .. }
-            | Request::RestoreState { slot, .. }
-            | Request::LoadState { slot, .. }
-            | Request::OpenEditor { slot }
-            | Request::CloseEditor { slot }
-            | Request::EditorOpen { slot } => Some(*slot),
-            _ => None,
-        };
+        let slot = request.slot();
         if slot.is_some_and(|slot| slot >= self.slots.len()) {
             return Response::Rejected {
                 slot,

@@ -224,8 +224,16 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
                 SampleFormat::F32 => {
                     let mut views: Vec<&mut [f32]> =
                         output32.iter_mut().map(|c| &mut c[..frames]).collect();
-                    measured(|| memory.read_output_f32(submission, &mut views, 0, &mut Vec::new()))
-                        .unwrap();
+                    measured(|| {
+                        memory.read_output_f32(
+                            submission,
+                            &mut views,
+                            0,
+                            plughost_core::MAX_EVENT_PORTS,
+                            &mut Vec::new(),
+                        )
+                    })
+                    .unwrap();
                     assert!(
                         output32
                             .iter()
@@ -235,8 +243,16 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
                 SampleFormat::F64 => {
                     let mut views: Vec<&mut [f64]> =
                         output64.iter_mut().map(|c| &mut c[..frames]).collect();
-                    measured(|| memory.read_output_f64(submission, &mut views, 0, &mut Vec::new()))
-                        .unwrap();
+                    measured(|| {
+                        memory.read_output_f64(
+                            submission,
+                            &mut views,
+                            0,
+                            plughost_core::MAX_EVENT_PORTS,
+                            &mut Vec::new(),
+                        )
+                    })
+                    .unwrap();
                     assert!(
                         output64.iter().all(|channel| channel[..frames]
                             == vec![-0.5 * (1.0 + f64::EPSILON); frames])
@@ -256,6 +272,7 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
                     final_submission.unwrap(),
                     &mut output32.iter_mut().map(|c| &mut c[..9]).collect::<Vec<_>>(),
                     0,
+                    plughost_core::MAX_EVENT_PORTS,
                     &mut Vec::new()
                 )
                 .is_err()

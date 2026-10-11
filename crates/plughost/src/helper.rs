@@ -47,6 +47,7 @@ pub(crate) struct Helper {
 struct Shared {
     activity: Activity,
     sender: transfer::Sender,
+    slots: usize,
 }
 
 fn random() -> u64 {
@@ -73,7 +74,14 @@ impl Helper {
             Mode::Host => {
                 let (sender, stdin) = transfer::Sender::new().map_err(Error::HelperStart)?;
                 let activity = Activity::new().map_err(Error::HelperStart)?;
-                (Some(Shared { activity, sender }), stdin)
+                (
+                    Some(Shared {
+                        activity,
+                        sender,
+                        slots: 0,
+                    }),
+                    stdin,
+                )
             }
             Mode::Scan => (None, Stdio::null()),
         };
@@ -167,18 +175,46 @@ impl Helper {
     /// Sends a request and waits for its reply. `timeout` bounds writing the request and the wait
     /// for each message, so progress messages keep a long operation alive.
     pub fn request(&mut self, request: Request, timeout: Duration) -> Result<Response, Error> {
+        let slot = request.slot();
+        if !self.valid_slot(slot) {
+            return Err(Error::Input {
+                slot,
+                error: plughost_core::InputError::Slot,
+            });
+        }
         self.send(request, timeout)?;
-        match self.receive(timeout)? {
+        let response = self.receive(timeout)?;
+        match response {
             Response::Failed { slot, failure } => {
+                self.check_slot(slot)?;
                 if failure.kind == plughost_core::FailureKind::Protocol {
                     self.kill();
                     return Err(Error::Protocol);
                 }
                 Err(Error::Operation { slot, failure })
             }
-            Response::Rejected { slot, error } => Err(Error::Input { slot, error }),
+            Response::Rejected { slot, error } => {
+                self.check_slot(slot)?;
+                Err(Error::Input { slot, error })
+            }
             response => Ok(response),
         }
+    }
+
+    fn valid_slot(&self, slot: Option<usize>) -> bool {
+        slot.is_none_or(|slot| {
+            self.shared
+                .as_ref()
+                .is_none_or(|shared| slot < shared.slots)
+        })
+    }
+
+    fn check_slot(&mut self, slot: Option<usize>) -> Result<(), Error> {
+        if !self.valid_slot(slot) {
+            self.kill();
+            return Err(Error::Protocol);
+        }
+        Ok(())
     }
 
     /// Host mode: loads the chain, handing the helper the mapping it announces calls through.
@@ -188,6 +224,7 @@ impl Helper {
         plugins: &[PluginRef],
         timeout: Duration,
     ) -> Result<Response, Error> {
+        self.shared.as_mut().ok_or(Error::Protocol)?.slots = plugins.len();
         let activity =
             self.transfer(|sender, activity, child| sender.send_activity(activity, child))?;
         self.request(
@@ -270,7 +307,7 @@ impl Helper {
                 Err(Stopped::TimedOut) => {
                     self.kill();
                     return Err(Error::TimedOut {
-                        slot: self.culprit(),
+                        slot: self.culprit()?,
                     });
                 }
                 Err(Stopped::Closed) => {
@@ -333,14 +370,21 @@ impl Helper {
     /// the outstanding request is asked first; the other thread may hold up that request, or
     /// crash on its own, as the main thread can between requests. Slots are known only as far as
     /// the helper recorded them, so a crash on a plugin-owned thread names no slot.
-    fn culprit(&self) -> Option<usize> {
-        let activity = &self.shared.as_ref()?.activity;
+    fn culprit(&self) -> Result<Option<usize>, Error> {
+        let Some(shared) = &self.shared else {
+            return Ok(None);
+        };
+        let activity = &shared.activity;
         let (first, second) = if self.processing {
             (Caller::Processing, Caller::Main)
         } else {
             (Caller::Main, Caller::Processing)
         };
-        activity.slot(first).or_else(|| activity.slot(second))
+        let (first, second) = (activity.slot(first), activity.slot(second));
+        if !self.valid_slot(first) || !self.valid_slot(second) {
+            return Err(Error::Protocol);
+        }
+        Ok(first.or(second))
     }
 
     fn message_controlled(
@@ -361,7 +405,7 @@ impl Helper {
                 Err(Stopped::TimedOut) => {
                     self.kill();
                     return Err(Error::TimedOut {
-                        slot: self.culprit(),
+                        slot: self.culprit()?,
                     });
                 }
                 Ok(Err(error)) if error.kind() == io::ErrorKind::InvalidData => {
@@ -379,7 +423,7 @@ impl Helper {
             Err(Stopped::TimedOut) => {
                 self.kill();
                 Err(Error::TimedOut {
-                    slot: self.culprit(),
+                    slot: self.culprit()?,
                 })
             }
             Ok(Err(error)) if error.kind() == io::ErrorKind::InvalidData => {
@@ -412,9 +456,9 @@ impl Helper {
                 break None;
             }
         };
-        Some(Error::Crashed {
-            slot: self.culprit(),
-            status,
+        Some(match self.culprit() {
+            Ok(slot) => Error::Crashed { slot, status },
+            Err(error) => error,
         })
     }
 

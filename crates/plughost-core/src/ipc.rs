@@ -188,6 +188,43 @@ pub enum Request {
     Shutdown,
 }
 
+impl Request {
+    /// The single plugin target, when this control request has one.
+    pub fn slot(&self) -> Option<usize> {
+        match self {
+            Self::AudioBuses { slot }
+            | Self::EventPorts { slot }
+            | Self::AudioConfigurations { slot }
+            | Self::Bypass { slot }
+            | Self::SetBypass { slot, .. }
+            | Self::ParameterEvents { slot }
+            | Self::FactoryPresets { slot }
+            | Self::SelectFactoryPreset { slot, .. }
+            | Self::LoadDiscoveredPreset { slot, .. }
+            | Self::Parameters { slot }
+            | Self::Capabilities { slot }
+            | Self::SetParameter { slot, .. }
+            | Self::ParameterDetails { slot, .. }
+            | Self::ParameterChoices { slot, .. }
+            | Self::ParameterText { slot, .. }
+            | Self::ParameterFromText { slot, .. }
+            | Self::ParameterToPlain { slot, .. }
+            | Self::ParameterToNormalized { slot, .. }
+            | Self::SetParameterText { slot, .. }
+            | Self::InspectPreset { slot, .. }
+            | Self::ExportPreset { slot }
+            | Self::ImportPreset { slot, .. }
+            | Self::SaveState { slot, .. }
+            | Self::RestoreState { slot, .. }
+            | Self::LoadState { slot, .. }
+            | Self::OpenEditor { slot }
+            | Self::CloseEditor { slot }
+            | Self::EditorOpen { slot } => Some(*slot),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Response {
     Changes(crate::ChangeBatch),

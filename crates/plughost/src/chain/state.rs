@@ -8,24 +8,18 @@ impl Chain {
         &mut self,
         slot: usize,
     ) -> Result<plughost_core::ParameterEventBatch, Error> {
-        match self
-            .helper
-            .request(Request::ParameterEvents { slot }, self.timeouts.control)?
-        {
+        match self.request(Request::ParameterEvents { slot }, self.timeouts.control)? {
             Response::ParameterEvents(batch) => Ok(batch),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
     pub fn factory_presets(
         &mut self,
         slot: usize,
     ) -> Result<Vec<plughost_core::FactoryPreset>, Error> {
-        match self
-            .helper
-            .request(Request::FactoryPresets { slot }, self.timeouts.control)?
-        {
+        match self.request(Request::FactoryPresets { slot }, self.timeouts.control)? {
             Response::FactoryPresets(presets) => Ok(presets),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
     /// Selects on a fresh instance, replacing the whole slot only on success. VST3 needs prepare first.
@@ -60,12 +54,9 @@ impl Chain {
         slot: usize,
         purpose: plughost_core::StatePurpose,
     ) -> Result<PluginState, Error> {
-        match self
-            .helper
-            .request(Request::SaveState { slot, purpose }, self.timeouts.control)?
-        {
+        match self.request(Request::SaveState { slot, purpose }, self.timeouts.control)? {
             Response::State(state) => Ok(state),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
@@ -92,7 +83,7 @@ impl Chain {
     }
 
     fn accept_restored(&mut self, request: Request) -> Result<(), Error> {
-        match self.helper.request(request, self.timeouts.load)? {
+        match self.request(request, self.timeouts.load)? {
             Response::StateRestored { timing } => {
                 if let Some((latency, tail)) = timing {
                     self.latency = latency;
@@ -100,7 +91,7 @@ impl Chain {
                 }
                 Ok(())
             }
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
@@ -111,7 +102,7 @@ impl Chain {
         bytes: &[u8],
     ) -> Result<plughost_core::PresetInfo, Error> {
         check_preset_size(slot, bytes)?;
-        match self.helper.request(
+        match self.request(
             Request::InspectPreset {
                 slot,
                 bytes: bytes.to_vec(),
@@ -119,19 +110,16 @@ impl Chain {
             self.timeouts.control,
         )? {
             Response::PresetInfo(info) => Ok(info),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 
     /// Saves native preset state as .vstpreset or .aupreset bytes. CLAP returns Unsupported.
     /// Caller-owned VST3 XML annotations are not part of the plugin state exported here.
     pub fn export_preset(&mut self, slot: usize) -> Result<Vec<u8>, Error> {
-        match self
-            .helper
-            .request(Request::ExportPreset { slot }, self.timeouts.control)?
-        {
+        match self.request(Request::ExportPreset { slot }, self.timeouts.control)? {
             Response::Preset(bytes) => Ok(bytes),
-            _ => Err(Error::Protocol),
+            _ => Err(self.protocol_error()),
         }
     }
 

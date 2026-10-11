@@ -326,12 +326,13 @@ impl SharedAudio {
         Ok(())
     }
 
-    /// Decodes events, checking every system exclusive range against the region's arena.
+    /// Decodes events, checking each system exclusive range and the total allocation budget.
     fn read_events(&self, region: Events, count: usize, events: &mut Vec<Event>) -> io::Result<()> {
         if count > MAX_BLOCK_EVENTS || events.capacity() < count {
             return Err(invalid(BLOCK));
         }
         events.clear();
+        let mut sysex_bytes = 0;
         for index in 0..count {
             let offset = region.slots + index * EVENT_BYTES;
             let port = self.load(offset + 8);
@@ -356,9 +357,11 @@ impl SharedAudio {
                 SYSEX_KIND => {
                     let start = (payload & u64::from(u32::MAX)) as usize;
                     let length = (payload >> 32) as usize;
+                    sysex_bytes += length;
                     if start
                         .checked_add(length)
                         .is_none_or(|end| end > MAX_BLOCK_SYSEX_BYTES)
+                        || sysex_bytes > MAX_BLOCK_SYSEX_BYTES
                     {
                         return Err(invalid(EVENTS));
                     }

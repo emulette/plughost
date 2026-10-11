@@ -1,5 +1,73 @@
 use super::*;
 
+#[test]
+fn malformed_output_events_are_rejected_before_copying_audio() {
+    for events in [
+        vec![Event::note_on(8, 0, 60, 100)],
+        vec![Event::note_on(7, 0, 60, 100), Event::note_off(0, 0, 60, 0)],
+        vec![Event::new(0, EventData::NoteOn(Note::new(0, 60, f64::NAN)))],
+        vec![Event::new(0, EventData::NoteOn(Note::new(16, 60, 0.5)))],
+        vec![Event::new(0, EventData::NoteOn(Note::new(0, 128, 0.5)))],
+        vec![Event::new(
+            0,
+            EventData::NoteOn(Note::new(0, 60, 0.5).with_id(u32::MAX)),
+        )],
+    ] {
+        let (mut owner, mut peer) = pair(SampleFormat::F32);
+        let submission = owner
+            .write_input_f32(1, 8, &[&[0.0; 8][..]; 2], &[], &[])
+            .unwrap();
+        peer.write_output_f32(submission, &[&[0.25; 8][..]; 2], &events)
+            .unwrap();
+        let mut audio = vec![vec![42.0; 8]; 2];
+        assert!(
+            owner
+                .read_output_f32(
+                    submission,
+                    &mut views(&mut audio),
+                    events.len(),
+                    crate::MAX_EVENT_PORTS,
+                    &mut Vec::with_capacity(MAX_BLOCK_EVENTS)
+                )
+                .is_err(),
+            "{events:?}"
+        );
+        assert_eq!(audio, vec![vec![42.0; 8]; 2]);
+    }
+}
+
+#[test]
+fn overlapping_sysex_ranges_still_share_one_block_budget() {
+    let (mut owner, mut peer) = pair(SampleFormat::F32);
+    let submission = owner
+        .write_input_f32(1, 8, &[&[0.0; 8][..]; 2], &[], &[])
+        .unwrap();
+    let mut bytes = vec![0x7D; MAX_BLOCK_SYSEX_BYTES];
+    bytes[0] = 0xF0;
+    bytes[MAX_BLOCK_SYSEX_BYTES - 1] = 0xF7;
+    peer.write_output_f32(submission, &[&[0.25; 8][..]; 2], &[Event::sysex(0, bytes)])
+        .unwrap();
+    // A corrupted peer repeats the first record, reusing the same valid arena range. The
+    // decoded allocation budget must count each occurrence, not only the highest arena offset.
+    let start = peer.layout.output_events.slots;
+    for offset in (0..EVENT_BYTES).step_by(8) {
+        peer.store(start + EVENT_BYTES + offset, peer.load(start + offset));
+    }
+    let mut audio = vec![vec![42.0; 8]; 2];
+    assert!(
+        owner
+            .read_output_f32(
+                submission,
+                &mut views(&mut audio),
+                2,
+                crate::MAX_EVENT_PORTS,
+                &mut Vec::with_capacity(MAX_BLOCK_EVENTS)
+            )
+            .is_err()
+    );
+    assert_eq!(audio, vec![vec![42.0; 8]; 2]);
+}
+
 fn descriptor(format: SampleFormat) -> Descriptor {
     Descriptor {
         generation: 9,
@@ -100,6 +168,7 @@ fn fixed_slots_preserve_precision_event_order_and_variable_frames() {
                 submission,
                 &mut views(&mut returned),
                 echoed.len(),
+                crate::MAX_EVENT_PORTS,
                 &mut produced,
             )
             .unwrap();
@@ -152,12 +221,24 @@ fn submissions_outside_the_generation_or_slot_bounds_are_rejected() {
     ] {
         assert!(
             owner
-                .read_output_f32(bad, &mut views(&mut audio), 0, &mut Vec::new())
+                .read_output_f32(
+                    bad,
+                    &mut views(&mut audio),
+                    0,
+                    crate::MAX_EVENT_PORTS,
+                    &mut Vec::new()
+                )
                 .is_err()
         );
     }
     owner
-        .read_output_f32(submission, &mut views(&mut audio), 0, &mut Vec::new())
+        .read_output_f32(
+            submission,
+            &mut views(&mut audio),
+            0,
+            crate::MAX_EVENT_PORTS,
+            &mut Vec::new(),
+        )
         .unwrap();
     assert_eq!(audio, [vec![0.25], vec![0.5]]);
 }
@@ -253,7 +334,13 @@ fn anonymous_mapping_survives_peer_drop() {
         .unwrap();
     drop(peer);
     owner
-        .read_output_f32(submission, &mut views(&mut audio), 0, &mut Vec::new())
+        .read_output_f32(
+            submission,
+            &mut views(&mut audio),
+            0,
+            crate::MAX_EVENT_PORTS,
+            &mut Vec::new(),
+        )
         .unwrap();
     assert_eq!(audio, [vec![0.25], vec![0.5]]);
 }
@@ -286,7 +373,13 @@ fn zero_audio_input_carries_the_full_event_budget_and_preserves_float_bits() {
     peer.write_output_f32(submission, &[&output], &[]).unwrap();
     let mut result = vec![vec![0.0; 2]];
     owner
-        .read_output_f32(submission, &mut views(&mut result), 0, &mut Vec::new())
+        .read_output_f32(
+            submission,
+            &mut views(&mut result),
+            0,
+            crate::MAX_EVENT_PORTS,
+            &mut Vec::new(),
+        )
         .unwrap();
     assert_eq!(
         result[0]

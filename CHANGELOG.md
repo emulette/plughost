@@ -14,6 +14,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- Helper output events are validated for frame offsets, ordering, ports, note values and total
+  SysEx bytes before caller audio or events change. Invalid slot reports and loaded plugin
+  counts also terminate the helper as protocol errors.
+- Every unexpected control response terminates the helper. Losing it during any request
+  invalidates shared processing state, so later processing and rendering report `NotPrepared`.
+- Repreparation uses the load timeout for reloading plugins; reset uses the control timeout.
+  The timeout documentation now includes editor opening and distinguishes initial preparation.
 - `Chain` is `Send + Sync` on Windows as on macOS, including while a timed-out overlapped
   pipe write is pending.
 - A disconnected helper socket does not raise SIGPIPE in a C or Swift embedding process
