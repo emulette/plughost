@@ -594,5 +594,6 @@ fn a_timer_removed_by_another_timer_is_not_called() {
         std::thread::sleep(std::time::Duration::from_millis(2));
         plugin.idle();
     }
+    assert!(parameter_value(&mut plugin, 16) > 0.0);
     assert_eq!(parameter_value(&mut plugin, REMOVED_TIMER_CALLS), 0.0);
 }

@@ -124,6 +124,8 @@ impl DefaultPluginFactory for TestPlugin {
             latency: AtomicU32::new(0),
             editor_focus: Arc::new(AtomicU32::new(0)),
             removed_timer_calls: AtomicU32::new(0),
+            timer_calls: AtomicU32::new(0),
+            system_timer_calls: Arc::new(AtomicU32::new(0)),
             flush_calls: AtomicU32::new(0),
         })
     }
@@ -137,6 +139,9 @@ impl DefaultPluginFactory for TestPlugin {
             .flatten();
         Ok(MainThread {
             timers,
+            _system_timer: (variant() == Variant::Timers).then(|| {
+                crate::system_timer::SystemTimer::new(Arc::clone(&shared.system_timer_calls))
+            }),
             shared,
             params: host.get_extension(),
             host,
@@ -166,6 +171,8 @@ pub struct Shared {
     /// Calls the `timers` variant received for a timer it had removed, reported as
     /// `REMOVED_TIMER_CALLS`.
     pub(crate) removed_timer_calls: AtomicU32,
+    pub(crate) timer_calls: AtomicU32,
+    system_timer_calls: Arc<AtomicU32>,
     flush_calls: AtomicU32,
 }
 
@@ -231,6 +238,7 @@ pub struct MainThread<'a> {
     pub(crate) shared: &'a Shared,
     pub(crate) host: HostMainThreadHandle<'a>,
     pub(crate) timers: Option<crate::timers::Timers>,
+    _system_timer: Option<crate::system_timer::SystemTimer>,
     params: Option<HostParams>,
     #[cfg(target_os = "macos")]
     editor: crate::editor::Slot,
@@ -315,12 +323,26 @@ impl PluginMainThreadParams for MainThread<'_> {
         15 + u32::from(matches!(
             variant(),
             Variant::Editor | Variant::Timers | Variant::FlushRequest
-        ))
+        )) + 2 * u32::from(variant() == Variant::Timers)
     }
 
     fn get_info(&self, index: u32, info: &mut ParamInfoWriter) {
         self.check("params.get_info");
         match index {
+            16 | 17 if variant() == Variant::Timers => info.set(&ParamInfo {
+                id: ClapId::new(index),
+                flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: if index == 16 {
+                    b"Timer calls"
+                } else {
+                    b"System timer calls"
+                },
+                module: b"",
+                min_value: 0.0,
+                max_value: 1_000_000.0,
+                default_value: 0.0,
+            }),
             15 if variant() == Variant::FlushRequest => info.set(&ParamInfo {
                 id: ClapId::new(15),
                 flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
@@ -465,6 +487,14 @@ impl PluginMainThreadParams for MainThread<'_> {
         self.check("params.get_value");
         if id.get() == 15 && variant() == Variant::FlushRequest {
             return Some(f64::from(self.shared.flush_calls.load(Ordering::Relaxed)));
+        }
+        if id.get() == 17 && variant() == Variant::Timers {
+            return Some(f64::from(
+                self.shared.system_timer_calls.load(Ordering::Relaxed),
+            ));
+        }
+        if id.get() == 16 && variant() == Variant::Timers {
+            return Some(f64::from(self.shared.timer_calls.load(Ordering::Relaxed)));
         }
         if id == REMOVED_TIMER_CALLS && variant() == Variant::Timers {
             return Some(f64::from(

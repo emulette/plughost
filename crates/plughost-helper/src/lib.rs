@@ -29,7 +29,7 @@ use std::io;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::{GenericNamespaced, SendHalf, Stream};
@@ -47,7 +47,7 @@ use crate::errors::{CONNECT, USAGE};
 #[global_allocator]
 static ALLOCATOR: plughost_core::audit::Allocator = plughost_core::audit::Allocator;
 
-/// How long the main thread waits for a request before running the event loop again.
+/// How often the main thread services OS events, including while requests keep arriving.
 const EVENT_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -145,20 +145,23 @@ fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
         lifetime::disconnected();
     });
 
+    let mut next_tick = Instant::now() + EVENT_INTERVAL;
     loop {
-        let request = match incoming.recv_timeout(EVENT_INTERVAL) {
-            Ok(Request::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
-            Ok(request) => request,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                events::with_pool(|| {
-                    events::pump();
-                    if let Some(host) = &mut host {
-                        host.tick();
-                    }
-                });
-                continue;
-            }
-        };
+        if Instant::now() >= next_tick {
+            events::with_pool(|| {
+                events::pump();
+                if let Some(host) = &mut host {
+                    host.tick();
+                }
+            });
+            next_tick = Instant::now() + EVENT_INTERVAL;
+        }
+        let request =
+            match incoming.recv_timeout(next_tick.saturating_duration_since(Instant::now())) {
+                Ok(Request::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+                Ok(request) => request,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            };
         events::with_pool(|| handle(&mut host, request, &responder))?;
     }
 }

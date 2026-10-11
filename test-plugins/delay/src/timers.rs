@@ -35,12 +35,14 @@ impl PluginTimerImpl for MainThread<'_> {
         let Some(timers) = &self.timers else {
             return;
         };
-        if timer_id == timers.first
-            && let (Some(second), Some(timer)) =
+        if timer_id == timers.first {
+            self.shared.timer_calls.fetch_add(1, Ordering::Relaxed);
+            if let (Some(second), Some(timer)) =
                 (timers.second.take(), self.host.get_extension::<HostTimer>())
-        {
-            let _ = timer.unregister_timer(&self.host, second);
-            timers.removed.set(Some(second));
+            {
+                let _ = timer.unregister_timer(&self.host, second);
+                timers.removed.set(Some(second));
+            }
         } else if Some(timer_id) == timers.removed.get() {
             self.shared
                 .removed_timer_calls

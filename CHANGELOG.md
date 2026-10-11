@@ -22,6 +22,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- Helper OS event processing and editor updates run on a 10 ms deadline even while control
+  requests keep arriving, so a busy caller does not starve native timers and UI events.
 - AU Cocoa editor metadata with a null bundle or no non-null class name reports `NoEditor`
   without constructing an invalid retained pointer or indexing an empty class list.
 - AU preparation preserves parameter, editor and bypass edits made after an unprepared state

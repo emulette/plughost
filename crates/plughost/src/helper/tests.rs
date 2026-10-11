@@ -83,3 +83,60 @@ fn prepare(
         timeout,
     )
 }
+
+#[test]
+#[ignore = "needs the helper and timers CLAP fixture"]
+fn main_thread_ticks_during_queued_requests() {
+    let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    #[cfg(target_os = "windows")]
+    let path = target.join("helper/plughost-helper.exe");
+    #[cfg(target_os = "macos")]
+    let path = target.join("helper/PlughostHelper.app/Contents/MacOS/plughost-helper");
+    let mut helper = Helper::spawn(&path, Mode::Host).unwrap();
+    helper
+        .load(
+            &HostIdentity::default(),
+            &[PluginRef {
+                format: plughost_core::PluginFormat::Clap,
+                bundle: Some(target.join("test-plugins/plughost-test-timers.clap")),
+                class_id: "com.studio.plughost.test-delay.7900000d".into(),
+            }],
+            Duration::from_secs(30),
+        )
+        .unwrap();
+
+    // Fill the main-thread queue before reading responses. The IPC reader can enqueue the
+    // entire burst even while the main thread is waiting for response-buffer space. A host
+    // that ticks only after recv_timeout has no idle interval inside this backlog.
+    const REQUESTS: usize = 30_000;
+    let timeout = Duration::from_secs(10);
+    helper
+        .send(Request::Parameters { slot: 0 }, timeout)
+        .unwrap();
+    for _ in 0..REQUESTS {
+        helper.send(Request::Bypass { slot: 0 }, timeout).unwrap();
+    }
+    helper
+        .send(Request::Parameters { slot: 0 }, timeout)
+        .unwrap();
+    let value = |response: Response, id| {
+        let Response::Parameters(values) = response else {
+            panic!("{response:?}");
+        };
+        values
+            .into_iter()
+            .find(|(info, _)| info.id == id)
+            .unwrap()
+            .1
+    };
+    let before = value(helper.receive(timeout).unwrap(), 17);
+    for _ in 0..REQUESTS {
+        let response = helper.receive(timeout).unwrap();
+        assert!(matches!(response, Response::Bypass(_)), "{response:?}");
+    }
+    let after = value(helper.receive(timeout).unwrap(), 17);
+    assert!(
+        after > before,
+        "timer did not run during queued requests: {before} -> {after}"
+    );
+}
