@@ -315,7 +315,7 @@ mod pipe {
 
 #[cfg(unix)]
 mod pipe {
-    use std::io::{self, Read, Write};
+    use std::io::{self, Read};
     use std::os::unix::net::UnixStream;
     use std::time::{Duration, Instant};
 
@@ -331,7 +331,6 @@ mod pipe {
         pub fn new(stream: Stream) -> io::Result<Self> {
             let Stream::UdSocket(socket) = stream;
             let stream = socket.inner().try_clone()?;
-            rustix::net::sockopt::set_socket_nosigpipe(&stream, true)?;
             stream.set_nonblocking(true)?;
             Ok(Self { stream })
         }
@@ -344,7 +343,12 @@ mod pipe {
 
         /// Writes from `buffer`, returning the byte count or `None` when the timeout passes first.
         pub fn write(&mut self, buffer: &[u8], timeout: Duration) -> io::Result<Option<usize>> {
-            self.retry(timeout, PollFlags::OUT, |stream| stream.write(buffer))
+            self.retry(timeout, PollFlags::OUT, |stream| {
+                // Per-send suppression works even if the peer disconnected before accept.
+                // rustix does not expose Apple's flag, so take it from the system bindings.
+                let flags = rustix::net::SendFlags::from_bits_retain(libc::MSG_NOSIGNAL as u32);
+                rustix::net::send(stream, buffer, flags).map_err(Into::into)
+            })
         }
 
         fn retry(

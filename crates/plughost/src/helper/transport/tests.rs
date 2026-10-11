@@ -20,6 +20,37 @@ fn connection() -> (Transport, Stream) {
     (transport, peer)
 }
 
+#[test]
+#[cfg(target_os = "macos")]
+fn a_peer_closed_before_accept_keeps_its_queued_hello_readable() {
+    let name = format!("plughost-transport-test-{:016x}", super::super::random());
+    let listener = ListenerOptions::new()
+        .name(name.as_str().to_ns_name::<GenericNamespaced>().unwrap())
+        .create_sync()
+        .unwrap();
+    let mut peer =
+        Stream::connect(name.as_str().to_ns_name::<GenericNamespaced>().unwrap()).unwrap();
+    write_message(
+        &mut peer,
+        &Hello {
+            protocol: PROTOCOL_VERSION,
+            token: 42,
+        },
+    )
+    .unwrap();
+    drop(peer);
+    let stream = listener.accept().expect("accept disconnected peer");
+    let mut transport = Transport::new(stream).expect("initialize disconnected peer");
+    assert!(matches!(
+        transport.receive(Duration::from_secs(2)),
+        Ok(Ok(Incoming::Hello(Hello { token: 42, .. })))
+    ));
+    assert!(matches!(
+        transport.receive(Duration::from_secs(2)),
+        Err(Stopped::Closed)
+    ));
+}
+
 fn identify(transport: &mut Transport, peer: &mut Stream) {
     write_message(
         peer,
