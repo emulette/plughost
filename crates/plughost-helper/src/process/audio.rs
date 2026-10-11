@@ -234,6 +234,12 @@ fn run<S: WireSample>(
                 .events_plan
                 .gather(slot, events, previous_events, slot_automation, slot_events)
         {
+            if slot == 0 {
+                return responder.send(&Response::Rejected {
+                    slot: Some(slot),
+                    error,
+                });
+            }
             // Earlier slots already advanced; the notes they forwarded may be held.
             *state.resync = true;
             return responder.fail(

@@ -14,6 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- Event routes that exceed the first slot's input budget are rejected with
+  `InputError::EventCapacity` before processing, allowing a retry without reset.
 - Helper output events are validated for frame offsets, ordering, ports, note values and total
   SysEx bytes before caller audio or events change. Invalid slot reports and loaded plugin
   counts also terminate the helper as protocol errors.

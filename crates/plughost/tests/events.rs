@@ -387,6 +387,48 @@ fn exceeding_the_output_budget_stops_processing_until_reset() {
 }
 
 #[test]
+#[ignore = "needs helper and routing fixtures"]
+fn first_slot_route_expansion_is_rejected_without_requiring_reset() {
+    for format in [PluginFormat::Vst3, PluginFormat::Clap] {
+        let (mut chain, mut config) = routing_chain(format);
+        // Both native inputs receive the same external stream, doubling its cost.
+        for route in &mut config.slots[0].events.inputs {
+            route.source = EventSource::External { port: 0 };
+        }
+        chain.prepare_audio(&config).unwrap();
+        let mut sysex = vec![0x7D; plughost::MAX_BLOCK_SYSEX_BYTES / 2 + 1];
+        sysex[0] = 0xF0;
+        *sysex.last_mut().unwrap() = 0xF7;
+        for events in [
+            vec![Event::note_off(0, 0, 60, 0); plughost::MAX_BLOCK_EVENTS / 2 + 1],
+            vec![Event::sysex(0, sysex)],
+        ] {
+            assert!(
+                matches!(
+                    run(&mut chain, &config, 64, &events),
+                    Err(Error::Input {
+                        slot: Some(0),
+                        error: plughost::InputError::EventCapacity
+                    })
+                ),
+                "{format:?}"
+            );
+            let (_, produced) =
+                run(&mut chain, &config, 64, &[Event::note_on(0, 0, 60, 100)]).unwrap();
+            assert_eq!(
+                as_midi(format, &produced),
+                [
+                    Event::note_on(0, 0, 72, 100),
+                    Event::control_change(0, 0, KEY_CONTROLLER, 60),
+                    Event::note_on(0, 0, 84, 100),
+                    Event::control_change(0, 0, KEY_CONTROLLER, 60)
+                ],
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
 fn events_from_the_previous_slot_and_its_automation_share_one_budget() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
