@@ -73,7 +73,8 @@ PluginRef through Chain or the direct formats API.
 It reads compatible binary headers, static VST3 `moduleinfo.json`, and unchanged native cache
 results. Missing or malformed metadata yields `ScanOutcome::NotInspected`, not an automatic
 native load. Cached native failures remain visible without being retried. Audio Unit registry
-enumeration uses a helper without instantiating the units.
+enumeration uses a helper without instantiating the units. Missing, unreadable, malformed,
+or incompatible caches are treated as empty by `discover` and `discover_controlled`.
 
 `scanner.scan(&progress)` inspects native classes and accepts a `Sync` callback receiving
 `&BundleScan`. With multiple jobs it can be called concurrently. Static metadata never
@@ -91,6 +92,7 @@ preparation, or processing will succeed. Audio Units are enumerated from the reg
 both paths. Cache schema 2 contains native bundle results; earlier caches are invalidated
 because they did not distinguish static metadata from native inspection.
 Cache compatibility depends on the schema and architecture, not the plughost version.
+Matching fingerprints reuse the native result before reading binary headers or static metadata.
 The default scan stall timeout is 30 seconds. Two consecutive failures of an unchanged
 bundle exclude it from automatic loading; the scan that reaches the limit already reports
 `excluded`. `Scanner::retry(path)` bypasses exclusion and
@@ -146,8 +148,10 @@ until the bundle finishes. No failure or timeout is interpreted as a license dia
 The writer publishes each snapshot as compact JSON through a unique sibling temporary file and
 atomic replacement. The final snapshot is synchronized to stable storage once, when the scan or
 retry ends (Unix also synchronizes the containing directory); after a power loss mid-scan the
-cache can read as empty and is rebuilt. Cache read/write/lock errors return
-`Error::Cache`; a mid-scan save failure stops admissions and reaps active helpers. The caller's
+cache can read as empty and is rebuilt. Native scan/retry writers treat missing, malformed,
+and incompatible caches as empty, but return `Error::Cache` on existing-file read failures,
+write/sync failures, or lock errors. Discovery tolerates read failures as described above.
+A mid-scan save failure stops admissions and reaps active helpers. The caller's
 ScanControl is not marked cancelled by an internal cache error. Results saved earlier remain
 available, while the result whose save failed is not announced as completed. A final sync
 failure can occur after a complete replacement has become visible; it is still an error.
@@ -168,19 +172,24 @@ slice of `PluginRef`, in chain order. Slots are zero-based indices in that slice
 `HostIdentity` is the calling application's identity; recovered chains keep it.
 `Timeouts` separates load, control, and block-processing operations. Defaults are 300,
 60, and 10 seconds respectively; start from `Timeouts::default()` and set the fields to change.
-Loading, restoring state, opening an editor and preparing an already configured chain again
-use the load timeout. Initial preparation, reset, saving state and parameter/control calls use
-the control timeout. Processing one block uses the process timeout.
+Loading, restoring state, importing or loading a preset, selecting a factory preset, opening
+an editor, and preparing an already configured chain again use the load timeout. Initial
+preparation, reset, saving state, preset inspection/export, and parameter/control queries use
+the control timeout. Processing one block uses the process timeout. Scan stall timeouts are
+configured separately on `Scanner`; they do not use `Timeouts`.
 
 Types that later versions extend are `#[non_exhaustive]`: the enums `Layout`, `PluginFormat`,
 `PluginKind`, `EventData`, `ExpressionKind`, `TailPolicy`, `RenderStatus`, `StatePurpose`,
-`PresetMetadata`, `FactoryPresetId`, `ParameterEvent` and `DiagnosticSeverity` need a wildcard
-arm in a `match`, and the structs `Event`, `Note`, `NoteExpression`, `RenderOptions`,
-`Rendered`, `RenderProgress`, `Delivery`, `Transport`, `BlockContext`, `Timeouts`,
+`PresetMetadata`, `FactoryPresetId`, `ParameterEvent`, `DiagnosticSeverity`, `FailureKind`,
+`InputError`, `RenderError`, `PresetSearchError`, `Error`, `ScanOutcome`, `Source`, `ScanTarget`,
+`ScanStage` and `ScanEvent` need a wildcard arm in a `match`. `ScanAction` is exhaustive.
+The structs `Event`, `Note`, `NoteExpression`, `RenderOptions`, `Transport`, `BlockContext`,
+`Timeouts`,
 `PluginInfo`, `EventPortInfo`, `AudioBusInfo`, `Capabilities`, `CapabilityReport`,
 `PluginTiming`, `ParameterInfo`, `ParameterFlags`, `ParameterDetails`, `FactoryPreset` and
 `PresetInfo` are built with their `new` or `default` constructors and then their public fields,
-not struct literals.
+not struct literals. `Rendered`, `RenderProgress` and `Delivery` are non-exhaustive output-only
+structs supplied by rendering; callers read their fields rather than construct them.
 
 `chain.plugins()` returns loaded plugin metadata. `chain.capabilities(slot)` returns a
 `CapabilityReport` with native plugin evidence and isolated-host implementation support.
@@ -189,6 +198,8 @@ Both sides must support an operation. Treat `Support::Unknown` separately from
 operation can fail for a particular native configuration.
 
 `Chain::prepare_audio(&RoutedChainConfig)` is the one preparation entry point.
+Preparation rejects more than `MAX_AUDIO_BUSES` (64) buses or `MAX_AUDIO_CHANNELS` (512)
+active channels per direction, including the chain’s external inputs.
 `chain.main_bus_config(sample_rate, max_block_size, input, outputs)` builds the common
 serial case: f32, `ProcessMode::Offline`, the chain input on the first slot's main input,
 each slot's main output on the next slot's main input, and one output `Layout` per slot.
@@ -247,7 +258,7 @@ previous slot sends it, share that budget with its automation points; when a lat
 take them, or a plugin sends more than a block allows, earlier slots have already processed the
 block, so later blocks fail with `FailureKind::Processing` until `reset()`. Pending
 control edits have a separate 4,096-entry budget (VST3 coalesces by parameter ID). Prepared
-host event storage is reused. Native VST3 output-queue overflow requires re-preparation.
+host event storage is reused. Native VST3 output-queue overflow blocks further processing until `reset` clears the failure.
 External-input alignment storage is reserved during preparation and limited to
 256 MiB per chain. A failed staged reservation preserves the old chain.
 
@@ -466,7 +477,8 @@ or showing an editor brings the helper to the front; on macOS the application th
 frontmost before is activated again when the helper's last window closes.
 
 Match typed `Error` variants (`Error::Render` carries a `RenderError`, `Error::Input` an
-`InputError`) or use `Error::kind()` for the shared `FailureKind`; do not parse display text. `Error` and the scan enums are `#[non_exhaustive]`; `Error::source()`
+`InputError`) or use `Error::kind()` for the shared `FailureKind`; do not parse display text.
+`Error::source()`
 exposes wrapped I/O, render, input and operation errors. `Display` gives the outer context;
 format the source chain to include each cause once. `PresetSearchError` follows the same rule.
 After a timeout or protocol error the

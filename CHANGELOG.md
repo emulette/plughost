@@ -9,6 +9,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Added
 
+- Complete public API rustdoc for the application, core, and format crates, including units,
+  input limits, errors, and links to the integration guide.
 - `HostedPlugin::poll_timing` offers an opportunistic owning-thread timing read. Its default
   returns `None`, preserving existing trait implementations; `timing` remains the fresh read.
 - The main crate re-exports `ParameterFlags`, `Sample`, the render `Process` trait, and public
@@ -62,7 +64,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   initialization, exact samples and existing preparation memory limits.
 - Offline ramp scheduling visits active ramps and indexes interval validation, preserving
   every per-sample point and equal-offset input order while avoiding scans of all ramps.
-- The internal helper protocol is now 26. Applications and helpers with different protocol
+- The internal helper protocol is now 27. Applications and helpers with different protocol
   versions fail the handshake; rebuild and distribute the helper with the application.
 
 ### Fixed

@@ -34,8 +34,8 @@ Build the application and helper with matching plughost versions. Pass the helpe
 path to `Scanner` and `Chain`; the application library starts and manages the process.
 On macOS, package the helper as a background `LSUIElement` application with Hardened Runtime and
 `disable-library-validation` / `allow-unsigned-executable-memory` entitlements. The repository's
-[packaging script](https://github.com/emulette/plughost/blob/main/scripts/macos/package-app.sh) and
-[entitlements](https://github.com/emulette/plughost/blob/main/scripts/macos/helper.entitlements)
+[packaging script](https://github.com/emulette/plughost/blob/v0.1.1/scripts/macos/package-app.sh) and
+[entitlements](https://github.com/emulette/plughost/blob/v0.1.1/scripts/macos/helper.entitlements)
 provide a local, ad-hoc signed example. Distribution signing and notarization belong to the
 shipping application; the script does not perform them.
 
@@ -64,8 +64,8 @@ fn render_effect(
 Input channels must have equal lengths and already use the configured sample rate. Rendering
 removes reported latency and appends a bounded tail. For instruments, explicit buses, automation,
 streaming, state, and recovery, see the [API documentation](https://docs.rs/plughost/0.1.1/plughost/)
-and the [llms.txt reference](https://github.com/emulette/plughost/blob/main/llms.txt).
-The [render example](https://github.com/emulette/plughost/blob/main/crates/plughost/examples/render.rs)
+and the [llms.txt reference](https://github.com/emulette/plughost/blob/v0.1.1/llms.txt).
+The [render example](https://github.com/emulette/plughost/blob/v0.1.1/crates/plughost/examples/render.rs)
 is a complete offline batch: it finds a plugin class, renders several jobs, and recovers the
 chain from a state snapshot when the plugin crashes or hangs.
 
@@ -83,23 +83,11 @@ chain from a state snapshot when the plugin crashes or hangs.
 
 Processing is offline; there is no real-time audio thread, audio device I/O, or resampler.
 Intel Macs, Rosetta, Linux, and cross-architecture plugin bridging are not supported.
-`Scanner::discover()` reads metadata without loading plugin code; bundles without metadata are
-`ScanOutcome::NotInspected`.
-`Scanner::scan()` inspects native classes serially by default and can display plugin license
-dialogs. Choose scan directories explicitly; parallel loading requires `Scanner::jobs(n)`.
-Use `scan_controlled`, `discover_controlled`, or `retry_controlled` with a `ScanControl`
-to cancel from another thread. Progress events identify the current item and stage; retain
-the event's `ScanItem` to skip that item. Cancellation reaps active helpers and stops new
-admissions, preserving old cache entries without counting cancelled/skipped items as failures.
-Native scan results are saved atomically before completion callbacks, so an interrupted scan
-keeps completed work; the cache is synced to disk once when the scan ends. Retry selected paths with `retry_controlled`; one writer may use a cache
-path at a time, and cache access failures return `Error::Cache`.
-Use `Scanner::policy(ScanPolicy)` to explicitly allow or block bundles and registered Audio Units.
-Blocked bundles report `ScanOutcome::Blocked` and remain blocked during retry. The policy is
-independent of automatic failure exclusion and is owned by the calling application.
-The VST3 SDK's AUv3 samples pass parameter edits to their processor only while processing and
-save the processor's state, so a state saved after an edit and before the next processed block
-misses the edit.
+Metadata discovery avoids loading plugin code; native scanning and processing can display plugin
+license dialogs. Scans run serially unless explicitly configured otherwise. The application owns
+scan directories, allow/block policy, cancellation, and recovery decisions. See the
+[scanning contract](https://github.com/emulette/plughost/blob/v0.1.1/llms.txt)
+for discovery, native inspection, retry, progress, and cache behavior.
 Query plugin capabilities before relying on optional native behavior.
 
 ## Crates
@@ -157,8 +145,8 @@ The delay, preset and `routing-faults` fixtures intentionally expose failure mod
 loops, hangs and invalid output events; their expected failures are checked by the native host tests.
 
 For repeatable offline performance measurements, build the test assets and helper above, then run
-`cargo bench -p plughost --bench offline --locked`. The [benchmark guide](https://github.com/emulette/plughost/blob/main/crates/plughost/benches/README.md)
-describes its 192-case matrix, options, and output. It uses repository fixtures and does not scan
+`cargo bench -p plughost --bench offline --locked`. The [benchmark guide](https://github.com/emulette/plughost/blob/v0.1.1/crates/plughost/benches/README.md)
+describes its workload matrix, options, and output. It uses repository fixtures and does not scan
 installed plugins. The same guide describes the comparison with Pedalboard for one installed plugin
 (`cargo bench -p plughost --bench compare`), including direct, isolated and per-block IPC costs,
 and summarizes its results.
@@ -176,12 +164,19 @@ before committing.
 
 ## License
 
-Licensed under either the [Apache License, Version 2.0](https://github.com/emulette/plughost/blob/main/LICENSE-APACHE)
-or the [MIT license](https://github.com/emulette/plughost/blob/main/LICENSE-MIT), at your option.
+Licensed under either the [Apache License, Version 2.0](https://github.com/emulette/plughost/blob/v0.1.1/LICENSE-APACHE)
+or the [MIT license](https://github.com/emulette/plughost/blob/v0.1.1/LICENSE-MIT), at your option.
 Both license texts are included in each published crate.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in
 this project by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without
 any additional terms or conditions.
+
+Applications distributing the helper must include the applicable third-party copyright and license
+notices with their distribution. This includes the MIT-licensed
+[VST3 SDK headers](https://github.com/steinbergmedia/vst3sdk/blob/master/LICENSE.txt) used by `vst3`
+and [CLAP headers](https://github.com/free-audio/clap/blob/main/LICENSE) used by `clap-sys`, alongside
+the licenses for the statically linked Rust dependencies. Use the notices from the dependency
+versions shipped in the application.
 
 VST is a registered trademark of Steinberg Media Technologies GmbH.

@@ -221,7 +221,7 @@ and its test module declaration, and `tests/scan_parallel.rs`; add `scanner.stal
 # Soak runs
 
 `cargo bench -p plughost --bench soak -- --plugin BUNDLE [--plugin BUNDLE ...] [--rounds 120]
-[--seconds 60]` renders a chain of the first class of each effect bundle repeatedly, restoring
+[--seconds 60] [--helper FILE]` renders a chain of the first class of each effect bundle repeatedly, restoring
 the initial states and resetting before every round, and reports reproducibility, render time,
 and helper memory. In 120 one-minute rounds of a three-effect chain on both supported platforms,
 no round failed and helper memory stayed level after the first rounds.
@@ -237,7 +237,7 @@ appends no tail, so both render exactly the input length.
 
 ```sh
 scripts/build-helper.sh            # Windows: pwsh -NoProfile -File scripts/build-helper.ps1
-cargo bench -p plughost --bench compare -- --plugin BUNDLE [--class 0] [--seconds 10] [--trials 5] [--blocks 64,512,4096]
+cargo bench -p plughost --bench compare -- --plugin BUNDLE [--class 0] [--seconds 10] [--trials 5] [--blocks 64,512,4096] [--helper FILE]
 python crates/plughost/benches/compare/with_pedalboard.py BUNDLE [--seconds 10] [--trials 5] [--blocks 64,512,4096]
 ```
 

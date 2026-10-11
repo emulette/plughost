@@ -21,8 +21,9 @@ use crate::helper::{Helper, Mode};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Timeouts {
-    /// Loading plugins, restoring state, opening editors and preparing an already configured
-    /// chain again (which reloads its plugins). Large instruments take minutes.
+    /// Loading plugins, restoring state, importing/loading presets, selecting factory presets,
+    /// opening editors and preparing an already configured chain again (which reloads its
+    /// plugins). Large instruments take minutes.
     pub load: Duration,
     /// Initial preparation, resetting, saving state, parameter access and other control calls.
     pub control: Duration,
