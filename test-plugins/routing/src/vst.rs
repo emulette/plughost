@@ -4,9 +4,11 @@ use std::ffi::{c_char, c_void};
 use std::sync::{Mutex, MutexGuard};
 use vst3::Steinberg::Vst::*;
 use vst3::Steinberg::*;
-use vst3::{Class, ComRef, ComWrapper, uid};
+use vst3::{Class, ComPtr, ComRef, ComWrapper, Interface, uid};
 #[path = "vst_audio.rs"]
 mod audio;
+#[path = "vst_connection.rs"]
+mod connection;
 #[path = "vst_controller.rs"]
 mod controller;
 #[path = "vst_events.rs"]
@@ -14,6 +16,7 @@ mod events;
 #[path = "factory.rs"]
 mod factory;
 const CID: TUID = uid(0x706c7567, 0x686f7374, 0x526f7574, 0x696e6701);
+const CONTROLLER_CID: TUID = uid(0x706c7567, 0x686f7374, 0x526f7574, 0x696e6702);
 const NAME: &str = "plughost test routing";
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -29,6 +32,7 @@ fn copy_wide(s: &str, out: &mut [TChar]) {
     }
 }
 struct Routing {
+    connection: connection::Connection,
     values: Mutex<[f64; 2]>,
     /// The points the last block with audio brought for the gain, reported as parameter
     /// `GAIN_POINTS` in hundredths.
@@ -39,6 +43,7 @@ struct Routing {
 impl Routing {
     fn new() -> Self {
         Self {
+            connection: connection::Connection::default(),
             values: Mutex::new([1.0, 0.0]),
             gain_points: Mutex::new(0),
             arrangement: Mutex::new(SpeakerArr::kStereo),
@@ -46,47 +51,53 @@ impl Routing {
         }
     }
     fn load(&self, state: *mut IBStream) -> tresult {
-        let Some(stream) = (unsafe { ComRef::from_raw(state) }) else {
-            return kInvalidArgument;
-        };
-        let mut bytes = [0; 16];
-        let mut read = 0;
-        if unsafe { stream.read(bytes.as_mut_ptr().cast(), 16, &mut read) } != kResultOk
-            || read != 16
-        {
-            return kResultFalse;
-        }
-        let mut gain = [0; 8];
-        gain.copy_from_slice(&bytes[..8]);
-        let mut bypass = [0; 8];
-        bypass.copy_from_slice(&bytes[8..]);
-        *lock(&self.values) = [f64::from_le_bytes(gain), f64::from_le_bytes(bypass)];
-        kResultOk
+        load_values(&self.values, state)
     }
     fn save(&self, state: *mut IBStream) -> tresult {
-        let Some(stream) = (unsafe { ComRef::from_raw(state) }) else {
-            return kInvalidArgument;
-        };
-        let values = *lock(&self.values);
-        let bytes: Vec<_> = values.into_iter().flat_map(f64::to_le_bytes).collect();
-        let mut written = 0;
-        unsafe { stream.write(bytes.as_ptr().cast_mut().cast(), 16, &mut written) }
+        save_values(&self.values, state)
     }
+}
+
+fn load_values(values: &Mutex<[f64; 2]>, state: *mut IBStream) -> tresult {
+    let Some(stream) = (unsafe { ComRef::from_raw(state) }) else {
+        return kInvalidArgument;
+    };
+    let mut bytes = [0; 16];
+    let mut read = 0;
+    if unsafe { stream.read(bytes.as_mut_ptr().cast(), 16, &mut read) } != kResultOk || read != 16 {
+        return kResultFalse;
+    }
+    let mut gain = [0; 8];
+    gain.copy_from_slice(&bytes[..8]);
+    let mut bypass = [0; 8];
+    bypass.copy_from_slice(&bytes[8..]);
+    *lock(values) = [f64::from_le_bytes(gain), f64::from_le_bytes(bypass)];
+    kResultOk
+}
+fn save_values(values: &Mutex<[f64; 2]>, state: *mut IBStream) -> tresult {
+    let Some(stream) = (unsafe { ComRef::from_raw(state) }) else {
+        return kInvalidArgument;
+    };
+    let values = *lock(values);
+    let bytes: Vec<_> = values.into_iter().flat_map(f64::to_le_bytes).collect();
+    let mut written = 0;
+    unsafe { stream.write(bytes.as_ptr().cast_mut().cast(), 16, &mut written) }
 }
 impl Class for Routing {
-    type Interfaces = (IComponent, IAudioProcessor, IEditController);
+    type Interfaces = (IComponent, IAudioProcessor, IConnectionPoint);
 }
 impl IPluginBaseTrait for Routing {
-    unsafe fn initialize(&self, _context: *mut FUnknown) -> tresult {
-        kResultOk
+    unsafe fn initialize(&self, context: *mut FUnknown) -> tresult {
+        self.connection.initialize(context)
     }
     unsafe fn terminate(&self) -> tresult {
-        kResultOk
+        self.connection.terminate()
     }
 }
 impl IComponentTrait for Routing {
-    unsafe fn getControllerClassId(&self, _class: *mut TUID) -> tresult {
-        kNotImplemented
+    unsafe fn getControllerClassId(&self, class: *mut TUID) -> tresult {
+        unsafe { *class = CONTROLLER_CID };
+        kResultOk
     }
     unsafe fn setIoMode(&self, _mode: IoMode) -> tresult {
         kResultOk
@@ -167,8 +178,12 @@ impl IComponentTrait for Routing {
         lock(&self.active)[direction as usize][index as usize] = state != 0;
         kResultOk
     }
-    unsafe fn setActive(&self, _state: TBool) -> tresult {
-        kResultOk
+    unsafe fn setActive(&self, state: TBool) -> tresult {
+        if state == 0 || self.connection.ready() {
+            kResultOk
+        } else {
+            kResultFalse
+        }
     }
     unsafe fn setState(&self, state: *mut IBStream) -> tresult {
         self.load(state)

@@ -24,17 +24,24 @@ impl IPluginFactoryTrait for Factory {
     }
 
     unsafe fn countClasses(&self) -> int32 {
-        1
+        2
     }
 
     unsafe fn getClassInfo(&self, index: int32, info: *mut PClassInfo) -> tresult {
-        if index != 0 {
+        if !(0..2).contains(&index) {
             return kInvalidArgument;
         }
         let info = unsafe { &mut *info };
-        info.cid = CID;
+        info.cid = if index == 0 { CID } else { CONTROLLER_CID };
         info.cardinality = PClassInfo_::ClassCardinality_::kManyInstances as int32;
-        copy_c("Audio Module Class", &mut info.category);
+        copy_c(
+            if index == 0 {
+                "Audio Module Class"
+            } else {
+                "Component Controller Class"
+            },
+            &mut info.category,
+        );
         copy_c(NAME, &mut info.name);
         kResultOk
     }
@@ -45,10 +52,14 @@ impl IPluginFactoryTrait for Factory {
         iid: FIDString,
         obj: *mut *mut c_void,
     ) -> tresult {
-        if unsafe { *(cid as *const TUID) } != CID {
-            return kInvalidArgument;
-        }
-        let Some(instance) = ComWrapper::new(Routing::new()).to_com_ptr::<FUnknown>() else {
+        let instance = match unsafe { *(cid as *const TUID) } {
+            CID => ComWrapper::new(Routing::new()).to_com_ptr::<FUnknown>(),
+            CONTROLLER_CID => {
+                ComWrapper::new(controller::Controller::new()).to_com_ptr::<FUnknown>()
+            }
+            _ => return kInvalidArgument,
+        };
+        let Some(instance) = instance else {
             return kResultFalse;
         };
         let ptr = instance.as_ptr();
@@ -58,13 +69,20 @@ impl IPluginFactoryTrait for Factory {
 
 impl IPluginFactory2Trait for Factory {
     unsafe fn getClassInfo2(&self, index: int32, info: *mut PClassInfo2) -> tresult {
-        if index != 0 {
+        if !(0..2).contains(&index) {
             return kInvalidArgument;
         }
         let info = unsafe { &mut *info };
-        info.cid = CID;
+        info.cid = if index == 0 { CID } else { CONTROLLER_CID };
         info.cardinality = PClassInfo_::ClassCardinality_::kManyInstances as int32;
-        copy_c("Audio Module Class", &mut info.category);
+        copy_c(
+            if index == 0 {
+                "Audio Module Class"
+            } else {
+                "Component Controller Class"
+            },
+            &mut info.category,
+        );
         copy_c(NAME, &mut info.name);
         info.classFlags = 0;
         copy_c("Fx|Dynamics", &mut info.subCategories);

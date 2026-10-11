@@ -8,6 +8,8 @@
 //! the CLAP side also reports the note's end. Notes and their expressions on `EXPRESSION_PORT`
 //! leave unchanged: CLAP note and note expression events, and VST3 notes, poly pressure and note
 //! expression values.
+//! The VST3 processor and controller are separate COM objects. Preparation requires a two-way
+//! connection handshake; the controller reads the processor's gain-point counter through messages.
 mod clap;
 mod errors;
 mod vst;

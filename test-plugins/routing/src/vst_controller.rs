@@ -3,15 +3,43 @@ use super::*;
 /// Read-only: how many points the last block with audio brought for the gain, in hundredths.
 const GAIN_POINTS: ParamID = 2;
 
-impl IEditControllerTrait for Routing {
+pub(super) struct Controller {
+    pub(super) connection: connection::Connection,
+    values: Mutex<[f64; 2]>,
+}
+
+impl Controller {
+    pub(super) fn new() -> Self {
+        Self {
+            connection: connection::Connection::default(),
+            // The host must copy component state; sharing one Rust object can hide this step.
+            values: Mutex::new([0.0, 1.0]),
+        }
+    }
+}
+impl Class for Controller {
+    type Interfaces = (IEditController, IConnectionPoint);
+}
+impl IPluginBaseTrait for Controller {
+    unsafe fn initialize(&self, context: *mut FUnknown) -> tresult {
+        self.connection.initialize(context)
+    }
+    unsafe fn terminate(&self) -> tresult {
+        self.connection.terminate()
+    }
+}
+impl IEditControllerTrait for Controller {
     unsafe fn setComponentState(&self, state: *mut IBStream) -> tresult {
-        self.load(state)
+        if !self.connection.ready() {
+            return kResultFalse;
+        }
+        load_values(&self.values, state)
     }
     unsafe fn setState(&self, state: *mut IBStream) -> tresult {
-        self.load(state)
+        load_values(&self.values, state)
     }
     unsafe fn getState(&self, state: *mut IBStream) -> tresult {
-        self.save(state)
+        save_values(&self.values, state)
     }
     unsafe fn getParameterCount(&self) -> int32 {
         3
@@ -72,7 +100,7 @@ impl IEditControllerTrait for Routing {
     }
     unsafe fn getParamNormalized(&self, id: ParamID) -> ParamValue {
         if id == GAIN_POINTS {
-            return *lock(&self.gain_points) as f64 / 100.0;
+            return self.connection.gain_points();
         }
         lock(&self.values)
             .get(id as usize)
