@@ -13,6 +13,7 @@ impl Chain {
             _ => Err(self.protocol_error()),
         }
     }
+    /// Lists the slot's native factory presets or programs with their selection IDs.
     pub fn factory_presets(
         &mut self,
         slot: usize,

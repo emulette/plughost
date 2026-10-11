@@ -31,6 +31,7 @@ use crate::errors::Error;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ScanOutcome {
+    /// Metadata for the classes found, without a guarantee that every class can be instantiated.
     Found(Vec<PluginInfo>),
     /// Metadata discovery found a compatible binary, but no class metadata or cached result.
     /// Native inspection is required; this is not a plugin failure.
@@ -62,6 +63,7 @@ impl ScanOutcome {
     }
 }
 
+/// How a bundle result was obtained.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Source {
@@ -75,10 +77,14 @@ pub enum Source {
     Inspected,
 }
 
+/// One discovered bundle and its outcome, provenance, and automatic exclusion status.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BundleScan {
+    /// The discovered bundle path, preserving search-directory priority.
     pub path: PathBuf,
+    /// Classes or the reason this bundle supplied no classes.
     pub outcome: ScanOutcome,
+    /// Metadata source or the inspection path selected for this result.
     pub source: Source,
     /// Consecutive failed scans of this unchanged bundle.
     pub failures: u32,
@@ -86,6 +92,7 @@ pub struct BundleScan {
     pub excluded: bool,
 }
 
+/// Ordered discovery results for native bundles and the Audio Unit registry.
 #[derive(Clone, Debug)]
 pub struct Catalog {
     /// Every VST3 and CLAP bundle found, in directory priority order.
@@ -160,6 +167,8 @@ pub fn default_directories() -> Vec<PathBuf> {
     directories
 }
 
+/// Configures metadata discovery, supervised native scans, caching, and selection policy.
+/// Each native bundle scan runs in a short-lived helper; discovery alone does not load it.
 #[derive(Debug)]
 pub struct Scanner {
     helper: PathBuf,

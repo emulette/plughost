@@ -123,6 +123,7 @@ impl Chain {
         Ok(chain)
     }
 
+    /// Loaded plugin metadata in zero-based chain slot order.
     pub fn plugins(&self) -> &[PluginInfo] {
         &self.infos
     }
@@ -258,6 +259,7 @@ impl Chain {
         .map(|_| ())
     }
 
+    /// Parses native display text into a normalized value without editing the parameter.
     pub fn parameter_from_text(&mut self, slot: usize, id: u64, text: &str) -> Result<f64, Error> {
         plughost_core::validate_parameter_text(text).map_err(|error| Error::Input {
             slot: Some(slot),
@@ -276,6 +278,7 @@ impl Chain {
         }
     }
 
+    /// Converts a normalized value to the plugin's native parameter units.
     pub fn parameter_to_plain(&mut self, slot: usize, id: u64, value: f64) -> Result<f64, Error> {
         match self.request(
             Request::ParameterToPlain { slot, id, value },
@@ -286,6 +289,7 @@ impl Chain {
         }
     }
 
+    /// Converts native parameter units to a normalized value without editing it.
     pub fn parameter_to_normalized(
         &mut self,
         slot: usize,
@@ -312,6 +316,7 @@ impl Chain {
         self.request_done(Request::OpenEditor { slot }, self.timeouts.load)
     }
 
+    /// Closes the helper-owned editor window for this slot, if open.
     pub fn close_editor(&mut self, slot: usize) -> Result<(), Error> {
         self.request_done(Request::CloseEditor { slot }, self.timeouts.control)
     }

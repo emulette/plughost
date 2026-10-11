@@ -19,6 +19,7 @@ impl ScanControl {
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
     }
+    /// Whether cancellation has been requested for this shared control.
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }
@@ -42,10 +43,13 @@ impl ScanControl {
     }
 }
 
+/// The bundle or registry currently being inspected.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ScanTarget {
+    /// One VST3 or CLAP bundle at the discovered path.
     Bundle(PathBuf),
+    /// The macOS Audio Unit registry, enumerated without instantiating its units.
     AudioUnits,
 }
 
@@ -53,22 +57,30 @@ pub enum ScanTarget {
 /// this item, never a future item at the same path or a different item in the worker.
 #[derive(Clone, Debug)]
 pub struct ScanItem {
+    /// The identity admitted for this item; it does not change when workers advance.
     pub target: ScanTarget,
     skipped: Arc<AtomicBool>,
 }
 impl ScanItem {
+    /// Requests skipping this item and termination of its active helper, without waiting.
     pub fn skip(&self) {
         self.skipped.store(true, Ordering::Release);
     }
 }
 
+/// Last progress milestone for an admitted item. Progress renews the scan stall deadline.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum ScanStage {
+    /// Inspecting metadata, policy, architecture, and cached results.
     Inspecting,
+    /// Launching and authenticating a helper for native inspection.
     StartingHelper,
+    /// The helper is about to enter native bundle loading.
     Loading,
+    /// Native module loading completed and class enumeration can proceed.
     ModuleLoaded,
+    /// One native class was enumerated. More classes may follow.
     ClassFound(PluginInfo),
 }
 
@@ -77,8 +89,16 @@ pub enum ScanStage {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum ScanEvent {
-    Progress { item: ScanItem, stage: ScanStage },
+    /// An admitted item reached a progress milestone.
+    Progress {
+        /// Handle identifying this item and allowing it to be skipped.
+        item: ScanItem,
+        /// The milestone just reached.
+        stage: ScanStage,
+    },
+    /// Final bundle outcome; persistent results have been published to the cache.
     BundleFinished(BundleScan),
+    /// Final outcome of fresh Audio Unit registry enumeration.
     AudioUnitsFinished(ScanOutcome),
 }
 

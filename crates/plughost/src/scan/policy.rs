@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ScanAction {
     #[default]
+    /// Permit normal discovery and native inspection, subject to automatic exclusion.
     Allow,
+    /// Prevent loading or returning plugin classes while preserving cached failures.
     Block,
 }
 
@@ -22,6 +24,7 @@ pub struct ScanPolicy {
 }
 
 impl ScanPolicy {
+    /// Sets the action for identities without a more specific rule.
     pub fn new(default: ScanAction) -> Self {
         Self {
             default,

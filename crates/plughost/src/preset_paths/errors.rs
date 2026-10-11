@@ -18,9 +18,12 @@ pub enum PresetSearchError {
     /// The root could not be read. Includes missing optional roots: callers may ignore
     /// `NotFound` specifically.
     Io {
+        /// The search path whose filesystem operation failed.
         path: PathBuf,
+        /// The underlying filesystem error.
         source: io::Error,
     },
+    /// The format has no common preset file extension; CLAP uses preset providers.
     UnsupportedFormat(PluginFormat),
 }
 

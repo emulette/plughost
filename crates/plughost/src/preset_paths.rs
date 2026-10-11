@@ -17,7 +17,9 @@ use walkdir::WalkDir;
 /// One standard or caller-selected search root. The directory need not exist yet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresetDirectory {
+    /// Format whose native preset extension is used for discovery.
     pub format: PluginFormat,
+    /// Filesystem path, preserving the caller's relative or absolute spelling.
     pub path: PathBuf,
 }
 
@@ -25,7 +27,9 @@ pub struct PresetDirectory {
 /// Paths retain the caller's root (relative roots produce relative paths).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresetFile {
+    /// Format whose native preset extension is used for discovery.
     pub format: PluginFormat,
+    /// Filesystem path, preserving the caller's relative or absolute spelling.
     pub path: PathBuf,
 }
 

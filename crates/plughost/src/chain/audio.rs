@@ -137,6 +137,7 @@ impl Chain {
         })
     }
 
+    /// Queries native bypass support and its current value for one slot.
     pub fn bypass(&mut self, slot: usize) -> Result<BypassState, Error> {
         match self.request(Request::Bypass { slot }, self.timeouts.control)? {
             Response::Bypass(state) => Ok(state),

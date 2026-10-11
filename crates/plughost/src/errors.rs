@@ -15,34 +15,53 @@ const CACHE: &str = "could not access the scan cache";
 const INPUT: &str = "invalid input";
 const RENDER: &str = "rendering failed";
 
+/// Failures in helper supervision, native operations, input validation, or rendering.
+/// Use [`Error::kind`] for a stable category and [`std::error::Error::source`] for details.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
+    /// The helper could not be launched or its local transport could not be established.
     HelperStart(std::io::Error),
+    /// The helper did not present the expected token and internal protocol version.
     Handshake,
     /// The helper process ended. `slot` is the plugin the helper was calling, as far as the helper
     /// had recorded it, preferring the thread serving the failed request; a plugin-owned thread,
     /// the other helper thread, or earlier memory corruption can also be the cause.
     Crashed {
+        /// Zero-based plugin slot when attributable to one slot; otherwise `None`.
         slot: Option<usize>,
+        /// The OS exit status, when the supervisor has observed it.
         status: Option<ExitStatus>,
     },
     /// The helper did not respond within the operation's timeout and was terminated.
     TimedOut {
+        /// Zero-based plugin slot when attributable to one slot; otherwise `None`.
         slot: Option<usize>,
     },
+    /// A helper operation returned a structured native or host failure.
     Operation {
+        /// Zero-based plugin slot when attributable to one slot; otherwise `None`.
         slot: Option<usize>,
+        /// The portable failure category and diagnostic from the helper.
         failure: Failure,
     },
+    /// A malformed or unexpected helper response invalidated the connection.
     Protocol,
+    /// The chain has no usable prepared audio configuration.
     NotPrepared,
+    /// Caller input failed validation before it could be applied.
     Input {
+        /// Zero-based plugin slot when attributable to one slot; otherwise `None`.
         slot: Option<usize>,
+        /// The violated input contract.
         error: InputError,
     },
+    /// The legacy audio entry point received mismatched channels or frame lengths.
     Buffers,
+    /// The render scheduler rejected its input or could not complete delivery.
     Render(RenderError),
+    /// A scan writer could not lock, read, publish, or flush its cache. Discovery reads
+    /// instead treat unreadable caches as empty.
     Cache(std::io::Error),
 }
 

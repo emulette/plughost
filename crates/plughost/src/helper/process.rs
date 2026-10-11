@@ -26,6 +26,7 @@ impl std::fmt::Debug for HelperMonitor {
 }
 
 impl HelperMonitor {
+    /// The OS process ID of the helper generation observed by this monitor.
     pub fn process_id(&self) -> u32 {
         self.pid
     }
