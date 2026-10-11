@@ -55,14 +55,10 @@ impl Plugin {
         if unsafe { selected.number() } as i64 != *number {
             return Err(AuError::FactoryPresetSelection);
         }
-        self.restored_unprepared = if engine.prepared.is_none() {
-            Some((
-                unsafe { unit.fullState() }.ok_or(AuError::State)?,
-                plughost_core::StatePurpose::Preset,
-            ))
-        } else {
-            None
-        };
+        self.restored_unprepared = engine
+            .prepared
+            .is_none()
+            .then_some(plughost_core::StatePurpose::Preset);
         Ok(())
     }
 }

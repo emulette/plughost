@@ -22,6 +22,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- AU preparation preserves parameter, editor and bypass edits made after an unprepared state
+  restore or factory preset selection, and reads timing after restoring that current state.
 - `Error` and `PresetSearchError` display their context while `source()` retains the cause,
   avoiding duplicate messages when formatting an error chain. Format the source chain to
   include the full diagnostic; portable scan failures still retain it.

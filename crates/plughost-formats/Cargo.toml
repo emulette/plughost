@@ -65,6 +65,10 @@ name = "au_midi_output"
 required-features = ["au"]
 
 [[test]]
+name = "au_state"
+required-features = ["au"]
+
+[[test]]
 name = "au_v2"
 required-features = ["au"]
 

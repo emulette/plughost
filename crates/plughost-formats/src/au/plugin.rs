@@ -143,10 +143,9 @@ pub struct Plugin {
     editor: Option<editor::Editor>,
     /// Parameters were set since the last save; see [`EDIT_SETTLE`].
     edited: bool,
-    /// A state restored before render resources were first allocated, applied again after. Some
-    /// v2 units (Soundtoys EchoBoy) set up their parameters on allocation and drop a state
-    /// restored earlier.
-    restored_unprepared: Option<(Retained<State>, plughost_core::StatePurpose)>,
+    /// The purpose of a state restored before first allocation. Some units reset their model
+    /// on allocation; capture its current state immediately before and reapply it afterward.
+    restored_unprepared: Option<plughost_core::StatePurpose>,
     observation: Option<events::Observation>,
     /// None for v3 units.
     value_strings: Option<events::ValueStrings>,
@@ -374,13 +373,7 @@ impl Plugin {
         }
         let engine = lock(&self.engine);
         let unit = engine.unit()?;
-        let state = unsafe {
-            match purpose {
-                plughost_core::StatePurpose::Project => unit.fullStateForDocument(),
-                _ => unit.fullState(),
-            }
-        }
-        .ok_or(AuError::State)?;
+        let state = current_state(unit, purpose)?;
         let component = plist::encode(&state, NSPropertyListFormat::BinaryFormat_v1_0)?;
         Ok(PluginState {
             format: PluginFormat::AudioUnit,
@@ -409,7 +402,7 @@ impl Plugin {
         let engine = lock(&self.engine);
         let unit = engine.unit()?;
         apply_state(unit, &dictionary, purpose);
-        self.restored_unprepared = engine.prepared.is_none().then_some((dictionary, purpose));
+        self.restored_unprepared = engine.prepared.is_none().then_some(purpose);
         Ok(())
     }
 
@@ -567,7 +560,11 @@ impl Engine {
         Ok((unit, prepared))
     }
 
-    fn prepare_audio(&mut self, audio_config: &plughost_core::AudioConfig) -> Result<(), AuError> {
+    fn prepare_audio(
+        &mut self,
+        audio_config: &plughost_core::AudioConfig,
+        restore: Option<plughost_core::StatePurpose>,
+    ) -> Result<(), AuError> {
         audio_config.validate().map_err(AuError::Input)?;
         if audio_config.sample_format != SampleFormat::F32 {
             return Err(AuError::SampleFormatUnsupported(audio_config.sample_format));
@@ -671,9 +668,17 @@ impl Engine {
                 Arc::clone(&self.unconvertible),
             )?)
         };
+        // Allocation can reset an unprepared unit's restored state. Capture the current
+        // model here, including host, editor and bypass edits made since that restoration.
+        let state = restore
+            .map(|purpose| current_state(unit, purpose).map(|state| (state, purpose)))
+            .transpose()?;
         unsafe {
             unit.allocateRenderResourcesAndReturnError()
                 .map_err(|error| AuError::Allocate(describe(&error)))?;
+        }
+        if let Some((state, purpose)) = state {
+            apply_state(unit, &state, purpose);
         }
         let ranges = ranges(unit);
         let latency = read_latency(unit, audio_config.sample_rate);
@@ -932,6 +937,19 @@ fn read_tail(unit: &AUAudioUnit, sample_rate: f64) -> Tail {
     } else {
         Tail::Samples((seconds * sample_rate).round() as u32)
     }
+}
+
+fn current_state(
+    unit: &AUAudioUnit,
+    purpose: plughost_core::StatePurpose,
+) -> Result<Retained<State>, AuError> {
+    unsafe {
+        match purpose {
+            plughost_core::StatePurpose::Project => unit.fullStateForDocument(),
+            _ => unit.fullState(),
+        }
+    }
+    .ok_or(AuError::State)
 }
 
 fn apply_state(unit: &AUAudioUnit, state: &State, purpose: plughost_core::StatePurpose) {

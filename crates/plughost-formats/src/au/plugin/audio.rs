@@ -28,7 +28,7 @@ use plughost_core::{
     Layout, ProcessConfig, Support,
 };
 
-use super::{AuError, Plugin, apply_state, describe, lock};
+use super::{AuError, Plugin, describe, lock};
 
 #[derive(Clone)]
 pub(super) struct BusBuffer {
@@ -114,6 +114,9 @@ impl Plugin {
         config: &AudioConfig,
     ) -> Result<Vec<AudioBusInfo>, AuError> {
         let midi_input = self.midi_input()?;
+        if self.restored_unprepared.is_some() && std::mem::take(&mut self.edited) {
+            super::run_loop_for(super::EDIT_SETTLE);
+        }
         let mut engine = lock(&self.engine);
         let outputs = midi_output_names(engine.unit()?).len() as u64;
         if let Some(&id) = config
@@ -132,12 +135,8 @@ impl Plugin {
         {
             return Err(AuError::UnknownEventPort { id });
         }
-        engine.prepare_audio(config)?;
-        if let (Some((state, purpose)), Some(unit)) =
-            (self.restored_unprepared.take(), &engine.unit)
-        {
-            apply_state(unit, &state, purpose);
-        }
+        engine.prepare_audio(config, self.restored_unprepared)?;
+        self.restored_unprepared = None;
         buses(engine.unit()?, Some(config))
     }
 }
