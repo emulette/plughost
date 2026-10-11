@@ -146,6 +146,16 @@ scripts use the same pinned VST3 SDK archive, or an existing complete SDK suppli
 Tests use repository fixtures and Apple system Audio Units, include native editor windows and
 intentional crashes/hangs, and require a desktop session. They do not bulk-load commercial plugins.
 
+With [clap-validator](https://github.com/free-audio/clap-validator) installed, independently validate
+both the routing effect and the synth (without filtering validator tests):
+
+```sh
+clap-validator validate -j 1 target/test-plugins/plughost-test-routing.clap target/test-plugins/plughost-test-synth.clap
+```
+
+The delay, preset and `routing-faults` fixtures intentionally expose failure modes, including restart
+loops, hangs and invalid output events; their expected failures are checked by the native host tests.
+
 For repeatable offline performance measurements, build the test assets and helper above, then run
 `cargo bench -p plughost --bench offline --locked`. The [benchmark guide](https://github.com/emulette/plughost/blob/main/crates/plughost/benches/README.md)
 describes its 192-case matrix, options, and output. It uses repository fixtures and does not scan

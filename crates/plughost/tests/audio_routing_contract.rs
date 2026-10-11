@@ -54,7 +54,7 @@ fn reversed_bus_requests_route_previous_auxiliary_by_id_in_native_channel_order(
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let (aux_in, main_in, aux_out, main_out) = ids(format);
         let mut chain = spawn(&[routing(format), routing(format)]);
-        let first = SlotAudioConfig {
+        let mut first = SlotAudioConfig {
             events: Default::default(),
             configuration: (format == PluginFormat::Clap).then_some(101),
             // Deliberately opposite native bus index order.
@@ -68,6 +68,12 @@ fn reversed_bus_requests_route_previous_auxiliary_by_id_in_native_channel_order(
         second.inputs[0].source = AudioSource::Previous { bus: main_out };
         second.inputs[1].source = AudioSource::Previous { bus: aux_out };
         second.inputs[1].adaptation = ChannelAdaptation::StereoToMono;
+        if format == PluginFormat::Clap {
+            first.inputs.reverse();
+            first.outputs.reverse();
+            second.inputs.reverse();
+            second.outputs.reverse();
+        }
         let request = config(
             vec![Layout::Stereo, Layout::Mono],
             vec![first, second],
@@ -89,17 +95,17 @@ fn reversed_bus_requests_route_previous_auxiliary_by_id_in_native_channel_order(
                 &mut Vec::new(),
             )
             .unwrap();
-        // Last slot's monitor bus (native index 0) precedes its main bus (native index 1).
-        assert_eq!(
-            output,
-            vec![
-                vec![0.5625; 4],
-                vec![0.5; 4],
-                vec![0.28125; 4],
-                vec![0.1875; 4]
-            ],
-            "{format:?}"
-        );
+        // Output channels follow native bus order, independently of the request order.
+        let mut expected = vec![
+            vec![0.5625; 4],
+            vec![0.5; 4],
+            vec![0.28125; 4],
+            vec![0.1875; 4],
+        ];
+        if format == PluginFormat::Clap {
+            expected.rotate_left(2);
+        }
+        assert_eq!(output, expected, "{format:?}");
     }
 }
 
@@ -436,6 +442,9 @@ fn check_restored_alignment(replaced: usize) {
             expected[1][416] = 0.5;
             expected[2][416] = 0.5;
             expected[3][416] = 0.5;
+        }
+        if format == PluginFormat::Clap {
+            expected.rotate_left(2);
         }
         assert_eq!(after, expected, "{format:?}, replaced slot {replaced}");
     }

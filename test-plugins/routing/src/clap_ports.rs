@@ -30,7 +30,7 @@ fn port(
     if index >= 2 {
         return;
     }
-    let count = if index == 1 {
+    let count = if index == 0 {
         match main {
             Some(Main::Surround(map)) => map.len() as u32,
             Some(Main::Ambisonic(channels)) => *channels,
@@ -42,13 +42,13 @@ fn port(
         2
     };
     let port_type = match main {
-        Some(Main::Ambisonic(_)) if index == 1 => AudioPortType::AMBISONIC,
-        Some(Main::Surround(_)) if index == 1 => AudioPortType::SURROUND,
+        Some(Main::Ambisonic(_)) if index == 0 => AudioPortType::AMBISONIC,
+        Some(Main::Surround(_)) if index == 0 => AudioPortType::SURROUND,
         _ => kind(count),
     };
     writer.set(&AudioPortInfo {
-        id: ClapId::new(if input { 20 + index } else { 30 + index }),
-        name: if index == 1 {
+        id: ClapId::new(if input { 21 - index } else { 31 - index }),
+        name: if index == 0 {
             b"Main"
         } else if input {
             b"External key"
@@ -57,7 +57,7 @@ fn port(
         },
         channel_count: count,
         flags: AudioPortFlags::SUPPORTS_64BITS
-            | if index == 1 {
+            | if index == 0 {
                 AudioPortFlags::IS_MAIN
             } else {
                 AudioPortFlags::empty()
@@ -154,13 +154,13 @@ impl PluginSurroundImpl for MainThread<'_> {
     }
     fn get_channel_map(&self, _input: bool, index: u32, writer: &mut SurroundMapWriter) {
         if let Some(Main::Surround(map)) = &*lock(&self.shared.main) {
-            if index == 1 {
+            if index == 0 {
                 writer.set(map.iter().copied());
             }
             return;
         }
         let configuration = *lock(&self.shared.configuration);
-        if index == 1 && matches!(configuration, 102 | 103) {
+        if index == 0 && matches!(configuration, 102 | 103) {
             let map = [
                 SurroundChannel::FrontLeft,
                 SurroundChannel::FrontRight,
@@ -183,7 +183,7 @@ impl PluginAmbisonicImpl for MainThread<'_> {
         config == ACN_SN3D
     }
     fn get_config(&self, _is_input: bool, port_index: u32) -> Option<AmbisonicConfig> {
-        matches!(*lock(&self.shared.main), Some(Main::Ambisonic(_)) if port_index == 1)
+        matches!(*lock(&self.shared.main), Some(Main::Ambisonic(_)) if port_index == 0)
             .then_some(ACN_SN3D)
     }
 }
@@ -197,7 +197,7 @@ enum Requested {
 fn requested(requests: &[AudioPortRequest<'_>]) -> Option<Requested> {
     let mut result = None;
     for request in requests {
-        if request.port_index() != 1 {
+        if request.port_index() != 0 {
             return None;
         }
         let details = request.details();

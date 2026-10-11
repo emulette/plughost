@@ -70,12 +70,12 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
         };
         for (bus, mut port) in audio.output_ports().enumerate() {
             let value = |channel: usize, frame: usize| {
-                let key = read(0, 0, frame);
-                let main = read(1, channel, frame);
+                let key = read(1, 0, frame);
+                let main = read(0, channel, frame);
                 if !active[1][bus] {
                     0.0
-                } else if bus == 0 {
-                    if channel == 0 { read(1, 0, frame) } else { key }
+                } else if bus == 1 {
+                    if channel == 0 { read(0, 0, frame) } else { key }
                 } else if values[frame][1] >= 0.5 {
                     main
                 } else {

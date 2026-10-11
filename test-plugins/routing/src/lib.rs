@@ -1,11 +1,12 @@
-//! Independent routing fixture: auxiliary buses precede main buses in both native formats. The
-//! main buses take any portable layout CLAP and VST3 express, on the CLAP side through port
+//! Independent routing fixture: auxiliary buses precede main buses in VST3; CLAP requires main
+//! buses first. Main buses take portable CLAP and VST3 layouts, on the CLAP side through port
 //! configurations or configurable ports. Three
 //! event inputs feed one event output: notes from input port `p` of the first two leave
 //! transposed up by 12 × (p + 1) semitones with controller `KEY_CONTROLLER` carrying the input
 //! key, system exclusive messages are echoed, and `FLOOD` makes the fixture exceed any block's
 //! event budget. A note off on `LATE_KEY` leaves at the block's length, past its last frame, and
-//! the CLAP side also reports the note's end. Notes and their expressions on `EXPRESSION_PORT`
+//! the CLAP side also reports the note's end. CLAP enables these two faults only in the
+//! `routing-faults` bundle. Notes and their expressions on `EXPRESSION_PORT`
 //! leave unchanged: CLAP note and note expression events, and VST3 notes, poly pressure and note
 //! expression values.
 //! The VST3 processor and controller are separate COM objects. Preparation requires a two-way

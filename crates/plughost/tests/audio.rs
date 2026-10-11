@@ -84,8 +84,12 @@ fn run(chain: &mut Chain, input: &[Vec<f64>]) -> Vec<Vec<f64>> {
     .unwrap()
     .channels
 }
-fn assert_audio(actual: &[Vec<f64>], expected: &[f64]) {
+fn assert_audio(format: PluginFormat, actual: &[Vec<f64>], expected: &[f64]) {
     assert_eq!(actual.len(), expected.len());
+    let mut expected = expected.to_vec();
+    if format == PluginFormat::Clap && expected.len() == 4 {
+        expected.rotate_left(2);
+    }
     for (channel, expected) in actual.iter().zip(expected) {
         assert!(
             channel
@@ -106,7 +110,7 @@ fn native_bus_identity_f64_sidechain_render_and_bypass() {
             .iter()
             .find(|bus| bus.direction == AudioDirection::Input && bus.role == AudioBusRole::Main)
             .unwrap();
-        assert_eq!(main.index, 1);
+        assert_eq!(main.index, u32::from(format == PluginFormat::Vst3));
         assert_eq!(main.id, ids(format).1);
         let configurations = chain.audio_configurations(0).unwrap();
         if format == PluginFormat::Clap {
@@ -135,6 +139,7 @@ fn native_bus_identity_f64_sidechain_render_and_bypass() {
         assert!(empty.iter().all(Vec::is_empty));
         let audio = input(37);
         assert_audio(
+            format,
             &run(&mut chain, &audio),
             &[audio[1][0], 0.25, audio[1][0] * 0.75, audio[2][0] * 0.75],
         );
@@ -142,6 +147,7 @@ fn native_bus_identity_f64_sidechain_render_and_bypass() {
         chain.set_bypass(0, true).unwrap();
         assert_eq!(chain.bypass(0).unwrap().enabled, Some(true));
         assert_audio(
+            format,
             &run(&mut chain, &audio),
             &[audio[1][0], 0.25, audio[1][0], audio[2][0]],
         );
@@ -164,25 +170,26 @@ fn routed_state_reset_recovery_and_failed_reprepare_preserve_contract() {
         let mut rejected = valid.clone();
         rejected.sample_rate = 12_345.0;
         assert!(chain.prepare_audio(&rejected).is_err());
-        assert_audio(&run(&mut chain, &audio), &expected);
+        assert_audio(format, &run(&mut chain, &audio), &expected);
         chain.reprepare().unwrap();
-        assert_audio(&run(&mut chain, &audio), &expected);
+        assert_audio(format, &run(&mut chain, &audio), &expected);
         chain.reset().unwrap();
-        assert_audio(&run(&mut chain, &audio), &expected);
+        assert_audio(format, &run(&mut chain, &audio), &expected);
         chain.set_parameter(0, 0, 1.0).unwrap();
         chain
             .restore_state(0, &state, plughost::StatePurpose::Project)
             .unwrap();
-        assert_audio(&run(&mut chain, &audio), &expected);
+        assert_audio(format, &run(&mut chain, &audio), &expected);
         chain = chain.recover(&[]).unwrap();
         assert_audio(
+            format,
             &run(&mut chain, &audio),
             &[audio[1][0], 0.25, audio[1][0] * 0.75, audio[2][0] * 0.75],
         );
         chain
             .restore_state(0, &state, plughost::StatePurpose::Project)
             .unwrap();
-        assert_audio(&run(&mut chain, &audio), &expected);
+        assert_audio(format, &run(&mut chain, &audio), &expected);
     }
 }
 
@@ -224,10 +231,11 @@ fn precision_rejection_preserves_output_and_f32_legacy_entry_uses_routing() {
                 &mut Vec::new(),
             )
             .unwrap();
-        assert_eq!(
-            output,
-            vec![vec![0.5; 4], vec![0.25; 4], vec![0.375; 4], vec![0.5625; 4]]
-        );
+        let mut expected = vec![vec![0.5; 4], vec![0.25; 4], vec![0.375; 4], vec![0.5625; 4]];
+        if format == PluginFormat::Clap {
+            expected.rotate_left(2);
+        }
+        assert_eq!(output, expected);
         let wrong = render(
             &mut chain,
             &[&[0.0f64; 0], &[0.0f64; 0], &[0.0f64; 0]],
@@ -307,6 +315,6 @@ fn serial_previous_bus_and_explicit_mono_stereo_adaptation() {
         };
         chain.prepare_audio(&routed).unwrap();
         let audio = vec![vec![0.123456789123; 33], vec![0.25; 33], vec![0.5; 33]];
-        assert_audio(&run(&mut chain, &audio), &[audio[0][0] * 0.625; 2]);
+        assert_audio(format, &run(&mut chain, &audio), &[audio[0][0] * 0.625; 2]);
     }
 }

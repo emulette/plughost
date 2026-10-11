@@ -66,7 +66,7 @@ fn blocks<S: ProcessSample>(processor: &dyn BlockProcessor, multiple: bool, valu
         let key = vec![S::default(); frames];
         let input = vec![value; frames];
         let inputs = if multiple {
-            vec![key.as_slice(), &input, &input]
+            vec![input.as_slice(), &input, &key]
         } else {
             vec![input.as_slice(); 2]
         };
@@ -98,7 +98,7 @@ fn blocks<S: ProcessSample>(processor: &dyn BlockProcessor, multiple: bool, valu
         if index != 0 {
             assert_eq!(requests, 0);
         }
-        for channel in &output[if multiple { 2 } else { 0 }..] {
+        for channel in &output[..2] {
             assert!(
                 channel
                     .iter()
@@ -107,11 +107,11 @@ fn blocks<S: ProcessSample>(processor: &dyn BlockProcessor, multiple: bool, valu
         }
         if multiple {
             assert!(
-                output[0]
+                output[2]
                     .iter()
                     .all(|sample| sample.to_f64() == value.to_f64())
             );
-            assert!(output[1].iter().all(|sample| sample.to_f64() == 0.0));
+            assert!(output[3].iter().all(|sample| sample.to_f64() == 0.0));
         }
         assert!(input.iter().all(|sample| sample.to_f64() == value.to_f64()));
     }

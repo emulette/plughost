@@ -38,27 +38,28 @@ fn native_port_ids_roles_and_configurations_are_preserved() {
     let buses = plugin.audio_buses().unwrap();
     assert_eq!(
         buses.iter().map(|b| b.id).collect::<Vec<_>>(),
-        [20, 21, 30, 31]
+        [21, 20, 31, 30]
     );
-    assert_eq!(buses[0].role, AudioBusRole::Auxiliary);
-    assert_eq!(buses[1].role, AudioBusRole::Main);
-    assert_eq!(buses[1].index, 1);
-    assert_eq!(buses[0].layout, Some(Layout::Mono));
-    assert_eq!(buses[1].layout, Some(Layout::Stereo));
+    assert_eq!(buses[1].role, AudioBusRole::Auxiliary);
+    assert_eq!(buses[0].role, AudioBusRole::Main);
+    assert_eq!(buses[0].index, 0);
+    assert_eq!(buses[1].layout, Some(Layout::Mono));
+    assert_eq!(buses[0].layout, Some(Layout::Stereo));
     let configs = plugin.audio_configurations().unwrap();
     assert_eq!(
         configs.iter().map(|c| c.id).collect::<Vec<_>>(),
         [100, 101, 102, 103]
     );
-    assert_eq!(configs[0].inputs[1].layout, Some(Layout::Mono));
-    assert_eq!(configs[2].inputs[1].channels, 6);
-    assert_eq!(configs[2].inputs[1].layout, None); // Config-info does not expose surround speaker maps.
+    assert_eq!(configs[0].inputs[0].layout, Some(Layout::Mono));
+    assert_eq!(configs[2].inputs[0].channels, 6);
+    assert_eq!(configs[2].inputs[0].layout, None); // Config-info does not expose surround speaker maps.
     let buses = plugin
         .prepare_audio(&config(SampleFormat::F32, Layout::Surround51, 102))
         .unwrap();
-    assert_eq!(buses[1].layout, Some(Layout::Surround51));
-    assert_eq!(buses[3].layout, Some(Layout::Surround51));
-    let input: Vec<Vec<f32>> = (0..7).map(|i| vec![i as f32 / 10.0; 32]).collect();
+    assert_eq!(buses[0].layout, Some(Layout::Surround51));
+    assert_eq!(buses[2].layout, Some(Layout::Surround51));
+    let mut input: Vec<Vec<f32>> = (1..=6).map(|i| vec![i as f32 / 10.0; 32]).collect();
+    input.push(vec![0.0; 32]);
     let refs: Vec<_> = input.iter().map(Vec::as_slice).collect();
     let mut output = vec![vec![0.0f32; 32]; 8];
     let mut outputs: Vec<_> = output.iter_mut().map(Vec::as_mut_slice).collect();
@@ -73,7 +74,7 @@ fn native_port_ids_roles_and_configurations_are_preserved() {
         )
         .unwrap();
     for channel in 0..6 {
-        assert_eq!(output[channel + 2], input[channel + 1]);
+        assert_eq!(output[channel], input[channel]);
     }
 }
 #[test]
@@ -91,18 +92,18 @@ fn multibus_f64_preserves_precision_sidechain_auxiliary_and_native_bypass() {
     plugin
         .process(
             &BlockContext::new(32),
-            &[&key, &left, &right],
+            &[&left, &right, &key],
             &mut output.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
             &[],
             &[],
             &mut Vec::new(),
         )
         .unwrap();
-    assert_eq!(output[0], left);
-    assert_eq!(output[1], key);
-    assert_eq!(output[2], vec![exact * 0.75; 32]);
-    assert_eq!(output[3], vec![0.875 * 0.75; 32]);
-    assert_ne!(output[0][0], f64::from(exact as f32));
+    assert_eq!(output[2], left);
+    assert_eq!(output[3], key);
+    assert_eq!(output[0], vec![exact * 0.75; 32]);
+    assert_eq!(output[1], vec![0.875 * 0.75; 32]);
+    assert_ne!(output[2][0], f64::from(exact as f32));
     assert_eq!(
         plugin.bypass().unwrap(),
         BypassState {
@@ -115,15 +116,15 @@ fn multibus_f64_preserves_precision_sidechain_auxiliary_and_native_bypass() {
     plugin
         .process(
             &BlockContext::new(32),
-            &[&key, &left, &right],
+            &[&left, &right, &key],
             &mut output.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
             &[],
             &[],
             &mut Vec::new(),
         )
         .unwrap();
-    assert_eq!(output[2], left);
-    assert_eq!(output[3], right);
+    assert_eq!(output[0], left);
+    assert_eq!(output[1], right);
 }
 #[test]
 #[ignore = "needs native routing fixture"]
@@ -133,9 +134,9 @@ fn inactive_ports_keep_native_indices_and_reset_retains_routing() {
     request.inputs.remove(0);
     request.outputs.remove(0);
     let buses = plugin.prepare_audio(&request).unwrap();
-    assert_eq!(buses[0].active, Some(false));
-    assert_eq!(buses[2].active, Some(false));
-    assert_eq!(buses[1].index, 1);
+    assert_eq!(buses[1].active, Some(false));
+    assert_eq!(buses[3].active, Some(false));
+    assert_eq!(buses[0].index, 0);
     let left = vec![0.375f64; 32];
     let right = vec![0.625f64; 32];
     let mut output = vec![vec![0.0f64; 32]; 2];
@@ -225,8 +226,8 @@ fn native_render_keeps_all_active_channels_and_f64_surround_order() {
     assert_eq!(<Plugin as Process<f64>>::input_channels(&plugin), 9);
     assert_eq!(<Plugin as Process<f64>>::output_channels(&plugin), 10);
     let mut input = vec![vec![0.0f64; 32]; 9];
-    for (i, channel) in input.iter_mut().enumerate().skip(1) {
-        channel.fill(i as f64 + 2.0f64.powi(-40));
+    for (i, channel) in input.iter_mut().enumerate().take(8) {
+        channel.fill((i + 1) as f64 + 2.0f64.powi(-40));
     }
     let refs: Vec<_> = input.iter().map(Vec::as_slice).collect();
     let rendered = render(
@@ -238,9 +239,7 @@ fn native_render_keeps_all_active_channels_and_f64_surround_order() {
     )
     .unwrap();
     assert_eq!(rendered.channels.len(), 10);
-    for i in 0..8 {
-        assert_eq!(rendered.channels[i + 2], input[i + 1]);
-    }
+    assert_eq!(&rendered.channels[..8], &input[..8]);
 }
 
 #[test]
@@ -259,12 +258,12 @@ fn configurable_ports_take_every_layout_clap_expresses() {
         let buses = plugin
             .prepare_audio(&request)
             .unwrap_or_else(|error| panic!("{layout:?}: {error}"));
-        assert_eq!(buses[1].layout, Some(layout));
-        assert_eq!(buses[3].layout, Some(layout));
+        assert_eq!(buses[0].layout, Some(layout));
+        assert_eq!(buses[2].layout, Some(layout));
         assert_eq!(plugin.audio_buses().unwrap(), buses);
         let mut input = vec![vec![0.0f64; 32]; layout.channels() + 1];
-        for (i, channel) in input.iter_mut().enumerate().skip(1) {
-            channel.fill(i as f64 + 2.0f64.powi(-40));
+        for (i, channel) in input.iter_mut().enumerate().take(layout.channels()) {
+            channel.fill((i + 1) as f64 + 2.0f64.powi(-40));
         }
         let refs: Vec<_> = input.iter().map(Vec::as_slice).collect();
         let rendered = render(
@@ -276,13 +275,11 @@ fn configurable_ports_take_every_layout_clap_expresses() {
         )
         .unwrap();
         assert_eq!(rendered.channels.len(), layout.channels() + 2);
-        for i in 0..layout.channels() {
-            assert_eq!(
-                rendered.channels[i + 2],
-                input[i + 1],
-                "{layout:?} channel {i}"
-            );
-        }
+        assert_eq!(
+            &rendered.channels[..layout.channels()],
+            &input[..layout.channels()],
+            "{layout:?}"
+        );
     }
     assert_eq!(
         plugin.prepare_audio(&AudioConfig {
@@ -311,8 +308,8 @@ fn a_preparation_that_must_fail_leaves_the_ports_unconfigured() {
         Err(Error::Clap(ClapError::AudioConfiguration))
     );
     let buses = plugin.audio_buses().unwrap();
-    assert_eq!(buses[1].layout, Some(Layout::Stereo));
-    assert_eq!(buses[3].layout, Some(Layout::Stereo));
+    assert_eq!(buses[0].layout, Some(Layout::Stereo));
+    assert_eq!(buses[2].layout, Some(Layout::Stereo));
 }
 
 #[test]
@@ -332,16 +329,16 @@ fn full_bus_calls_of_varying_length_do_not_reuse_old_sidechain_audio() {
         plugin
             .process(
                 &BlockContext::new(frames),
-                &[&key[..frames], &left[..frames], &right[..frames]],
+                &[&left[..frames], &right[..frames], &key[..frames]],
                 &mut outputs,
                 &[],
                 &[],
                 &mut Vec::new(),
             )
             .unwrap();
-        assert_eq!(&output[0][..frames], &left[..frames]);
-        assert_eq!(&output[1][..frames], &key[..frames]);
-        assert!(output[2][..frames].iter().all(|sample| *sample == 1.5));
-        assert!(output[3][..frames].iter().all(|sample| *sample == 3.0));
+        assert_eq!(&output[2][..frames], &left[..frames]);
+        assert_eq!(&output[3][..frames], &key[..frames]);
+        assert!(output[0][..frames].iter().all(|sample| *sample == 1.5));
+        assert!(output[1][..frames].iter().all(|sample| *sample == 3.0));
     }
 }

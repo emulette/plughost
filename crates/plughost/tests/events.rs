@@ -104,8 +104,16 @@ fn instrument_chain() -> (Chain, RoutedChainConfig) {
     (chain, config)
 }
 
-fn routing_chain(format: PluginFormat) -> (Chain, RoutedChainConfig) {
-    let mut chain = spawn(&[routing(format)]);
+fn routing_chain(format: PluginFormat, faults: bool) -> (Chain, RoutedChainConfig) {
+    let mut reference = routing(format);
+    if faults && format == PluginFormat::Clap {
+        reference
+            .bundle
+            .as_mut()
+            .unwrap()
+            .set_file_name("plughost-test-routing-faults.clap");
+    }
+    let mut chain = spawn(&[reference]);
     let mut config = chain
         .main_bus_config(48_000.0, 512, Layout::Stereo, &[Layout::Stereo])
         .unwrap();
@@ -312,7 +320,7 @@ fn system_exclusive_sustain_and_reset_reach_the_instrument() {
 #[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
 fn last_slot_events_leave_the_chain_in_offset_order() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
-        let (mut chain, config) = routing_chain(format);
+        let (mut chain, config) = routing_chain(format, false);
         let sysex = vec![0xF0, 0x7D, 0x01, 0x02, 0xF7];
         let (_, produced) = run(
             &mut chain,
@@ -346,7 +354,7 @@ fn last_slot_events_leave_the_chain_in_offset_order() {
 fn events_a_plugin_sends_past_the_block_land_on_its_last_frame() {
     // The fixture sends a note off on key 0 at the block's length; CLAP also reports its end.
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
-        let (mut chain, config) = routing_chain(format);
+        let (mut chain, config) = routing_chain(format, true);
         chain.take_diagnostics().unwrap();
         let (_, produced) = run(&mut chain, &config, 64, &[Event::note_off(10, 0, 0, 0)]).unwrap();
         assert_eq!(
@@ -368,7 +376,7 @@ fn events_a_plugin_sends_past_the_block_land_on_its_last_frame() {
 #[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
 fn exceeding_the_output_budget_stops_processing_until_reset() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
-        let (mut chain, config) = routing_chain(format);
+        let (mut chain, config) = routing_chain(format, true);
         let error = run(&mut chain, &config, 64, &[Event::sysex(0, FLOOD.to_vec())]).unwrap_err();
         assert_eq!(error.kind(), FailureKind::Processing, "{format:?}");
         assert!(matches!(error, Error::Operation { slot: Some(0), .. }));
@@ -390,7 +398,7 @@ fn exceeding_the_output_budget_stops_processing_until_reset() {
 #[ignore = "needs helper and routing fixtures"]
 fn first_slot_route_expansion_is_rejected_without_requiring_reset() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
-        let (mut chain, mut config) = routing_chain(format);
+        let (mut chain, mut config) = routing_chain(format, false);
         // Both native inputs receive the same external stream, doubling its cost.
         for route in &mut config.slots[0].events.inputs {
             route.source = EventSource::External { port: 0 };
@@ -507,7 +515,7 @@ fn events_from_the_previous_slot_and_its_automation_share_one_budget() {
 #[test]
 #[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
 fn misplaced_events_are_refused_as_event_input() {
-    let (mut chain, config) = routing_chain(PluginFormat::Clap);
+    let (mut chain, config) = routing_chain(PluginFormat::Clap, false);
     let on = Event::note_on(10, 0, 60, 100);
     let off = Event::note_off(20, 0, 60, 0);
     for events in [

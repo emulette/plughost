@@ -55,7 +55,10 @@ pub(super) fn route(input: &InputEvents, output: &mut OutputEvents, frames: u32)
                 if matches!(status & 0xF0, 0x80 | 0x90) {
                     let port = usize::from(midi.port_index());
                     let note = [status, crate::transpose(port, key), velocity];
-                    if status & 0xF0 == 0x80 && key == crate::LATE_KEY {
+                    if status & 0xF0 == 0x80
+                        && key == crate::LATE_KEY
+                        && FAULTS.load(std::sync::atomic::Ordering::Relaxed)
+                    {
                         let channel = u16::from(status & 0x0F);
                         let end = Pckn::new(0u16, channel, u16::from(note[1]), Match::All);
                         let _ = output.try_push(MidiEvent::new(frames, 0, note));
@@ -75,11 +78,12 @@ pub(super) fn route(input: &InputEvents, output: &mut OutputEvents, frames: u32)
                 // copies it as it takes the output event.
                 let bytes = unsafe { sysex.data() };
                 let echo = unsafe { MidiSysExEvent::new(sysex.header().time(), 0, bytes) };
-                let copies = if bytes == crate::FLOOD {
-                    crate::FLOOD_EVENTS
-                } else {
-                    1
-                };
+                let copies =
+                    if bytes == crate::FLOOD && FAULTS.load(std::sync::atomic::Ordering::Relaxed) {
+                        crate::FLOOD_EVENTS
+                    } else {
+                        1
+                    };
                 for _ in 0..copies {
                     let _ = output.try_push(echo);
                 }

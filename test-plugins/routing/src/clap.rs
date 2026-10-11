@@ -55,6 +55,7 @@ impl Shared {
 impl PluginShared<'_> for Shared {}
 pub struct MainThread<'a> {
     shared: &'a Shared,
+    host: HostMainThreadHandle<'a>,
 }
 impl<'a> PluginMainThread<'a, Shared> for MainThread<'a> {}
 impl Plugin for Fixture {
@@ -78,6 +79,7 @@ impl Plugin for Fixture {
 impl DefaultPluginFactory for Fixture {
     fn get_descriptor() -> PluginDescriptor {
         PluginDescriptor::new("com.studio.plughost.test-routing", "plughost test routing")
+            .with_features([clack_plugin::plugin::features::AUDIO_EFFECT])
     }
     fn new_shared(_host: HostSharedHandle<'_>) -> Result<Shared, PluginError> {
         Ok(Shared {
@@ -88,10 +90,10 @@ impl DefaultPluginFactory for Fixture {
         })
     }
     fn new_main_thread<'a>(
-        _host: HostMainThreadHandle<'a>,
+        host: HostMainThreadHandle<'a>,
         shared: &'a Shared,
     ) -> Result<MainThread<'a>, PluginError> {
-        Ok(MainThread { shared })
+        Ok(MainThread { shared, host })
     }
 }
 impl PluginMainThreadParams for MainThread<'_> {
@@ -137,20 +139,55 @@ impl PluginMainThreadParams for MainThread<'_> {
 }
 impl PluginStateImpl for MainThread<'_> {
     fn save(&self, output: &mut OutputStream) -> Result<(), PluginError> {
+        output.write_all(b"PR01")?;
         for value in *lock(&self.shared.values) {
             output.write_all(&value.to_le_bytes())?;
         }
         Ok(())
     }
     fn load(&self, input: &mut InputStream) -> Result<(), PluginError> {
+        let mut magic = [0; 4];
+        input.read_exact(&mut magic)?;
+        if &magic != b"PR01" {
+            return Err(PluginError::Message(crate::errors::STATE));
+        }
         let mut values = [0.0; 2];
         for value in &mut values {
             let mut bytes = [0; 8];
             input.read_exact(&mut bytes)?;
             *value = f64::from_le_bytes(bytes);
         }
+        if values
+            .iter()
+            .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+            || values[1].fract() != 0.0
+        {
+            return Err(PluginError::Message(crate::errors::STATE));
+        }
         *lock(&self.shared.values) = values;
+        if let Some(params) = self.host.get_extension::<HostParams>() {
+            params.rescan(&self.host, ParamRescanFlags::VALUES);
+        }
         Ok(())
     }
 }
-clack_export_entry!(SinglePluginEntry<Fixture>);
+static FAULTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub struct RoutingEntry(SinglePluginEntry<Fixture>);
+impl Entry for RoutingEntry {
+    fn new(path: Option<&CStr>) -> Result<Self, EntryLoadError> {
+        FAULTS.store(
+            path.is_some_and(|path| {
+                path.to_bytes()
+                    .windows(b"routing-faults".len())
+                    .any(|part| part == b"routing-faults")
+            }),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        SinglePluginEntry::new(path).map(Self)
+    }
+    fn declare_factories<'a>(&'a self, builder: &mut EntryFactories<'a>) {
+        self.0.declare_factories(builder);
+    }
+}
+clack_export_entry!(RoutingEntry);
