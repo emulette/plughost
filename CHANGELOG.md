@@ -11,6 +11,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 - `render::Process::validate_events` lets processors reject unavailable event ports across the
   whole render before processing begins; its default preserves existing implementations.
+- `InputError::BundlePathEncoding` identifies bundle paths that the helper's Unicode path
+  protocol cannot represent. Chain loading rejects them before starting a helper; scans report
+  them individually without caching them or interrupting other bundles.
+
+### Changed
+
+- The internal helper protocol is now 25. Applications and helpers with different protocol
+  versions fail the handshake; rebuild and distribute the helper with the application.
 
 ### Fixed
 
@@ -70,6 +78,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- The internal helper protocol is 24. Applications and helpers with different protocol
+  versions fail the handshake; distribute the matching helper with the application.
 - The helper processes blocks on a thread of its own instead of the thread that reads the
   connection, and that thread owns the chain's processing state; the main thread changes it
   between blocks. The helper makes the audio-thread calls a plugin needs between blocks on that

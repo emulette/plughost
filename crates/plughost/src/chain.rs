@@ -371,6 +371,18 @@ fn start(
     host: &HostIdentity,
     timeouts: Timeouts,
 ) -> Result<Chain, Error> {
+    for (slot, plugin) in plugins.iter().enumerate() {
+        if plugin
+            .bundle
+            .as_ref()
+            .is_some_and(|path| path.to_str().is_none())
+        {
+            return Err(Error::Input {
+                slot: Some(slot),
+                error: plughost_core::InputError::BundlePathEncoding,
+            });
+        }
+    }
     let mut process = Helper::spawn(helper, Mode::Host)?;
     let infos = match process.load(host, plugins, timeouts.load)? {
         Response::Loaded(infos) if infos.len() == plugins.len() => infos,

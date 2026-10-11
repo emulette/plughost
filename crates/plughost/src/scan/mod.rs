@@ -388,6 +388,20 @@ impl Scanner {
             failures,
             excluded,
         };
+        if path.to_str().is_none() {
+            return (
+                scan(
+                    ScanOutcome::Failed(Failure::new(
+                        plughost_core::FailureKind::InvalidInput,
+                        plughost_core::InputError::BundlePathEncoding.to_string(),
+                    )),
+                    Source::Inspected,
+                    0,
+                    false,
+                ),
+                None,
+            );
+        }
         let executable = match bundle::inspect(path) {
             Inspection::Supported { executable } => executable,
             Inspection::UnsupportedArchitecture => {

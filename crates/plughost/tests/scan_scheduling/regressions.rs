@@ -9,6 +9,89 @@ pub(super) fn run(only: Option<&str>) {
     if only.is_none_or(|name| name == "helper-start") {
         helper_start_failures_preserve_bundle_history();
     }
+    if only.is_none_or(|name| name == "path-encoding") {
+        unsupported_bundle_paths_do_not_poison_other_scans_or_start_a_chain();
+    }
+}
+
+fn unsupported_bundle_paths_do_not_poison_other_scans_or_start_a_chain() {
+    use plughost::{Chain, Error, HostIdentity, InputError, PluginFormat, PluginRef, Timeouts};
+    let directory = Directory::new();
+    let root = directory.path();
+    #[cfg(unix)]
+    let name = {
+        use std::os::unix::ffi::OsStringExt;
+        std::ffi::OsString::from_vec(b"invalid-\xFF.clap".to_vec())
+    };
+    #[cfg(windows)]
+    let name = {
+        use std::os::windows::ffi::OsStringExt;
+        std::ffi::OsString::from_wide(&[0xD800, 46, 99, 108, 97, 112])
+    };
+    let invalid = root.join(name);
+    assert!(invalid.to_str().is_none());
+    // NTFS accepts lone UTF-16 surrogates. APFS rejects invalid UTF-8 names itself, so macOS
+    // exercises the same request boundary with a PathBuf that cannot exist on that filesystem.
+    #[cfg(windows)]
+    fs::rename(bundle(root, "temporary"), &invalid).unwrap();
+    let valid = bundle(root, "valid");
+    let plugins: Vec<_> = [&valid, &invalid]
+        .into_iter()
+        .map(|path| PluginRef {
+            format: PluginFormat::Clap,
+            bundle: Some(path.clone()),
+            class_id: "fixture".into(),
+        })
+        .collect();
+    assert!(matches!(
+        Chain::spawn(
+            &root.join("missing-helper"),
+            &plugins,
+            &HostIdentity::default(),
+            Timeouts::default()
+        ),
+        Err(Error::Input {
+            slot: Some(1),
+            error: InputError::BundlePathEncoding
+        })
+    ));
+    fs::write(root.join("release"), []).unwrap();
+    let scanner = directory.scanner();
+    let bad = scanner.retry(&invalid).unwrap();
+    assert_eq!(
+        bad.outcome,
+        ScanOutcome::Failed(Failure::new(
+            FailureKind::InvalidInput,
+            InputError::BundlePathEncoding.to_string()
+        ))
+    );
+    assert_eq!(bad.failures, 0);
+    assert!(!bad.excluded);
+    for (catalog, source) in [
+        (scanner.scan(&|_| {}).unwrap(), Source::Loaded),
+        (scanner.scan(&|_| {}).unwrap(), Source::Cache),
+    ] {
+        assert_eq!(catalog.bundles.len(), if cfg!(windows) { 2 } else { 1 });
+        let good = catalog
+            .bundles
+            .iter()
+            .find(|scan| scan.path == valid)
+            .unwrap();
+        assert_eq!(good.source, source);
+        assert!(matches!(good.outcome, ScanOutcome::Found(_)));
+        #[cfg(windows)]
+        assert_eq!(
+            catalog
+                .bundles
+                .iter()
+                .find(|scan| scan.path == invalid)
+                .unwrap(),
+            &bad
+        );
+    }
+    let cache: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("cache.json")).unwrap()).unwrap();
+    assert_eq!(cache["bundles"].as_object().unwrap().len(), 1);
 }
 
 fn compatible_cache_survives_library_upgrades() {

@@ -81,6 +81,9 @@ Each result includes its source, outcome, failure count,
 and exclusion state. `Catalog::plugins()` returns `(PluginRef, &PluginInfo)` entries.
 `PluginRef` contains `format`, optional `bundle`, and `class_id`; use discovered values.
 VST3/CLAP references require a bundle path, while Audio Unit references use their class ID.
+Bundle paths must be valid Unicode. `Chain::spawn` rejects unrepresentable paths with
+`InputError::BundlePathEncoding` before starting a helper. Scans report only that bundle as
+`Failed(InvalidInput)`, leave it uncached and continue with the other bundles.
 
 Neither metadata discovery nor native class inspection proves that instantiation,
 preparation, or processing will succeed. Audio Units are enumerated from the registry in
