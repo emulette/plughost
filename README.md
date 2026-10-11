@@ -163,13 +163,16 @@ installed plugins. The same guide describes the comparison with Pedalboard for o
 (`cargo bench -p plughost --bench compare`), including direct, isolated and per-block IPC costs,
 and summarizes its results.
 
-Check the distributable crates together with the command below. Each crate then builds from its
-packaged sources alone. Use a fresh target directory: Cargo reuses builds of an earlier package of
-the same version.
+Check the distributable crates with Python 3.9 or later after building the native fixtures:
 
 ```sh
-cargo package --locked --target-dir target/package-check -p plughost-core -p plughost-formats -p plughost-helper -p plughost
+python3 scripts/package-consumer.py
 ```
+
+Use `python` on Windows. The script replaces `target/package-consumer`, runs `cargo package`, then
+builds a clean application and helper from the extracted crates. It scans and renders both routing
+fixtures and checks state restoration and exact output samples. `--allow-dirty` permits local work
+before committing.
 
 ## License
 

@@ -19,7 +19,12 @@ fn large_native_state_crosses_ipc_and_oversized_native_output_is_not_accepted() 
             .unwrap();
         assert_eq!(state.component.len(), (8 << 20) + 8);
         assert_eq!(&state.component[..8], &0.25f64.to_le_bytes());
-        for (index, chunk) in state.component[8..].chunks_exact(65536).enumerate() {
+        for (index, chunk) in state.component[8..]
+            .as_chunks::<65536>()
+            .0
+            .iter()
+            .enumerate()
+        {
             assert!(chunk.iter().all(|&byte| byte == index as u8));
         }
         chain.set_parameter(0, 0, 0.75).unwrap();

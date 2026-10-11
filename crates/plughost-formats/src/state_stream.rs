@@ -81,7 +81,7 @@ mod tests {
         assert!(!writer.exceeded());
         let bytes = writer.into_bytes();
         assert_eq!(bytes.len(), 8 << 20);
-        for (index, chunk) in bytes.chunks_exact(65536).enumerate() {
+        for (index, chunk) in bytes.as_chunks::<65536>().0.iter().enumerate() {
             assert!(chunk.iter().all(|&byte| byte == index as u8));
         }
     }

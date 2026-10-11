@@ -107,7 +107,7 @@ impl Preset {
         let mut ranges = Vec::new();
         // Validate all entries and overlaps before allocating copies of opaque chunks.
         let mut entries = Vec::new();
-        for entry in table[8..table_length].chunks_exact(20) {
+        for entry in table[8..table_length].as_chunks::<20>().0 {
             let id = &entry[..4];
             let offset = usize::try_from(read_i64(entry, 4)?).map_err(|_| Vst3Error::Preset)?;
             let size = usize::try_from(read_i64(entry, 12)?).map_err(|_| Vst3Error::Preset)?;

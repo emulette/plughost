@@ -1,6 +1,6 @@
 name: Maintenance
 
-# Manual only. The advisory database is an input this repository does not control, so a push tier
+# Manual only. Fresh dependencies and the advisory database are inputs we do not control, so a push tier
 # would redden unchanged commits and an unchanged tag could stop publishing. Dispatch it before
 # tagging a release.
 on:
@@ -32,3 +32,47 @@ jobs:
 
       - name: Check the workspace against today's advisories
         run: cargo deny --locked --all-features check advisories
+
+  dependencies:
+    name: ${{ matrix.dependencies }} dependencies on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2022]
+        dependencies: [latest, direct-minimal]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install the minimum supported toolchain
+        run: rustup show
+      - name: Install the resolver toolchain
+        if: matrix.dependencies == 'direct-minimal'
+        run: rustup toolchain install nightly --profile minimal
+      - name: Resolve latest compatible dependencies
+        if: matrix.dependencies == 'latest'
+        run: cargo update
+      - name: Resolve the lowest direct dependencies
+        if: matrix.dependencies == 'direct-minimal'
+        run: cargo +nightly update -Z direct-minimal-versions
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .vst3sdk/vst-sdk.zip
+          key: vst3-sdk-3.8.1-build-84
+      - name: Build macOS fixtures and helper
+        if: runner.os == 'macOS'
+        run: |
+          scripts/build-test-plugins.sh
+          scripts/build-helper.sh
+      - name: Build Windows fixtures and helper
+        if: runner.os == 'Windows'
+        run: |
+          pwsh -NoProfile -File scripts/build-test-plugins.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh -NoProfile -File scripts/build-helper.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test the resolved dependencies on the minimum supported Rust version
+        run: cargo test --workspace --locked -- --include-ignored

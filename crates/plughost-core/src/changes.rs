@@ -80,8 +80,11 @@ impl ChangeBuffer {
     }
 
     pub fn take(&mut self) -> ChangeBatch {
+        // Preserve the producer's reserved storage while returning an owned batch.
+        let changes = self.pending.clone();
+        self.pending.clear();
         ChangeBatch {
-            changes: self.pending.drain(..).collect(),
+            changes,
             resync_required: std::mem::take(&mut self.overflow),
             snapshot: self.snapshot.clone(),
         }

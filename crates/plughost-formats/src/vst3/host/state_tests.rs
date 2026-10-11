@@ -79,7 +79,7 @@ fn state_stream_transfers_large_native_payload_and_limits_remaining_controller_b
     }
     let component = owner.take_bytes();
     assert_eq!(component.len(), 8 << 20);
-    for (index, chunk) in component.chunks_exact(65536).enumerate() {
+    for (index, chunk) in component.as_chunks::<65536>().0.iter().enumerate() {
         assert!(chunk.iter().all(|&byte| byte == index as u8));
     }
     let controller = MemoryStream::bounded(StateKind::Project, (8 << 20) - component.len());
