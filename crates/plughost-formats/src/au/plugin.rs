@@ -36,7 +36,7 @@ use plughost_core::{
     ProcessConfig, ProcessMode, SampleFormat, events_fit,
 };
 
-use super::components::{components, parse_class_id};
+use super::components::{component, parse_class_id};
 use super::errors::AuError;
 use super::plist::{self, State};
 use super::wait::{Slot, run_loop_for};
@@ -176,9 +176,8 @@ impl Plugin {
     /// process, as macOS does by default.
     pub fn new(class_id: &str) -> Result<Plugin, AuError> {
         let description = parse_class_id(class_id)?;
-        let info = components()
-            .into_iter()
-            .find(|info| info.class_id == class_id)
+        let info = component(description)
+            .filter(|info| info.class_id == class_id)
             .ok_or_else(|| AuError::Instantiate(class_id.to_owned()))?;
         let unit = instantiate(description)?;
         let invalidated = Arc::new(AtomicBool::new(false));

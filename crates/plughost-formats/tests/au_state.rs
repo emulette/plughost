@@ -37,6 +37,7 @@ type InternalRender = dyn Fn(
     *mut c_void,
 ) -> i32;
 static EDITOR: Mutex<Option<Values>> = Mutex::new(None);
+static SERIAL: Mutex<()> = Mutex::new(());
 
 #[derive(Default)]
 struct Ivars {
@@ -230,6 +231,7 @@ fn plugin() -> Plugin {
 
 #[test]
 fn prepare_preserves_current_state_after_restore_or_factory_preset() {
+    let _serial = SERIAL.lock().unwrap();
     for purpose in [
         Some(StatePurpose::Project),
         Some(StatePurpose::Preset),
@@ -272,4 +274,28 @@ fn prepare_preserves_current_state_after_restore_or_factory_preset() {
         assert_eq!(timing.tail, Tail::Samples(48));
         assert!(!timing.latency_changed);
     }
+}
+
+#[test]
+#[ignore = "AU instantiation benchmark; run in release mode with --nocapture"]
+fn au_instantiation_benchmark() {
+    use std::io::Write;
+    let _serial = SERIAL.lock().unwrap();
+    let first = plugin();
+    let expected = first.info().clone();
+    drop(first);
+    let started = std::time::Instant::now();
+    for _ in 0..300 {
+        let mut unit = Plugin::new(&expected.class_id).unwrap();
+        assert_eq!(unit.info().name, expected.name);
+        assert_eq!(unit.info().vendor, expected.vendor);
+        assert_eq!(unit.info().sdk_version, expected.sdk_version);
+        assert_eq!(unit.parameters().len(), 2);
+    }
+    writeln!(
+        std::io::stdout(),
+        "instances=300 ms={:.3}",
+        started.elapsed().as_secs_f64() * 1000.0
+    )
+    .unwrap();
 }

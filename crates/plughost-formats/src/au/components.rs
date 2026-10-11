@@ -41,6 +41,22 @@ pub fn components() -> Vec<PluginInfo> {
     found
 }
 
+/// Looks up one supported component without visiting unrelated registrations or reading names.
+pub(crate) fn component(description: AudioComponentDescription) -> Option<PluginInfo> {
+    if !TYPES.contains(&description.componentType) {
+        return None;
+    }
+    let mut description = description;
+    // SAFETY: the description is valid and a null component starts the search.
+    let component =
+        unsafe { AudioComponentFindNext(std::ptr::null_mut(), NonNull::from(&mut description)) };
+    if component.is_null() {
+        None
+    } else {
+        info(component)
+    }
+}
+
 fn info(component: AudioComponent) -> Option<PluginInfo> {
     let mut description = description(0, 0, 0);
     if unsafe { AudioComponentGetDescription(component, NonNull::from(&mut description)) } != 0 {
@@ -161,6 +177,12 @@ mod tests {
         assert_eq!(info.vendor, "plughost");
         assert_eq!(info.version, "1.2.3");
         assert_eq!(info.kind, PluginKind::Effect);
+        let direct = super::component(desc).unwrap();
+        assert_eq!(direct.class_id, info.class_id);
+        assert_eq!(direct.name, info.name);
+        assert_eq!(direct.vendor, info.vendor);
+        assert_eq!(direct.version, info.version);
+        assert_eq!(direct.kind, info.kind);
         assert_eq!(INSTANTIATIONS.load(Ordering::Relaxed), 0);
     }
 

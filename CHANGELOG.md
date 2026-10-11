@@ -22,6 +22,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- AU creation looks up its component description directly, avoiding enumeration and name
+  queries for every unrelated registered component.
 - VST3 converts each block's input events once into prepared scratch storage and skips copying
   held notes for empty input, preserving pre-DSP event expansion checks and automation order.
 - CLAP output note-offs with an ID remove their matching note directly, preserving explicit
