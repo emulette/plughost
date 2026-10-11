@@ -75,13 +75,8 @@ impl Scanner {
                             .writer
                             .entry(path)
                             .cloned();
-                        let (scan, entry) = self.scan_bundle(
-                            path,
-                            cached.as_ref(),
-                            self.stall_timeout,
-                            ScanMode::Native,
-                            &work,
-                        );
+                        let (scan, entry) =
+                            self.scan_bundle(path, cached.as_ref(), ScanMode::Native, &work);
                         {
                             let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
                             if state.error.is_some() {

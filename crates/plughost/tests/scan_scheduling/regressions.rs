@@ -3,6 +3,9 @@ use super::*;
 use plughost::{Failure, FailureKind, Source};
 
 pub(super) fn run(only: Option<&str>) {
+    if only.is_none_or(|name| name == "retry-timeout") {
+        retry_does_not_inherit_the_ordinary_scan_deadline();
+    }
     if only.is_none_or(|name| name == "cache-version") {
         compatible_cache_survives_library_upgrades();
     }
@@ -20,6 +23,21 @@ pub(super) fn run(only: Option<&str>) {
     if only.is_none_or(|name| name == "parallel-registry") {
         audio_unit_registry_overlaps_a_blocked_bundle_within_the_job_budget();
     }
+}
+
+fn retry_does_not_inherit_the_ordinary_scan_deadline() {
+    let directory = Directory::new();
+    let path = bundle(directory.path(), "retry");
+    fs::write(directory.path().join("release"), []).unwrap();
+    let scanner = directory.scanner().stall_timeout(Duration::ZERO);
+    assert!(matches!(
+        scanner.retry(&path).unwrap().outcome,
+        ScanOutcome::Found(_)
+    ));
+    assert!(
+        path.with_extension("started").exists(),
+        "the helper must have received native work"
+    );
 }
 
 #[cfg(unix)]

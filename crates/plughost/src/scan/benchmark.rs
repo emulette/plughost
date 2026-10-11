@@ -24,13 +24,7 @@ fn cached_bundle_benchmark() {
         .unwrap();
     let start = std::time::Instant::now();
     for _ in 0..10_000 {
-        let (scan, _) = scanner.scan_bundle(
-            &bundle,
-            cached,
-            scanner.stall_timeout,
-            ScanMode::Metadata,
-            &work,
-        );
+        let (scan, _) = scanner.scan_bundle(&bundle, cached, ScanMode::Metadata, &work);
         assert_eq!(scan.source, Source::Cache);
         assert_eq!(scan.outcome, expected);
     }

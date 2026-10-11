@@ -6,6 +6,8 @@ mod bundle;
 mod cache;
 mod control;
 mod execute;
+#[cfg(test)]
+mod tests;
 use control::Work;
 pub use control::{ScanControl, ScanEvent, ScanItem, ScanStage, ScanTarget};
 mod moduleinfo;
@@ -179,8 +181,16 @@ enum ScanMode {
     Retry,
 }
 
-/// A wait long enough to answer a license dialog by hand.
-const NO_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
+impl ScanMode {
+    fn stall_timeout(self, configured: Duration) -> Duration {
+        if self == Self::Retry {
+            // A wait long enough to answer a license dialog by hand.
+            Duration::from_secs(24 * 60 * 60)
+        } else {
+            configured
+        }
+    }
+}
 
 impl Scanner {
     /// Scans the platform's standard folders with `helper`, keeping native results in `cache`.
@@ -251,13 +261,8 @@ impl Scanner {
             let Some(work) = control.begin(ScanTarget::Bundle(path.clone()), events) else {
                 break;
             };
-            let (scan, _) = self.scan_bundle(
-                &path,
-                cache.bundles.get(&path),
-                self.stall_timeout,
-                ScanMode::Metadata,
-                &work,
-            );
+            let (scan, _) =
+                self.scan_bundle(&path, cache.bundles.get(&path), ScanMode::Metadata, &work);
             events(&ScanEvent::BundleFinished(scan.clone()));
             bundles.push(scan);
         }
@@ -347,8 +352,7 @@ impl Scanner {
             events(&ScanEvent::BundleFinished(scan.clone()));
             return Ok(scan);
         };
-        let (scan, entry) =
-            self.scan_bundle(path, cached.as_ref(), NO_TIMEOUT, ScanMode::Retry, &work);
+        let (scan, entry) = self.scan_bundle(path, cached.as_ref(), ScanMode::Retry, &work);
         writer.update(path, entry).map_err(Error::Cache)?;
         writer.finish().map_err(Error::Cache)?;
         events(&ScanEvent::BundleFinished(scan.clone()));
@@ -376,7 +380,6 @@ impl Scanner {
         &self,
         path: &Path,
         cached: Option<&cache::Entry>,
-        stall_timeout: Duration,
         mode: ScanMode,
         work: &Work<'_>,
     ) -> Scanned {
@@ -468,7 +471,7 @@ impl Scanner {
                 bundle: path.to_path_buf(),
                 interactive: mode == ScanMode::Retry,
             },
-            stall_timeout,
+            mode.stall_timeout(self.stall_timeout),
             work,
         ) {
             Ok(outcome) => outcome,

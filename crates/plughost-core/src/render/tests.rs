@@ -4,6 +4,19 @@ use super::*;
 
 const RATE: f64 = 48_000.0;
 
+#[test]
+fn default_tail_policy_uses_one_second_of_silence_with_a_thirty_second_cap() {
+    let options = RenderOptions::default();
+    assert_eq!(
+        options.tail,
+        TailPolicy::UntilSilence {
+            threshold: 1.585e-5,
+            hold_seconds: 1.0,
+        }
+    );
+    assert_eq!(options.max_tail_seconds, 30.0);
+}
+
 /// A stereo processor whose output is the input delayed by `latency`, plus an echo of it
 /// `echo_delay` samples later at half level.
 struct Echo {
@@ -298,4 +311,39 @@ fn events_reach_the_block_they_fall_in_with_block_offsets() {
         &reported(1.0),
     );
     assert_eq!(unordered.unwrap_err(), RenderError::Events);
+}
+
+#[test]
+fn output_events_keep_processing_offsets_when_audio_latency_is_trimmed() {
+    let input = signal(1000);
+    let slices: Vec<_> = input.iter().map(Vec::as_slice).collect();
+    // Echo emits an event one frame later, clamped to its 256-frame block. Audio loses its
+    // first 300 processing frames; events retain the documented processing timeline, including
+    // events in that trimmed prefix and the event at the end of the aligned audio.
+    let events: Vec<_> = [0, 298, 299, 300, 511, 512, 999]
+        .into_iter()
+        .enumerate()
+        .map(|(id, frame)| Event::control_change(frame, 0, id as u8, 64))
+        .collect();
+    let rendered = render(
+        &mut Echo::new(300, 0, Tail::Samples(0)),
+        &slices,
+        1000,
+        &events,
+        &reported(0.0),
+    )
+    .unwrap();
+    assert_eq!(rendered.channels, input);
+    assert_eq!(
+        rendered.events,
+        [
+            Event::control_change(1, 0, 0, 64).on_port(1),
+            Event::control_change(299, 0, 1, 64).on_port(1),
+            Event::control_change(300, 0, 2, 64).on_port(1),
+            Event::control_change(301, 0, 3, 64).on_port(1),
+            Event::control_change(511, 0, 4, 64).on_port(1),
+            Event::control_change(513, 0, 5, 64).on_port(1),
+            Event::control_change(1000, 0, 6, 64).on_port(1),
+        ]
+    );
 }

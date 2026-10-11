@@ -215,7 +215,8 @@ metadata. It fell from about 160 to 69 ms. The second scans that bundle and the 
 30 rounds, removing the scan cache between rounds and comparing every result. On macOS it took
 0.89 s with one job and 0.77 s with two; 0.1.1 took 3.8–4.0 s with either setting. This comparison
 also includes the helper startup improvements above. For 0.1.1, copy `src/scan/benchmark.rs`
-and its test module declaration, and `tests/scan_parallel.rs`; use the matching helper.
+and its test module declaration, and `tests/scan_parallel.rs`; add `scanner.stall_timeout` before
+`ScanMode::Metadata` in 0.1.1's `scan_bundle` call and use the matching helper.
 
 # Soak runs
 

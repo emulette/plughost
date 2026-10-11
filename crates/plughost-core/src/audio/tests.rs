@@ -1,4 +1,5 @@
 use super::*;
+use crate::{EventInputRoute, EventSource, SlotEventConfig};
 
 fn bus(id: u64, layout: Layout) -> AudioBusConfig {
     AudioBusConfig {
@@ -104,6 +105,89 @@ fn invalid_routes_are_rejected_without_inventing_sources_or_adaptations() {
         Err(InputError::ChannelAdaptation { .. })
     ));
     assert_eq!(valid.validate(1), Err(InputError::AudioSlotCount));
+}
+
+fn event_config() -> RoutedChainConfig {
+    let mut config = config();
+    config.event_inputs = 2;
+    config.slots[0].events = SlotEventConfig {
+        inputs: vec![EventInputRoute {
+            port: 41,
+            source: EventSource::External { port: 0 },
+        }],
+        outputs: vec![51, 52],
+    };
+    config.slots[1].events = SlotEventConfig {
+        inputs: vec![EventInputRoute {
+            port: 61,
+            source: EventSource::Previous { port: 51 },
+        }],
+        outputs: vec![71],
+    };
+    config
+}
+
+#[test]
+fn event_routes_reject_missing_sources_duplicate_routes_and_duplicate_outputs() {
+    let valid = event_config();
+    assert_eq!(valid.validate(2), Ok(()));
+    for (slot, source) in [
+        (0, EventSource::Previous { port: 51 }),
+        (0, EventSource::External { port: 2 }),
+        (1, EventSource::Previous { port: 99 }),
+    ] {
+        let mut invalid = valid.clone();
+        invalid.slots[slot].events.inputs[0].source = source;
+        assert_eq!(
+            invalid.validate(2),
+            Err(InputError::EventRoute {
+                slot,
+                port: if slot == 0 { 41 } else { 61 },
+            })
+        );
+    }
+    let mut duplicate = valid.clone();
+    duplicate.slots[1]
+        .events
+        .inputs
+        .push(valid.slots[1].events.inputs[0]);
+    assert_eq!(
+        duplicate.validate(2),
+        Err(InputError::EventRoute { slot: 1, port: 61 })
+    );
+    duplicate = valid;
+    duplicate.slots[0].events.outputs.push(51);
+    assert_eq!(
+        duplicate.validate(2),
+        Err(InputError::DuplicateEventPort { id: 51 })
+    );
+}
+
+#[test]
+fn sixteen_event_ports_and_merged_routes_fit_but_seventeen_do_not() {
+    let mut valid = event_config();
+    valid.event_inputs = 16;
+    valid.slots[0].events.inputs = (0..16)
+        .map(|port| EventInputRoute {
+            port: 41,
+            source: EventSource::External { port },
+        })
+        .collect();
+    valid.slots[0].events.outputs = (51..67).collect();
+    assert_eq!(valid.validate(2), Ok(()));
+    assert_eq!(valid.slot_config(0).unwrap().events.inputs, [41]);
+    for field in [0, 1, 2] {
+        let mut invalid = valid.clone();
+        match field {
+            0 => invalid.event_inputs = 17,
+            1 => invalid.slots[0].events.inputs.push(EventInputRoute {
+                port: 42,
+                source: EventSource::External { port: 0 },
+            }),
+            _ => invalid.slots[0].events.outputs.push(67),
+        }
+        assert_eq!(invalid.validate(2), Err(InputError::EventPortCount));
+    }
 }
 
 #[test]
