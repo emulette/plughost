@@ -125,6 +125,20 @@ to 137/202 ms. The core benchmark needs `ipc/framing_read_tests.rs` and its modu
 its bare blocking-socket exchange reduced read calls per endpoint from 40,000 to 20,000, while
 elapsed time increased from 99 to 113 ms. The supervised transport includes deadline polling.
 
+# State transfer memory
+
+```sh
+cargo test -p plughost --release --test state_memory state_transfer_benchmark -- --ignored --nocapture
+```
+
+The native CLAP delay fixture receives a 64 MiB state through restore and recovery. The harness
+counts additional requested heap bytes on the calling application thread and verifies the
+restored gain. The caller's existing state and helper process are outside the count. Copy
+`tests/state_memory.rs` into 0.1.1's plughost crate and use its matching helper for comparison.
+Peak additional heap fell from about 140.5 MiB to 65.5 MiB; retained heap fell from 76.5 MiB to
+64 KiB for restore and 129 KiB for recovery. The regression test bounds retained and peak heap
+with an 8 MiB state.
+
 # Soak runs
 
 `cargo bench -p plughost --bench soak -- --plugin BUNDLE [--plugin BUNDLE ...] [--rounds 120]

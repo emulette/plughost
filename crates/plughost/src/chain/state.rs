@@ -76,13 +76,13 @@ impl Chain {
         })?;
         let request = Request::RestoreState {
             slot,
-            state: state.clone(),
+            state: std::borrow::Cow::Borrowed(state),
             purpose,
         };
         self.accept_restored(request)
     }
 
-    fn accept_restored(&mut self, request: Request) -> Result<(), Error> {
+    fn accept_restored(&mut self, request: Request<'_>) -> Result<(), Error> {
         match self.request(request, self.timeouts.load)? {
             Response::StateRestored { timing } => {
                 if let Some((latency, tail)) = timing {
@@ -105,7 +105,7 @@ impl Chain {
         match self.request(
             Request::InspectPreset {
                 slot,
-                bytes: bytes.to_vec(),
+                bytes: bytes.into(),
             },
             self.timeouts.control,
         )? {
@@ -128,7 +128,7 @@ impl Chain {
         check_preset_size(slot, bytes)?;
         self.accept_restored(Request::ImportPreset {
             slot,
-            bytes: bytes.to_vec(),
+            bytes: bytes.into(),
         })
     }
 }

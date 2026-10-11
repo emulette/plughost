@@ -174,7 +174,7 @@ impl Helper {
 
     /// Sends a request and waits for its reply. `timeout` bounds writing the request and the wait
     /// for each message, so progress messages keep a long operation alive.
-    pub fn request(&mut self, request: Request, timeout: Duration) -> Result<Response, Error> {
+    pub fn request(&mut self, request: Request<'_>, timeout: Duration) -> Result<Response, Error> {
         let slot = request.slot();
         if !self.valid_slot(slot) {
             return Err(Error::Input {
@@ -240,7 +240,7 @@ impl Helper {
     pub fn prepare_shared(
         &mut self,
         memory: &plughost_core::ipc::shared::SharedAudio,
-        request: impl FnOnce(u64) -> Request,
+        request: impl FnOnce(u64) -> Request<'static>,
         timeout: Duration,
     ) -> Result<Response, Error> {
         let handle = self.transfer(|sender, _, child| sender.send(memory, child))?;
@@ -269,7 +269,7 @@ impl Helper {
 
     /// Writes a request within `timeout`. A request not written in time leaves the connection
     /// mid-frame, so the helper is terminated.
-    pub fn send(&mut self, request: Request, timeout: Duration) -> Result<(), Error> {
+    pub fn send(&mut self, request: Request<'_>, timeout: Duration) -> Result<(), Error> {
         self.send_controlled(request, timeout, &|| false)
             .map(Option::unwrap)
     }
@@ -277,7 +277,7 @@ impl Helper {
     /// Writes a request within `timeout`, polling cancellation, which reaps the child.
     pub fn send_controlled(
         &mut self,
-        request: Request,
+        request: Request<'_>,
         timeout: Duration,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Option<()>, Error> {
@@ -317,7 +317,7 @@ impl Helper {
         }
     }
 
-    fn queue(&mut self, request: &Request) -> Result<(), Unqueued> {
+    fn queue(&mut self, request: &Request<'_>) -> Result<(), Unqueued> {
         self.processing = matches!(request, Request::Process { .. });
         #[cfg(target_os = "windows")]
         if matches!(

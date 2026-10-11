@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 use interprocess::local_socket::Stream;
 use plughost_core::ipc::{FrameDecoder, Hello, Request, Response, encode_message};
 
+const RETAINED_BYTES: usize = 64 << 10;
+
 pub(super) enum Incoming {
     Hello(Hello),
     Response(Response),
@@ -54,11 +56,14 @@ impl Transport {
 
     /// Starts writing `request`; [`Transport::flush`] writes it. The previous request must have
     /// been flushed.
-    pub fn queue(&mut self, request: &Request) -> Result<(), Unqueued> {
+    pub fn queue(&mut self, request: &Request<'_>) -> Result<(), Unqueued> {
         if self.pipe.is_none() || self.written < self.outgoing.len() {
             return Err(Unqueued::Closed);
         }
-        encode_message(&mut self.outgoing, request).map_err(|_| Unqueued::Unencodable)?;
+        encode_message(&mut self.outgoing, request).map_err(|_| {
+            self.outgoing.shrink_to(RETAINED_BYTES);
+            Unqueued::Unencodable
+        })?;
         self.written = 0;
         Ok(())
     }
@@ -76,6 +81,11 @@ impl Transport {
                 Ok(None) => return Err(Stopped::TimedOut),
             }
         }
+        // Windows releases its overlapped write before returning the final byte count above.
+        // Incomplete writes retain the original allocation unchanged for their next flush.
+        self.outgoing.clear();
+        self.outgoing.shrink_to(RETAINED_BYTES);
+        self.written = 0;
         Ok(())
     }
 
@@ -108,7 +118,11 @@ impl Transport {
 
     /// Closes the connection. The owner terminates the helper first; later calls report `Closed`.
     pub fn close(&mut self) {
+        // Drop cancels and completes any pending Windows write before its storage is released.
         self.pipe = None;
+        self.outgoing = Vec::new();
+        self.written = 0;
+        self.decoder = FrameDecoder::default();
     }
 }
 

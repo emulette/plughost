@@ -64,13 +64,13 @@ impl Host {
 
     /// Handles one request. Parameter events and metadata are collected before the response
     /// leaves, so the next block is validated against metadata this request may have changed.
-    pub fn handle(&mut self, request: Request) -> Response {
+    pub fn handle(&mut self, request: Request<'_>) -> Response {
         let response = self.dispatch(request);
         self.collect_parameter_events();
         response
     }
 
-    fn dispatch(&mut self, request: Request) -> Response {
+    fn dispatch(&mut self, request: Request<'_>) -> Response {
         let slot = request.slot();
         if slot.is_some_and(|slot| slot >= self.slots.len()) {
             return Response::Rejected {

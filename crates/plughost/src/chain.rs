@@ -329,7 +329,7 @@ impl Chain {
         }
     }
 
-    fn request(&mut self, request: Request, timeout: Duration) -> Result<Response, Error> {
+    fn request(&mut self, request: Request<'_>, timeout: Duration) -> Result<Response, Error> {
         let result = self.helper.request(request, timeout);
         if matches!(
             result,
@@ -340,7 +340,7 @@ impl Chain {
         result
     }
 
-    fn request_done(&mut self, request: Request, timeout: Duration) -> Result<(), Error> {
+    fn request_done(&mut self, request: Request<'_>, timeout: Duration) -> Result<(), Error> {
         match self.request(request, timeout)? {
             Response::Done => Ok(()),
             _ => Err(self.protocol_error()),
@@ -404,7 +404,7 @@ fn start(
     for (slot, state) in states.iter().enumerate() {
         let request = Request::LoadState {
             slot,
-            state: state.clone(),
+            state: std::borrow::Cow::Borrowed(state),
         };
         expect_done(process.request(request, timeouts.load)?)?;
     }

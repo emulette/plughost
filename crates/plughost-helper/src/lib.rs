@@ -107,7 +107,7 @@ fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
         diagnostics: DiagnosticBuffer::default(),
     };
 
-    let (requests, incoming) = mpsc::channel::<Request>();
+    let (requests, incoming) = mpsc::channel::<Request<'static>>();
     let mut host = None;
     let mut blocks = None;
     if mode == Mode::Host {
@@ -121,7 +121,7 @@ fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
     }
     thread::spawn(move || {
         let mut receive = MessageReader::new(receive);
-        while let Ok(request) = receive.read::<Request>() {
+        while let Ok(request) = receive.read::<Request<'static>>() {
             let handled = match (request, &blocks) {
                 (
                     Request::Process {
@@ -169,7 +169,7 @@ fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
 /// Serves one request on the main thread.
 fn handle(
     host: &mut Option<host::Host>,
-    request: Request,
+    request: Request<'_>,
     responder: &Responder,
 ) -> io::Result<()> {
     match (host, request) {

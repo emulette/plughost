@@ -22,6 +22,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- State and preset requests borrow the caller's payload until encoding, avoiding a full input
+  copy. Completed or rejected writes retain at most 64 KiB of serialization scratch; closing
+  the transport releases it after any pending Windows write has been cancelled and completed.
 - IPC readers reuse initialized receive storage and retain bytes from subsequent frames. Large
   payloads accumulate received slices without zero-filling the unread body. Partial frames and
   deadlines remain resumable; `MessageReader` must be kept for the whole connection.

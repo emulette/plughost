@@ -21,7 +21,7 @@ impl Chain {
     pub(super) fn prepare_transport(
         &mut self,
         candidate: &Transport,
-        request: impl FnOnce(u64) -> Request,
+        request: impl FnOnce(u64) -> Request<'static>,
     ) -> Result<Response, Error> {
         let timeout = if self.config.is_some() {
             self.timeouts.load

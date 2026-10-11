@@ -249,7 +249,7 @@ mod tests {
     fn messages_round_trip_through_the_framing() {
         let request = Request::ImportPreset {
             slot: 0,
-            bytes: vec![42; 128],
+            bytes: vec![42; 128].into(),
         };
         let mut wire = Vec::new();
         write_message(&mut wire, &request).unwrap();
@@ -300,7 +300,7 @@ mod tests {
         writer.write(&Request::Reset).unwrap();
         let oversized = Request::ImportPreset {
             slot: 0,
-            bytes: vec![42; 128],
+            bytes: vec![42; 128].into(),
         };
         assert_eq!(
             writer.write_bounded(&oversized, 8).unwrap_err().kind(),
@@ -350,7 +350,7 @@ mod tests {
     fn reused_reader_separates_owned_payloads_and_rejects_trailing_data_after_a_large_frame() {
         let large = Request::ImportPreset {
             slot: 0,
-            bytes: vec![42; 4096],
+            bytes: vec![42; 4096].into(),
         };
         let mut wire = Vec::new();
         write_message(&mut wire, &large).unwrap();

@@ -77,7 +77,7 @@ fn supervised_framing_benchmark() {
         } else {
             Request::ImportPreset {
                 slot: 0,
-                bytes: vec![42; payload],
+                bytes: vec![42; payload].into(),
             }
         };
         let (mut transport, mut peer) = connection();
@@ -217,7 +217,7 @@ fn a_request_too_large_for_a_message_is_not_mistaken_for_a_closed_connection() {
     identify(&mut transport, &mut peer);
     let oversized = Request::LoadState {
         slot: 0,
-        state: plughost_core::PluginState {
+        state: std::borrow::Cow::Owned(plughost_core::PluginState {
             format: plughost_core::PluginFormat::Clap,
             class_id: String::new(),
             name: String::new(),
@@ -225,7 +225,7 @@ fn a_request_too_large_for_a_message_is_not_mistaken_for_a_closed_connection() {
             version: String::new(),
             component: vec![0; plughost_core::ipc::MAX_MESSAGE_BYTES],
             controller: Vec::new(),
-        },
+        }),
     };
     assert!(matches!(
         transport.queue(&oversized),

@@ -5,6 +5,7 @@
 //! This module and its shared-memory transport are internal to `plughost` and `plughost-helper`
 //! and exempt from semver.
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -29,8 +30,10 @@ pub struct Hello {
     pub token: u64,
 }
 
+/// Outgoing state and preset payloads can borrow caller storage until serialization. Decoding
+/// always owns these payloads, so queued helper requests remain independent of receive buffers.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Request {
+pub enum Request<'a> {
     Changes,
     AudioBuses {
         slot: usize,
@@ -99,7 +102,7 @@ pub enum Request {
     /// one message.
     LoadState {
         slot: usize,
-        state: crate::PluginState,
+        state: Cow<'a, PluginState>,
     },
     /// One block through the chain, with events on the chain's external event inputs.
     Process {
@@ -158,19 +161,19 @@ pub enum Request {
     },
     RestoreState {
         slot: usize,
-        state: PluginState,
+        state: Cow<'a, PluginState>,
         purpose: StatePurpose,
     },
     InspectPreset {
         slot: usize,
-        bytes: Vec<u8>,
+        bytes: Cow<'a, [u8]>,
     },
     ExportPreset {
         slot: usize,
     },
     ImportPreset {
         slot: usize,
-        bytes: Vec<u8>,
+        bytes: Cow<'a, [u8]>,
     },
     Reset,
     Timing,
@@ -188,7 +191,7 @@ pub enum Request {
     Shutdown,
 }
 
-impl Request {
+impl Request<'_> {
     /// The single plugin target, when this control request has one.
     pub fn slot(&self) -> Option<usize> {
         match self {

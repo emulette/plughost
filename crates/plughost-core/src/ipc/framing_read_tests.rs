@@ -33,11 +33,11 @@ fn fragmented_and_coalesced_frames_preserve_large_payloads_and_following_message
         Request::Reset,
         Request::ImportPreset {
             slot: 2,
-            bytes: vec![43; RETAINED_BYTES - 10],
+            bytes: vec![43; RETAINED_BYTES - 10].into(),
         },
         Request::ImportPreset {
             slot: 7,
-            bytes: vec![79; 2 * RETAINED_BYTES + 31],
+            bytes: vec![79; 2 * RETAINED_BYTES + 31].into(),
         },
         Request::Shutdown,
     ];
