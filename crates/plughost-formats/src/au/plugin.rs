@@ -106,6 +106,8 @@ struct Prepared {
     midi_output: Option<midi_output::Output>,
     /// Parameter ranges, to turn normalized changes into plain values.
     ranges: HashMap<u64, (f32, f32, ParameterInfo)>,
+    /// Validated parameter addresses, offsets and plain values for the whole next block.
+    automation: Vec<(u64, usize, f32)>,
     /// Samples rendered so far: the render timestamp of the next block.
     position: f64,
     timeline: Arc<Mutex<Option<plughost_core::Transport>>>,
@@ -590,6 +592,10 @@ impl Engine {
         let output_channels = output_buses.iter().map(|bus| bus.channels.len()).sum();
         let buffers =
             render_audio::Buffers::new(input_buses, output_buses, audio_config.max_block_size)?;
+        let mut automation = Vec::new();
+        automation
+            .try_reserve_exact(plughost_core::MAX_BLOCK_EVENTS)
+            .map_err(|_| AuError::ProcessingStorage)?;
         let config = audio_config;
         // AUAudioFrameCount is 32 bits, but the v2 bridge declares this setter with NSUInteger;
         // objc2's message check requires the width the receiving class declares.
@@ -716,6 +722,7 @@ impl Engine {
                 .map(|bridge| unsafe { bridge.audioUnit() }),
             midi_output,
             ranges,
+            automation,
             position: 0.0,
             timeline,
             transport_changed,
@@ -779,7 +786,8 @@ impl Engine {
         events: &[Event],
         produced: &mut Vec<Event>,
     ) -> Result<(), AuError> {
-        let (_, prepared) = self.parts()?;
+        self.unit()?;
+        let prepared = self.prepared.as_mut().ok_or(AuError::NotPrepared)?;
         context.validate().map_err(AuError::Input)?;
         if let Some(transport) = context.transport {
             transport
@@ -809,21 +817,27 @@ impl Engine {
         if frames == 0 {
             return Ok(());
         }
-        // Validate the whole block before scheduling any point. The second pass converts one
-        // value at a time; no temporary event array or partial scheduling on invalid input.
+        // Resolve, validate and convert once, before scheduling any part of the block.
+        prepared.automation.clear();
         for change in automation {
-            let (_, _, info) = prepared.ranges.get(&change.id).ok_or(AuError::Input(
+            let (min, max, info) = prepared.ranges.get(&change.id).ok_or(AuError::Input(
                 plughost_core::InputError::UnknownParameter { id: change.id },
             ))?;
-            info.automation_value(change.value)
-                .map_err(AuError::Input)?;
-        }
-        for change in automation {
-            let (_, _, info) = &prepared.ranges[&change.id];
             let value = info
                 .automation_value(change.value)
                 .map_err(AuError::Input)?;
-            self.schedule(change.id, change.offset, value)?;
+            prepared
+                .automation
+                .push((change.id, change.offset, plain(*min, *max, info, value)));
+        }
+        for &(id, offset, value) in &prepared.automation {
+            let _audit = plughost_core::audit::plugin();
+            prepared.schedule.call((
+                prepared.position as AUEventSampleTime + offset as AUEventSampleTime,
+                0,
+                id,
+                value,
+            ));
         }
         {
             let mut timeline = prepared.timeline.lock().unwrap_or_else(|p| p.into_inner());

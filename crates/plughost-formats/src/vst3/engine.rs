@@ -33,7 +33,7 @@ use vst3::{ComPtr, ComWrapper};
 
 use super::buffers::AudioBuffers;
 use super::errors::Vst3Error;
-use super::host::{ComponentHandler, EventList, OutputEventList, ParameterChanges};
+use super::host::{ComponentHandler, EventList, OutputEventList, ParameterChanges, ParameterInput};
 use super::input_notes::InputNotes;
 use super::instance::{Instance, MidiAssignment, midi_assignments};
 use super::note_expression;
@@ -60,6 +60,8 @@ pub(crate) struct Prepared {
     parameters: Arc<ParameterCache>,
     /// Per cached parameter: the value the processor has, as far as the host knows.
     held: Vec<Held>,
+    /// Metadata indices whose queue was resolved during the last assembly, including flushes.
+    queued: Vec<usize>,
     values_generation: u32,
     /// The block's validated automation: parameter index, offset, value.
     automation: Vec<(usize, i32, f64)>,
@@ -89,6 +91,8 @@ struct Held {
     value: f64,
     block: i64,
     offset: i32,
+    /// The queue resolved for this parameter, cleared before the next input assembly.
+    queue: Option<usize>,
 }
 
 impl Held {
@@ -105,6 +109,7 @@ const UNKNOWN: Held = Held {
     value: f64::NAN,
     block: -1,
     offset: 0,
+    queue: None,
 };
 
 #[cfg(test)]
@@ -168,6 +173,7 @@ impl Engine {
         let counted = InputNotes::new()?;
         let output_events = ComWrapper::new(OutputEventList::new()?);
         let automation = scratch(limit)?;
+        let queued = scratch(2 * limit)?;
         let inputs = scratch(limit)?;
         let mut setup = ProcessSetup {
             processMode: process_mode(config.mode),
@@ -216,6 +222,7 @@ impl Engine {
             position: 0,
             parameters: Arc::clone(parameters),
             held: vec![UNKNOWN; parameters.len()],
+            queued,
             values_generation: instance.handler.values_generation(),
             automation,
             inputs,
@@ -345,8 +352,14 @@ impl Engine {
         }
         prepared.stage_automation(changes)?;
         prepared.buffers.bind(input, output, 0..frames)?;
-        prepared.begin(&instance.handler);
-        prepared.push_inputs();
+        {
+            // The cloned COM owner lets the writer borrow the queues while Prepared updates
+            // held values and notes. Its locks are released before any plugin callback.
+            let changes = prepared.changes.clone();
+            let mut input = changes.begin_input();
+            prepared.begin(&instance.handler, &mut input);
+            prepared.push_inputs(&mut input);
+        }
         let result = call_process(instance, prepared, context);
         prepared.buffers.clear();
         prepared.position += frames as i64;
@@ -368,7 +381,11 @@ impl Engine {
         let Some(prepared) = self.prepared.as_mut() else {
             return flush_inactive(instance, parameters);
         };
-        prepared.begin(&instance.handler);
+        {
+            let changes = prepared.changes.clone();
+            let mut input = changes.begin_input();
+            prepared.begin(&instance.handler, &mut input);
+        }
         let result = call_process(instance, prepared, &plughost_core::BlockContext::new(0));
         prepared.take_outputs(&instance.handler);
         if result != kResultOk {
@@ -562,6 +579,7 @@ impl Prepared {
     /// Switches to a list the owning thread read again after the controller changed it.
     pub fn set_parameters(&mut self, parameters: &Arc<ParameterCache>) {
         self.held = vec![UNKNOWN; parameters.len()];
+        self.queued.clear();
         self.parameters = Arc::clone(parameters);
     }
 
@@ -582,6 +600,7 @@ impl Prepared {
                 value,
                 block: -1,
                 offset: 0,
+                queue: None,
             };
         }
         self.values_generation = generation;
@@ -605,8 +624,10 @@ impl Prepared {
     }
 
     /// Clears the queues and sends the controller's pending edits at the start of the block.
-    fn begin(&mut self, handler: &ComponentHandler) {
-        self.changes.clear();
+    fn begin(&mut self, handler: &ComponentHandler, changes: &mut ParameterInput<'_>) {
+        for index in self.queued.drain(..) {
+            self.held[index].queue = None;
+        }
         self.output_changes.clear();
         self.events.clear();
         let generation = handler.values_generation();
@@ -615,12 +636,16 @@ impl Prepared {
             self.forget_held_values();
         }
         handler.drain_pending(|id, value| {
-            self.changes.push(id, 0, value);
+            let queue = changes.push(id, 0, value);
             if let Some(index) = self.parameters.index(u64::from(id)) {
+                if self.held[index].queue.is_none() && queue.is_some() {
+                    self.queued.push(index);
+                }
                 self.held[index] = Held {
                     value,
                     block: self.position,
                     offset: 0,
+                    queue,
                 };
             }
         });
@@ -628,14 +653,14 @@ impl Prepared {
 
     /// Queues the staged automation and inputs in offset order; automation goes first at equal
     /// offsets.
-    fn push_inputs(&mut self) {
+    fn push_inputs(&mut self, changes: &mut ParameterInput<'_>) {
         let mut staged = 0;
         for input in 0..self.inputs.len() {
             let (event_offset, event) = self.inputs[input];
             while let Some(&(index, offset, value)) = self.automation.get(staged)
                 && offset as usize <= event_offset
             {
-                self.push_point(index, offset, value);
+                self.push_point(changes, index, offset, value);
                 staged += 1;
             }
             match event {
@@ -655,15 +680,17 @@ impl Prepared {
                 }
                 NativeInput::Parameter(id, offset, value) => {
                     match self.parameters.index(u64::from(id)) {
-                        Some(index) => self.push_point(index, offset, value),
-                        None => self.changes.push(id, offset, value),
+                        Some(index) => self.push_point(changes, index, offset, value),
+                        None => {
+                            changes.push(id, offset, value);
+                        }
                     }
                 }
             }
         }
         self.inputs.clear();
         while let Some(&(index, offset, value)) = self.automation.get(staged) {
-            self.push_point(index, offset, value);
+            self.push_point(changes, index, offset, value);
             staged += 1;
         }
     }
@@ -744,16 +771,33 @@ impl Prepared {
 
     /// Queues a point that holds from `offset` on. VST3 plugins may ramp between points, so a
     /// point after the start of the block is preceded by one that holds the previous value.
-    fn push_point(&mut self, index: usize, offset: i32, value: f64) {
+    fn push_point(
+        &mut self,
+        changes: &mut ParameterInput<'_>,
+        index: usize,
+        offset: i32,
+        value: f64,
+    ) {
         let id = self.parameters.native_id(index);
-        if let Some((hold, previous)) = self.held[index].hold_before(self.position, offset) {
-            self.changes.push(id, hold, previous);
+        let held = self.held[index];
+        let queue = held.queue.or_else(|| {
+            let queue = changes.slot(id);
+            if queue.is_some() {
+                self.queued.push(index);
+            }
+            queue
+        });
+        if let Some(queue) = queue {
+            if let Some((hold, previous)) = held.hold_before(self.position, offset) {
+                changes.push_at(queue, hold, previous);
+            }
+            changes.push_at(queue, offset, value);
         }
-        self.changes.push(id, offset, value);
         self.held[index] = Held {
             value,
             block: self.position,
             offset,
+            queue,
         };
         self.parameters.hand_to_controller(index, value, false);
     }

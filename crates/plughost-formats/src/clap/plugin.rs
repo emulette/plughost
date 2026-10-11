@@ -98,6 +98,8 @@ struct Engine {
 
 struct Prepared {
     input_events: input_events::InputBuffer,
+    /// Validated block edits in native form, before pending host edits may be consumed.
+    automation: Vec<(u32, ClapId, f64)>,
     buffers: buffers::AudioBuffers,
     config: ProcessConfig,
     audio_config: Option<plughost_core::AudioConfig>,

@@ -78,6 +78,7 @@ impl Processor {
             return Ok(());
         }
 
+        prepared.automation.clear();
         for change in automation {
             let parameter = prepared.parameters.get(change.id).ok_or(ClapError::Input(
                 plughost_core::InputError::UnknownParameter { id: change.id },
@@ -86,6 +87,11 @@ impl Processor {
                 .info
                 .automation_value(change.value)
                 .map_err(ClapError::Input)?;
+            prepared.automation.push((
+                change.offset as u32,
+                parameter.native,
+                parameter.plain(change.value),
+            ));
         }
         let transport = context
             .transport
@@ -114,14 +120,8 @@ impl Processor {
                 }
             })
         });
-        for change in automation {
-            if let Some(parameter) = prepared.parameters.get(change.id) {
-                input_events_buffer.parameter(
-                    change.offset as u32,
-                    parameter.native,
-                    parameter.plain(change.value),
-                );
-            }
+        for &(offset, id, value) in &prepared.automation {
+            input_events_buffer.parameter(offset, id, value);
         }
         for event in events {
             if let Some(Some(dialects)) = prepared.event_inputs.get(event.port) {

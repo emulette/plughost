@@ -832,11 +832,18 @@ fn non_realtime_parameters_allow_edits_but_reject_block_automation() {
         &plughost_core::BlockContext::new(512),
         &[],
         &mut channels,
-        &[plughost_core::ParameterChange {
-            id: u64::from(MODE),
-            offset: 10,
-            value: 0.0,
-        }],
+        &[
+            plughost_core::ParameterChange {
+                id: u64::from(STEPS),
+                offset: 5,
+                value: 13.0 / 22.0,
+            },
+            plughost_core::ParameterChange {
+                id: u64::from(MODE),
+                offset: 10,
+                value: 0.0,
+            },
+        ],
         &[],
         &mut Vec::new(),
     );
@@ -845,6 +852,14 @@ fn non_realtime_parameters_allow_edits_but_reject_block_automation() {
         "{result:?}"
     );
     assert_eq!(output, [[7.0; 512]; 2]);
+    block(&mut plugin, &[]);
+    let steps = plugin
+        .parameters()
+        .into_iter()
+        .find(|(info, _)| info.id == u64::from(STEPS))
+        .unwrap()
+        .1;
+    assert_eq!(steps, 0.0, "the valid prefix must not have been scheduled");
 }
 
 #[test]

@@ -177,6 +177,19 @@ fell from about 1.61 s to 0.17 s. `PLUGHOST_SCAN_BUNDLE` selects another install
 Pro-Q 4 and Pro-C 3 returned identical class metadata in both VST3 and CLAP; their 30-scan times
 fell from 1.50–1.81 s to 0.19–0.59 s.
 
+# Native automation staging
+
+```sh
+cargo test -p plughost-formats --release --test automation native_automation_benchmark -- --ignored --nocapture
+```
+
+The routing fixtures process 1,000 blocks of 512 frames with 4,096 interleaved gain/bypass points
+per block. Every sample must equal the independently calculated output, including duplicate
+edits and discrete bypass. The AU case uses Apple AUDelay with 512 dry-mix points per block and
+checks exact dry PCM. Copy `plughost-formats/tests/automation.rs` into 0.1.1 for comparison; run
+the two versions sequentially. VST3 fell from about 210 to 156 ms, and CLAP from 151–166 to
+110–112 ms. AU's improvement was small, from 825–832 to 813–819 ms.
+
 # Cached inspection and registry scheduling
 
 ```sh

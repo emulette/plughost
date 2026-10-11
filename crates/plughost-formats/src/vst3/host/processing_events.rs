@@ -26,6 +26,20 @@ struct Points {
 }
 
 impl Points {
+    fn push(&mut self, slot: usize, offset: i32, value: f64) {
+        if self.values.len() == self.limit {
+            return;
+        }
+        if self
+            .values
+            .last()
+            .is_some_and(|last| (last.queue, last.offset) >= (slot, offset))
+        {
+            self.sorted = false;
+        }
+        let point = self.point(slot, offset, value);
+        self.values.push(point);
+    }
     /// Puts the points in queue and offset order. Of points at the same offset of a queue, the
     /// one added last stays. The unstable sort does not allocate.
     fn sort(&mut self) {
@@ -157,6 +171,41 @@ struct Used {
     count: usize,
     slots: HashMap<ParamID, usize>,
 }
+impl Used {
+    fn slot(&mut self, queues: &[ComWrapper<ParamValueQueue>], id: ParamID) -> Option<usize> {
+        if let Some(&slot) = self.slots.get(&id) {
+            return Some(slot);
+        }
+        if self.count == queues.len() {
+            return None;
+        }
+        let slot = self.count;
+        queues[slot].id.store(id, Ordering::Relaxed);
+        self.slots.insert(id, slot);
+        self.count += 1;
+        Some(slot)
+    }
+}
+
+/// Holds queue locks only while the host assembles a block. Drop before calling the plugin.
+pub(crate) struct ParameterInput<'a> {
+    queues: &'a [ComWrapper<ParamValueQueue>],
+    used: std::sync::MutexGuard<'a, Used>,
+    points: std::sync::MutexGuard<'a, Points>,
+}
+impl ParameterInput<'_> {
+    pub fn slot(&mut self, id: ParamID) -> Option<usize> {
+        self.used.slot(self.queues, id)
+    }
+    pub fn push_at(&mut self, slot: usize, offset: i32, value: f64) {
+        self.points.push(slot, offset, value);
+    }
+    pub fn push(&mut self, id: ParamID, offset: i32, value: f64) -> Option<usize> {
+        let slot = self.slot(id)?;
+        self.push_at(slot, offset, value);
+        Some(slot)
+    }
+}
 impl Class for ParameterChanges {
     type Interfaces = (IParameterChanges,);
 }
@@ -218,6 +267,21 @@ impl ParameterChanges {
         points.sorted = true;
         points.next_order = 0;
     }
+    pub fn begin_input(&self) -> ParameterInput<'_> {
+        let mut used = lock(&self.used);
+        used.count = 0;
+        used.slots.clear();
+        let mut points = lock(&self.points);
+        debug_assert!(!points.latest_only);
+        points.values.clear();
+        points.sorted = true;
+        points.next_order = 0;
+        ParameterInput {
+            queues: &self.queues,
+            used,
+            points,
+        }
+    }
     /// Adds the host's point. Points are appended and put in order when first read, so a block's
     /// points cost the same in any order; a point beyond the storage is dropped.
     pub fn push(&self, id: ParamID, offset: i32, value: f64) {
@@ -230,33 +294,11 @@ impl ParameterChanges {
             unsafe { self.queues[slot].addPoint(offset, value, std::ptr::null_mut()) };
             return;
         }
-        if points.values.len() == points.limit {
-            return;
-        }
-        if points
-            .values
-            .last()
-            .is_some_and(|last| (last.queue, last.offset) >= (slot, offset))
-        {
-            points.sorted = false;
-        }
-        let point = points.point(slot, offset, value);
-        points.values.push(point);
+        points.push(slot, offset, value);
     }
     /// The queue of parameter `id`, taken from the unused ones for a new parameter.
     fn slot(&self, id: ParamID) -> Option<usize> {
-        let mut used = lock(&self.used);
-        if let Some(&slot) = used.slots.get(&id) {
-            return Some(slot);
-        }
-        if used.count == self.queues.len() {
-            return None;
-        }
-        let slot = used.count;
-        self.queues[slot].id.store(id, Ordering::Relaxed);
-        used.slots.insert(id, slot);
-        used.count += 1;
-        Some(slot)
+        lock(&self.used).slot(&self.queues, id)
     }
     /// Calls `each` with every queue's parameter and last value.
     pub fn each_last_value(&self, mut each: impl FnMut(ParamID, ParamValue)) {

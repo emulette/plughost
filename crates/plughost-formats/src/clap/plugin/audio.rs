@@ -380,6 +380,10 @@ impl Plugin {
         let buffers =
             buffers::AudioBuffers::new(&buses, config.sample_format, config.max_block_size)?;
         let input_events = input_events::InputBuffer::new()?;
+        let mut automation = Vec::new();
+        automation
+            .try_reserve_exact(plughost_core::MAX_BLOCK_EVENTS)
+            .map_err(|_| ClapError::EventStorage)?;
         let sounding = output_events::sounding()?;
         let event_inputs = self.event_inputs(events)?;
         let extensions = self.shared().extensions();
@@ -433,6 +437,7 @@ impl Plugin {
         engine.processor = Some(processor);
         engine.prepared = Some(Prepared {
             input_events,
+            automation,
             buffers,
             config,
             audio_config,

@@ -22,6 +22,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- Native automation resolves and validates block edits once. CLAP and AU reuse prepared native
+  point storage; VST3 resolves parameter queue indices once per assembly and holds queue locks
+  while filling the block, releasing them before plugin callbacks. Control-only flushes and
+  invalid-input rejection preserve pending edits, queue ordering and exact sample output.
 - Unchanged scan cache entries are reused before reading executable headers. Parallel native
   scans query the Audio Unit registry within the same worker limit, alongside bundles; cache
   write failures also terminate an active registry helper.

@@ -496,7 +496,7 @@ impl IBStreamTrait for MemoryStream {
 mod output_events;
 mod processing_events;
 pub(crate) use output_events::OutputEventList;
-pub(crate) use processing_events::{EventList, ParameterChanges};
+pub(crate) use processing_events::{EventList, ParameterChanges, ParameterInput};
 
 /// Receives edits the controller reports with performEdit, the way a GUI edit reaches the host.
 pub(crate) struct ComponentHandler {
