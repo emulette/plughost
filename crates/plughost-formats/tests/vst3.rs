@@ -17,6 +17,8 @@ use plughost_formats::{Error, HostedPlugin};
 const NEEDS_PLUGINS: &str = "needs scripts/build-test-plugins.sh";
 #[path = "vst3/audio.rs"]
 mod audio;
+#[path = "vst3/event_benchmark.rs"]
+mod event_benchmark;
 #[path = "vst3/factory_programs.rs"]
 mod factory_programs;
 #[path = "vst3/lifecycle.rs"]

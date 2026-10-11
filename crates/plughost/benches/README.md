@@ -76,6 +76,19 @@ and repeats with wildcard IDs and an empty table. Copy the benchmark function in
 `clap/plugin/output_events.rs` for comparison. Direct removal by ID reduced the first case
 from 915–952 ms to 3–13 ms. The empty-table case stayed near 1 ms after warm-up.
 
+# VST3 input staging
+
+```sh
+cargo test -p plughost-formats --release --test vst3 input_event_staging_benchmark -- --ignored --nocapture
+```
+
+The routing fixture holds 4,096 notes over 100,000 empty one-frame blocks and then checks that
+a wildcard note-off ends all of them. The delay fixture processes 1,000 one-frame blocks with
+4,096 mapped controllers per block. Both check exact audio. Copy `tests/vst3/event_benchmark.rs`
+and its module declaration in `tests/vst3.rs` into 0.1.1's formats crate for comparison.
+Reusing translated inputs and skipping empty-block note copies reduced the two cases from
+83/275 ms to 38/190 ms.
+
 # Soak runs
 
 `cargo bench -p plughost --bench soak -- --plugin BUNDLE [--plugin BUNDLE ...] [--rounds 120]

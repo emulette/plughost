@@ -63,6 +63,8 @@ pub(crate) struct Prepared {
     values_generation: u32,
     /// The block's validated automation: parameter index, offset, value.
     automation: Vec<(usize, i32, f64)>,
+    /// Translated block inputs, reused after their native event count has been checked.
+    inputs: Vec<(usize, NativeInput)>,
     changes: ComWrapper<ParameterChanges>,
     output_changes: ComWrapper<ParameterChanges>,
     events: ComWrapper<EventList>,
@@ -166,6 +168,7 @@ impl Engine {
         let counted = InputNotes::new()?;
         let output_events = ComWrapper::new(OutputEventList::new()?);
         let automation = scratch(limit)?;
+        let inputs = scratch(limit)?;
         let mut setup = ProcessSetup {
             processMode: process_mode(config.mode),
             symbolicSampleSize: sample_size,
@@ -215,6 +218,7 @@ impl Engine {
             held: vec![UNKNOWN; parameters.len()],
             values_generation: instance.handler.values_generation(),
             automation,
+            inputs,
             changes,
             output_changes,
             events,
@@ -336,13 +340,13 @@ impl Engine {
             return Ok(());
         }
         // A note off or an expression without an ID becomes one event per note on its key.
-        if prepared.native_event_count(events) > prepared.events.limit() {
+        if prepared.stage_inputs(events) > prepared.events.limit() {
             return Err(Vst3Error::Input(plughost_core::InputError::EventCapacity));
         }
         prepared.stage_automation(changes)?;
         prepared.buffers.bind(input, output, 0..frames)?;
         prepared.begin(&instance.handler);
-        prepared.push_inputs(events);
+        prepared.push_inputs();
         let result = call_process(instance, prepared, context);
         prepared.buffers.clear();
         prepared.position += frames as i64;
@@ -535,6 +539,7 @@ impl Processor {
     }
 }
 
+#[derive(Clone, Copy)]
 enum NativeInput {
     Note(Event),
     /// A note expression value without an ID, for the notes on this channel and key.
@@ -621,20 +626,21 @@ impl Prepared {
         });
     }
 
-    /// Queues the staged automation and `events` in offset order; automation goes first at equal
+    /// Queues the staged automation and inputs in offset order; automation goes first at equal
     /// offsets.
-    fn push_inputs(&mut self, events: &[plughost_core::Event]) {
+    fn push_inputs(&mut self) {
         let mut staged = 0;
-        for event in events {
+        for input in 0..self.inputs.len() {
+            let (event_offset, event) = self.inputs[input];
             while let Some(&(index, offset, value)) = self.automation.get(staged)
-                && offset as usize <= event.offset
+                && offset as usize <= event_offset
             {
                 self.push_point(index, offset, value);
                 staged += 1;
             }
-            match self.translate(event) {
-                Some(NativeInput::Note(note)) => self.push_note(note),
-                Some(NativeInput::KeyExpression(expression, channel, pitch)) => {
+            match event {
+                NativeInput::Note(note) => self.push_note(note),
+                NativeInput::KeyExpression(expression, channel, pitch) => {
                     for id in self.notes.ids(expression.busIndex, channel, pitch) {
                         // SAFETY: `native` built this event as a note expression value.
                         let mut value = unsafe { expression.__field0.noteExpressionValue };
@@ -647,30 +653,39 @@ impl Prepared {
                         });
                     }
                 }
-                Some(NativeInput::Parameter(id, offset, value)) => {
+                NativeInput::Parameter(id, offset, value) => {
                     match self.parameters.index(u64::from(id)) {
                         Some(index) => self.push_point(index, offset, value),
                         None => self.changes.push(id, offset, value),
                     }
                 }
-                None => {}
             }
         }
+        self.inputs.clear();
         while let Some(&(index, offset, value)) = self.automation.get(staged) {
             self.push_point(index, offset, value);
             staged += 1;
         }
     }
 
-    /// The note events `events` become, counted on a copy of the notes followed so far, so that
-    /// a block that does not fit is refused before it changes anything.
-    fn native_event_count(&mut self, events: &[plughost_core::Event]) -> usize {
+    /// Translates the inputs once and counts their expansion on a copy of the tracked notes,
+    /// so a block that does not fit is refused before it changes anything. SysEx pointers remain
+    /// valid through this process call; staged inputs are overwritten before every use.
+    fn stage_inputs(&mut self, events: &[plughost_core::Event]) -> usize {
+        self.inputs.clear();
+        if events.is_empty() {
+            return 0;
+        }
         self.counted.copy_from(&self.notes);
         let mut count = 0;
         for event in events {
-            match self.translate(event) {
+            let Some(native) = self.translate(event) else {
+                continue;
+            };
+            self.inputs.push((event.offset, native));
+            match native {
                 // SAFETY: the union field read matches the event type set where the event was built.
-                Some(NativeInput::Note(note)) => match u32::from(note.r#type) {
+                NativeInput::Note(note) => match u32::from(note.r#type) {
                     NOTE_ON => {
                         let on = unsafe { note.__field0.noteOn };
                         self.counted
@@ -689,13 +704,13 @@ impl Prepared {
                     }
                     _ => count += 1,
                 },
-                Some(NativeInput::KeyExpression(expression, channel, pitch)) => {
+                NativeInput::KeyExpression(expression, channel, pitch) => {
                     count += self
                         .counted
                         .ids(expression.busIndex, channel, pitch)
                         .count();
                 }
-                Some(NativeInput::Parameter(..)) | None => {}
+                NativeInput::Parameter(..) => {}
             }
         }
         count
