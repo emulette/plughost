@@ -5,6 +5,22 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `render::Process::validate_events` lets processors reject unavailable event ports across the
+  whole render before processing begins; its default preserves existing implementations.
+
+### Fixed
+
+- Rendering an unprepared chain reports `NotPrepared` before checking its input buffers, for
+  both sample precisions and continuous render sessions.
+- Invalid event ports anywhere in a render are rejected before DSP state advances, including
+  segments submitted through `RenderSession`.
+- Automation ramps reach their exact endpoints and stay within their endpoint range despite
+  floating-point rounding, so fades to zero or one do not fail during rendering.
+
 ## [0.1.1] - 2026-10-10
 
 ### Added

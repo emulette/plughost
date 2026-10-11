@@ -532,6 +532,23 @@ impl<S: Sample> Process<S> for Plugin {
         Ok(())
     }
 
+    fn validate_events(&mut self, events: &[Event]) -> Result<(), Vst3Error> {
+        let engine = lock(&self.engine);
+        let prepared = engine.prepared.as_ref().ok_or(Vst3Error::NotPrepared)?;
+        if let Some(event) = events.iter().find(|event| {
+            !prepared
+                .event_inputs
+                .get(event.port)
+                .copied()
+                .unwrap_or(false)
+        }) {
+            return Err(Vst3Error::Input(plughost_core::InputError::EventPort {
+                port: event.port,
+            }));
+        }
+        Ok(())
+    }
+
     fn process(
         &mut self,
         context: &plughost_core::BlockContext,

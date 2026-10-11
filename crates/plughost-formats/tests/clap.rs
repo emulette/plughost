@@ -51,6 +51,44 @@ fn plugin() -> Plugin {
 }
 
 #[test]
+#[ignore = "needs delay CLAP fixture"]
+fn render_preflight_rejects_unprepared_and_late_invalid_ports() {
+    let _serial = serial();
+    let mut plugin = plugin();
+    let input = [1.0f32; 32];
+    let options =
+        plughost_core::render::RenderOptions::new(plughost_core::render::TailPolicy::Reported, 0.0);
+    assert!(matches!(
+        plughost_core::render::render(&mut plugin, &[&input, &input], 32, &[], &options),
+        Err(ClapError::NotPrepared)
+    ));
+    let mut config = config(48_000.0);
+    config.max_block_size = 16;
+    plugin.prepare(&config).unwrap();
+    assert!(matches!(
+        plughost_core::render::render(
+            &mut plugin,
+            &[&input, &input],
+            32,
+            &[Event::note_on(24, 0, 60, 100).on_port(99)],
+            &options,
+        ),
+        Err(ClapError::Input(plughost_core::InputError::EventPort {
+            port: 99
+        }))
+    ));
+    assert_eq!(
+        plugin
+            .parameters()
+            .iter()
+            .find(|(p, _)| p.id == 8)
+            .unwrap()
+            .1,
+        0.0
+    );
+}
+
+#[test]
 #[ignore = "needs scripts/build-test-plugins.ps1 (or .sh)"]
 fn unhandled_gui_requests_are_rejected_through_native_callbacks() {
     let _serial = serial();

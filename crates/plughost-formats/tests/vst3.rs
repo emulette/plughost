@@ -85,6 +85,43 @@ fn plugin(name: &str) -> Plugin {
     Plugin::new(&module, &class, &plughost_core::HostIdentity::default()).unwrap()
 }
 
+#[test]
+#[ignore = "needs delay VST3 fixture"]
+fn render_preflight_rejects_unprepared_and_late_invalid_ports() {
+    let _serial = serial();
+    let mut plugin = plugin("plughost-test-delay");
+    let input = [1.0f32; 32];
+    let options = RenderOptions::new(TailPolicy::Reported, 0.0);
+    assert!(matches!(
+        render(&mut plugin, &[&input, &input], 32, &[], &options),
+        Err(Vst3Error::NotPrepared)
+    ));
+    let mut config = config(48_000.0, SampleFormat::F32);
+    config.max_block_size = 16;
+    plugin.prepare(&config).unwrap();
+    assert!(matches!(
+        render(
+            &mut plugin,
+            &[&input, &input],
+            32,
+            &[Event::note_on(24, 0, 60, 100).on_port(99)],
+            &options,
+        ),
+        Err(Vst3Error::Input(plughost_core::InputError::EventPort {
+            port: 99
+        }))
+    ));
+    assert_eq!(
+        plugin
+            .parameters()
+            .iter()
+            .find(|(p, _)| p.id == 5)
+            .unwrap()
+            .1,
+        0.0
+    );
+}
+
 fn config(sample_rate: f64, sample_format: SampleFormat) -> ProcessConfig {
     ProcessConfig {
         sample_rate,

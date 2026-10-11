@@ -195,9 +195,14 @@ impl RenderSchedule<'_> {
                 change: crate::ParameterChange {
                     id: ramp.id,
                     offset: time - start,
-                    value: ramp.from
-                        + (ramp.to - ramp.from) * (time - ramp.start) as f64
-                            / (ramp.end - ramp.start) as f64,
+                    value: if time == ramp.end {
+                        ramp.to
+                    } else {
+                        (ramp.from
+                            + (ramp.to - ramp.from) * (time - ramp.start) as f64
+                                / (ramp.end - ramp.start) as f64)
+                            .clamp(ramp.from.min(ramp.to), ramp.from.max(ramp.to))
+                    },
                 },
             }));
             point = point_end;

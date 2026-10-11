@@ -208,6 +208,9 @@ impl<S: Sample, P: Process<S>> Process<S> for Segment<'_, S, P> {
     fn validate_automation(&mut self, automation: &[AutomationEvent]) -> Result<(), Self::Error> {
         self.processor.validate_automation(automation)
     }
+    fn validate_events(&mut self, events: &[Event]) -> Result<(), Self::Error> {
+        self.processor.validate_events(events)
+    }
     fn process(
         &mut self,
         context: &BlockContext,

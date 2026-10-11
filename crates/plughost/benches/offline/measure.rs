@@ -59,6 +59,9 @@ impl<P: Process<f32>> Process<f32> for Counted<P> {
     ) -> std::result::Result<(), Self::Error> {
         self.processor.validate_automation(events)
     }
+    fn validate_events(&mut self, events: &[Event]) -> std::result::Result<(), Self::Error> {
+        self.processor.validate_events(events)
+    }
     fn process(
         &mut self,
         context: &BlockContext,

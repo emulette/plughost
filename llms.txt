@@ -355,6 +355,10 @@ which the plugin reported a change. Processing uses cached latency; the CLAP tai
 change runs on the processing thread.
 A generic `render::Process` whose latency changes during a render still fails it with
 `RenderError::LatencyChanged`; `Process::begin_render` lets it refuse a render before it starts.
+An unprepared chain returns `NotPrepared` before input validation. `Process::validate_events`
+checks destinations across the whole render before DSP advances; processors with configured
+event ports implement it, including the chain and the direct VST3/CLAP renderers. Render sessions
+perform the same check for each submitted segment.
 
 `render_with_schedule` accepts a `RenderSchedule` containing automation points, ramps,
 and transport changes. Offsets are render-relative. Transport changes and the combined

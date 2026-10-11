@@ -21,6 +21,25 @@ impl<S: Sample> Process<S> for Plugin {
     fn tail(&self) -> Result<Tail, ClapError> {
         Ok(Plugin::timing(self)?.tail)
     }
+    fn begin_render(&mut self) -> Result<(), ClapError> {
+        self.config().ok_or(ClapError::NotPrepared)?;
+        Ok(())
+    }
+    fn validate_events(&mut self, events: &[Event]) -> Result<(), ClapError> {
+        let engine = lock(&self.engine);
+        let prepared = engine.prepared.as_ref().ok_or(ClapError::NotPrepared)?;
+        if let Some(event) = events.iter().find(|event| {
+            prepared
+                .event_inputs
+                .get(event.port)
+                .copied()
+                .flatten()
+                .is_none()
+        }) {
+            return Err(ClapError::Input(InputError::EventPort { port: event.port }));
+        }
+        Ok(())
+    }
     fn validate_automation(&mut self, automation: &[AutomationEvent]) -> Result<(), ClapError> {
         let parameters = self.parameter_cache();
         for event in automation {

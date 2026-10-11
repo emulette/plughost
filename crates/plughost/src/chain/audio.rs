@@ -234,15 +234,7 @@ impl Chain {
         }
         plughost_core::validate_event_budget(automation.len(), events)
             .map_err(|error| Error::Input { slot: None, error })?;
-        if let Some(event) = events
-            .iter()
-            .find(|event| event.port >= config.event_inputs)
-        {
-            return Err(Error::Input {
-                slot: None,
-                error: InputError::EventPort { port: event.port },
-            });
-        }
+        self.validate_render_events(events)?;
         let frames = context.frames;
         if automation.iter().any(|event| {
             event.slot >= self.plugins.len() || !plughost_core::changes_fit(&[event.change], frames)
@@ -268,6 +260,20 @@ impl Chain {
             || output.iter().any(|channel| channel.len() != frames)
         {
             return Err(Error::Buffers);
+        }
+        Ok(())
+    }
+
+    fn validate_render_events(&self, events: &[Event]) -> Result<(), Error> {
+        let config = self.config.as_ref().ok_or(Error::NotPrepared)?;
+        if let Some(event) = events
+            .iter()
+            .find(|event| event.port >= config.event_inputs)
+        {
+            return Err(Error::Input {
+                slot: None,
+                error: InputError::EventPort { port: event.port },
+            });
         }
         Ok(())
     }
@@ -383,14 +389,17 @@ macro_rules! render_process {
             /// Reads the timing anew; a latency a plugin announced must be applied with
             /// [`Chain::reset`] or [`Chain::reprepare`] first.
             fn begin_render(&mut self) -> Result<(), Error> {
+                self.validate_render_precision(<$sample as Sample>::FORMAT)?;
                 if self.read_timing()? {
                     return Err(plughost_core::RenderError::LatencyNotApplied.into());
                 }
                 Ok(())
             }
             fn validate_automation(&mut self, automation: &[AutomationEvent]) -> Result<(), Error> {
-                self.validate_render_precision(<$sample as Sample>::FORMAT)?;
                 self.validate_render_automation(automation)
+            }
+            fn validate_events(&mut self, events: &[Event]) -> Result<(), Error> {
+                self.validate_render_events(events)
             }
             fn process(
                 &mut self,

@@ -424,3 +424,40 @@ fn excessive_same_sample_events_are_rejected_before_any_audio_advances() {
     assert_eq!(error, RenderError::Input(InputError::EventCapacity));
     assert_eq!(processor.processed, 0);
 }
+
+#[test]
+fn ramps_reach_exact_endpoints_without_leaving_the_normalized_range() {
+    for (from, to, end) in [(0.08, 1.0, 10), (0.01, 0.0, 57), (1.0, 0.08, 10)] {
+        for block in [1, 7, 64] {
+            let mut processor = Instrument::new(block);
+            let ramps = [AutomationRamp {
+                slot: 0,
+                id: 0,
+                start: 0,
+                end,
+                from,
+                to,
+            }];
+            let result = render_with_schedule(
+                &mut processor,
+                &[],
+                end + 1,
+                &[],
+                &options(),
+                &RenderSchedule {
+                    ramps: &ramps,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(result.channels[0].len(), end + 1);
+            assert_eq!(result.channels[0][0], from as f32);
+            assert_eq!(processor.gain, to);
+            assert!(
+                result.channels[0]
+                    .iter()
+                    .all(|value| (0.0..=1.0).contains(value))
+            );
+        }
+    }
+}

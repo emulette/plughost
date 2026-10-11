@@ -95,7 +95,8 @@ pub trait Process<S: Sample> {
     /// reset with.
     fn latency(&self) -> Result<u32, Self::Error>;
     fn tail(&self) -> Result<Tail, Self::Error>;
-    /// Called once as a render starts, before it reads the latency and tail. A processor whose
+    /// Called once as a render starts, before validating input or reading the latency and tail.
+    /// Refuse here if the processor is not prepared. A processor whose
     /// latency changed without the change being applied yet refuses here with
     /// [`RenderError::LatencyNotApplied`], since the whole render would keep the old alignment.
     fn begin_render(&mut self) -> Result<(), Self::Error> {
@@ -112,6 +113,13 @@ pub trait Process<S: Sample> {
         } else {
             Err(RenderError::Input(crate::InputError::Automation).into())
         }
+    }
+    /// Validate the event destinations for the entire render before DSP state advances.
+    /// Processors with configured input ports must override this to reject unavailable ports.
+    /// Offsets, ordering and event values are already checked by the renderer. The default
+    /// imposes no port restrictions, preserving processors that do not expose port metadata.
+    fn validate_events(&mut self, _events: &[Event]) -> Result<(), Self::Error> {
+        Ok(())
     }
     /// Processes one block. Every input and output slice has the same length, at most
     /// `max_block_size`; automation and MIDI are in offset order, inside the block. Points hold
@@ -269,6 +277,7 @@ pub fn render_stream<S: Sample, P: Process<S>>(
         events,
         schedule,
     } = request;
+    processor.begin_render()?;
     let expected = processor.input_channels();
     if input.len() != expected {
         return Err(RenderError::InputChannels {
@@ -284,7 +293,7 @@ pub fn render_stream<S: Sample, P: Process<S>>(
         return Err(RenderError::Events.into());
     }
 
-    processor.begin_render()?;
+    processor.validate_events(events)?;
     let latency = processor.latency()?;
     let sample_rate = processor.sample_rate();
     let block = processor.max_block_size();
