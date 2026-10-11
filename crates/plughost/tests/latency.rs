@@ -51,7 +51,17 @@ fn a_latency_change_takes_effect_when_the_chain_is_reset() {
 #[test]
 #[ignore = "needs helper and the delay fixture (.ps1 or .sh build scripts)"]
 fn a_tail_changed_between_blocks_is_read_with_the_timing() {
-    let mut chain = spawn(&[delay(PluginFormat::Clap)]);
+    tail_edit(PluginFormat::Clap);
+}
+
+#[test]
+#[ignore = "needs helper and the delay fixture (.ps1 or .sh build scripts)"]
+fn vst3_tail_edits_reach_the_processor_before_reading_timing() {
+    tail_edit(PluginFormat::Vst3);
+}
+
+fn tail_edit(format: PluginFormat) {
+    let mut chain = spawn(&[delay(format)]);
     prepare(&mut chain);
     let tail = chain
         .parameters(0)
@@ -61,15 +71,13 @@ fn a_tail_changed_between_blocks_is_read_with_the_timing() {
         .unwrap()
         .0
         .id;
-    // 16 of the parameter's 0 to 32 samples. Reading the parameters delivers the edit between
-    // blocks, where the plugin reports its new tail.
+    // 16 of the parameter's 0 to 32 samples. The edit must reach the plugin before timing is
+    // reported, without requiring a parameter read, reset or audio block first.
     chain.set_parameter(0, tail, 0.5).unwrap();
-    chain.parameters(0).unwrap();
+    assert_eq!(chain.tail(), Tail::Samples(16));
     let timing = chain.take_changes().unwrap().snapshot[0].unwrap();
     assert_eq!(timing.tail, Tail::Samples(16));
 
-    chain.reset().unwrap();
-    assert_eq!(chain.tail(), Tail::Samples(16));
     let input = vec![0.0f32; FRAMES];
     let options = RenderOptions::new(TailPolicy::Reported, 1.0);
     let rendered = render(&mut chain, &[&input, &input], FRAMES, &[], &options).unwrap();

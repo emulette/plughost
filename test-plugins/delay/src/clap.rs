@@ -20,6 +20,10 @@ use clack_extensions::audio_ports::{
 use clack_extensions::gui::HostGui;
 use clack_extensions::latency::{HostLatency, PluginLatency, PluginLatencyImpl};
 use clack_extensions::log::{HostLog, LogSeverity};
+use clack_extensions::note_ports::{
+    NoteDialect, NoteDialects, NotePortInfo, NotePortInfoWriter, PluginNotePorts,
+    PluginNotePortsImpl,
+};
 use clack_extensions::params::{
     HostParams, ParamDisplayWriter, ParamInfo, ParamInfoFlags, ParamInfoWriter, ParamRescanFlags,
     PluginAudioProcessorParams, PluginMainThreadParams, PluginParams,
@@ -70,6 +74,9 @@ impl Plugin for TestPlugin {
         if variant() == Variant::Timers {
             builder.register::<clack_extensions::timer::PluginTimer>();
         }
+        if variant() == Variant::MpePorts {
+            builder.register::<PluginNotePorts>();
+        }
         #[cfg(target_os = "macos")]
         if variant() == Variant::Editor {
             builder.register::<clack_extensions::gui::PluginGui>();
@@ -117,6 +124,7 @@ impl DefaultPluginFactory for TestPlugin {
             latency: AtomicU32::new(0),
             editor_focus: Arc::new(AtomicU32::new(0)),
             removed_timer_calls: AtomicU32::new(0),
+            flush_calls: AtomicU32::new(0),
         })
     }
 
@@ -158,6 +166,7 @@ pub struct Shared {
     /// Calls the `timers` variant received for a timer it had removed, reported as
     /// `REMOVED_TIMER_CALLS`.
     pub(crate) removed_timer_calls: AtomicU32,
+    flush_calls: AtomicU32,
 }
 
 /// The thread CLAP assigns a plugin function to.
@@ -284,15 +293,44 @@ impl PluginLatencyImpl for MainThread<'_> {
     }
 }
 
+impl PluginNotePortsImpl for MainThread<'_> {
+    fn count(&self, _input: bool) -> u32 {
+        1
+    }
+    fn get(&self, index: u32, _input: bool, writer: &mut NotePortInfoWriter) {
+        if index == 0 {
+            writer.set(&NotePortInfo {
+                id: ClapId::new(0),
+                name: b"MPE",
+                supported_dialects: NoteDialects::MIDI_MPE,
+                preferred_dialect: Some(NoteDialect::MidiMpe),
+            });
+        }
+    }
+}
+
 impl PluginMainThreadParams for MainThread<'_> {
     fn count(&self) -> u32 {
         self.check("params.count");
-        15 + u32::from(matches!(variant(), Variant::Editor | Variant::Timers))
+        15 + u32::from(matches!(
+            variant(),
+            Variant::Editor | Variant::Timers | Variant::FlushRequest
+        ))
     }
 
     fn get_info(&self, index: u32, info: &mut ParamInfoWriter) {
         self.check("params.get_info");
         match index {
+            15 if variant() == Variant::FlushRequest => info.set(&ParamInfo {
+                id: ClapId::new(15),
+                flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: b"Flush calls",
+                module: b"",
+                min_value: 0.0,
+                max_value: 1000.0,
+                default_value: 0.0,
+            }),
             15 if variant() == Variant::Timers => info.set(&ParamInfo {
                 id: REMOVED_TIMER_CALLS,
                 flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
@@ -425,6 +463,9 @@ impl PluginMainThreadParams for MainThread<'_> {
 
     fn get_value(&self, id: ClapId) -> Option<f64> {
         self.check("params.get_value");
+        if id.get() == 15 && variant() == Variant::FlushRequest {
+            return Some(f64::from(self.shared.flush_calls.load(Ordering::Relaxed)));
+        }
         if id == REMOVED_TIMER_CALLS && variant() == Variant::Timers {
             return Some(f64::from(
                 self.shared.removed_timer_calls.load(Ordering::Relaxed),
@@ -577,6 +618,7 @@ pub struct Processor<'a> {
     shared: &'a Shared,
     lines: [VecDeque<f32>; 2],
     rate: f64,
+    start_attempted: bool,
 }
 
 impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
@@ -600,7 +642,13 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
         if restart_mode == 2 {
             host.shared().request_restart();
         }
+        if variant() == Variant::FlushRequest {
+            host.get_extension::<HostParams>()
+                .unwrap()
+                .request_flush(&host.shared());
+        }
         Ok(Processor {
+            start_attempted: false,
             rate: config.sample_rate,
             log: host.get_extension(),
             host,
@@ -732,6 +780,10 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
 
     fn start_processing(&mut self) -> Result<(), PluginError> {
         self.check("start_processing");
+        if variant() == Variant::StartFailure && !std::mem::replace(&mut self.start_attempted, true)
+        {
+            return Err(PluginError::Message(crate::errors::FIRST_START));
+        }
         Ok(())
     }
 
@@ -785,6 +837,7 @@ impl Processor<'_> {
 impl PluginAudioProcessorParams for Processor<'_> {
     fn flush(&mut self, input: &InputEvents, output: &mut OutputEvents) {
         self.check("params.flush (active)");
+        self.shared.flush_calls.fetch_add(1, Ordering::Relaxed);
         self.shared.apply(input);
         report_edits(input, output);
         self.apply_timing(input);

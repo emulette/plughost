@@ -1,5 +1,6 @@
 pub const PARTIAL_STATE: &str = "test state rejected after partial application";
 pub const PREPARE_STATE: &str = "test state rejected during preparation";
+pub const FIRST_START: &str = "test processor rejects its first start";
 pub const DESCENDANT: &str = "could not start the lifetime test descendant";
 pub const MODULE_PATH: &str = "could not find the path of the loaded test plugin module";
 pub const UNKNOWN_VARIANT: &str =

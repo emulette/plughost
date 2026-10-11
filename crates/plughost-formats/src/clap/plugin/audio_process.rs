@@ -96,10 +96,18 @@ impl Processor {
             .checked_add(frames as u64)
             .filter(|time| *time <= i64::MAX as u64)
             .ok_or(ClapError::Input(plughost_core::InputError::Transport))?;
+        // Starting can fail without processing anything. Keep host edits queued until it
+        // succeeds so the next block can retry them.
+        let started = in_audio_context(|| {
+            let _audit = plughost_core::audit::plugin();
+            processor.ensure_processing_started()
+        })
+        .map_err(|error| ClapError::Process(error.to_string()))?;
         // Host edits apply from the start of the block, so they come before the notes.
         let input_events_buffer = &mut prepared.input_events;
         input_events_buffer.clear();
-        processor.access_shared_handler(|shared| {
+        started.access_shared_handler(|shared| {
+            shared.flush_requested.store(false, Ordering::Relaxed);
             shared.drain_pending(|id, value| {
                 if let Some(id) = ClapId::from_raw(id) {
                     input_events_buffer.parameter(0, id, value);
@@ -122,7 +130,7 @@ impl Processor {
         }
         input_events_buffer.sort();
         let parameter_events =
-            processor.access_shared_handler(|shared| shared.parameter_events.clone());
+            started.access_shared_handler(|shared| shared.parameter_events.clone());
         let mut output_events_buffer = output_events::ProcessOutput {
             parameters: events::ParameterOutput {
                 parameters: &prepared.parameters,
@@ -159,11 +167,6 @@ impl Processor {
         let mut output_events = OutputEvents::from_buffer(&mut output_events_buffer);
         let steady_time = prepared.steady_time;
         let result = in_audio_context(|| {
-            let started = {
-                let _audit = plughost_core::audit::plugin();
-                processor.ensure_processing_started()
-            }
-            .map_err(|error| ClapError::Process(error.to_string()))?;
             let processed = {
                 let _audit = plughost_core::audit::plugin();
                 started.process(

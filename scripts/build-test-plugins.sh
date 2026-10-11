@@ -4,7 +4,8 @@
 #                                    plughost-test-{crash,hang}-{in-process,on-scan}, -noop-reset,
 #                                    -latency-overflow, -large-state, -stall-main-thread,
 #                                    -arrangement-false, -editor, -restart-on-activate, -timers,
-#                                    -latency-change, -thread-check
+#                                    -latency-change, -thread-check, -start-failure,
+#                                    -flush-request, -mpe-ports
 #                                    (the same binary; the plugin picks its variant from its
 #                                    bundle name)
 #   plughost-test-synth.{vst3,clap}  from test-plugins/synth
@@ -44,7 +45,7 @@ PLIST
 cargo build --release --locked -p plughost-test-delay --manifest-path "$root/Cargo.toml" --target-dir "$root/target"
 for variant in delay crash-in-process hang-in-process crash-on-scan hang-on-scan noop-reset \
     latency-overflow large-state stall-main-thread arrangement-false editor restart-on-activate \
-    timers latency-change thread-check; do
+    timers latency-change thread-check start-failure flush-request mpe-ports; do
     for extension in vst3 clap; do
         package "$root/target/release/libplughost_test_delay.dylib" "plughost-test-$variant" "$extension"
     done

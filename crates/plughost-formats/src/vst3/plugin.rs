@@ -179,6 +179,9 @@ impl Plugin {
 
     /// The prepared plugin's timing, with the tail read again on this thread.
     pub(crate) fn timing(&self) -> Result<PluginTiming, Vst3Error> {
+        if self.handler.has_pending() && lock(&self.engine).prepared.is_some() {
+            self.deliver_edits()?;
+        }
         let mut engine = lock(&self.engine);
         engine.refresh_tail();
         engine.timing()

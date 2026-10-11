@@ -23,10 +23,13 @@ pub enum Variant {
     Timers,
     LatencyChange,
     ThreadCheck,
+    StartFailure,
+    FlushRequest,
+    MpePorts,
 }
 
 /// Module file name (without extension), class ID suffix, and plugin name of each variant.
-const VARIANTS: [(Variant, &str, u32, &str); 15] = [
+const VARIANTS: [(Variant, &str, u32, &str); 18] = [
     (
         Variant::Delay,
         "plughost-test-delay",
@@ -116,6 +119,24 @@ const VARIANTS: [(Variant, &str, u32, &str); 15] = [
         "plughost-test-thread-check",
         0x7900000F,
         "plughost test thread check",
+    ),
+    (
+        Variant::StartFailure,
+        "plughost-test-start-failure",
+        0x79000010,
+        "plughost test start failure",
+    ),
+    (
+        Variant::FlushRequest,
+        "plughost-test-flush-request",
+        0x79000011,
+        "plughost test flush request",
+    ),
+    (
+        Variant::MpePorts,
+        "plughost-test-mpe-ports",
+        0x79000012,
+        "plughost test MPE ports",
     ),
 ];
 

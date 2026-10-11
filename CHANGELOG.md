@@ -14,6 +14,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- Timing queries deliver pending CLAP and VST3 host edits before reading the tail, so
+  `Chain::tail()` and reported-tail renders use parameter edits immediately.
+- Failed CLAP processing starts preserve queued host edits for retry. MPE-only note ports
+  advertise note input and output support consistently with their event ports.
+- A CLAP block consumes its pending flush request, avoiding an extra audio-thread flush on
+  the next idle tick.
 - Event routes that exceed the first slot's input budget are rejected with
   `InputError::EventCapacity` before processing, allowing a retry without reset.
 - Helper output events are validated for frame offsets, ordering, ports, note values and total

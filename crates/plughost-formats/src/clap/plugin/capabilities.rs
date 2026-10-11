@@ -40,7 +40,7 @@ impl Plugin {
             for index in 0..notes.count(&handle, is_input) {
                 match notes.get(&handle, index, is_input, &mut buffer) {
                     Some(port)
-                        if [NoteDialect::Clap, NoteDialect::Midi]
+                        if [NoteDialect::Clap, NoteDialect::Midi, NoteDialect::MidiMpe]
                             .iter()
                             .any(|&dialect| port.supported_dialects.contains(dialect.into())) =>
                     {

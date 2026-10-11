@@ -6,6 +6,7 @@ mod audio_process;
 mod buffers;
 mod event_ports;
 mod events;
+mod flushing;
 mod input_events;
 mod output_events;
 mod parameter_cache;
@@ -270,6 +271,9 @@ impl Plugin {
     /// only from a block it processes, so a tail it changed since, for example with a state it
     /// loaded, shows here before the next block.
     pub(crate) fn timing(&self) -> Result<PluginTiming, ClapError> {
+        if self.shared().has_pending() {
+            self.flush_active();
+        }
         let mut engine = lock(&self.engine);
         let Engine {
             processor: Some(processor),
@@ -347,51 +351,6 @@ impl Plugin {
         }
         pending.push((parameter.native.get(), parameter.plain(value)));
         Ok(())
-    }
-
-    /// Delivers queued host edits and any the plugin asked to flush.
-    fn flush(&mut self) {
-        let parameters = self.parameter_cache();
-        let shared = self.shared();
-        let pending = shared.take_pending();
-        shared.flush_requested.store(false, Ordering::Relaxed);
-        let Some(params) = shared.extensions().params else {
-            return;
-        };
-        let mut buffer = EventBuffer::new();
-        for (id, value) in pending {
-            if let Some(id) = ClapId::from_raw(id) {
-                buffer.push(&ParamValueEvent::new(0, id, Pckn::match_all(), value));
-            }
-        }
-        let parameter_events = shared.parameter_events.clone();
-        let deliver = |flush: &mut dyn FnMut(&InputEvents, &mut OutputEvents)| {
-            let mut output_buffer = events::ParameterOutput {
-                parameters: &parameters,
-                queue: &parameter_events,
-            };
-            flush(
-                &InputEvents::from_buffer(&buffer),
-                &mut OutputEvents::from_buffer(&mut output_buffer),
-            );
-        };
-        // An active plugin's flush is an audio-thread function; an inactive one's belongs to
-        // the main thread.
-        if lock(&self.engine).processor.is_some() {
-            let engine = Arc::clone(&self.engine);
-            self.audio.run(|| {
-                if let Some(processor) = lock(&engine).processor.as_mut() {
-                    deliver(&mut |input, output| {
-                        let _audit = plughost_core::audit::plugin();
-                        in_audio_context(|| {
-                            params.flush_active(&mut processor.plugin_handle(), input, output)
-                        })
-                    });
-                }
-            });
-        } else if let Some(mut handle) = self.instance.inactive_plugin_handle() {
-            deliver(&mut |input, output| params.flush(&mut handle, input, output));
-        }
     }
 
     pub(crate) fn save_state(

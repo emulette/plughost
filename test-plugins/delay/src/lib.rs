@@ -79,7 +79,7 @@ const HOST_NAME: ParamID = 3;
 const PROGRAM: ParamID = 6;
 const EVENT_PROBE: ParamID = 7;
 const RESTART_PROBE: ParamID = 8;
-const PARAMETERS: [(&str, i32, ParamValue, i32); 9] = [
+const PARAMETERS: [(&str, i32, ParamValue, i32); 10] = [
     ("Gain", 0, 1.0, ParameterFlags_::kCanAutomate),
     ("Project State", 1, 0.0, ParameterFlags_::kIsReadOnly),
     ("Gain Controller", 1, 0.0, ParameterFlags_::kIsList),
@@ -94,6 +94,7 @@ const PARAMETERS: [(&str, i32, ParamValue, i32); 9] = [
     ),
     ("Event probe", 1, 0.0, ParameterFlags_::kCanAutomate),
     ("Restart probe", 1, 0.0, 0),
+    ("Tail samples", 32, 0.0, ParameterFlags_::kCanAutomate),
 ];
 
 fn class_id() -> TUID {
@@ -155,6 +156,7 @@ struct Delay {
     lines: Mutex<Vec<VecDeque<f64>>>,
     /// The gain the processor applies, as delivered with parameter changes or restored state.
     gain: Mutex<f64>,
+    tail: Mutex<u32>,
     /// Controller values, normalized, indexed by parameter ID.
     values: Mutex<[ParamValue; PARAMETERS.len()]>,
     handler: Mutex<Option<ComPtr<IComponentHandler>>>,
@@ -177,6 +179,7 @@ impl Delay {
             host_name: Mutex::new(String::new()),
             lines: Mutex::new(vec![VecDeque::from(vec![0.0; LATENCY]); 2]),
             gain: Mutex::new(1.0),
+            tail: Mutex::new(0),
             values: Mutex::new(PARAMETERS.map(|(_, _, default, _)| default)),
             handler: Mutex::new(None),
             arrangement: Mutex::new(SpeakerArr::kStereo),
@@ -526,6 +529,7 @@ impl IAudioProcessorTrait for Delay {
                                     gains[offset as usize..].fill(program_gain(value))
                                 }
                                 4 => lock(&self.values)[4] = value,
+                                9 => *lock(&self.tail) = (value * 32.0).round() as u32,
                                 _ => {}
                             }
                         }
@@ -599,7 +603,7 @@ impl IAudioProcessorTrait for Delay {
         if variant() == Variant::LatencyChange && std::thread::current().id() != self.owner {
             vst3::Steinberg::Vst::kInfiniteTail
         } else {
-            0
+            *lock(&self.tail)
         }
     }
 }
