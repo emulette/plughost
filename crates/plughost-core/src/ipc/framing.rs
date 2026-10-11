@@ -80,18 +80,20 @@ pub fn encode_message<T: Serialize>(bytes: &mut Vec<u8>, message: &T) -> io::Res
 /// Encodes the length prefix and payload. A failed serialization never emits a partial frame.
 fn encode_bounded<T: Serialize>(bytes: &mut Vec<u8>, message: &T, limit: usize) -> io::Result<()> {
     bytes.clear();
+    // Sized first: growing by doubling could hold up to twice a large frame, depending on the
+    // capacity earlier frames left, and an oversized message allocates nothing.
+    let size = postcard::serialize_with_flavor(message, postcard::ser_flavors::Size::default())
+        .map_err(serialization_error)?;
+    if size > limit {
+        return Err(serialization_error(postcard::Error::SerializeBufferFull));
+    }
+    bytes.reserve_exact(PREFIX_BYTES + size);
     bytes.extend_from_slice(&[0; PREFIX_BYTES]);
     let buffer = MessageBuffer {
         bytes: &mut *bytes,
         limit: PREFIX_BYTES + limit,
     };
-    let result = postcard::serialize_with_flavor(message, buffer).map_err(|error| {
-        if error == postcard::Error::SerializeBufferFull {
-            io::Error::new(io::ErrorKind::InvalidInput, MESSAGE_TOO_LARGE)
-        } else {
-            io::Error::new(io::ErrorKind::InvalidInput, error)
-        }
-    });
+    let result = postcard::serialize_with_flavor(message, buffer).map_err(serialization_error);
     if let Err(error) = result {
         bytes.clear();
         return Err(error);
@@ -99,6 +101,14 @@ fn encode_bounded<T: Serialize>(bytes: &mut Vec<u8>, message: &T, limit: usize) 
     let length = (bytes.len() - PREFIX_BYTES) as u32;
     bytes[..PREFIX_BYTES].copy_from_slice(&length.to_le_bytes());
     Ok(())
+}
+
+fn serialization_error(error: postcard::Error) -> io::Error {
+    if error == postcard::Error::SerializeBufferFull {
+        io::Error::new(io::ErrorKind::InvalidInput, MESSAGE_TOO_LARGE)
+    } else {
+        io::Error::new(io::ErrorKind::InvalidInput, error)
+    }
 }
 
 /// Decodes frames from reads of any size and keeps a partial frame between them, so a reader can
@@ -314,6 +324,19 @@ mod tests {
             reader.read::<Request>().unwrap_err().kind(),
             io::ErrorKind::UnexpectedEof
         );
+    }
+
+    #[test]
+    fn a_large_frame_takes_its_size_whatever_capacity_earlier_frames_left() {
+        let request = Request::ImportPreset {
+            slot: 0,
+            bytes: vec![42; 1 << 20].into(),
+        };
+        for retained in [0, 256, 1000] {
+            let mut bytes = Vec::with_capacity(retained);
+            encode_message(&mut bytes, &request).unwrap();
+            assert_eq!(bytes.capacity(), bytes.len(), "retained {retained}");
+        }
     }
 
     #[test]
