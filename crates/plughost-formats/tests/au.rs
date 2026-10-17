@@ -357,3 +357,14 @@ fn native_bypass_keeps_parameter_state_and_survives_reset() {
     assert_eq!(plugin.bypass().unwrap().enabled, Some(false));
     assert!((value(&mut plugin, WET_DRY_MIX) - wet).abs() < 1e-4);
 }
+
+#[test]
+fn class_ids_are_matched_without_regard_to_case() {
+    let plugin = Plugin::new(&AU_DELAY.to_ascii_lowercase()).unwrap();
+    assert_eq!(plugin.info().class_id, AU_DELAY);
+    // A well-formed ID that no registered unit has.
+    assert_eq!(
+        Plugin::new("6175667800000000000000AA").unwrap_err(),
+        au::AuError::Instantiate("6175667800000000000000AA".to_owned())
+    );
+}

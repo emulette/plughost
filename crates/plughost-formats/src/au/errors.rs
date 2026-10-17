@@ -67,7 +67,8 @@ pub enum AuError {
     ParameterResult,
     /// The supplied Audio Unit class ID is not 24 hexadecimal digits.
     ClassId(String),
-    /// The Audio Unit could not be instantiated. The payload contains the native diagnostic.
+    /// The Audio Unit could not be instantiated. The payload contains the native diagnostic, or
+    /// the requested class ID when no registered Audio Unit has it.
     Instantiate(String),
     /// Audio Units process 32-bit float samples only.
     SampleFormatUnsupported(SampleFormat),

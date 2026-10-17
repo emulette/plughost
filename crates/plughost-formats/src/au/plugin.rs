@@ -181,8 +181,10 @@ impl Plugin {
     /// process, as macOS does by default.
     pub fn new(class_id: &str) -> Result<Plugin, AuError> {
         let description = parse_class_id(class_id)?;
+        // Zero codes match any component, so the found one must have the requested ID; its
+        // hexadecimal digits may differ in case, as `ScanPolicy` allows.
         let info = component(description)
-            .filter(|info| info.class_id == class_id)
+            .filter(|info| info.class_id.eq_ignore_ascii_case(class_id))
             .ok_or_else(|| AuError::Instantiate(class_id.to_owned()))?;
         let unit = instantiate(description)?;
         let invalidated = Arc::new(AtomicBool::new(false));

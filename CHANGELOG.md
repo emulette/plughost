@@ -42,6 +42,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - The VST3 host reports `INoteExpressionController` as supported through
   `IPlugInterfaceSupport`, since it reads note expressions from it; plugins that check first no
   longer conclude that the host ignores them.
+- Audio Unit class IDs load whatever the case of their hexadecimal digits, as `ScanPolicy` already
+  matches them; a lowercase ID failed to instantiate.
 
 ## [0.1.2] - 2026-10-11
 
