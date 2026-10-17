@@ -96,7 +96,8 @@ When the helper's output is late, the callback plays silence, or the delayed inp
 and ramps into and out of it. The control thread reads `realtime_status` and, after a
 resynchronization, stops the endpoint, resets the chain, and starts it again. The
 [realtime example](https://github.com/emulette/plughost/blob/v0.1.2/crates/plughost/examples/realtime.rs)
-does this with a timer in place of an audio device.
+does this while it plays a chain through the default output device, cutting the device's
+callbacks, whatever their size, from fixed quanta.
 
 ## Capabilities and limits
 
