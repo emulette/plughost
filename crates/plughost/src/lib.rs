@@ -49,6 +49,7 @@ mod errors;
 mod helper;
 mod preset_paths;
 mod presets;
+mod realtime;
 mod scan;
 
 pub use chain::{Chain, Timeouts};
@@ -83,6 +84,10 @@ pub use preset_paths::{
     standard_preset_directories,
 };
 pub use presets::{discover_presets, preset_providers};
+pub use realtime::{
+    Fallback, FallbackReason, RealtimeConfig, RealtimeEndpoint, RealtimeFailure, RealtimeOutput,
+    RealtimeStatus,
+};
 pub use scan::{
     BundleScan, Catalog, ScanAction, ScanControl, ScanEvent, ScanItem, ScanOutcome, ScanPolicy,
     ScanStage, ScanTarget, Scanner, Source, default_directories,

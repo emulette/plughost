@@ -93,6 +93,7 @@ impl Chain {
     }
 
     fn accept_restored(&mut self, request: Request<'_>) -> Result<(), Error> {
+        self.refuse_while_realtime()?;
         match self.request(request, self.timeouts.load)? {
             Response::StateRestored { timing } => {
                 if let Some((latency, tail)) = timing {

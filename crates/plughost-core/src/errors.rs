@@ -241,6 +241,12 @@ pub enum InputError {
     Events,
     /// A bundle or preset path cannot be represented by the helper's Unicode path protocol.
     PathEncoding,
+    /// A realtime quantum is zero frames or exceeds the prepared maximum block size.
+    RealtimeQuantum,
+    /// A realtime latency is not one, two or three quanta.
+    RealtimeLatency,
+    /// A dry fallback needs as many output channels as input channels.
+    RealtimeDry,
 }
 
 impl fmt::Display for InputError {
@@ -295,6 +301,9 @@ impl fmt::Display for InputError {
             Self::UnknownParameter { id } => write!(f, "{UNKNOWN_PARAMETER} ({id})"),
             Self::ReadOnlyParameter { id } => write!(f, "{READ_ONLY_PARAMETER} ({id})"),
             Self::PathEncoding => f.write_str(PATH_ENCODING),
+            Self::RealtimeQuantum => f.write_str(REALTIME_QUANTUM),
+            Self::RealtimeLatency => f.write_str(REALTIME_LATENCY),
+            Self::RealtimeDry => f.write_str(REALTIME_DRY),
         }
     }
 }
@@ -302,6 +311,10 @@ impl fmt::Display for InputError {
 impl std::error::Error for InputError {}
 
 const PATH_ENCODING: &str = "plugin bundle and preset paths must be valid Unicode";
+const REALTIME_QUANTUM: &str =
+    "a realtime quantum must be at least one frame and at most the prepared maximum block size";
+const REALTIME_LATENCY: &str = "a realtime latency must be one, two or three quanta";
+const REALTIME_DRY: &str = "a dry fallback needs as many output channels as input channels";
 
 const INPUT_LENGTH: &str = "input channels do not all have the requested number of frames";
 const INPUT_CHANNELS: &str = "input channel count does not match the processor";

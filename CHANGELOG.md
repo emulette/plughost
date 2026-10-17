@@ -17,6 +17,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Added
 
+- Isolated realtime processing. `Chain::realtime_endpoint` creates a `RealtimeEndpoint` for the
+  prepared chain, which the application's audio callback owns: each callback of the configured
+  quantum hands its input to the helper through shared memory and plays the chain's output for
+  the quantum it submitted one to three callbacks before, without waiting, locking or allocating.
+  When that output is missing the callback plays silence or, for effects, the input delayed by the
+  whole latency (`Fallback::Dry`), ramping into and out of it over one quantum. Without misses the
+  output is the offline output, `latency * quantum` frames later. `Chain::start_realtime` and
+  `stop_realtime` run the helper's worker, and `realtime_status` reports misses, overflows,
+  callbacks of another size, failed quanta and late completions. After a resync, stop the
+  endpoint, `reset` the chain and start it again. While the endpoint runs, `restore_state`,
+  presets, `select_factory_preset`, `reset`, `prepare_audio`, `reprepare` and processing through
+  the chain fail with `Error::RealtimeRunning`; parameter edits, state saves and editors go on.
 - `plughost_formats::clap::classes_once_loaded` lists a CLAP module's classes and reports when
   its entry has initialized, before the classes are read and the entry is deinitialized.
 

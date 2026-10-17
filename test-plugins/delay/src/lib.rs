@@ -16,7 +16,8 @@
 //! `slow-unload` takes [`UNLOAD`] to exit its VST3 module or deinitialize its CLAP entry.
 //! `noop-reset` reproduces a CLAP plugin whose reset leaves audio behind.
 //! `stall-main-thread` makes the CLAP side hold up the host's main thread once, connecting to
-//! the test barrier address in the host name and waiting for release. On macOS,
+//! the test barrier address in the host name and waiting for release; `stall-in-process` holds
+//! up its process call [`STALL_AT`] the same way. On macOS,
 //! `editor` gives the CLAP side an editor inside the host's window (see `editor.rs`).
 //! `restart-on-activate` makes the VST3 side report changed buses each time it activates.
 //! `timers` gives the CLAP side two timers, the first of which removes the second (`timers.rs`).
@@ -74,6 +75,8 @@ use variant::{Variant, variant};
 pub const LATENCY: usize = 480;
 /// The frames the `latency-change` variant processes before it announces its new latency.
 pub const LATENCY_CHANGE_AFTER: usize = 2400;
+/// The CLAP process call, counted from 0, that the `stall-in-process` variant holds up.
+pub const STALL_AT: u32 = 8;
 /// VST3 parameters: the output gain, whether the last restored state was marked as project
 /// state (read-only), and the MIDI controller mapped to the gain (0: volume, 1: expression).
 const GAIN: ParamID = 0;

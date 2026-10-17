@@ -10,7 +10,7 @@ pub(super) struct Transport {
     events: Vec<Event>,
 }
 
-fn storage_error(error: std::io::Error) -> Error {
+pub(super) fn storage_error(error: std::io::Error) -> Error {
     Error::Operation {
         slot: None,
         failure: Failure::new(FailureKind::Configuration, error.to_string()),

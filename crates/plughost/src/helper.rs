@@ -247,10 +247,22 @@ impl Helper {
         self.request(request(handle), timeout)
     }
 
-    fn transfer(
+    /// Transfers a realtime ring's mappings and doorbell, then sends the request naming them.
+    pub fn install_ring(
         &mut self,
-        send: impl FnOnce(&transfer::Sender, &Activity, &std::process::Child) -> io::Result<u64>,
-    ) -> Result<u64, Error> {
+        ring: &plughost_core::ipc::shared::realtime::Ring,
+        request: impl FnOnce(Vec<u64>) -> Request<'static>,
+        timeout: Duration,
+    ) -> Result<Response, Error> {
+        let tokens = self.transfer(|sender, _, child| sender.send_ring(ring, child))?;
+        // As in `prepare_shared`: the helper takes every handle before it answers.
+        self.request(request(tokens), timeout)
+    }
+
+    fn transfer<T>(
+        &mut self,
+        send: impl FnOnce(&transfer::Sender, &Activity, &std::process::Child) -> io::Result<T>,
+    ) -> Result<T, Error> {
         let shared = self.shared.as_ref().ok_or(Error::Protocol)?;
         match self
             .child

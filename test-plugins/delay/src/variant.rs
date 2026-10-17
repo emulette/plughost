@@ -31,10 +31,11 @@ pub enum Variant {
     CrashOnDestroy,
     NoFactory,
     SlowUnload,
+    StallInProcess,
 }
 
 /// Module file name (without extension), class ID suffix, and plugin name of each variant.
-const VARIANTS: [(Variant, &str, u32, &str); 23] = [
+const VARIANTS: [(Variant, &str, u32, &str); 24] = [
     (
         Variant::Delay,
         "plughost-test-delay",
@@ -172,6 +173,12 @@ const VARIANTS: [(Variant, &str, u32, &str); 23] = [
         "plughost-test-slow-unload",
         0x79000017,
         "plughost test slow unload",
+    ),
+    (
+        Variant::StallInProcess,
+        "plughost-test-stall-in-process",
+        0x79000018,
+        "plughost test stall in process",
     ),
 ];
 

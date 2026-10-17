@@ -1,6 +1,7 @@
 //! A chain of plugins processed in order in one helper process.
 
 mod audio;
+mod realtime;
 mod shared;
 mod state;
 
@@ -57,6 +58,7 @@ pub struct Chain {
     generation: u64,
     latency: u32,
     tail: Tail,
+    realtime: Option<realtime::Realtime>,
 }
 
 impl std::fmt::Debug for Chain {
@@ -235,8 +237,7 @@ impl Chain {
 
     /// Changes a parameter the way an edit in the plugin's editor does.
     pub fn set_parameter(&mut self, slot: usize, id: u64, value: f64) -> Result<(), Error> {
-        let request = Request::SetParameter { slot, id, value };
-        self.request_timing(request).map(|_| ())
+        self.request_edit(Request::SetParameter { slot, id, value })
     }
 
     /// Uses the native formatter without changing the parameter.
@@ -256,12 +257,11 @@ impl Chain {
             slot: Some(slot),
             error,
         })?;
-        self.request_timing(Request::SetParameterText {
+        self.request_edit(Request::SetParameterText {
             slot,
             id,
             text: text.to_owned(),
         })
-        .map(|_| ())
     }
 
     /// Parses native display text into a normalized value without editing the parameter.
@@ -312,6 +312,7 @@ impl Chain {
 
     /// Clears every plugin's internal state (tails, delay lines), keeping its settings.
     pub fn reset(&mut self) -> Result<(), Error> {
+        self.refuse_while_realtime()?;
         self.request_timing(Request::Reset).map(|_| ())
     }
 
@@ -359,6 +360,15 @@ impl Chain {
             return Ok(false);
         }
         self.request_timing(Request::Timing)
+    }
+
+    /// Sends a parameter edit, after which the helper reads the timing again, except under a
+    /// running realtime endpoint, whose timing changes arrive through [`Chain::take_changes`].
+    fn request_edit(&mut self, request: Request<'_>) -> Result<(), Error> {
+        if self.realtime_running() {
+            return self.request_done(request, self.timeouts.control);
+        }
+        self.request_timing(request).map(|_| ())
     }
 
     fn request_timing(&mut self, request: Request<'_>) -> Result<bool, Error> {
@@ -425,6 +435,7 @@ fn start(
         generation: 0,
         latency: 0,
         tail: Tail::Samples(0),
+        realtime: None,
     })
 }
 

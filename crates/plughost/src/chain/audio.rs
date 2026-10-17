@@ -172,6 +172,7 @@ impl Chain {
         &mut self,
         config: &RoutedChainConfig,
     ) -> Result<Vec<Vec<AudioBusInfo>>, Error> {
+        self.refuse_while_realtime()?;
         config
             .validate(self.plugins.len())
             .map_err(|error| Error::Input { slot: None, error })?;
@@ -196,6 +197,7 @@ impl Chain {
             } if generation == memory.generation => {
                 self.shared = Some(candidate);
                 self.config = Some(config.clone());
+                self.realtime = None;
                 self.latency = latency;
                 self.tail = tail;
                 Ok(buses)
@@ -212,6 +214,7 @@ impl Chain {
         automation: &[AutomationEvent],
         events: &[Event],
     ) -> Result<(), Error> {
+        self.refuse_while_realtime()?;
         self.validate_render_precision(S::FORMAT)?;
         let config = self.config.as_ref().ok_or(Error::NotPrepared)?;
         context

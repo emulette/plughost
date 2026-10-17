@@ -112,13 +112,16 @@ impl DefaultPluginFactory for TestPlugin {
             wrong_threads: AtomicU32::new(0),
             active: AtomicBool::new(false),
             active_port_scans: AtomicU32::new(0),
-            stall_endpoint: (variant() == Variant::StallMainThread)
-                .then(|| {
-                    host.name()
-                        .and_then(|name| name.to_str().ok())
-                        .and_then(|name| name.parse().ok())
-                })
-                .flatten(),
+            stall_endpoint: matches!(
+                variant(),
+                Variant::StallMainThread | Variant::StallInProcess
+            )
+            .then(|| {
+                host.name()
+                    .and_then(|name| name.to_str().ok())
+                    .and_then(|name| name.parse().ok())
+            })
+            .flatten(),
             gui_requests_accepted: host.get_extension::<HostGui>().map(|gui| {
                 [
                     gui.request_show(&host).is_ok(),
@@ -317,20 +320,20 @@ impl<'a> PluginMainThread<'a, Shared> for MainThread<'a> {
         self.check("on_main_thread");
         static STALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if variant() == Variant::StallMainThread && !STALLED.swap(true, Ordering::Relaxed) {
-            let address = self
-                .shared
-                .stall_endpoint
-                .expect(crate::errors::STALL_ADDRESS);
-            let mut connection =
-                std::net::TcpStream::connect(address).expect(crate::errors::STALL_CONNECT);
-            connection
-                .write_all(&[1])
-                .expect(crate::errors::STALL_CONNECT);
-            // The test observes entry before submitting blocks and holds the stall until
-            // it explicitly releases or disconnects. No timer can end it prematurely.
-            let _ = connection.read_exact(&mut [0]);
+            stall(self.shared.stall_endpoint);
         }
     }
+}
+
+/// Announces entry to the test's barrier at `address` and holds up the calling thread until the
+/// test explicitly releases or disconnects. No timer can end it prematurely.
+fn stall(address: Option<std::net::SocketAddr>) {
+    let address = address.expect(crate::errors::STALL_ADDRESS);
+    let mut connection = std::net::TcpStream::connect(address).expect(crate::errors::STALL_CONNECT);
+    connection
+        .write_all(&[1])
+        .expect(crate::errors::STALL_CONNECT);
+    let _ = connection.read_exact(&mut [0]);
 }
 
 impl PluginAudioPortsImpl for MainThread<'_> {
@@ -833,6 +836,12 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
         match variant() {
             Variant::HangInProcess => hang_while_logging(self.log, self.host.shared()),
             Variant::StallMainThread => self.host.shared().request_callback(),
+            Variant::StallInProcess => {
+                static CALLS: AtomicU32 = AtomicU32::new(0);
+                if CALLS.fetch_add(1, Ordering::Relaxed) == crate::STALL_AT {
+                    stall(self.shared.stall_endpoint);
+                }
+            }
             Variant::CrashInProcess => crate::fail(),
             _ => {}
         }

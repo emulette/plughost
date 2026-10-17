@@ -14,6 +14,8 @@ const SLOT: &str = "slot";
 const CACHE: &str = "could not access the scan cache";
 const INPUT: &str = "invalid input";
 const RENDER: &str = "rendering failed";
+const REALTIME_RUNNING: &str =
+    "the operation is refused while the chain's realtime endpoint runs; stop it first";
 
 /// Failures in helper supervision, native operations, input validation, or rendering.
 /// Use [`Error::kind`] for a stable category and [`std::error::Error::source`] for details.
@@ -64,6 +66,9 @@ pub enum Error {
     /// A scan writer could not lock, read, publish, or flush its cache. Discovery reads
     /// instead treat unreadable caches as empty.
     Cache(std::io::Error),
+    /// The chain's realtime endpoint runs, which refuses what would change the plugins under it
+    /// and processing through the chain itself.
+    RealtimeRunning,
 }
 
 fn slot(f: &mut fmt::Formatter<'_>, slot: &Option<usize>) -> fmt::Result {
@@ -106,6 +111,7 @@ impl fmt::Display for Error {
             Error::Buffers => f.write_str(BUFFERS),
             Error::Render(_) => f.write_str(RENDER),
             Error::Cache(_) => f.write_str(CACHE),
+            Error::RealtimeRunning => f.write_str(REALTIME_RUNNING),
         }
     }
 }
@@ -150,7 +156,7 @@ impl Error {
             Self::TimedOut { .. } => FailureKind::TimedOut,
             Self::Operation { failure, .. } => failure.kind,
             Self::NotPrepared => FailureKind::NotPrepared,
-            Self::Input { .. } | Self::Buffers => FailureKind::InvalidInput,
+            Self::Input { .. } | Self::Buffers | Self::RealtimeRunning => FailureKind::InvalidInput,
             Self::Render(error) => error.kind(),
         }
     }
