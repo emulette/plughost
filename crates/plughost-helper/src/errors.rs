@@ -30,3 +30,9 @@ pub const EVENT_RESYNC: &str = "processing stopped after events exceeded a block
 
 pub const ALIGNMENT_STORAGE: &str =
     "could not reserve the chain's alignment delays within MAX_ALIGNMENT_BYTES";
+
+pub const REALTIME_RUNNING: &str =
+    "the request is refused while the realtime endpoint runs; stop it first";
+pub const REALTIME_NOT_INSTALLED: &str = "no realtime endpoint is installed for the prepared chain";
+pub const REALTIME_RING: &str =
+    "the realtime ring does not match the prepared chain's precision, channels or block size";

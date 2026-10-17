@@ -272,6 +272,8 @@ impl Host {
                 events: slot.events.native(),
             })
             .collect();
+        // An installed ring has the previous configuration's shape.
+        self.remove_realtime();
         self.audio_config = Some(config.clone());
         self.timing = Some(plan);
         self.timing_polls = vec![super::timing::Poll::default(); self.slots.len()];
@@ -313,6 +315,7 @@ impl Host {
     /// Forgets the prepared chain after its active instances were changed, so blocks fail as
     /// unprepared until the chain is prepared again.
     fn unprepare(&mut self) {
+        self.remove_realtime();
         self.audio_config = None;
         self.audio_slots.clear();
         self.timing = None;

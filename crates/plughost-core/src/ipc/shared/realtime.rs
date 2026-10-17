@@ -146,6 +146,25 @@ impl Control {
         HEADERS + (2 * lane + usize::from(output)) * HEADER_BYTES
     }
 
+    /// Starts generation `generation`, whose quanta are numbered from 1 and must each complete
+    /// within `deadline` ticks of their submission. The application calls this while neither its
+    /// callback nor the worker runs.
+    pub fn start(&self, generation: u64, deadline: u64) {
+        self.word(SUBMITTED).store(0, Ordering::Relaxed);
+        self.word(COMPLETED).store(0, Ordering::Relaxed);
+        self.word(DEADLINE).store(deadline, Ordering::Relaxed);
+        self.word(GENERATION_WORD)
+            .store(generation, Ordering::Release);
+    }
+
+    /// How many quanta the worker completed later than their deadline, and its heartbeat.
+    pub fn worker(&self) -> (u64, u64) {
+        (
+            self.word(LATE).load(Ordering::Relaxed),
+            self.word(HEARTBEAT).load(Ordering::Relaxed),
+        )
+    }
+
     /// Wakes the worker, as the helper's main thread does after queueing a command.
     pub fn ring(&self) {
         self.doorbell.ring(self.bell());
@@ -283,17 +302,9 @@ impl Ring {
         (sequence % self.descriptor.lanes as u64) as usize
     }
 
-    /// Starts generation `generation`, whose quanta are numbered from 1 and must each complete
-    /// within `deadline` ticks of their submission. The application calls this while the
-    /// callback submits nothing.
+    /// See [`Control::start`].
     pub fn start(&self, generation: u64, deadline: u64) {
-        self.control.word(SUBMITTED).store(0, Ordering::Relaxed);
-        self.control
-            .word(DEADLINE)
-            .store(deadline, Ordering::Relaxed);
-        self.control
-            .word(GENERATION_WORD)
-            .store(generation, Ordering::Release);
+        self.control.start(generation, deadline);
     }
 
     /// The generation the application started, and the deadline of its quanta in ticks.
@@ -315,17 +326,9 @@ impl Ring {
         self.control.word(COMPLETED).load(Ordering::Acquire)
     }
 
-    /// Restarts the worker's count, before it processes a new generation.
-    pub fn reset_completed(&self) {
-        self.control.word(COMPLETED).store(0, Ordering::Release);
-    }
-
-    /// How many quanta the worker completed later than their deadline, and its heartbeat.
+    /// See [`Control::worker`].
     pub fn worker(&self) -> (u64, u64) {
-        (
-            self.control.word(LATE).load(Ordering::Relaxed),
-            self.control.word(HEARTBEAT).load(Ordering::Relaxed),
-        )
+        self.control.worker()
     }
 
     /// Whether the callback may reuse the lane of quantum `sequence`.

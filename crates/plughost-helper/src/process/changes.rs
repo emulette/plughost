@@ -60,6 +60,7 @@ mod tests {
         (
             Processing {
                 work,
+                bell: Mutex::new(None),
                 returned: Mutex::new(returned),
                 thread: std::thread::current().id(),
                 observations: Arc::clone(&observations),

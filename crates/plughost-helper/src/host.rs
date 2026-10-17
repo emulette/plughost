@@ -4,6 +4,7 @@
 //! changes without the processing thread.
 
 mod audio;
+mod realtime;
 mod state;
 mod timing;
 
@@ -39,6 +40,10 @@ pub struct Host {
     timing_polls: Vec<timing::Poll>,
     transfer: transfer::Receiver,
     calls: Calls,
+    /// The application installed a realtime ring for the prepared chain.
+    realtime_installed: bool,
+    /// The processing thread runs the realtime worker.
+    realtime_running: bool,
 }
 
 impl Host {
@@ -62,16 +67,24 @@ impl Host {
             timing_polls: Vec::new(),
             transfer,
             calls: Calls::default(),
+            realtime_installed: false,
+            realtime_running: false,
         }
     }
 
     /// Handles one request. Parameter events and metadata are collected before the response
     /// leaves, so the next block is validated against metadata this request may have changed.
     pub fn handle(&mut self, request: Request<'_>) -> Response {
-        let refresh_timing = matches!(
-            &request,
-            Request::SetParameter { .. } | Request::SetParameterText { .. } | Request::Reset
-        );
+        if let Some(refused) = self.refused_while_running(&request) {
+            return refused;
+        }
+        // A running realtime worker would stop for the timing read; changes still reach the
+        // application through `take_changes`.
+        let refresh_timing = !self.realtime_running
+            && matches!(
+                &request,
+                Request::SetParameter { .. } | Request::SetParameterText { .. } | Request::Reset
+            );
         let response = self.dispatch(request);
         self.collect_parameter_events();
         if refresh_timing && matches!(response, Response::Done) {
@@ -269,6 +282,9 @@ impl Host {
                 self.tick();
                 Response::EditorOpen(self.editors[slot].is_some())
             }
+            Request::RealtimeInstall { ring, tokens } => self.install_realtime(ring, &tokens),
+            Request::RealtimeStart => self.start_realtime(),
+            Request::RealtimeStop => self.stop_realtime(),
             Request::PresetProviders { .. }
             | Request::DiscoverPresets { .. }
             | Request::Scan { .. }
@@ -376,6 +392,7 @@ impl Host {
     /// Receives the activity mapping first: its transfer must be consumed even when the request
     /// is rejected. Invalid input leaves the current chain loaded.
     fn load(&mut self, plugins: &[PluginRef], host: &HostIdentity, activity: u64) -> Response {
+        self.remove_realtime();
         // SAFETY: the application transferred its activity mapping once, for this request.
         match unsafe { self.transfer.receive_activity(activity) } {
             Ok(activity) => {

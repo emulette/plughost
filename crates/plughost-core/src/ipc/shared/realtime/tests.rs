@@ -226,6 +226,35 @@ fn a_worker_cannot_take_a_quantum_of_another_generation() {
 }
 
 #[test]
+fn a_new_generation_reads_and_frees_only_its_own_quanta() {
+    let (mut owner, mut worker) = pair(3);
+    owner.start(1, 1000);
+    let context = BlockContext::new(8);
+    for sequence in 1..=3 {
+        owner
+            .submit_f32(1, sequence, &context, &[&[0.5f32; 8][..]; 2], &[], &[])
+            .unwrap();
+        let (quantum, _, _) = take(&mut worker, 1, sequence);
+        worker
+            .complete_f32(&quantum, &[&[0.5f32; 8][..]; 2], &[], 0, Tail::Samples(0))
+            .unwrap();
+    }
+    owner.start(2, 1000);
+    owner
+        .submit_f32(2, 1, &context, &[&[0.0f32; 8][..]; 2], &[], &[])
+        .unwrap();
+    let mut output = vec![vec![0.0; 8]; 2];
+    // The lanes still hold the earlier generation's outputs, which are not this one's.
+    assert_eq!(
+        owner
+            .read_f32(2, 1, &mut views(&mut output), 1, &mut Vec::new())
+            .unwrap(),
+        None
+    );
+    assert!(!owner.lane_free(4));
+}
+
+#[test]
 fn rings_outside_the_supported_lane_counts_are_refused() {
     for lanes in [0, 2, MAX_LANES + 1] {
         assert!(Ring::new(descriptor(lanes)).is_err(), "{lanes}");

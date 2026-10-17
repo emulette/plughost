@@ -17,7 +17,7 @@ use crate::render::Tail;
 use crate::state::{PluginState, PresetInfo, StatePurpose};
 use crate::{CapabilityReport, DiagnosticBatch, Failure, HostIdentity};
 
-pub const PROTOCOL_VERSION: u32 = 27;
+pub const PROTOCOL_VERSION: u32 = 28;
 /// Upper bound on one message. A helper whose memory a plugin corrupted could send anything.
 pub const MAX_MESSAGE_BYTES: usize = 256 << 20;
 
@@ -192,6 +192,16 @@ pub enum Request<'a> {
     EditorOpen {
         slot: usize,
     },
+    /// Installs the realtime ring the transfers `tokens` name, for the prepared chain, replacing
+    /// one installed before. Preparing the chain again removes it.
+    RealtimeInstall {
+        ring: shared::realtime::RingDescriptor,
+        tokens: Vec<u64>,
+    },
+    /// Starts the installed ring's worker at the generation the application stored in the ring.
+    RealtimeStart,
+    /// Stops the realtime worker between quanta.
+    RealtimeStop,
     Shutdown,
 }
 

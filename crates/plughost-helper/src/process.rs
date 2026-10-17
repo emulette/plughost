@@ -13,6 +13,7 @@ mod channel_views;
 pub(crate) mod events;
 mod parameters;
 pub(crate) mod prepared;
+pub(crate) mod realtime;
 pub(crate) mod shared;
 
 use std::io;
@@ -21,6 +22,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, ThreadId};
 
+use plughost_core::ipc::shared::realtime::Control;
 use plughost_core::ipc::shared::{Caller, Submission};
 use plughost_core::{BlockContext, ChangeBatch, InputError, PluginTiming, RoutedChainConfig};
 use plughost_formats::BlockProcessor;
@@ -41,6 +43,8 @@ pub struct Pipeline {
     pub processors: Vec<Box<dyn BlockProcessor>>,
     pub prepared: Option<prepared::Prepared>,
     pub transport: Option<shared::Transport>,
+    /// The realtime ring the application installed for the prepared chain.
+    pub realtime: Option<Box<realtime::Transport>>,
     pub audio_config: Option<RoutedChainConfig>,
     pub alignment: Option<Alignment>,
     /// Event routing and its block storage, planned with the audio routing.
@@ -94,6 +98,7 @@ pub(crate) enum Command {
     Changes(Option<ChangeBatch>),
     /// Runs one of a slot's audio-thread calls.
     Run(usize, Call),
+    Realtime(realtime::Realtime),
 }
 
 /// A prepared audio configuration.
@@ -202,6 +207,11 @@ impl Pipeline {
                 let _call = self.calls.enter(Caller::Processing, *slot);
                 crate::events::with_pool(|| call.run());
             }
+            Command::Realtime(realtime::Realtime::Install(transport)) => {
+                swap(&mut self.realtime, transport);
+            }
+            // The processing thread runs the worker after handing the command back.
+            Command::Realtime(realtime::Realtime::Start | realtime::Realtime::Stop) => {}
         }
     }
 }
@@ -209,6 +219,8 @@ impl Pipeline {
 /// The main thread's way to the processing thread.
 pub(crate) struct Processing {
     work: SyncSender<Work>,
+    /// The installed ring's doorbell, which wakes a running worker for each command.
+    bell: Mutex<Option<Arc<Control>>>,
     /// Commands handed back; the main thread waits for each before it sends the next.
     returned: Mutex<Receiver<Command>>,
     thread: ThreadId,
@@ -228,6 +240,7 @@ impl Processing {
             .spawn(move || serve(&queue, &handed_back, &responder, observed))?;
         let processing = Processing {
             work: work.clone(),
+            bell: Mutex::new(None),
             returned: Mutex::new(returned),
             thread: thread.thread().id(),
             observations,
@@ -245,9 +258,24 @@ impl Processing {
         if self.work.send(Work::Command(command)).is_err() {
             crate::lifetime::disconnected();
         }
+        if let Some(bell) = &*self
+            .bell
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        {
+            bell.ring();
+        }
         returned
             .recv()
             .unwrap_or_else(|_| crate::lifetime::disconnected())
+    }
+
+    /// Sets the doorbell that commands ring, which a realtime worker waits on.
+    pub fn set_bell(&self, bell: Option<Arc<Control>>) {
+        *self
+            .bell
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = bell;
     }
 
     /// Records a slot's timing without waiting. A full queue skips it: the next idle tick reads
@@ -296,8 +324,12 @@ fn serve(
             }
             Work::Observe(slot, timing) => pipeline.changes.observe(slot, timing),
             Work::Command(mut command) => {
+                let start = matches!(command, Command::Realtime(realtime::Realtime::Start));
                 pipeline.apply(&mut command);
                 if handed_back.send(command).is_err() {
+                    return;
+                }
+                if start && !realtime::run(&mut pipeline, queue, handed_back, responder) {
                     return;
                 }
             }
