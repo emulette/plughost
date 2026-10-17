@@ -106,6 +106,7 @@ impl Processor {
         // succeeds so the next block can retry them.
         let started = in_audio_context(|| {
             let _audit = plughost_core::audit::plugin();
+            let _floats = crate::float_mode::FlushToZero::enter();
             processor.ensure_processing_started()
         })
         .map_err(|error| ClapError::Process(error.to_string()))?;
@@ -169,6 +170,7 @@ impl Processor {
         let result = in_audio_context(|| {
             let processed = {
                 let _audit = plughost_core::audit::plugin();
+                let _floats = crate::float_mode::FlushToZero::enter();
                 started.process(
                     &input_audio,
                     &mut output_audio,

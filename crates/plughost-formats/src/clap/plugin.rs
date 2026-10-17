@@ -258,6 +258,7 @@ impl Plugin {
         if let Some(processor) = processor {
             let stopped = self.audio.run(|| {
                 let _audit = plughost_core::audit::plugin();
+                let _floats = crate::float_mode::FlushToZero::enter();
                 in_audio_context(|| processor.into_stopped())
             });
             self.instance.deactivate(stopped);
@@ -491,6 +492,7 @@ impl Plugin {
             };
             {
                 let _audit = plughost_core::audit::plugin();
+                let _floats = crate::float_mode::FlushToZero::enter();
                 in_audio_context(|| processor.reset());
             }
             if let Some(prepared) = &mut engine.prepared {

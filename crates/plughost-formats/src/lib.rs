@@ -9,7 +9,9 @@
 //! also be created directly. Every plugin is used through [`HostedPlugin`] and processed from
 //! another thread through the [`BlockProcessor`] it hands out. Format-specific failures are
 //! variants of [`Error`]. An owner that processes plugins on a thread of its own gives them an
-//! [`AudioThread`], so the audio-thread calls they need between blocks run there too.
+//! [`AudioThread`], so the audio-thread calls they need between blocks run there too. Plugins
+//! process, reset and flush with subnormal numbers flushed to zero (MXCSR FTZ and DAZ on x86-64,
+//! FPCR.FZ on AArch64); the calling thread's mode is restored after each call.
 //!
 //! The [detailed API guide](https://github.com/emulette/plughost/blob/v0.1.2/llms.txt)
 //! describes format capabilities and the application-level processing contracts.
@@ -22,6 +24,12 @@ mod audio_thread;
 #[cfg(feature = "clap")]
 pub mod clap;
 mod errors;
+#[cfg(any(
+    feature = "clap",
+    feature = "vst3",
+    all(feature = "au", target_os = "macos")
+))]
+mod float_mode;
 mod hosted;
 mod parameter_choices;
 pub mod preset;

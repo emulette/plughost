@@ -355,3 +355,28 @@ fn replacing_a_slot_instance_keeps_its_bypass_unless_the_change_sets_it() {
     chain.restore_state(0, &bypassed, Project).unwrap();
     assert_eq!(chain.bypass(0).unwrap().enabled, Some(true));
 }
+
+#[test]
+#[ignore = "needs helper and native routing fixtures"]
+fn plugins_process_with_subnormal_numbers_flushed_to_zero() {
+    // The delay fixtures multiply each delayed sample by their unit gain.
+    let subnormal = f32::MIN_POSITIVE / 2.0;
+    assert!(subnormal.is_subnormal());
+    for format in [PluginFormat::Vst3, PluginFormat::Clap] {
+        let mut chain = spawn(&[support::delay(format)]);
+        support::prepare(&mut chain);
+        let options = RenderOptions::new(TailPolicy::Reported, 0.0);
+        for (input, expected) in [(0.25, 0.25), (subnormal, 0.0)] {
+            let channel = vec![input; 2048];
+            let rendered = render(&mut chain, &[&channel, &channel], 2048, &[], &options).unwrap();
+            assert!(
+                rendered
+                    .channels
+                    .iter()
+                    .all(|channel| channel.iter().all(|&sample| sample == expected)),
+                "{format:?}: {input:e}"
+            );
+            chain.reset().unwrap();
+        }
+    }
+}

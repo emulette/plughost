@@ -7,6 +7,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ## [Unreleased]
 
+### Changed
+
+- Plugins process, reset and flush parameters with subnormal numbers flushed to zero, as inputs
+  and as results (MXCSR FTZ and DAZ on x86-64, FPCR.FZ on AArch64), in the helper and through the
+  direct formats API. Denormal arithmetic no longer slows plugins that do not protect themselves,
+  and output changes only for samples at subnormal level (about −758 dBFS). The calling thread's
+  mode is restored after each call; out-of-process AUv3 extensions keep their own.
+
 ### Added
 
 - `plughost_formats::clap::classes_once_loaded` lists a CLAP module's classes and reports when

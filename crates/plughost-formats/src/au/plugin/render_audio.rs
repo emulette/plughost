@@ -162,6 +162,7 @@ fn render_output(
     time.mFlags = AudioTimeStampFlags::SampleTimeValid;
     let status = unsafe {
         let _audit = plughost_core::audit::plugin();
+        let _floats = crate::float_mode::FlushToZero::enter();
         (*render).call((
             NonNull::from(&mut flags),
             NonNull::from(&mut time),

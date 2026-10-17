@@ -860,6 +860,7 @@ impl Engine {
         }
         for &(id, offset, value) in &prepared.automation {
             let _audit = plughost_core::audit::plugin();
+            let _floats = crate::float_mode::FlushToZero::enter();
             prepared.schedule.call((
                 prepared.position as AUEventSampleTime + offset as AUEventSampleTime,
                 0,
@@ -902,6 +903,7 @@ impl Engine {
                     (_, None) => continue,
                 };
                 let _audit = plughost_core::audit::plugin();
+                let _floats = crate::float_mode::FlushToZero::enter();
                 schedule.call((
                     position as AUEventSampleTime + event.offset as AUEventSampleTime,
                     0,
@@ -936,6 +938,7 @@ impl Engine {
         }
         let plain = plain(*min, *max, info, value);
         let _audit = plughost_core::audit::plugin();
+        let _floats = crate::float_mode::FlushToZero::enter();
         prepared.schedule.call((
             prepared.position as AUEventSampleTime + offset as AUEventSampleTime,
             0,

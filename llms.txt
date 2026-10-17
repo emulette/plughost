@@ -255,6 +255,10 @@ the shared helper.
 processes one block and replaces `produced` with the chain's output events. All channel slices must have `context.frames` samples,
 no more than the prepared maximum block size. `BlockContext::new(frames)` supplies frame
 count without transport, and `.with_transport(transport)` adds one. The helper's reply is validated before it modifies output buffers.
+Plugins process, reset and flush parameters with subnormal numbers flushed to zero, as inputs and
+as results (MXCSR FTZ and DAZ on x86-64, FPCR.FZ on AArch64), in the helper and through
+`plughost-formats`; out-of-process AUv3 extensions keep their own mode. Output differs from an
+IEEE run only at subnormal level.
 Automation points and events are fixed-size records: together they are limited to
 `MAX_BLOCK_EVENTS` (4,096) per call across the chain, and system exclusive data, kept apart
 from the records, to `MAX_BLOCK_SYSEX_BYTES` (64 KiB); excess input fails with

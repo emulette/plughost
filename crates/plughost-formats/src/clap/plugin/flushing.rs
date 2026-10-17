@@ -32,6 +32,7 @@ impl Plugin {
             if let Some(processor) = lock(&engine).processor.as_mut() {
                 Flush::take(shared).deliver(&parameters, |input, output| {
                     let _audit = plughost_core::audit::plugin();
+                    let _floats = crate::float_mode::FlushToZero::enter();
                     in_audio_context(|| {
                         params.flush_active(&mut processor.plugin_handle(), input, output)
                     });
