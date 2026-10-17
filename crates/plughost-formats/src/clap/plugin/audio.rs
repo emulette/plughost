@@ -95,7 +95,11 @@ impl Plugin {
     }
     pub(crate) fn audio_configurations(&mut self) -> Result<Vec<AudioConfiguration>, ClapError> {
         let extensions = self.shared().extensions();
-        let extension = extensions.audio_config.ok_or(ClapError::AudioUnsupported)?;
+        // Without audio-ports-config the plugin has no configurations to select.
+        let Some(extension) = extensions.audio_config else {
+            return Ok(Vec::new());
+        };
+        // Configurations it cannot describe port by port are not listed as if they had none.
         let info = extensions
             .audio_config_info
             .ok_or(ClapError::AudioUnsupported)?;

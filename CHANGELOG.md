@@ -14,6 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   group path ends below the implicit root.
 - VST3 `set_bypass` works before `prepare_audio`, like `bypass`, `set_parameter` on the bypass
   parameter and the CLAP and Audio Unit bypass, instead of failing with `NotPrepared`.
+- `audio_configurations` returns an empty list for CLAP plugins without the `audio-ports-config`
+  extension, as for VST3 and Audio Units, instead of failing with an unsupported-audio error.
 
 ## [0.1.2] - 2026-10-11
 

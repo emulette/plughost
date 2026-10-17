@@ -300,6 +300,14 @@ fn parameter_value(plugin: &mut Plugin, id: u64) -> f64 {
 
 #[test]
 #[ignore = "needs scripts/build-test-plugins.sh"]
+fn a_plugin_without_selectable_configurations_lists_none() {
+    let _serial = serial();
+    // The delay fixture has no audio-ports-config extension.
+    assert_eq!(plugin().audio_configurations(), Ok(Vec::new()));
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
 fn classes_are_listed_with_their_plugin_ids() {
     let _serial = serial();
     let classes = clap::classes(&bundle()).unwrap();
