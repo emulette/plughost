@@ -11,7 +11,9 @@ use rustix::net::{
 
 use super::super::{
     Activity, Descriptor, SharedAudio,
+    doorbell::Doorbell,
     errors::{TRANSFER, invalid},
+    realtime::{Ring, RingDescriptor},
 };
 
 /// Tags the activity datagram; shared audio generations start at 1.
@@ -40,6 +42,16 @@ impl Sender {
     /// Sends the activity mapping the same way, for the load request that carries its token.
     pub fn send_activity(&self, activity: &Activity, _child: &Child) -> io::Result<u64> {
         self.send_fd(activity.memory.handle(), ACTIVITY_TAG)
+    }
+
+    /// Sends a realtime ring's control mapping and then its lanes, and returns their tokens.
+    pub fn send_ring(&self, ring: &Ring, _child: &Child) -> io::Result<Vec<u64>> {
+        let descriptor = ring.descriptor();
+        let mut tokens = vec![self.send_fd(ring.control_memory().handle(), descriptor.control)?];
+        for lane in ring.lane_audio() {
+            tokens.push(self.send_fd(lane.memory.handle(), lane.descriptor.generation)?);
+        }
+        Ok(tokens)
     }
 
     fn send_fd(&self, fd: &OwnedFd, tag: u64) -> io::Result<u64> {
@@ -100,6 +112,36 @@ impl Receiver {
         }
         // SAFETY: the parent sent the shared memory of its `Activity`.
         unsafe { Activity::open(self.receive_fd(token)?) }
+    }
+
+    /// Receives the realtime ring sent with `tokens` for the request carrying `descriptor`.
+    ///
+    /// # Safety
+    /// As for [`Receiver::receive`], with transfers from `Sender::send_ring`.
+    pub unsafe fn receive_ring(
+        &self,
+        descriptor: RingDescriptor,
+        tokens: &[u64],
+    ) -> io::Result<Ring> {
+        let [control, lanes @ ..] = tokens else {
+            return Err(invalid(TRANSFER));
+        };
+        if *control != descriptor.control
+            || lanes.len() != descriptor.lanes
+            || lanes
+                .iter()
+                .enumerate()
+                .any(|(index, &token)| token != descriptor.first_lane + index as u64)
+        {
+            return Err(invalid(TRANSFER));
+        }
+        let control = self.receive_fd(*control)?;
+        let lanes = lanes
+            .iter()
+            .map(|&token| self.receive_fd(token))
+            .collect::<io::Result<_>>()?;
+        // SAFETY: the parent sent its ring's mappings for `descriptor`, in order.
+        unsafe { Ring::open(descriptor, control, lanes, Doorbell::new()?) }
     }
 
     fn receive_fd(&self, tag: u64) -> io::Result<OwnedFd> {

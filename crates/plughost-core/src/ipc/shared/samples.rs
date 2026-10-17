@@ -2,7 +2,7 @@ use super::*;
 use std::ptr;
 
 // Closed to external implementations: sample format tags alone cannot justify a pointer cast.
-trait WireSample: Copy {
+pub(super) trait WireSample: Copy {
     const FORMAT: SampleFormat;
 }
 impl WireSample for f32 {
@@ -77,7 +77,7 @@ impl SharedAudio {
         Ok(())
     }
 
-    fn write_input<T: WireSample>(
+    pub(super) fn write_input<T: WireSample>(
         &mut self,
         sequence: u64,
         frames: usize,
@@ -101,7 +101,7 @@ impl SharedAudio {
         })
     }
 
-    fn read_input<T: WireSample>(
+    pub(super) fn read_input<T: WireSample>(
         &mut self,
         submission: Submission,
         scratch: &mut [Vec<T>],
@@ -116,10 +116,10 @@ impl SharedAudio {
             scratch,
         )?;
         self.read_automation(submission.automation, automation)?;
-        self.read_events(self.layout.input_events, submission.events, events)
+        self.read_events(self.layout.input_events, submission.events, events, None)
     }
 
-    fn write_output<T: WireSample>(
+    pub(super) fn write_output<T: WireSample>(
         &mut self,
         submission: Submission,
         output: &[&[T]],
@@ -147,8 +147,43 @@ impl SharedAudio {
         event_ports: usize,
         events: &mut Vec<Event>,
     ) -> io::Result<()> {
+        self.read_output_events(submission, output, event_count, event_ports, events, None)
+    }
+
+    /// As [`SharedAudio::read_output`], but leaves system exclusive events out instead of
+    /// allocating for them, and events beyond `events`' capacity, and returns how many it left
+    /// out.
+    pub(super) fn read_output_skipping_sysex<T: WireSample>(
+        &mut self,
+        submission: Submission,
+        output: &mut [&mut [T]],
+        event_count: usize,
+        event_ports: usize,
+        events: &mut Vec<Event>,
+    ) -> io::Result<usize> {
+        let mut skipped = 0;
+        self.read_output_events(
+            submission,
+            output,
+            event_count,
+            event_ports,
+            events,
+            Some(&mut skipped),
+        )?;
+        Ok(skipped)
+    }
+
+    fn read_output_events<T: WireSample>(
+        &mut self,
+        submission: Submission,
+        output: &mut [&mut [T]],
+        event_count: usize,
+        event_ports: usize,
+        events: &mut Vec<Event>,
+        skipped: Option<&mut usize>,
+    ) -> io::Result<()> {
         self.check_submission(submission)?;
-        self.read_events(self.layout.output_events, event_count, events)?;
+        self.read_events(self.layout.output_events, event_count, events, skipped)?;
         if !crate::events_fit(events, submission.frames)
             || events.iter().any(|event| event.port >= event_ports)
         {

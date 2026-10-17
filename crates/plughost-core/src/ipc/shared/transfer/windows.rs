@@ -7,7 +7,9 @@ use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
 use super::super::{
     Activity, Descriptor, SharedAudio,
+    doorbell::Doorbell,
     errors::{TRANSFER, invalid},
+    realtime::{Ring, RingDescriptor},
 };
 
 pub struct Sender;
@@ -28,6 +30,17 @@ impl Sender {
     /// Duplicates the activity mapping the same way, for the load request that carries its token.
     pub fn send_activity(&self, activity: &Activity, child: &Child) -> io::Result<u64> {
         duplicate(activity.memory.handle(), child)
+    }
+
+    /// Duplicates a realtime ring's control mapping, its lanes and its doorbell event, in that
+    /// order, and returns their tokens.
+    pub fn send_ring(&self, ring: &Ring, child: &Child) -> io::Result<Vec<u64>> {
+        let mut tokens = vec![duplicate(ring.control_memory().handle(), child)?];
+        for lane in ring.lane_audio() {
+            tokens.push(duplicate(lane.memory.handle(), child)?);
+        }
+        tokens.push(duplicate(&ring.doorbell().event, child)?);
+        Ok(tokens)
     }
 }
 
@@ -76,6 +89,35 @@ impl Receiver {
     pub unsafe fn receive_activity(&self, token: u64) -> io::Result<Activity> {
         // SAFETY: forwarded from the caller.
         unsafe { Activity::open(take(token)?) }
+    }
+}
+
+impl Receiver {
+    /// Takes ownership of a realtime ring's handles.
+    ///
+    /// # Safety
+    /// As for [`Receiver::receive`], with handles from `Sender::send_ring`, in order.
+    pub unsafe fn receive_ring(
+        &self,
+        descriptor: RingDescriptor,
+        tokens: &[u64],
+    ) -> io::Result<Ring> {
+        let [control, lanes @ .., event] = tokens else {
+            return Err(invalid(TRANSFER));
+        };
+        // SAFETY: forwarded from the caller; each token is taken once.
+        let control = unsafe { take(*control) }?;
+        let lanes = lanes
+            .iter()
+            // SAFETY: as above.
+            .map(|&token| unsafe { take(token) })
+            .collect::<io::Result<_>>()?;
+        // SAFETY: as above.
+        let doorbell = Doorbell {
+            event: unsafe { take(*event) }?,
+        };
+        // SAFETY: the parent duplicated its ring's handles for `descriptor`, in order.
+        unsafe { Ring::open(descriptor, control, lanes, doorbell) }
     }
 }
 

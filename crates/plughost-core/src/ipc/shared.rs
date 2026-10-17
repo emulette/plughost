@@ -7,10 +7,13 @@
 //! hostile plugins.
 
 mod activity;
+pub mod clock;
+mod doorbell;
 mod errors;
 #[cfg(any(test, fuzzing))]
 pub mod fuzz;
 mod memory;
+pub mod realtime;
 mod samples;
 #[cfg(test)]
 mod tests;
@@ -329,8 +332,16 @@ impl SharedAudio {
     }
 
     /// Decodes events, checking each system exclusive range and the total allocation budget.
-    fn read_events(&self, region: Events, count: usize, events: &mut Vec<Event>) -> io::Result<()> {
-        if count > MAX_BLOCK_EVENTS || events.capacity() < count {
+    /// With `skipped`, system exclusive events and events beyond `events`' capacity are counted
+    /// there instead of decoded, so decoding allocates nothing.
+    fn read_events(
+        &self,
+        region: Events,
+        count: usize,
+        events: &mut Vec<Event>,
+        mut skipped: Option<&mut usize>,
+    ) -> io::Result<()> {
+        if count > MAX_BLOCK_EVENTS || (skipped.is_none() && events.capacity() < count) {
             return Err(invalid(BLOCK));
         }
         events.clear();
@@ -367,6 +378,10 @@ impl SharedAudio {
                     {
                         return Err(invalid(EVENTS));
                     }
+                    if let Some(skipped) = skipped.as_deref_mut() {
+                        *skipped += 1;
+                        continue;
+                    }
                     let mut bytes = vec![0; length];
                     let source = self.memory.as_ptr().wrapping_add(region.sysex + start);
                     // SAFETY: the range was checked against this region's arena above.
@@ -384,6 +399,13 @@ impl SharedAudio {
                 }),
                 _ => return Err(invalid(EVENTS)),
             };
+            if events.len() == events.capacity() {
+                // Only reached with `skipped`: the capacity check above covers the other case.
+                if let Some(skipped) = skipped.as_deref_mut() {
+                    *skipped += 1;
+                }
+                continue;
+            }
             events.push(Event {
                 offset: usize::try_from(self.load(offset)).map_err(|_| invalid(EVENTS))?,
                 port: (port & u64::from(u32::MAX)) as usize,

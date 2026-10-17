@@ -33,7 +33,7 @@ serde.workspace = true
 rustix = { workspace = true, features = ["mm", "shm"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Memory", "Win32_System_Threading"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Memory", "Win32_System_Performance", "Win32_System_Threading"] }
 
 [dev-dependencies]
 interprocess.workspace = true
