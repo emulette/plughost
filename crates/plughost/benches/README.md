@@ -170,18 +170,9 @@ resynchronized, or a callback took longer than the limit. With `--stall`, misses
 the control thread restarts the endpoint after the resynchronization, and only the callback
 limit applies. The limit is about three times the longest callback of the first measurement.
 
-0.1.3 on a MacBook Pro (M3 Pro, macOS 15.8.1), ten minutes per row, latency one quantum:
-
-| Quantum | Load | Late | Callback max | Completion max | Driver delay max |
-|---|---|---|---|---|---|
-| 64 | idle | 0 | 68 µs | 120 µs of 1,333 | 115 µs |
-| 64 | every core | 0 | 12 µs | 59 µs of 1,333 | 18 µs |
-| 128 | idle | 0 | 63 µs | 92 µs of 2,667 | 121 µs |
-| 128 | every core | 0 | 14 µs | 63 µs of 2,667 | 26 µs |
-
-The helper used 0.4–2.3% of one core and 10 MiB. With a 100 ms stall (one minute each), the
-longest callback was 67 µs at 64 frames and 54 µs at 128 frames, and the endpoint played again
-after one restart. Windows has not been measured yet.
+On Apple Silicon, 0.1.3 passed at 64 and 128 frames with a latency of one quantum, idle and with
+every core busy: no quantum completed late, the helper took at most 120 µs per quantum, and the
+longest callback took 68 µs, also through a 100 ms helper stall.
 
 # Real-time audit
 
