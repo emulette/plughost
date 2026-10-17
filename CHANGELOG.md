@@ -30,6 +30,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Restoring state, importing or loading a preset and selecting a factory preset keep the slot's
   native bypass unless the state or preset sets it. Audio Unit bypass, which unit state does not
   hold, was lost on restore, and factory preset selection reset bypass in every format.
+- A `TailPolicy::UntilSilence` hold close to the largest representable length no longer
+  overflows and panics while the tail is scanned in large blocks.
 
 ## [0.1.2] - 2026-10-11
 

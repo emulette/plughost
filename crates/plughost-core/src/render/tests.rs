@@ -29,6 +29,7 @@ struct Echo {
     blocks: usize,
     /// The events each block received, by block number.
     events: Vec<(usize, Vec<Event>)>,
+    max_block_size: usize,
 }
 
 impl Echo {
@@ -43,6 +44,7 @@ impl Echo {
             tail_after_blocks: None,
             blocks: 0,
             events: Vec::new(),
+            max_block_size: 256,
         }
     }
 }
@@ -55,7 +57,7 @@ impl Process<f32> for Echo {
     }
 
     fn max_block_size(&self) -> usize {
-        256
+        self.max_block_size
     }
 
     fn input_channels(&self) -> usize {
@@ -195,6 +197,24 @@ fn until_silence_waits_through_gaps_shorter_than_the_hold() {
     let rendered = run(&mut Echo::new(10, 3000, Tail::Samples(0)), &input, options).unwrap();
     assert_eq!(rendered.tail, 3000);
     assert_eq!(rendered.channels[1][3999], 0.5 * input[1][999]);
+}
+
+#[test]
+fn a_silence_hold_near_the_largest_length_does_not_overflow() {
+    // The largest hold below 2^64 samples at this rate, with the tail's first quiet sample past
+    // index 4096 of a block.
+    let options = RenderOptions {
+        tail: TailPolicy::UntilSilence {
+            threshold: 1e-6,
+            hold_seconds: 384_307_168_202_282.25,
+        },
+        max_tail_seconds: 0.1,
+    };
+    let mut processor = Echo::new(0, 0, Tail::Samples(0));
+    processor.max_block_size = 16_384;
+    let input = signal(5000);
+    let rendered = run(&mut processor, &input, options).unwrap();
+    assert_eq!(rendered.channels[0][..5000], input[0]);
 }
 
 #[test]

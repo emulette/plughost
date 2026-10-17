@@ -56,7 +56,7 @@ impl<S: Sample> Output<S> {
                     .take_while(|&i| quiet(i) == silent)
                     .count();
             if silent {
-                let end = run.min(index + hold - self.quiet_frames);
+                let end = run.min(index.saturating_add(hold - self.quiet_frames));
                 for (held, channel) in self.quiet.iter_mut().zip(block) {
                     held.extend_from_slice(&channel[index..end]);
                 }
