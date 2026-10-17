@@ -37,6 +37,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   reopen it.
 - Failures of `preset_providers` and `discover_presets` name no slot; they reported slot 0 of a
   chain that does not exist.
+- A bundle that changed since it failed reports no failures and is not shown as excluded when its
+  scan is interrupted or its helper cannot start; the stale cache entry still counted.
 
 ## [0.1.2] - 2026-10-11
 

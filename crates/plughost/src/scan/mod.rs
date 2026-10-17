@@ -484,16 +484,17 @@ impl Scanner {
             work,
         ) {
             Ok(outcome) => outcome,
+            // The cache keeps its entry, but a changed bundle's failures no longer count.
             Err(error) => {
                 return (
-                    self.interrupted(path, cached, outcome_of(error), Source::Loaded),
+                    self.interrupted(path, unchanged, outcome_of(error), Source::Loaded),
                     cached.cloned(),
                 );
             }
         };
         if matches!(outcome, ScanOutcome::Cancelled | ScanOutcome::Skipped) {
             return (
-                self.interrupted(path, cached, outcome, Source::Loaded),
+                self.interrupted(path, unchanged, outcome, Source::Loaded),
                 cached.cloned(),
             );
         }

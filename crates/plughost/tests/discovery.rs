@@ -1,5 +1,6 @@
 //! Static discovery and native inspection through the public Scanner API.
 use std::fs;
+use std::io::Write;
 use std::time::Duration;
 
 use plughost::{ScanOutcome, Scanner, Source};
@@ -149,6 +150,42 @@ fn discovery_preserves_a_cached_failure_without_retrying_or_incrementing_it() {
         assert_eq!((result.failures, result.excluded), (1, false));
         assert_eq!(fs::read(&cache).unwrap(), before);
     }
+}
+
+#[test]
+#[ignore = "needs helper and crash-on-scan VST3 fixture"]
+fn a_changed_bundle_whose_scan_is_interrupted_does_not_report_its_old_failures() {
+    let directory = tempfile::tempdir().unwrap();
+    let bundle = directory.path().join("plughost-test-crash-on-scan.vst3");
+    copy(&plugins().join("plughost-test-crash-on-scan.vst3"), &bundle);
+    let cache = directory.path().join("cache.json");
+    let scanner = Scanner::new(&helper(), &cache).directories(vec![directory.path().to_owned()]);
+    scanner.scan(&|_| {}).unwrap();
+    let excluded = &scanner.scan(&|_| {}).unwrap().bundles[0];
+    assert_eq!((excluded.failures, excluded.excluded), (2, true));
+    // An update changes the binary; the next scan cannot start its helper.
+    let executable = if cfg!(target_os = "macos") {
+        bundle.join("Contents/MacOS/plughost-test-crash-on-scan")
+    } else {
+        bundle.clone()
+    };
+    fs::OpenOptions::new()
+        .append(true)
+        .open(executable)
+        .unwrap()
+        .write_all(&[0])
+        .unwrap();
+    let interrupted = &Scanner::new(&directory.path().join("missing-helper"), &cache)
+        .directories(vec![directory.path().to_owned()])
+        .scan(&|_| {})
+        .unwrap()
+        .bundles[0];
+    assert!(
+        matches!(interrupted.outcome, ScanOutcome::Failed(_)),
+        "{:?}",
+        interrupted.outcome
+    );
+    assert_eq!((interrupted.failures, interrupted.excluded), (0, false));
 }
 
 #[cfg(target_os = "macos")]
