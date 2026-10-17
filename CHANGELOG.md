@@ -38,6 +38,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   the stream goes on with the plugin's current activation; prepare the chain again after stopping.
   The helper's worker runs with the time-constraint policy in a workgroup interval of its own and
   keeps App Nap away on macOS, and in the MMCSS "Pro Audio" task on Windows.
+- The `realtime` example plays a chain through the default output device with a realtime
+  endpoint and recovers it after a resynchronization, cutting the device's callbacks, whatever
+  their size, from fixed quanta. The `realtime` benchmark calls an endpoint at the audio rate from
+  a realtime thread and fails when the helper completes a quantum late, the endpoint
+  resynchronizes, or a callback takes longer than its limit.
+- The `realtime-audit` feature of `plughost` marks the realtime endpoint's callback for the
+  real-time audit, and `plughost_core::audit::processing_allocations` returns the allocations and
+  frees it counted.
 - `plughost_formats::BlockProcessor::defer_restart` lets blocks go on while a VST3 or CLAP
   restart request waits, instead of failing with `FailureKind::RestartRequired`.
 - `plughost_formats::clap::classes_once_loaded` lists a CLAP module's classes and reports when

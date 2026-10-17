@@ -1,6 +1,7 @@
 # plughost
 
-plughost loads VST3, Audio Unit, and CLAP plugins for offline audio processing in Rust.
+plughost loads VST3, Audio Unit, and CLAP plugins for offline and realtime audio processing in
+Rust.
 Each plugin chain runs in a helper process, isolating plugin crashes and hangs from the application.
 
 ## Installation
@@ -69,6 +70,34 @@ The [render example](https://github.com/emulette/plughost/blob/v0.1.2/crates/plu
 is a complete offline batch: it finds a plugin class, renders several jobs, and recovers the
 chain from a state snapshot when the plugin crashes or hangs.
 
+## Realtime processing
+
+An audio callback drives a prepared chain through a realtime endpoint. Each callback hands its
+quantum to the helper through shared memory and plays the chain's output for the quantum it
+submitted `latency` callbacks before, without waiting for the helper, locking, or allocating:
+
+```rust
+use plughost::{Chain, Error, RealtimeConfig, RealtimeEndpoint};
+
+/// Starts 128-frame callbacks, each played one quantum later. Returns the endpoint for the audio
+/// callback and the whole latency in frames: the chain's latency plus 128.
+fn start(chain: &mut Chain) -> Result<(RealtimeEndpoint, u32), Error> {
+    let endpoint = chain.realtime_endpoint(&RealtimeConfig::new(128))?;
+    let latency = chain.start_realtime()?;
+    Ok((endpoint, latency))
+}
+
+// In the audio callback, with 128-frame stereo buffers:
+// endpoint.process_audio_f32(&BlockContext::new(128), &[&left_in, &right_in],
+//     &mut [&mut left_out, &mut right_out], &[], &[], &mut produced)?;
+```
+
+When the helper's output is late, the callback plays silence, or the delayed input for effects,
+and ramps into and out of it. The control thread reads `realtime_status` and, after a
+resynchronization, stops the endpoint, resets the chain, and starts it again. The
+[realtime example](https://github.com/emulette/plughost/blob/v0.1.2/crates/plughost/examples/realtime.rs)
+does this with a timer in place of an audio device.
+
 ## Capabilities and limits
 
 - VST3 and CLAP on both supported platforms; Audio Units on macOS.
@@ -81,7 +110,8 @@ chain from a state snapshot when the plugin crashes or hangs.
 - Native plugin editors, latency/tail aware rendering, streaming, and render cancellation.
 - `f32` processing; `f64` where the format and plugin support it. Audio Units use `f32` only.
 
-Processing is offline; there is no real-time audio thread, audio device I/O, or resampler.
+There is no audio device I/O or resampler: the application's audio callback drives realtime
+processing.
 Intel Macs, Rosetta, Linux, and cross-architecture plugin bridging are not supported.
 Metadata discovery avoids loading plugin code; native scanning and processing can display plugin
 license dialogs. Scans run serially unless explicitly configured otherwise. The application owns
@@ -149,7 +179,8 @@ For repeatable offline performance measurements, build the test assets and helpe
 describes its workload matrix, options, and output. It uses repository fixtures and does not scan
 installed plugins. The same guide describes the comparison with Pedalboard for one installed plugin
 (`cargo bench -p plughost --bench compare`), including direct, isolated and per-block IPC costs,
-and summarizes its results.
+and summarizes its results, and the realtime gate (`cargo bench -p plughost --bench realtime`),
+which calls a realtime endpoint at the audio rate for ten minutes.
 
 Check the distributable crates with Python 3.9 or later after building the native fixtures:
 

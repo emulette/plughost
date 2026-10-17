@@ -1,7 +1,8 @@
 # plughost
 
-> Rust library for offline VST3, Audio Unit, and CLAP hosting. Applications control
-> plugin chains through isolated helper processes and supply their own audio and timeline.
+> Rust library for offline and realtime VST3, Audio Unit, and CLAP hosting. Applications
+> control plugin chains through isolated helper processes and supply their own audio and
+> timeline.
 
 This reference describes plughost 0.1.2 and requires Rust 1.92 or newer. It covers the
 public application API, its native limitations, and the helper an application must ship.
@@ -209,7 +210,8 @@ each slot's main output on the next slot's main input, and one output `Layout` p
 Instruments use `Layout::None` for their main input; auxiliary buses stay inactive. Change
 fields such as `sample_format` or `mode` before preparing.
 `ProcessMode::Realtime` only changes the mode reported to the plugin; rendering remains
-offline and is not paced to wall-clock time.
+offline and is not paced to wall-clock time. Prepare with it for a realtime endpoint (see
+Realtime processing), which does not change the mode itself.
 
 ## Audio buses and precision
 
@@ -277,7 +279,8 @@ block size, in anonymous shared memory whose size neither process can change (a 
 memory object on macOS, a section backed by the paging file on Windows). Each generation has a separate 256 MiB shared-storage budget, plus local/native
 buffers; re-preparation temporarily retains both generations. Control messages and completion
 notifications use the socket. Processing still copies audio, allocates in other host paths,
-and waits for the helper; shared memory does not make `Chain` real-time safe.
+and waits for the helper; shared memory does not make `Chain` real-time safe. An audio
+callback uses a realtime endpoint instead (see Realtime processing).
 
 `Transport` is a snapshot at the first sample of a block. `Transport::new(sample_position,
 playing)` starts one; its optional timing fields remain unavailable when `None`, and the host
@@ -430,6 +433,55 @@ each `push` are relative to that segment. It does not reset the processor.
 After cancellation or failure, drop the session and reset before starting an independent
 render. A finished, cancelled, or failed session cannot accept further segments.
 
+## Realtime processing
+
+`chain.realtime_endpoint(&RealtimeConfig::new(quantum))` creates a `RealtimeEndpoint` for the
+prepared chain. Every callback is one quantum of `quantum` frames, at most the prepared
+`max_block_size`, in the prepared precision. `with_latency(1..=3)` sets the added latency in
+quanta (default 1). `with_fallback(Fallback::Dry)` plays the input delayed by the whole latency
+instead of silence while output is missing; it needs as many output as input channels. A new
+endpoint replaces the previous one; preparing the chain again or dropping it retires the
+endpoint for good, which then plays `FallbackReason::Stopped`.
+
+Move the endpoint to the audio callback's thread and call `process_audio_f32` or
+`process_audio_f64` there once per callback, with the arguments of `Chain::process_audio_*`.
+The call copies the input into shared memory, wakes the helper, and copies out the output of
+the quantum submitted `latency` callbacks before; it never waits, locks, or allocates. It
+returns `RealtimeOutput::Processed` or `RealtimeOutput::Fallback(reason)`: `Stopped`,
+`Priming` (the first `latency` callbacks after a start), `Missed` (the helper had not completed
+that output), or `Resync`. A change of source ramps over one quantum: into the fallback from the
+last sample played, back to the output with a crossfade. Without misses, the output is the
+offline output for blocks of one quantum, `latency * quantum` frames later. `produced` receives
+the output events except system exclusive ones, up to its capacity; reserve `MAX_BLOCK_EVENTS`.
+Invalid input is an error and starts a resync; wrong output buffers or precision are an error
+and leave `output` unchanged. `endpoint.last_completion()` says how long the helper took for
+the output just played. Drop the endpoint on a control thread.
+
+From a control thread, `chain.start_realtime()` starts processing and returns the whole latency
+in frames: the chain's latency plus `latency * quantum`. `chain.stop_realtime()` stops between
+quanta. `chain.realtime_status()` reports callbacks, processed and missed outputs, overflows,
+callbacks of another size, failed quanta and the last failure, late completions (quanta the
+helper completed more than `latency` quanta after their submission), dropped events, and the
+latency. A callback of another size, a full ring (the helper fell `latency + 2` quanta
+behind), a failed quantum, or invalid input sets `resync`: the endpoint plays its fallback until
+the application stops it, calls `chain.reset()`, which ends held notes and applies an announced
+latency, and starts it again.
+
+While the endpoint runs, `restore_state`, `import_preset`, `load_discovered_preset`,
+`select_factory_preset`, `reset`, `prepare_audio`, `reprepare`, `realtime_endpoint`,
+`process_audio_*` and rendering fail with `Error::RealtimeRunning`; after `stop_realtime` they
+work as before. Parameter edits and queries, bus and capability queries, editors, bypass,
+`save_state`, `export_preset`, `take_changes`, and diagnostics go on. Edits reach the plugins
+between quanta, and timing changes arrive through `take_changes` instead of each edit's reply.
+A VST3 or CLAP restart request is reported there while processing goes on with the current
+activation; prepare the chain again after stopping. `recover` is allowed, but the new helper
+competes for the CPU.
+
+The helper's worker runs with the time-constraint policy for the quantum in an audio workgroup
+interval of its own on macOS, holding an activity that keeps App Nap away, and in the MMCSS
+"Pro Audio" task on Windows; a refusal is reported in the diagnostics. Plugins' own code can
+still allocate or lock; late completions count what that costs.
+
 ## Parameters, state, and presets
 
 - `parameters(slot)` returns `ParameterInfo` and current normalized values.
@@ -532,7 +584,8 @@ stdout is discarded. Applications own recovery decisions and user-facing reporti
 ## Development and examples
 
 Repository examples are `plughost --example scan`, `plughost --example render` (an offline
-batch with a state snapshot and recovery), `plughost --example editor`,
+batch with a state snapshot and recovery), `plughost --example realtime` (an audio callback
+driving a realtime endpoint, with its recovery), `plughost --example editor`,
 `plughost-helper --example helper`, and `plughost-formats --example check`.
 Run them through `cargo run -p <crate> --example <name> -- <arguments>`; each source file
 lists its arguments. Native loading can show license dialogs, so select plugins explicitly.
