@@ -4,7 +4,9 @@ use std::io;
 
 use plughost_core::ipc::shared::{Descriptor, SharedAudio, Submission, transfer};
 use plughost_core::ipc::{AudioSamples, Response};
-use plughost_core::{AutomationEvent, BlockContext, Event, Failure, FailureKind, MAX_BLOCK_EVENTS};
+use plughost_core::{
+    AutomationEvent, BlockContext, Event, Failure, FailureKind, InputError, MAX_BLOCK_EVENTS,
+};
 
 use super::{Pipeline, audio};
 use crate::Responder;
@@ -82,7 +84,6 @@ pub(super) fn process(
             context,
             &transport.automation,
             &transport.events,
-            responder,
             &mut completion,
         )
     })();
@@ -90,6 +91,8 @@ pub(super) fn process(
     result
 }
 
+/// The reply to the application's block request: output through the shared slot, the rest over
+/// the connection.
 pub(super) struct Completion<'a> {
     memory: &'a mut SharedAudio,
     submission: Submission,
@@ -98,29 +101,38 @@ pub(super) struct Completion<'a> {
 
 macro_rules! complete {
     ($sample:ty, $name:ident, $write:ident) => {
-        impl Completion<'_> {
-            pub fn $name(
-                &mut self,
-                output: &[&[$sample]],
-                events: &[Event],
-                latency: u32,
-                tail: plughost_core::render::Tail,
-            ) -> io::Result<()> {
-                let result = self.memory.$write(self.submission, output, events);
-                if let Err(error) = result {
-                    return self
-                        .responder
-                        .fail(None, Failure::new(FailureKind::Protocol, error.to_string()));
-                }
-                self.responder.send(&Response::Processed {
-                    submission: self.submission,
-                    events: events.len(),
-                    latency,
-                    tail,
-                })
+        fn $name(
+            &mut self,
+            output: &[&[$sample]],
+            events: &[Event],
+            latency: u32,
+            tail: plughost_core::render::Tail,
+        ) -> io::Result<()> {
+            let result = self.memory.$write(self.submission, output, events);
+            if let Err(error) = result {
+                return self
+                    .responder
+                    .fail(None, Failure::new(FailureKind::Protocol, error.to_string()));
             }
+            self.responder.send(&Response::Processed {
+                submission: self.submission,
+                events: events.len(),
+                latency,
+                tail,
+            })
         }
     };
 }
-complete!(f32, f32, write_output_f32);
-complete!(f64, f64, write_output_f64);
+
+impl audio::Sink for Completion<'_> {
+    fn fail(&mut self, slot: Option<usize>, failure: Failure) -> io::Result<()> {
+        self.responder.fail(slot, failure)
+    }
+
+    fn reject(&mut self, slot: Option<usize>, error: InputError) -> io::Result<()> {
+        self.responder.send(&Response::Rejected { slot, error })
+    }
+
+    complete!(f32, complete_f32, write_output_f32);
+    complete!(f64, complete_f64, write_output_f64);
+}

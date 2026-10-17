@@ -2,12 +2,34 @@
 //! Each block is validated here, at the helper's IPC boundary, before any slot or delay advances.
 use super::*;
 use plughost_core::Event;
+use plughost_core::ipc::AudioSamples;
 use plughost_core::ipc::shared::Caller;
-use plughost_core::ipc::{AudioSamples, Response};
 use plughost_core::messages::CHAIN_NOT_PREPARED;
 use plughost_core::{Failure, FailureKind, InputError, RoutedChainConfig, Sample, events_fit};
 use std::io;
 use std::ops::{Add, Mul};
+
+/// Where a block's result goes: the reply to the application's request, or a realtime lane.
+pub(super) trait Sink {
+    /// The block failed in `slot`, or in the chain, after DSP may have advanced.
+    fn fail(&mut self, slot: Option<usize>, failure: Failure) -> io::Result<()>;
+    /// The block's input was invalid; nothing advanced.
+    fn reject(&mut self, slot: Option<usize>, error: InputError) -> io::Result<()>;
+    fn complete_f32(
+        &mut self,
+        output: &[&[f32]],
+        events: &[Event],
+        latency: u32,
+        tail: plughost_core::render::Tail,
+    ) -> io::Result<()>;
+    fn complete_f64(
+        &mut self,
+        output: &[&[f64]],
+        events: &[Event],
+        latency: u32,
+        tail: plughost_core::render::Tail,
+    ) -> io::Result<()>;
+}
 
 trait WireSample: Sample + Add<Output = Self> + Mul<Output = Self> + From<f32> {
     fn call(
@@ -24,7 +46,7 @@ trait WireSample: Sample + Add<Output = Self> + Mul<Output = Self> + From<f32> {
         events: &[Event],
         latency: u32,
         tail: plughost_core::render::Tail,
-        completion: &mut shared::Completion<'_>,
+        sink: &mut dyn Sink,
     ) -> io::Result<()>;
 }
 macro_rules! wire_sample {
@@ -46,15 +68,15 @@ macro_rules! wire_sample {
                 events: &[Event],
                 latency: u32,
                 tail: plughost_core::render::Tail,
-                completion: &mut shared::Completion<'_>,
+                sink: &mut dyn Sink,
             ) -> io::Result<()> {
-                completion.$finish(output, events, latency, tail)
+                sink.$finish(output, events, latency, tail)
             }
         }
     };
 }
-wire_sample!(f32, process_audio_f32, f32);
-wire_sample!(f64, process_audio_f64, f64);
+wire_sample!(f32, process_audio_f32, complete_f32);
+wire_sample!(f64, process_audio_f64, complete_f64);
 
 pub(super) fn process(
     pipeline: &mut Pipeline,
@@ -62,17 +84,16 @@ pub(super) fn process(
     context: &plughost_core::BlockContext,
     automation: &[plughost_core::AutomationEvent],
     events: &[Event],
-    responder: &Responder,
-    completion: &mut shared::Completion<'_>,
+    sink: &mut dyn Sink,
 ) -> io::Result<()> {
     let Some(config) = &pipeline.audio_config else {
-        return responder.fail(
+        return sink.fail(
             None,
             Failure::new(FailureKind::NotPrepared, CHAIN_NOT_PREPARED),
         );
     };
     if pipeline.resync {
-        return responder.fail(
+        return sink.fail(
             None,
             Failure::new(FailureKind::Processing, crate::errors::EVENT_RESYNC),
         );
@@ -82,23 +103,20 @@ pub(super) fn process(
         AudioSamples::F64(input) => validate(config, input, context, automation, events),
     };
     if let Err(error) = validation {
-        return responder.send(&Response::Rejected { slot: None, error });
+        return sink.reject(None, error);
     }
     for event in automation {
         let result = pipeline.parameters[event.slot]
             .get(event.change.id)
             .and_then(|info| info.automation_value(event.change.value));
         if let Err(error) = result {
-            return responder.send(&Response::Rejected {
-                slot: Some(event.slot),
-                error,
-            });
+            return sink.reject(Some(event.slot), error);
         }
     }
     let (Some(alignment), Some((events_plan, event_buffers))) =
         (&mut pipeline.alignment, &mut pipeline.events)
     else {
-        return responder.fail(
+        return sink.fail(
             None,
             Failure::new(FailureKind::NotPrepared, CHAIN_NOT_PREPARED),
         );
@@ -120,8 +138,7 @@ pub(super) fn process(
             context,
             automation,
             events,
-            responder,
-            completion,
+            sink,
         ),
         (AudioSamples::F64(input), Some(prepared::Prepared::F64(storage))) => run(
             AudioState {
@@ -139,10 +156,9 @@ pub(super) fn process(
             context,
             automation,
             events,
-            responder,
-            completion,
+            sink,
         ),
-        _ => responder.fail(
+        _ => sink.fail(
             None,
             Failure::new(FailureKind::NotPrepared, CHAIN_NOT_PREPARED),
         ),
@@ -209,15 +225,14 @@ fn run<S: WireSample>(
     context: &plughost_core::BlockContext,
     automation: &[plughost_core::AutomationEvent],
     events: &[Event],
-    responder: &Responder,
-    completion: &mut shared::Completion<'_>,
+    sink: &mut dyn Sink,
 ) -> io::Result<()> {
     if let Some(slot) = state
         .processors
         .iter()
         .position(|processor| processor.restart_required())
     {
-        return responder.fail(Some(slot), audio_timing::restart_required());
+        return sink.fail(Some(slot), audio_timing::restart_required());
     }
     let event_buffers = &mut *state.event_buffers;
     for (slot, processor) in state.processors.iter().enumerate() {
@@ -231,14 +246,11 @@ fn run<S: WireSample>(
                 .gather(slot, events, previous_events, slot_automation, slot_events)
         {
             if slot == 0 {
-                return responder.send(&Response::Rejected {
-                    slot: Some(slot),
-                    error,
-                });
+                return sink.reject(Some(slot), error);
             }
             // Earlier slots already advanced; the notes they forwarded may be held.
             *state.resync = true;
-            return responder.fail(
+            return sink.fail(
                 Some(slot),
                 Failure::new(FailureKind::Processing, error.to_string()),
             );
@@ -277,10 +289,7 @@ fn run<S: WireSample>(
             if slot == 0
                 && let Some(error) = error.input_error()
             {
-                return responder.send(&Response::Rejected {
-                    slot: Some(slot),
-                    error,
-                });
+                return sink.reject(Some(slot), error);
             }
             // Events a plugin could not take after earlier slots advanced are lost like an
             // overflow of its output; a later slot's native events can outgrow its block.
@@ -289,7 +298,7 @@ fn run<S: WireSample>(
             {
                 *state.resync = true;
             }
-            return responder.fail(Some(slot), error.failure());
+            return sink.fail(Some(slot), error.failure());
         }
     }
     let event_buffers = &mut *state.event_buffers;
@@ -306,13 +315,13 @@ fn run<S: WireSample>(
         let _call = state.calls.enter(Caller::Processing, slot);
         *timing = match processor.timing() {
             Ok(timing) => timing,
-            Err(error) => return responder.fail(Some(slot), error.failure()),
+            Err(error) => return sink.fail(Some(slot), error.failure()),
         };
         state.changes.observe(slot, *timing);
     }
     let tail = match state.plan.tail(&state.storage.timings) {
         Ok(tail) => tail,
-        Err((slot, failure)) => return responder.fail(Some(slot), failure),
+        Err((slot, failure)) => return sink.fail(Some(slot), failure),
     };
     state
         .storage
@@ -325,7 +334,7 @@ fn run<S: WireSample>(
                 &state.event_buffers.output,
                 state.plan.latency(),
                 tail,
-                completion,
+                sink,
             )
         })
 }
