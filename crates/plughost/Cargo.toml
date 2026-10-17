@@ -63,6 +63,11 @@ name = "soak"
 path = "benches/soak/main.rs"
 harness = false
 
+[[bench]]
+name = "realtime"
+path = "benches/realtime/main.rs"
+harness = false
+
 [[test]]
 name = "shared_completion"
 path = "tests/shared_completion.rs"
