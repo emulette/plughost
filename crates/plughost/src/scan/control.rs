@@ -96,7 +96,8 @@ pub enum ScanEvent {
         /// The milestone just reached.
         stage: ScanStage,
     },
-    /// Final bundle outcome; persistent results have been published to the cache.
+    /// Final bundle outcome. A scan or retry has published its persistent results to the cache
+    /// by then; discovery writes no cache.
     BundleFinished(BundleScan),
     /// Final outcome of fresh Audio Unit registry enumeration.
     AudioUnitsFinished(ScanOutcome),
