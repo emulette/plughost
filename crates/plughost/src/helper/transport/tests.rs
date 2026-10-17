@@ -122,6 +122,29 @@ fn supervised_framing_benchmark() {
 }
 
 #[test]
+fn a_timeout_past_any_deadline_waits_for_the_message() {
+    let (mut transport, mut peer) = connection();
+    identify(&mut transport, &mut peer);
+    transport.queue(&Request::Changes).unwrap();
+    transport.flush(Duration::MAX).unwrap();
+    assert!(matches!(
+        MessageReader::new(&peer).read::<Request>(),
+        Ok(Request::Changes)
+    ));
+    let writer = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(50));
+        write_message(&mut peer, &Response::EditorOpen(true)).unwrap();
+        peer
+    });
+    assert!(matches!(
+        transport.receive(Duration::MAX),
+        Ok(Ok(Incoming::Response(Response::EditorOpen(true))))
+    ));
+    drop(writer.join().unwrap());
+    transport.close();
+}
+
+#[test]
 fn an_incomplete_frame_does_not_block_the_supervisors_deadline() {
     let (mut transport, mut peer) = connection();
     identify(&mut transport, &mut peer);

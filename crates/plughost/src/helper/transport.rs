@@ -71,11 +71,10 @@ impl Transport {
     /// Writes the rest of the queued request. A request that times out part-written leaves the
     /// stream mid-frame: continue it, or close the connection.
     pub fn flush(&mut self, timeout: Duration) -> Result<(), Stopped> {
-        let deadline = Instant::now() + timeout;
+        let deadline = Instant::now().checked_add(timeout);
         let pipe = self.pipe.as_mut().ok_or(Stopped::Closed)?;
         while self.written < self.outgoing.len() {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            match pipe.write(&self.outgoing[self.written..], remaining) {
+            match pipe.write(&self.outgoing[self.written..], remaining(deadline, timeout)) {
                 Ok(Some(0)) | Err(_) => return Err(Stopped::Closed),
                 Ok(Some(count)) => self.written += count,
                 Ok(None) => return Err(Stopped::TimedOut),
@@ -92,7 +91,7 @@ impl Transport {
     /// Reads the next message. The first message is the helper's hello; a read that times out
     /// part-way keeps the partial frame for the next call. A malformed frame is `InvalidData`.
     pub fn receive(&mut self, timeout: Duration) -> Result<io::Result<Incoming>, Stopped> {
-        let deadline = Instant::now() + timeout;
+        let deadline = Instant::now().checked_add(timeout);
         let pipe = self.pipe.as_mut().ok_or(Stopped::Closed)?;
         loop {
             if self.greeted {
@@ -107,8 +106,7 @@ impl Transport {
                 Ok(unfilled) => unfilled,
                 Err(error) => return Ok(Err(error)),
             };
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            match pipe.read(unfilled, remaining) {
+            match pipe.read(unfilled, remaining(deadline, timeout)) {
                 Ok(Some(0)) | Err(_) => return Err(Stopped::Closed),
                 Ok(Some(count)) => self.decoder.advance(count),
                 Ok(None) => return Err(Stopped::TimedOut),
@@ -124,6 +122,14 @@ impl Transport {
         self.written = 0;
         self.decoder = FrameDecoder::default();
     }
+}
+
+/// What is left of `timeout` before `deadline`. A timeout too long for an `Instant` deadline has
+/// none and stays whole.
+fn remaining(deadline: Option<Instant>, timeout: Duration) -> Duration {
+    deadline.map_or(timeout, |deadline| {
+        deadline.saturating_duration_since(Instant::now())
+    })
 }
 
 #[cfg(windows)]
@@ -371,7 +377,7 @@ mod pipe {
             ready: PollFlags,
             mut operation: impl FnMut(&mut UnixStream) -> io::Result<usize>,
         ) -> io::Result<Option<usize>> {
-            let deadline = Instant::now() + timeout;
+            let deadline = Instant::now().checked_add(timeout);
             loop {
                 match operation(&mut self.stream) {
                     Ok(count) => return Ok(Some(count)),
@@ -379,13 +385,19 @@ mod pipe {
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
                     Err(error) => return Err(error),
                 }
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    return Ok(None);
-                }
-                let timespec = Timespec::try_from(remaining).map_err(io::Error::other)?;
+                // Without a representable deadline the wait has no end.
+                let timespec = match deadline {
+                    Some(deadline) => {
+                        let remaining = deadline.saturating_duration_since(Instant::now());
+                        if remaining.is_zero() {
+                            return Ok(None);
+                        }
+                        Some(Timespec::try_from(remaining).map_err(io::Error::other)?)
+                    }
+                    None => None,
+                };
                 let mut fds = [PollFd::new(&self.stream, ready)];
-                match poll(&mut fds, Some(&timespec)) {
+                match poll(&mut fds, timespec.as_ref()) {
                     Ok(_) | Err(rustix::io::Errno::INTR) => {}
                     Err(error) => return Err(error.into()),
                 }

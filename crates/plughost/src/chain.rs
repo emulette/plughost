@@ -17,7 +17,8 @@ use crate::errors::Error;
 use crate::helper::{Helper, Mode};
 
 /// How long each kind of operation may go without a response from the helper. Start from
-/// [`Timeouts::default`] and change the fields that need other values.
+/// [`Timeouts::default`] and change the fields that need other values. A duration too long to
+/// end at a representable instant, such as [`Duration::MAX`], waits without a deadline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Timeouts {

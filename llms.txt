@@ -173,6 +173,8 @@ slice of `PluginRef`, in chain order. Slots are zero-based indices in that slice
 `HostIdentity` is the calling application's identity; recovered chains keep it.
 `Timeouts` separates load, control, and block-processing operations. Defaults are 300,
 60, and 10 seconds respectively; start from `Timeouts::default()` and set the fields to change.
+A duration too long to end at a representable instant, such as `Duration::MAX`, waits without a
+deadline.
 Loading, restoring state, importing or loading a preset, selecting a factory preset, opening
 an editor, and preparing an already configured chain again use the load timeout. Initial
 preparation, reset, saving state, preset inspection/export, and parameter/control queries use
