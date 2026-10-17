@@ -142,6 +142,47 @@ a fixed cost of about 10 to 60 µs per block: it dominates cheap plugins at 64-f
 a small part of the render with heavier plugins or larger blocks. plughost loaded plugins and
 restored state faster than Pedalboard in every measured case.
 
+# Realtime gate
+
+Calls the realtime endpoint of a chain of the VST3 routing fixture at 48 kHz from a synthetic
+audio device: a realtime thread (time-constraint and `mach_wait_until` on macOS, MMCSS
+"Pro Audio" and a high-resolution waitable timer on Windows) that wakes on an absolute grid of
+quanta and skips to its next slot when it wakes late. Run it on real hardware; hosted CI
+runners are virtual machines without performance guarantees.
+
+```sh
+scripts/build-test-plugins.sh      # Windows: pwsh -NoProfile -File scripts/build-test-plugins.ps1
+scripts/build-helper.sh            # Windows: pwsh -NoProfile -File scripts/build-helper.ps1
+cargo bench -p plughost --bench realtime --locked -- --quantum 128
+```
+
+Options: `--seconds` (default 600), `--quantum` (frames, default 128), `--latency` (quanta,
+default 1), `--load` (keeps every core busy), `--stall` with `--stall-ms` (the CLAP
+stall-in-process fixture holds up one process call, default 100 ms), `--callback-limit`
+(microseconds, default 200), `--helper FILE`, and `--assets DIR`.
+
+It prints the driver's wake delay, which is not counted against plughost, the callback time and
+the helper's completion time (from submission, against the latency budget) at p99.9 and
+maximum, the endpoint's counters, and the CPU (percent of one core; the application's includes
+`--load`'s threads) and memory of the application and the helper. The run fails with a non-zero
+exit code when the helper completed a quantum later than the latency, the endpoint
+resynchronized, or a callback took longer than the limit. With `--stall`, misses are expected:
+the control thread restarts the endpoint after the resynchronization, and only the callback
+limit applies. The limit is about three times the longest callback of the first measurement.
+
+0.1.3 on a MacBook Pro (M3 Pro, macOS 15.8.1), ten minutes per row, latency one quantum:
+
+| Quantum | Load | Late | Callback max | Completion max | Driver delay max |
+|---|---|---|---|---|---|
+| 64 | idle | 0 | 68 µs | 120 µs of 1,333 | 115 µs |
+| 64 | every core | 0 | 12 µs | 59 µs of 1,333 | 18 µs |
+| 128 | idle | 0 | 63 µs | 92 µs of 2,667 | 121 µs |
+| 128 | every core | 0 | 14 µs | 63 µs of 2,667 | 26 µs |
+
+The helper used 0.4–2.3% of one core and 10 MiB. With a 100 ms stall (one minute each), the
+longest callback was 67 µs at 64 frames and 54 µs at 128 frames, and the endpoint played again
+after one restart. Windows has not been measured yet.
+
 # Real-time audit
 
 `scripts/build-helper.sh --audit` (Windows: `build-helper.ps1 -Audit`) builds the helper with

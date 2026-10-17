@@ -318,9 +318,10 @@ fn run(options: &Options) -> Result<()> {
 
     let budget = Duration::from_secs_f64((options.latency * options.quantum) as f64 / RATE);
     out!(
-        "{} frames at 48 kHz, latency {} quanta ({:.2} ms, {latency} frames in all), {}, {:.0} s, {}",
+        "{} frames at 48 kHz, added latency {} x {} frames ({:.2} ms, {latency} frames in all), {}, {:.0} s, {}",
         options.quantum,
         options.latency,
+        options.quantum,
         budget.as_secs_f64() * 1e3,
         if options.load {
             "every core busy"
