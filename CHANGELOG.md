@@ -49,6 +49,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   truncate to a different choice.
 - A VST3 module whose entry succeeded but that provides no factory is exited with `bundleExit`
   or `ExitDll` before it is released, as the VST3 SDK hosts do.
+- The `RenderError::Events` message no longer calls render events MIDI messages on existing ports;
+  ports a processor lacks fail `Process::validate_events` instead.
 
 ## [0.1.2] - 2026-10-11
 

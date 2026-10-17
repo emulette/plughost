@@ -305,8 +305,7 @@ const PATH_ENCODING: &str = "plugin bundle and preset paths must be valid Unicod
 
 const INPUT_LENGTH: &str = "input channels do not all have the requested number of frames";
 const INPUT_CHANNELS: &str = "input channel count does not match the processor";
-const EVENTS: &str =
-    "events must be valid MIDI messages on existing ports, in offset order, inside the input";
+const EVENTS: &str = "events must be valid, in offset order, inside the input";
 const LATENCY_CHANGED: &str = "the processor's latency changed during rendering";
 const LATENCY_NOT_APPLIED: &str = "a plugin announced a new latency that is not applied yet; reset \
      or prepare the chain again before rendering";
@@ -344,7 +343,8 @@ pub enum RenderError {
         /// Supplied channel count.
         actual: usize,
     },
-    /// Events are invalid, unordered, outside the render input, or address a missing port.
+    /// Events are invalid, unordered, or outside the render input. Events on ports the
+    /// processor lacks fail its [`Process::validate_events`](crate::render::Process::validate_events).
     Events,
     /// The processor’s latency changed during a render.
     LatencyChanged {
