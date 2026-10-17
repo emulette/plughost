@@ -100,9 +100,9 @@ does this while it plays a chain through the default output device, which it ask
 of one quantum.
 
 Realtime processing is measured on Apple Silicon at 48 kHz with quanta of 64 and 128 frames
-and a latency of one quantum. plughost bounds the work, waiting, and allocation of its own
-callback code and of the helper's; a plugin's own code or the operating system can still take
-longer, which the endpoint reports as late or missed quanta.
+and a latency of one quantum. The endpoint's callback never waits, locks, or allocates; the
+helper's processing, the plugins' own code, and the operating system can still take longer,
+which the endpoint reports as late or missed quanta.
 
 ## Capabilities and limits
 
