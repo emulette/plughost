@@ -20,6 +20,11 @@ targets = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
 [lints]
 workspace = true
 
+[features]
+# Marks the realtime endpoint's callback for the real-time audit (see plughost_core::audit); not
+# for shipping.
+realtime-audit = ["plughost-core/realtime-audit"]
+
 [dependencies]
 interprocess.workspace = true
 json5.workspace = true

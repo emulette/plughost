@@ -159,3 +159,12 @@ scripts/build-helper.sh --audit
 RTSAN_OPTIONS=halt_on_error=false cargo test --workspace --locked -- --include-ignored --skip benchmark 2> audit.log
 scripts/build-helper.sh
 ```
+
+The `realtime-audit` feature of `plughost` audits the application's side the same way: the
+realtime endpoint's callback. Its test drives every path of the callback through the usual
+helper and fails on any allocation or free there; on macOS, RealtimeSanitizer also stops it at the
+first allocation, lock or system call. CI runs it:
+
+```sh
+RTSAN_ENABLE=1 cargo test -p plughost --locked --features realtime-audit --test realtime_audit -- --include-ignored
+```

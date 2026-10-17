@@ -61,5 +61,10 @@ jobs:
         run: cargo clippy -p plughost-formats --all-targets --locked --no-default-features --features au -- -D warnings
       - name: Lint the processing audit build
         run: cargo clippy --workspace --all-targets --locked --features realtime-audit -- -D warnings
+      # RealtimeSanitizer runs on macOS; the Windows build counts allocations alone.
+      - name: Audit the realtime callback
+        run: cargo test -p plughost --locked --features realtime-audit --test realtime_audit -- --include-ignored
+        env:
+          RTSAN_ENABLE: 1
       - name: Render with a clean app and helper built from cargo package artifacts
         run: ${{ matrix.python }} scripts/package-consumer.py

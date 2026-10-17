@@ -5,9 +5,9 @@
 //! With the `realtime-audit` feature, RealtimeSanitizer reports every allocation, lock and system
 //! call the host makes on that path, with its stack, on macOS when the build sets
 //! `RTSAN_ENABLE=1`; plugin code is left out, and the host callbacks inside it are watched again.
-//! On every platform `Allocator` also counts the host's allocations and frees there, and
-//! `report` sums them up with the plugin queries the host made. Without the feature the marks
-//! do nothing.
+//! On every platform `Allocator` also counts the host's allocations and frees there, which
+//! `processing_allocations` returns, and `report` sums them up with the plugin queries the host
+//! made. Without the feature the marks do nothing.
 
 /// A mark, until it drops.
 #[must_use]
@@ -53,7 +53,7 @@ pub fn callback() -> Scope {
 }
 
 #[cfg(feature = "realtime-audit")]
-pub use enabled::{Allocator, report};
+pub use enabled::{Allocator, processing_allocations, report};
 
 #[cfg(feature = "realtime-audit")]
 mod enabled {
@@ -160,6 +160,15 @@ mod enabled {
             count(false);
             unsafe { System.realloc(pointer, layout, size) }
         }
+    }
+
+    /// Allocations and frees in the host's processing code so far, on any thread.
+    pub fn processing_allocations() -> (u64, u64) {
+        let [allocations, frees] = &COUNTS[0];
+        (
+            allocations.load(Ordering::Relaxed),
+            frees.load(Ordering::Relaxed),
+        )
     }
 
     /// The counts so far: allocations and frees in the host's processing code, then in its

@@ -202,6 +202,7 @@ impl RealtimeEndpoint {
         events: &[Event],
         produced: &mut Vec<Event>,
     ) -> Result<RealtimeOutput, Error> {
+        let _audit = plughost_core::audit::processing();
         produced.clear();
         if S::FORMAT != self.format {
             return Err(Error::Input {
