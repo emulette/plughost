@@ -60,8 +60,8 @@ impl Class for HostApplication {
 fn calls_interface(iid: &[u8; 16]) -> bool {
     use vst3::Steinberg::IPlugViewContentScaleSupport;
     use vst3::Steinberg::Vst::{
-        IAudioProcessor, IComponent, IEditController, IMidiMapping, IProcessContextRequirements,
-        IUnitInfo,
+        IAudioProcessor, IComponent, IEditController, IMidiMapping, INoteExpressionController,
+        IProcessContextRequirements, IUnitInfo,
     };
     [
         IComponent::IID,
@@ -71,6 +71,7 @@ fn calls_interface(iid: &[u8; 16]) -> bool {
         IUnitInfo::IID,
         IMidiMapping::IID,
         IProcessContextRequirements::IID,
+        INoteExpressionController::IID,
     ]
     .contains(iid)
         // Editors are told their content scale only on Windows; macOS scales views itself.
@@ -315,6 +316,10 @@ mod attribute_tests;
 #[cfg(test)]
 #[path = "host/editor_tests.rs"]
 mod editor_tests;
+
+#[cfg(test)]
+#[path = "host/interface_tests.rs"]
+mod interface_tests;
 
 /// A state stream with the attributes that tell the plugin what the state is.
 pub(crate) struct MemoryStream {
