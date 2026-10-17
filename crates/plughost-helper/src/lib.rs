@@ -230,6 +230,17 @@ impl Responder {
     pub fn fail(&self, slot: Option<usize>, failure: Failure) -> io::Result<()> {
         self.send(&Response::Failed { slot, failure })
     }
+
+    /// Keeps a warning about the helper itself for the application's diagnostics drain.
+    pub fn warn(&self, message: &str) {
+        self.diagnostics.record(
+            plughost_core::DiagnosticSeverity::Warning,
+            message,
+            None,
+            None,
+            None,
+        );
+    }
 }
 
 pub(crate) fn record_failure(

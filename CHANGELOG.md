@@ -35,6 +35,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   the chain fail with `Error::RealtimeRunning`; parameter edits, state saves and editors go on.
   A VST3 or CLAP restart request while the endpoint runs is reported through `take_changes` and
   the stream goes on with the plugin's current activation; prepare the chain again after stopping.
+  The helper's worker runs with the time-constraint policy in a workgroup interval of its own and
+  keeps App Nap away on macOS, and in the MMCSS "Pro Audio" task on Windows.
 - `plughost_formats::BlockProcessor::defer_restart` lets blocks go on while a VST3 or CLAP
   restart request waits, instead of failing with `FailureKind::RestartRequired`.
 - `plughost_formats::clap::classes_once_loaded` lists a CLAP module's classes and reports when

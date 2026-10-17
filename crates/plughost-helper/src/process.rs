@@ -213,7 +213,7 @@ impl Pipeline {
             Command::Realtime(realtime::Realtime::Install(transport)) => {
                 swap(&mut self.realtime, transport);
             }
-            // The processing thread runs the worker after handing the command back.
+            // The processing thread runs the worker, which hands the start command back.
             Command::Realtime(realtime::Realtime::Start | realtime::Realtime::Stop) => {}
         }
     }
@@ -327,12 +327,13 @@ fn serve(
             }
             Work::Observe(slot, timing) => pipeline.changes.observe(slot, timing),
             Work::Command(mut command) => {
-                let start = matches!(command, Command::Realtime(realtime::Realtime::Start));
                 pipeline.apply(&mut command);
-                if handed_back.send(command).is_err() {
-                    return;
-                }
-                if start && !realtime::run(&mut pipeline, queue, handed_back, responder) {
+                let connected = if matches!(command, Command::Realtime(realtime::Realtime::Start)) {
+                    realtime::run(&mut pipeline, command, queue, handed_back, responder)
+                } else {
+                    handed_back.send(command).is_ok()
+                };
+                if !connected {
                     return;
                 }
             }

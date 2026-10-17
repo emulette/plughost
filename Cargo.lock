@@ -402,6 +402,7 @@ name = "plughost-helper"
 version = "0.1.2"
 dependencies = [
  "interprocess",
+ "libc",
  "objc2",
  "objc2-app-kit",
  "objc2-core-foundation",

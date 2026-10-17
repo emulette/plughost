@@ -3,8 +3,11 @@
 //! queued, which ring the doorbell too, and then processes every submitted quantum in order into
 //! its lane. A quantum's failure is reported in its lane; the worker goes on with the next.
 
+mod schedule;
+
 use std::io;
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError};
+use std::time::Duration;
 
 use plughost_core::ipc::AudioSamples;
 use plughost_core::ipc::shared::realtime::{Control, Quantum, Ring};
@@ -13,6 +16,7 @@ use plughost_core::{AutomationEvent, Event, Failure, FailureKind, InputError, MA
 
 use super::{Command, Pipeline, Work, audio};
 use crate::Responder;
+use schedule::Schedule;
 
 /// The installed ring and the worker's local copy of the quantum it processes.
 pub(crate) struct Transport {
@@ -48,21 +52,29 @@ pub(crate) enum Realtime {
     Stop,
 }
 
-/// Runs the worker until a stop command. Returns false once the connection closed.
+/// Hands `start` back once the worker is scheduled, so that the application's first quanta find
+/// it ready, and runs it until a stop command. Returns false once the connection closed.
 pub(super) fn run(
     pipeline: &mut Pipeline,
+    start: Command,
     queue: &Receiver<Work>,
     handed_back: &SyncSender<Command>,
     responder: &Responder,
 ) -> bool {
-    let Some(transport) = &pipeline.realtime else {
-        return true;
+    let (Some(transport), Some(config)) = (&pipeline.realtime, &pipeline.audio_config) else {
+        return handed_back.send(start).is_ok();
     };
     let control = transport.ring.control();
-    let (generation, _) = transport.ring.started();
+    let (generation, deadline) = transport.ring.started();
+    let quantum = transport.ring.descriptor().config.max_frames as f64 / config.sample_rate;
+    let schedule = Schedule::enter(Duration::from_secs_f64(quantum), deadline, responder);
     defer_restarts(pipeline, true);
+    if handed_back.send(start).is_err() {
+        return false;
+    }
     let connected = work(
         pipeline,
+        &schedule,
         &control,
         generation,
         queue,
@@ -84,6 +96,7 @@ fn defer_restarts(pipeline: &mut Pipeline, deferred: bool) {
 
 fn work(
     pipeline: &mut Pipeline,
+    schedule: &Schedule,
     control: &Control,
     generation: u64,
     queue: &Receiver<Work>,
@@ -125,14 +138,14 @@ fn work(
         while processed < submitted {
             processed += 1;
             let _audit = plughost_core::audit::processing();
-            crate::events::with_pool(|| quantum(pipeline, generation, processed));
+            crate::events::with_pool(|| quantum(pipeline, schedule, generation, processed));
         }
         control.wait(bell);
     }
 }
 
 /// Processes quantum `sequence` into its lane.
-fn quantum(pipeline: &mut Pipeline, generation: u64, sequence: u64) {
+fn quantum(pipeline: &mut Pipeline, schedule: &Schedule, generation: u64, sequence: u64) {
     let Some(mut transport) = pipeline.realtime.take() else {
         return;
     };
@@ -149,6 +162,7 @@ fn quantum(pipeline: &mut Pipeline, generation: u64, sequence: u64) {
     // A lane the application could not have written, or that failed to publish, fails alone.
     let _ = match taken {
         Ok(quantum) => {
+            let _interval = schedule.interval(quantum.submitted_at);
             let mut sink = Lane {
                 ring,
                 quantum: &quantum,

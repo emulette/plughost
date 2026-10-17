@@ -36,3 +36,11 @@ pub const REALTIME_RUNNING: &str =
 pub const REALTIME_NOT_INSTALLED: &str = "no realtime endpoint is installed for the prepared chain";
 pub const REALTIME_RING: &str =
     "the realtime ring does not match the prepared chain's precision, channels or block size";
+#[cfg(target_os = "macos")]
+pub const REALTIME_TIME_CONSTRAINT: &str =
+    "the realtime worker did not get the time-constraint policy and runs at its default priority";
+#[cfg(target_os = "macos")]
+pub const REALTIME_WORKGROUP: &str = "the realtime worker could not join a workgroup interval";
+#[cfg(windows)]
+pub const REALTIME_MMCSS: &str =
+    "the realtime worker could not join the MMCSS Pro Audio task and runs at its default priority";
