@@ -66,6 +66,7 @@ for extension in vst3 clap; do
 done
 
 package "$root/target/release/libplughost_test_routing.dylib" plughost-test-routing-faults clap
+package "$root/target/release/libplughost_test_routing.dylib" plughost-test-routing-fixed-ports clap
 
 vst3sdk="$root/.vst3sdk"
 sdk="${VST3_SDK_DIR:-$vst3sdk/VST_SDK/vst3sdk}"

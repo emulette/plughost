@@ -6,7 +6,7 @@
 //! key, system exclusive messages are echoed, and `FLOOD` makes the fixture exceed any block's
 //! event budget. A note off on `LATE_KEY` leaves at the block's length, past its last frame, and
 //! the CLAP side also reports the note's end. CLAP enables these two faults only in the
-//! `routing-faults` bundle. Notes and their expressions on `EXPRESSION_PORT`
+//! `routing-faults` bundle; the `routing-fixed-ports` bundle has no CLAP audio port activation. Notes and their expressions on `EXPRESSION_PORT`
 //! leave unchanged: CLAP note and note expression events, and VST3 notes, poly pressure and note
 //! expression values.
 //! The VST3 processor and controller are separate COM objects. Preparation requires a two-way

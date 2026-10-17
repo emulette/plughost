@@ -29,6 +29,7 @@ foreach ($extension in @('vst3', 'clap')) {
     Copy-Item -LiteralPath "$root/target/release/plughost_test_routing.dll" -Destination "$out/plughost-test-routing.$extension"
 }
 Copy-Item -LiteralPath "$root/target/release/plughost_test_routing.dll" -Destination "$out/plughost-test-routing-faults.clap"
+Copy-Item -LiteralPath "$root/target/release/plughost_test_routing.dll" -Destination "$out/plughost-test-routing-fixed-ports.clap"
 
 $vst3sdk = "$root/.vst3sdk"
 $sdk = $env:VST3_SDK_DIR

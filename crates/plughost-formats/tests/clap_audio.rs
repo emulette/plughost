@@ -4,9 +4,12 @@ use plughost_formats::clap::{ClapError, Plugin};
 use plughost_formats::{Error, HostedPlugin};
 use std::path::Path;
 fn plugin() -> Plugin {
+    bundle("plughost-test-routing")
+}
+fn bundle(name: &str) -> Plugin {
     Plugin::new(
         &Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/test-plugins/plughost-test-routing.clap"),
+            .join(format!("../../target/test-plugins/{name}.clap")),
         "com.studio.plughost.test-routing",
         &HostIdentity::default(),
     )
@@ -187,6 +190,39 @@ fn inactive_ports_keep_native_indices_and_reset_retains_routing() {
         .unwrap();
     assert_eq!(left_out, vec![0.5; 32]);
     assert_eq!(right_out, vec![0.75; 32]);
+}
+#[test]
+#[ignore = "needs native routing fixture"]
+fn main_bus_preparation_follows_ports_left_out_without_port_activation() {
+    // Without port activation every port stays natively active, so main-bus preparation has
+    // nothing to activate again.
+    let mut plugin = bundle("plughost-test-routing-fixed-ports");
+    let mut request = config(SampleFormat::F32, Layout::Stereo, 101);
+    request.inputs.remove(0);
+    request.outputs.remove(0);
+    plugin.prepare_audio(&request).unwrap();
+    plugin
+        .prepare(&ProcessConfig {
+            sample_rate: 48000.0,
+            max_block_size: 32,
+            sample_format: SampleFormat::F32,
+            input: Layout::Stereo,
+            output: Layout::Stereo,
+            mode: ProcessMode::Offline,
+        })
+        .unwrap();
+    let (mut left, mut right) = (vec![0.0f32; 32], vec![0.0f32; 32]);
+    plugin
+        .process(
+            &BlockContext::new(32),
+            &[&[0.5; 32], &[0.75; 32]],
+            &mut [&mut left, &mut right],
+            &[],
+            &[],
+            &mut Vec::new(),
+        )
+        .unwrap();
+    assert_eq!((left, right), (vec![0.5; 32], vec![0.75; 32]));
 }
 #[test]
 #[ignore = "needs native routing fixture"]

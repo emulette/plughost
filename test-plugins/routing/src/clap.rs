@@ -63,11 +63,13 @@ impl Plugin for Fixture {
     type MainThread<'a> = MainThread<'a>;
     type AudioProcessor<'a> = audio::Processor<'a>;
     fn declare_extensions(builder: &mut PluginExtensions<Self>, _shared: Option<&Shared>) {
+        if !FIXED_PORTS.load(std::sync::atomic::Ordering::Relaxed) {
+            builder.register::<PluginAudioPortsActivation>();
+        }
         builder
             .register::<PluginAudioPorts>()
             .register::<PluginAudioPortsConfig>()
             .register::<PluginAudioPortsConfigInfo>()
-            .register::<PluginAudioPortsActivation>()
             .register::<PluginNotePorts>()
             .register::<PluginSurround>()
             .register::<PluginAmbisonic>()
@@ -172,16 +174,21 @@ impl PluginStateImpl for MainThread<'_> {
     }
 }
 static FAULTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The `routing-fixed-ports` bundle leaves out audio port activation, so every port stays active.
+static FIXED_PORTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub struct RoutingEntry(SinglePluginEntry<Fixture>);
 impl Entry for RoutingEntry {
     fn new(path: Option<&CStr>) -> Result<Self, EntryLoadError> {
+        let named = |name: &[u8]| {
+            path.is_some_and(|path| path.to_bytes().windows(name.len()).any(|part| part == name))
+        };
         FAULTS.store(
-            path.is_some_and(|path| {
-                path.to_bytes()
-                    .windows(b"routing-faults".len())
-                    .any(|part| part == b"routing-faults")
-            }),
+            named(b"routing-faults"),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        FIXED_PORTS.store(
+            named(b"routing-fixed-ports"),
             std::sync::atomic::Ordering::Relaxed,
         );
         SinglePluginEntry::new(path).map(Self)

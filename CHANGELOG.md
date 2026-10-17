@@ -59,6 +59,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Scan helpers report `ScanStage::ModuleLoaded` as soon as a module has loaded, as documented,
   instead of after its classes were read and it was unloaded, so loading and the work after it
   each get the stall timeout instead of sharing one.
+- Direct CLAP use: `HostedPlugin::prepare` after a `prepare_audio` that left ports out no longer
+  fails with an unsupported-audio error for plugins without audio port activation, whose ports
+  stayed active.
 
 ## [0.1.2] - 2026-10-11
 

@@ -153,27 +153,26 @@ impl Plugin {
         }
         for bus in &mut buses {
             if bus.active == Some(false) {
-                let activation = self
-                    .shared()
-                    .extensions()
-                    .audio_activation
-                    .ok_or(ClapError::AudioUnsupported)?;
-                let mut handle = self
-                    .instance
-                    .inactive_plugin_handle()
-                    .ok_or(ClapError::AudioConfiguration)?;
-                let size = match config.sample_format {
-                    SampleFormat::F32 => SampleSize::Float32,
-                    SampleFormat::F64 => SampleSize::Float64,
-                };
-                if !activation.set_active_audio_inactive(
-                    &mut handle,
-                    bus.direction == AudioDirection::Input,
-                    bus.index,
-                    true,
-                    size,
-                ) {
-                    return Err(ClapError::AudioConfiguration);
+                // Without port activation a port left out of bus preparation stayed natively
+                // active, so only this host's record of it changes.
+                if let Some(activation) = self.shared().extensions().audio_activation {
+                    let mut handle = self
+                        .instance
+                        .inactive_plugin_handle()
+                        .ok_or(ClapError::AudioConfiguration)?;
+                    let size = match config.sample_format {
+                        SampleFormat::F32 => SampleSize::Float32,
+                        SampleFormat::F64 => SampleSize::Float64,
+                    };
+                    if !activation.set_active_audio_inactive(
+                        &mut handle,
+                        bus.direction == AudioDirection::Input,
+                        bus.index,
+                        true,
+                        size,
+                    ) {
+                        return Err(ClapError::AudioConfiguration);
+                    }
                 }
                 self.audio_active
                     .insert((bus.direction == AudioDirection::Input, bus.id), true);
