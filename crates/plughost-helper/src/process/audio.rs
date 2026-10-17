@@ -133,6 +133,7 @@ pub(super) fn process(
                 events_plan,
                 event_buffers,
                 resync: &mut pipeline.resync,
+                restart_deferred: pipeline.restart_deferred,
             },
             input,
             context,
@@ -151,6 +152,7 @@ pub(super) fn process(
                 events_plan,
                 event_buffers,
                 resync: &mut pipeline.resync,
+                restart_deferred: pipeline.restart_deferred,
             },
             input,
             context,
@@ -215,10 +217,12 @@ struct AudioState<'a, S: Sample> {
     events_plan: &'a events::EventPlan,
     event_buffers: &'a mut events::EventBuffers,
     resync: &'a mut bool,
+    restart_deferred: bool,
 }
 
-/// A plugin that asked to be prepared again is refused before any slot advances. Other timing
-/// changes surface when the timing is read once after the block, which also reports it.
+/// A plugin that asked to be prepared again is refused before any slot advances, unless the
+/// restart is deferred. Other timing changes surface when the timing is read once after the
+/// block, which also reports it.
 fn run<S: WireSample>(
     state: AudioState<'_, S>,
     input: &[Vec<S>],
@@ -231,6 +235,7 @@ fn run<S: WireSample>(
         .processors
         .iter()
         .position(|processor| processor.restart_required())
+        .filter(|_| !state.restart_deferred)
     {
         return sink.fail(Some(slot), audio_timing::restart_required());
     }
@@ -319,9 +324,14 @@ fn run<S: WireSample>(
         };
         state.changes.observe(slot, *timing);
     }
-    let tail = match state.plan.tail(&state.storage.timings) {
-        Ok(tail) => tail,
-        Err((slot, failure)) => return sink.fail(Some(slot), failure),
+    // A deferred restart keeps the activations, and so the alignment, the chain was planned for.
+    let tail = if state.restart_deferred {
+        state.plan.current_tail(&state.storage.timings)
+    } else {
+        match state.plan.tail(&state.storage.timings) {
+            Ok(tail) => tail,
+            Err((slot, failure)) => return sink.fail(Some(slot), failure),
+        }
     };
     state
         .storage

@@ -218,6 +218,14 @@ pub trait BlockProcessor: Send {
     fn restart_required(&self) -> bool {
         false
     }
+    /// Lets blocks go on with the current activation while a VST3 or CLAP restart request waits,
+    /// as a realtime stream needs, instead of failing with `FailureKind::RestartRequired`. The
+    /// request stays reported by [`Self::restart_required`] and the timing until the owning
+    /// thread prepares the plugin again. Off until enabled; formats without such requests ignore
+    /// it.
+    fn defer_restart(&self, deferred: bool) {
+        let _ = deferred;
+    }
 }
 
 /// Loads the plugin class `plugin` names, in this process.
@@ -431,6 +439,9 @@ impl BlockProcessor for vst3::Processor {
     }
     fn restart_required(&self) -> bool {
         vst3::Processor::restart_required(self)
+    }
+    fn defer_restart(&self, deferred: bool) {
+        vst3::Processor::defer_restart(self, deferred);
     }
 }
 
@@ -787,5 +798,8 @@ impl BlockProcessor for clap::Processor {
     }
     fn restart_required(&self) -> bool {
         clap::Processor::restart_required(self)
+    }
+    fn defer_restart(&self, deferred: bool) {
+        clap::Processor::defer_restart(self, deferred);
     }
 }

@@ -52,6 +52,9 @@ pub struct Pipeline {
     /// Events overflowed a block's budget; processing waits for a reset, which clears the notes
     /// slots may still hold.
     pub resync: bool,
+    /// The realtime worker runs: blocks go on with the current activations while a plugin's
+    /// restart request waits, which is still reported.
+    pub restart_deferred: bool,
     pub changes: Changes,
     /// Each slot's parameter metadata, against which block automation is validated.
     ///

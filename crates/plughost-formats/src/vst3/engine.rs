@@ -45,6 +45,8 @@ pub(crate) struct Engine {
     /// `None` once the plugin is closed.
     pub instance: Option<Instance>,
     pub prepared: Option<Prepared>,
+    /// Blocks go on while a restart request waits (see `BlockProcessor::defer_restart`).
+    pub restart_deferred: bool,
 }
 
 pub(crate) struct Prepared {
@@ -295,9 +297,10 @@ impl Engine {
     ) -> Result<(), Vst3Error> {
         produced.clear();
         let instance = self.instance.as_ref().ok_or(Vst3Error::Closed)?;
-        // The owning thread deactivates and prepares again; the processing thread only reports.
+        // The owning thread deactivates and prepares again; the processing thread only reports,
+        // unless the restart is deferred.
         let flags = instance.handler.restart_flags();
-        if flags & RESTART_REQUIRED != 0 {
+        if !self.restart_deferred && flags & RESTART_REQUIRED != 0 {
             return Err(Vst3Error::RestartRequired(flags));
         }
         let prepared = self.prepared.as_mut().ok_or(Vst3Error::NotPrepared)?;
@@ -546,6 +549,10 @@ impl Processor {
 
     pub(crate) fn timing(&self) -> Result<PluginTiming, Vst3Error> {
         lock(&self.engine).timing()
+    }
+
+    pub(crate) fn defer_restart(&self, deferred: bool) {
+        lock(&self.engine).restart_deferred = deferred;
     }
 
     /// The plugin asked to be prepared again (changed buses or a reload request).

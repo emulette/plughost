@@ -16,16 +16,19 @@ impl Processor {
         let Engine {
             processor: Some(processor),
             prepared: Some(prepared),
+            restart_deferred,
         } = &mut *engine
         else {
             return Err(ClapError::NotPrepared);
         };
-        // A restart requested during an earlier block is reported from the next one; the owning
-        // thread prepares the plugin again.
-        if processor.access_shared_handler(|shared| {
-            shared.restart_requested.load(Ordering::Relaxed)
-                || shared.latency_changed.load(Ordering::Relaxed)
-        }) {
+        // A restart requested during an earlier block is reported from the next one, unless it
+        // is deferred; the owning thread prepares the plugin again.
+        if !*restart_deferred
+            && processor.access_shared_handler(|shared| {
+                shared.restart_requested.load(Ordering::Relaxed)
+                    || shared.latency_changed.load(Ordering::Relaxed)
+            })
+        {
             return Err(ClapError::RestartRequired);
         }
         context.validate().map_err(ClapError::Input)?;

@@ -92,6 +92,7 @@ impl Plugin {
             engine: Arc::new(Mutex::new(Engine {
                 instance: Some(instance),
                 prepared: None,
+                restart_deferred: false,
             })),
             audio: AudioCalls::default(),
             editor: None,

@@ -9,8 +9,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use plughost::{
-    BlockContext, Chain, Error, Fallback, FallbackReason, PluginFormat, RealtimeConfig,
-    RealtimeEndpoint, RealtimeOutput, StatePurpose, Timeouts,
+    AutomationEvent, BlockContext, Chain, Error, FailureKind, Fallback, FallbackReason,
+    ParameterChange, PluginFormat, RealtimeConfig, RealtimeEndpoint, RealtimeOutput, StatePurpose,
+    Timeouts,
 };
 
 mod support;
@@ -43,6 +44,15 @@ fn sine(index: usize) -> Stereo {
 
 /// Serves one callback in the endpoint's quantum, or in the input's length.
 fn serve(endpoint: &mut RealtimeEndpoint, input: &Stereo) -> (RealtimeOutput, Stereo) {
+    automate(endpoint, input, &[])
+}
+
+/// Serves one callback with `automation`.
+fn automate(
+    endpoint: &mut RealtimeEndpoint,
+    input: &Stereo,
+    automation: &[AutomationEvent],
+) -> (RealtimeOutput, Stereo) {
     let frames = input[0].len();
     let mut output = silence(frames);
     let [left, right] = &mut output;
@@ -51,7 +61,7 @@ fn serve(endpoint: &mut RealtimeEndpoint, input: &Stereo) -> (RealtimeOutput, St
             &BlockContext::new(frames),
             &[&input[0], &input[1]],
             &mut [left, right],
-            &[],
+            automation,
             &[],
             &mut Vec::new(),
         )
@@ -277,6 +287,63 @@ fn changes_under_a_running_endpoint_are_refused() {
         callback(&mut endpoint, &sine(4)).0,
         RealtimeOutput::Fallback(FallbackReason::Stopped)
     );
+}
+
+#[test]
+#[ignore = "needs helper and the delay fixture (.ps1 or .sh build scripts)"]
+fn a_restart_request_waits_while_the_endpoint_runs() {
+    /// The CLAP delay fixture's parameter whose change makes it request a restart.
+    const RESTART_MODE: u64 = 10;
+    let mut chain = spawn(&[delay(PluginFormat::Clap)]);
+    prepare(&mut chain);
+    let mut endpoint = started(&mut chain, &RealtimeConfig::new(QUANTUM));
+    let automation = [AutomationEvent {
+        slot: 0,
+        change: ParameterChange {
+            id: RESTART_MODE,
+            offset: 0,
+            value: 0.5,
+        },
+    }];
+    thread::sleep(PACE);
+    automate(&mut endpoint, &sine(0), &automation);
+    // The plugin goes on with its current activation, and the request is reported.
+    for index in 1..6 {
+        assert_eq!(
+            callback(&mut endpoint, &sine(index)).0,
+            RealtimeOutput::Processed,
+            "callback {index}"
+        );
+    }
+    let status = chain.realtime_status().unwrap();
+    assert!(!status.resync && status.failures == 0, "{status:?}");
+    assert!(
+        chain.take_changes().unwrap().snapshot[0]
+            .unwrap()
+            .restart_required
+    );
+
+    // Once the endpoint stops, the chain refuses to process until it is prepared again.
+    chain.stop_realtime().unwrap();
+    let input = sine(6);
+    let mut output = silence(QUANTUM);
+    let [left, right] = &mut output;
+    let mut process = |chain: &mut Chain| {
+        chain.process_audio_f32(
+            &BlockContext::new(QUANTUM),
+            &[&input[0], &input[1]],
+            &mut [&mut *left, &mut *right],
+            &[],
+            &[],
+            &mut Vec::new(),
+        )
+    };
+    assert_eq!(
+        process(&mut chain).unwrap_err().kind(),
+        FailureKind::RestartRequired
+    );
+    chain.reprepare().unwrap();
+    process(&mut chain).unwrap();
 }
 
 #[test]

@@ -108,6 +108,8 @@ fn info(descriptor: &PluginDescriptor) -> Option<PluginInfo> {
 struct Engine {
     processor: Option<PluginAudioProcessor<Host>>,
     prepared: Option<Prepared>,
+    /// Blocks go on while a restart request waits (see `BlockProcessor::defer_restart`).
+    restart_deferred: bool,
 }
 
 struct Prepared {
@@ -217,6 +219,7 @@ impl Plugin {
             engine: Arc::new(Mutex::new(Engine {
                 processor: None,
                 prepared: None,
+                restart_deferred: false,
             })),
             audio: AudioCalls::default(),
             parameters: Arc::default(),
@@ -314,6 +317,7 @@ impl Plugin {
         let Engine {
             processor: Some(processor),
             prepared: Some(prepared),
+            ..
         } = &mut *engine
         else {
             return Err(ClapError::NotPrepared);
@@ -332,6 +336,7 @@ impl Plugin {
         let Engine {
             processor: Some(processor),
             prepared: Some(prepared),
+            ..
         } = &mut *engine
         else {
             return None;
@@ -808,6 +813,10 @@ impl Processor {
     ) -> Result<(), ClapError> {
         self.process_audio_impl(context, input, output, automation, events, produced)
     }
+    pub(crate) fn defer_restart(&self, deferred: bool) {
+        lock(&self.engine).restart_deferred = deferred;
+    }
+
     pub(crate) fn restart_required(&self) -> bool {
         lock(&self.engine)
             .processor

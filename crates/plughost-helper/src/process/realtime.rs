@@ -7,7 +7,7 @@ use std::io;
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError};
 
 use plughost_core::ipc::AudioSamples;
-use plughost_core::ipc::shared::realtime::{Quantum, Ring};
+use plughost_core::ipc::shared::realtime::{Control, Quantum, Ring};
 use plughost_core::render::Tail;
 use plughost_core::{AutomationEvent, Event, Failure, FailureKind, InputError, MAX_BLOCK_EVENTS};
 
@@ -60,6 +60,36 @@ pub(super) fn run(
     };
     let control = transport.ring.control();
     let (generation, _) = transport.ring.started();
+    defer_restarts(pipeline, true);
+    let connected = work(
+        pipeline,
+        &control,
+        generation,
+        queue,
+        handed_back,
+        responder,
+    );
+    defer_restarts(pipeline, false);
+    connected
+}
+
+/// The stream goes on with the plugins' current activations while a restart request waits; the
+/// application prepares the chain again after it stops the endpoint.
+fn defer_restarts(pipeline: &mut Pipeline, deferred: bool) {
+    pipeline.restart_deferred = deferred;
+    for processor in &pipeline.processors {
+        processor.defer_restart(deferred);
+    }
+}
+
+fn work(
+    pipeline: &mut Pipeline,
+    control: &Control,
+    generation: u64,
+    queue: &Receiver<Work>,
+    handed_back: &SyncSender<Command>,
+    responder: &Responder,
+) -> bool {
     let mut processed = 0;
     loop {
         let bell = control.bell_count();

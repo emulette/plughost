@@ -29,6 +29,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   endpoint, `reset` the chain and start it again. While the endpoint runs, `restore_state`,
   presets, `select_factory_preset`, `reset`, `prepare_audio`, `reprepare` and processing through
   the chain fail with `Error::RealtimeRunning`; parameter edits, state saves and editors go on.
+  A VST3 or CLAP restart request while the endpoint runs is reported through `take_changes` and
+  the stream goes on with the plugin's current activation; prepare the chain again after stopping.
+- `plughost_formats::BlockProcessor::defer_restart` lets blocks go on while a VST3 or CLAP
+  restart request waits, instead of failing with `FailureKind::RestartRequired`.
 - `plughost_formats::clap::classes_once_loaded` lists a CLAP module's classes and reports when
   its entry has initialized, before the classes are read and the entry is deinitialized.
 
