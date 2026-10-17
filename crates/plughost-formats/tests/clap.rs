@@ -308,6 +308,16 @@ fn a_plugin_without_selectable_configurations_lists_none() {
 
 #[test]
 #[ignore = "needs scripts/build-test-plugins.sh"]
+fn reset_before_preparation_succeeds_as_in_the_other_formats() {
+    let _serial = serial();
+    let mut plugin = plugin();
+    assert_eq!(plugin.reset(), Ok(()));
+    plugin.prepare(&config(48_000.0)).unwrap();
+    assert_eq!(plugin.reset(), Ok(()));
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
 fn classes_are_listed_with_their_plugin_ids() {
     let _serial = serial();
     let classes = clap::classes(&bundle()).unwrap();

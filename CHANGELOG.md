@@ -16,6 +16,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   parameter and the CLAP and Audio Unit bypass, instead of failing with `NotPrepared`.
 - `audio_configurations` returns an empty list for CLAP plugins without the `audio-ports-config`
   extension, as for VST3 and Audio Units, instead of failing with an unsupported-audio error.
+- `reset` succeeds for CLAP plugins that are not prepared yet, as for VST3 and Audio Units, so
+  `Chain::reset` before `prepare_audio` no longer fails for chains with a CLAP slot.
 
 ## [0.1.2] - 2026-10-11
 

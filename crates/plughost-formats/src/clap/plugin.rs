@@ -468,7 +468,10 @@ impl Plugin {
         let engine = Arc::clone(&self.engine);
         self.audio.run(move || {
             let mut engine = lock(&engine);
-            let processor = engine.processor.as_mut().ok_or(ClapError::NotPrepared)?;
+            // An inactive plugin holds no audio state to clear.
+            let Some(processor) = engine.processor.as_mut() else {
+                return Ok(());
+            };
             {
                 let _audit = plughost_core::audit::plugin();
                 in_audio_context(|| processor.reset());
