@@ -47,6 +47,8 @@ const GAIN: ClapId = ClapId::new(0);
 const RANGE: ClapId = ClapId::new(1);
 /// The `editor` variant's report of its editor's keyboard focus (see `editor.rs`).
 const EDITOR_FOCUS: ClapId = ClapId::new(15);
+/// The `editor` variant's count of editor sizes it refused.
+const REFUSED_SIZES: ClapId = ClapId::new(16);
 /// The `timers` variant's report of calls for a removed timer (see `timers.rs`).
 const REMOVED_TIMER_CALLS: ClapId = ClapId::new(15);
 
@@ -133,6 +135,7 @@ impl DefaultPluginFactory for TestPlugin {
             gain_max: AtomicU64::new(1.0f64.to_bits()),
             latency: AtomicU32::new(0),
             editor_focus: Arc::new(AtomicU32::new(0)),
+            refused_sizes: AtomicU32::new(0),
             removed_timer_calls: AtomicU32::new(0),
             timer_calls: AtomicU32::new(0),
             system_timer_calls: Arc::new(AtomicU32::new(0)),
@@ -183,6 +186,8 @@ pub struct Shared {
     latency: AtomicU32,
     /// What the `editor` variant's editor received, reported as `editor::FOCUS`.
     editor_focus: Arc<AtomicU32>,
+    /// How often the `editor` variant's editor refused a size, reported as `REFUSED_SIZES`.
+    pub(crate) refused_sizes: AtomicU32,
     /// Calls the `timers` variant received for a timer it had removed, reported as
     /// `REMOVED_TIMER_CALLS`.
     pub(crate) removed_timer_calls: AtomicU32,
@@ -362,7 +367,8 @@ impl PluginMainThreadParams for MainThread<'_> {
         15 + u32::from(matches!(
             variant(),
             Variant::Editor | Variant::Timers | Variant::FlushRequest | Variant::ThreadCheck
-        )) + 2 * u32::from(variant() == Variant::Timers)
+        )) + u32::from(variant() == Variant::Editor)
+            + 2 * u32::from(variant() == Variant::Timers)
             + 4 * u32::from(variant() == Variant::ThreadCheck)
     }
 
@@ -426,6 +432,16 @@ impl PluginMainThreadParams for MainThread<'_> {
                 module: b"",
                 min_value: 0.0,
                 max_value: 1000.0,
+                default_value: 0.0,
+            }),
+            16 if variant() == Variant::Editor => info.set(&ParamInfo {
+                id: REFUSED_SIZES,
+                flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: b"Refused editor sizes",
+                module: b"",
+                min_value: 0.0,
+                max_value: 1_000_000.0,
                 default_value: 0.0,
             }),
             15 => info.set(&ParamInfo {
@@ -580,6 +596,9 @@ impl PluginMainThreadParams for MainThread<'_> {
         }
         if id == EDITOR_FOCUS && variant() == Variant::Editor {
             return Some(f64::from(self.shared.editor_focus.load(Ordering::Relaxed)));
+        }
+        if id == REFUSED_SIZES && variant() == Variant::Editor {
+            return Some(f64::from(self.shared.refused_sizes.load(Ordering::Relaxed)));
         }
         if id.get() == 13 {
             return Some(5.0);

@@ -1,6 +1,8 @@
 //! The CLAP editor of the `editor` variant, on macOS: a view drawn inside the host's window. It
 //! takes keyboard focus when given it and then sends a key to its window, so the parameter
-//! `clap::EDITOR_FOCUS` tells whether the host focused the view and whether keys reach it.
+//! `clap::EDITOR_FOCUS` tells whether the host focused the view and whether keys reach it. It
+//! claims to be resizable but accepts only its own size, and once open it resizes its window as
+//! a user dragging it would; `clap::REFUSED_SIZES` counts the sizes it refused.
 
 use std::cell::RefCell;
 use std::ffi::c_void;
@@ -28,6 +30,8 @@ const SIZE: GuiSize = GuiSize {
     width: 240,
     height: 120,
 };
+/// How far the editor drags its window past `SIZE`.
+const DRAG: u32 = 60;
 
 pub struct Ivars {
     focus: Arc<AtomicU32>,
@@ -59,6 +63,16 @@ define_class!(
         #[unsafe(method(deliverTestKey))]
         fn deliver_test_key(&self) {
             self.send_key();
+        }
+
+        #[unsafe(method(dragWindow))]
+        fn drag_window(&self) {
+            if let Some(window) = self.window() {
+                window.setContentSize(NSSize::new(
+                    f64::from(SIZE.width + DRAG),
+                    f64::from(SIZE.height + DRAG),
+                ));
+            }
         }
 
         #[unsafe(method(keyDown:))]
@@ -139,10 +153,15 @@ impl PluginGuiImpl for MainThread<'_> {
         Some(SIZE)
     }
 
+    fn can_resize(&self) -> bool {
+        true
+    }
+
     fn set_size(&self, size: GuiSize) -> Result<(), PluginError> {
         if size == SIZE {
             Ok(())
         } else {
+            self.shared.refused_sizes.fetch_add(1, Ordering::Relaxed);
             Err(PluginError::Message(errors::GUI_API))
         }
     }
@@ -185,6 +204,11 @@ unsafe fn open(parent: *mut c_void, focus: Arc<AtomicU32>) -> Option<Editor> {
     );
     let view: Retained<FocusView> = unsafe { msg_send![super(view), initWithFrame: frame] };
     parent.addSubview(&view);
+    // Once the host has shown its window.
+    unsafe {
+        let _: () = msg_send![&view, performSelector: sel!(dragWindow),
+            withObject: None::<&NSObject>, afterDelay: 0.3f64];
+    }
     Some(Editor(view))
 }
 

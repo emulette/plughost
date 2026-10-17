@@ -130,9 +130,11 @@ mod platform {
             if plugin.editor_can_resize() {
                 let frame = self.window.contentRectForFrameRect(self.window.frame());
                 let dragged = (frame.size.width as u32, frame.size.height as u32);
-                if dragged != self.size.get()
-                    && let Some(accepted) = plugin.resize_editor(dragged.0, dragged.1)
-                {
+                if dragged != self.size.get() {
+                    // A refused size restores the last size the editor accepted.
+                    let accepted = plugin
+                        .resize_editor(dragged.0, dragged.1)
+                        .unwrap_or(self.size.get());
                     if accepted != dragged {
                         self.window
                             .setContentSize(content_size(accepted.0, accepted.1));

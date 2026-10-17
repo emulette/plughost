@@ -153,6 +153,46 @@ fn an_opened_editor_window_gives_the_editor_keyboard_focus() {
 }
 
 #[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_window_size_the_editor_refuses_returns_to_the_size_it_accepted() {
+    let _serial = support::editor_test();
+    // The editor variant drags its window 60 points past its 240 by 120 size, which it refuses,
+    // and counts the sizes it refused.
+    const REFUSED_SIZES: u64 = 16;
+    let refused = |chain: &mut Chain| {
+        let (_, value) = chain
+            .parameters(0)
+            .unwrap()
+            .into_iter()
+            .find(|(info, _)| info.id == REFUSED_SIZES)
+            .unwrap();
+        chain.parameter_to_plain(0, REFUSED_SIZES, value).unwrap()
+    };
+    let mut chain = spawn(&[delay_variant(PluginFormat::Clap, "editor", 0xB)]);
+    let pid = chain.helper_monitor().process_id();
+    chain.open_editor(0).unwrap();
+    wait(
+        &mut chain,
+        |chain| refused(chain) >= 1.0,
+        "the editor was never offered the dragged size",
+    );
+    wait(
+        &mut chain,
+        |_| {
+            windows(pid)
+                .iter()
+                .any(|window| window.on_screen && window.width == 240.0)
+        },
+        "the window kept the refused size",
+    );
+    // Restored, the window is not offered the refused size again.
+    let count = refused(&mut chain);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(refused(&mut chain), count);
+    chain.close_editor(0).unwrap();
+}
+
+#[test]
 #[ignore = "needs helper and synth fixtures and a desktop session"]
 fn a_floating_editor_follows_its_own_requests_and_reopens() {
     let _serial = support::editor_test();

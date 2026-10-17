@@ -64,6 +64,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   stayed active.
 - Direct VST3 use: preparing a prepared plugin again holds the values block automation left,
   instead of the controller's older values, until the next block's first point.
+- On macOS, a window size that a resizable editor refuses returns the window to the size the editor
+  last accepted, as on Windows, instead of keeping the refused size and offering it again on every
+  tick.
 
 ## [0.1.2] - 2026-10-11
 
