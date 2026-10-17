@@ -264,6 +264,14 @@ pub struct MainThread<'a> {
     editor: crate::editor::Slot,
 }
 
+impl Drop for MainThread<'_> {
+    fn drop(&mut self) {
+        if variant() == Variant::CrashOnDestroy {
+            std::process::abort();
+        }
+    }
+}
+
 impl MainThread<'_> {
     fn check(&self, function: &str) {
         self.shared

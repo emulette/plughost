@@ -28,10 +28,11 @@ pub enum Variant {
     MpePorts,
     ContextRequired,
     MappingProbe,
+    CrashOnDestroy,
 }
 
 /// Module file name (without extension), class ID suffix, and plugin name of each variant.
-const VARIANTS: [(Variant, &str, u32, &str); 20] = [
+const VARIANTS: [(Variant, &str, u32, &str); 21] = [
     (
         Variant::Delay,
         "plughost-test-delay",
@@ -151,6 +152,12 @@ const VARIANTS: [(Variant, &str, u32, &str); 20] = [
         "plughost-test-mapping-probe",
         0x79000014,
         "plughost test mapping probe",
+    ),
+    (
+        Variant::CrashOnDestroy,
+        "plughost-test-crash-on-destroy",
+        0x79000015,
+        "plughost test crash on destroy",
     ),
 ];
 

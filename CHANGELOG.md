@@ -24,6 +24,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   longer fails for plugins that cannot save their state, such as CLAP plugins without the `state`
   extension. Such a slot is prepared again in place after the others are staged; a failure from
   then on leaves the chain unprepared instead of preserving it.
+- A failed reconfiguration keeps the diagnostics of every staged instance it discards, not
+  only of the instance that failed, and a crash or hang while a reconfiguration releases replaced
+  or discarded instances names their slot.
 
 ## [0.1.2] - 2026-10-11
 

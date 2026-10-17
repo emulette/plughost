@@ -1,9 +1,9 @@
 //! Real CLAP callbacks are collected in bounded queues and explicitly drained over IPC.
-use plughost::{DiagnosticSeverity, FailureKind, PluginFormat};
+use plughost::{DiagnosticSeverity, FailureKind, Layout, PluginFormat};
 
 mod support;
 
-use support::{delay, prepare, spawn};
+use support::{delay, prepare, routing, spawn};
 
 #[test]
 #[ignore = "needs scripts/build-helper.ps1 and scripts/build-test-plugins.ps1 (or .sh)"]
@@ -85,4 +85,25 @@ fn plugin_severity_identity_overflow_and_reset_survive_ipc() {
     );
     assert_eq!(batch.records[0].slot, Some(0));
     assert_eq!(batch.records[0].severity, DiagnosticSeverity::Error);
+}
+
+#[test]
+#[ignore = "needs scripts/build-helper.ps1 and scripts/build-test-plugins.ps1 (or .sh)"]
+fn a_failed_reconfiguration_keeps_what_its_staged_instances_logged() {
+    // The CLAP delay logs as each instance is created; the routing VST3 refuses this rate.
+    let mut chain = spawn(&[delay(PluginFormat::Clap), routing(PluginFormat::Vst3)]);
+    prepare(&mut chain);
+    chain.take_diagnostics().unwrap();
+    let config = chain
+        .main_bus_config(12_345.0, 512, Layout::Stereo, &[Layout::Stereo; 2])
+        .unwrap();
+    let error = chain.prepare_audio(&config).unwrap_err();
+    assert_eq!(error.kind(), FailureKind::Configuration);
+    let batch = chain.take_diagnostics().unwrap();
+    let staged = batch
+        .records
+        .iter()
+        .filter(|record| record.slot == Some(0) && record.message == "fixture initialized")
+        .count();
+    assert_eq!(staged, 7);
 }

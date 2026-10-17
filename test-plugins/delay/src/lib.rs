@@ -10,8 +10,9 @@
 //!
 //! The binary also plays faulty variants, each with its own class ID, selected at run time by the
 //! name of the module the host loaded (see `variant.rs`), to test crash and hang isolation:
-//! `crash-in-process`, `hang-in-process`, `crash-on-scan` (in `GetPluginFactory`), and
-//! `hang-on-scan`. `noop-reset` reproduces a CLAP plugin whose reset leaves audio behind.
+//! `crash-in-process`, `hang-in-process`, `crash-on-scan` (in `GetPluginFactory`),
+//! `hang-on-scan`, and `crash-on-destroy` (as the VST3 component terminates or the CLAP plugin is
+//! destroyed). `noop-reset` reproduces a CLAP plugin whose reset leaves audio behind.
 //! `stall-main-thread` makes the CLAP side hold up the host's main thread once, connecting to
 //! the test barrier address in the host name and waiting for release. On macOS,
 //! `editor` gives the CLAP side an editor inside the host's window (see `editor.rs`).
@@ -337,6 +338,9 @@ impl IPluginBaseTrait for Delay {
     }
 
     unsafe fn terminate(&self) -> tresult {
+        if variant() == Variant::CrashOnDestroy {
+            std::process::abort();
+        }
         kResultOk
     }
 }

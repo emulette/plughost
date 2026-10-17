@@ -38,53 +38,14 @@ impl Host {
         transport: process::shared::Transport,
     ) -> Response {
         let staged = self.audio_config.is_some();
-        let calls = self.calls.clone();
         // `None` prepares the active instance in place: every slot of an unprepared chain, and
         // a slot of a prepared chain whose plugin cannot save the state a fresh instance needs.
         let mut candidates: Vec<Option<Box<dyn HostedPlugin>>> = Vec::new();
         let mut reports = Vec::new();
         if staged {
-            for slot in 0..self.slots.len() {
-                let _call = calls.enter(Caller::Main, slot);
-                let bypass = match self.slots[slot].bypass() {
-                    Ok(bypass) => bypass.enabled,
-                    Err(error) => return failed(slot, &error),
-                };
-                let state = match self.slots[slot].save_state(plughost_core::StatePurpose::Project)
-                {
-                    Ok(state) => state,
-                    // A CLAP restart likewise deactivates and activates the same instance.
-                    Err(error) if error.failure().kind == FailureKind::Unsupported => {
-                        candidates.push(None);
-                        reports.push(None);
-                        continue;
-                    }
-                    Err(error) => return failed(slot, &error),
-                };
-                let mut candidate =
-                    match self.load_slot(slot, &self.references[slot], &self.identity) {
-                        Ok(candidate) => candidate,
-                        Err(error) => return failed(slot, &error),
-                    };
-                let result = candidate
-                    .restore_state(&state, plughost_core::StatePurpose::Project)
-                    .and_then(|()| {
-                        let report = prepare(&config, slot, candidate.as_mut())?;
-                        if let Some(enabled) = bypass {
-                            candidate.set_bypass(enabled)?;
-                        }
-                        Ok(report)
-                    });
-                match result {
-                    Ok(report) => {
-                        reports.push(Some(report));
-                        candidates.push(Some(candidate));
-                    }
-                    Err(error) => {
-                        self.retain_diagnostics(slot, candidate.as_ref());
-                        return failed(slot, &error);
-                    }
-                }
+            if let Some(response) = self.stage(&config, &mut candidates, &mut reports) {
+                self.discard(candidates);
+                return response;
             }
         } else {
             candidates.resize_with(self.slots.len(), || None);
@@ -93,18 +54,86 @@ impl Host {
         // Fresh instances are all staged before any active one is changed. From then on a
         // failure cannot leave the prepared chain as it was, so it leaves the chain unprepared.
         let in_place = staged && candidates.iter().any(Option::is_none);
-        let response = self.prepare_slots(config, transport, candidates, reports);
-        if in_place && !matches!(response, Response::AudioPrepared { .. }) {
-            self.unprepare();
+        let response = self.prepare_slots(config, transport, &mut candidates, reports);
+        if !matches!(response, Response::AudioPrepared { .. }) {
+            self.discard(candidates);
+            if in_place {
+                self.unprepare();
+            }
         }
         response
+    }
+
+    /// Stages a fresh instance of each slot, restored from and prepared like the active one, and
+    /// returns the failure that stopped it.
+    fn stage(
+        &mut self,
+        config: &RoutedChainConfig,
+        candidates: &mut Vec<Option<Box<dyn HostedPlugin>>>,
+        reports: &mut Vec<Option<Vec<AudioBusInfo>>>,
+    ) -> Option<Response> {
+        let calls = self.calls.clone();
+        for slot in 0..self.slots.len() {
+            let _call = calls.enter(Caller::Main, slot);
+            let bypass = match self.slots[slot].bypass() {
+                Ok(bypass) => bypass.enabled,
+                Err(error) => return Some(failed(slot, &error)),
+            };
+            let state = match self.slots[slot].save_state(plughost_core::StatePurpose::Project) {
+                Ok(state) => state,
+                // A CLAP restart likewise deactivates and activates the same instance.
+                Err(error) if error.failure().kind == FailureKind::Unsupported => {
+                    candidates.push(None);
+                    reports.push(None);
+                    continue;
+                }
+                Err(error) => return Some(failed(slot, &error)),
+            };
+            let mut candidate = match self.load_slot(slot, &self.references[slot], &self.identity) {
+                Ok(candidate) => candidate,
+                Err(error) => return Some(failed(slot, &error)),
+            };
+            let result = candidate
+                .restore_state(&state, plughost_core::StatePurpose::Project)
+                .and_then(|()| {
+                    let report = prepare(config, slot, candidate.as_mut())?;
+                    if let Some(enabled) = bypass {
+                        candidate.set_bypass(enabled)?;
+                    }
+                    Ok(report)
+                });
+            match result {
+                Ok(report) => {
+                    reports.push(Some(report));
+                    candidates.push(Some(candidate));
+                }
+                Err(error) => {
+                    self.retain_diagnostics(slot, candidate.as_ref());
+                    return Some(failed(slot, &error));
+                }
+            }
+        }
+        None
+    }
+
+    /// Drops staged instances that were not committed, keeping what they logged and naming
+    /// their slot should one fail on the way out.
+    fn discard(&mut self, candidates: Vec<Option<Box<dyn HostedPlugin>>>) {
+        let calls = self.calls.clone();
+        for (slot, candidate) in candidates.into_iter().enumerate() {
+            if let Some(candidate) = candidate {
+                let _call = calls.enter(Caller::Main, slot);
+                self.retain_diagnostics(slot, candidate.as_ref());
+                drop(candidate);
+            }
+        }
     }
 
     fn prepare_slots(
         &mut self,
         mut config: RoutedChainConfig,
         transport: process::shared::Transport,
-        mut candidates: Vec<Option<Box<dyn HostedPlugin>>>,
+        candidates: &mut Vec<Option<Box<dyn HostedPlugin>>>,
         mut reports: Vec<Option<Vec<AudioBusInfo>>>,
     ) -> Response {
         let generation = transport.descriptor().generation;
@@ -222,11 +251,11 @@ impl Host {
             self.close_editors();
         }
         let mut old = Vec::new();
-        for (slot, candidate) in candidates.into_iter().enumerate() {
+        for (slot, candidate) in std::mem::take(candidates).into_iter().enumerate() {
             if let Some(candidate) = candidate {
                 let plugin = std::mem::replace(&mut self.slots[slot], candidate);
                 self.retain_diagnostics(slot, plugin.as_ref());
-                old.push(plugin);
+                old.push((slot, plugin));
             }
         }
         self.audio_slots = config
@@ -261,7 +290,10 @@ impl Host {
                     timings,
                 }))),
         );
-        drop(old);
+        for (slot, plugin) in old {
+            let _call = calls.enter(Caller::Main, slot);
+            drop(plugin);
+        }
         for slot in 0..self.slots.len() {
             self.invalidate_parameters(slot);
         }

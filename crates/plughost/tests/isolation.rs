@@ -289,6 +289,24 @@ fn chains_of_mixed_formats_render_aligned_output() {
 
 #[test]
 #[ignore = "needs scripts/build-helper.sh and scripts/build-test-plugins.sh"]
+fn a_crash_releasing_an_instance_replaced_by_preparation_names_its_slot() {
+    for format in [PluginFormat::Vst3, PluginFormat::Clap] {
+        let crashing = delay_variant(format, "crash-on-destroy", 0x15);
+        let mut chain = spawn(&[again(), crashing]);
+        prepare(&mut chain);
+        // Preparing again replaces both instances; the second crashes as it is released.
+        let config = chain
+            .main_bus_config(44_100.0, 512, Layout::Stereo, &[Layout::Stereo; 2])
+            .unwrap();
+        match chain.prepare_audio(&config) {
+            Err(Error::Crashed { slot: Some(1), .. }) => {}
+            other => panic!("{format:?}: {other:?}"),
+        }
+    }
+}
+
+#[test]
+#[ignore = "needs scripts/build-helper.sh and scripts/build-test-plugins.sh"]
 fn a_crash_names_the_slot_and_the_chain_can_recover() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let crashing = delay_variant(format, "crash-in-process", 2);
