@@ -368,3 +368,19 @@ fn class_ids_are_matched_without_regard_to_case() {
         au::AuError::Instantiate("6175667800000000000000AA".to_owned())
     );
 }
+
+#[test]
+fn a_discrete_parameter_converts_to_the_whole_value_an_edit_selects() {
+    // AUNBandEQ, 'aufx' 'nbeq' 'appl', and its first band's filter type, indexed 0..=10.
+    const FILTER_TYPE: u64 = 2000;
+    let mut plugin = Plugin::new("617566786E6265716170706C").unwrap();
+    plugin.set_parameter(FILTER_TYPE, 0.06).unwrap();
+    let edited = plugin
+        .parameters()
+        .into_iter()
+        .find(|(info, _)| info.id == FILTER_TYPE)
+        .unwrap()
+        .1;
+    assert_eq!(plugin.parameter_to_plain(FILTER_TYPE, edited).unwrap(), 1.0);
+    assert_eq!(plugin.parameter_to_plain(FILTER_TYPE, 0.06).unwrap(), 1.0);
+}

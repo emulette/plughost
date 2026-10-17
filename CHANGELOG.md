@@ -44,6 +44,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   longer conclude that the host ignores them.
 - Audio Unit class IDs load whatever the case of their hexadecimal digits, as `ScanPolicy` already
   matches them; a lowercase ID failed to instantiate.
+- Audio Unit `parameter_to_plain` and `parameter_text` round discrete parameters to the whole
+  value that `set_parameter` and automation select, instead of converting a fraction that units
+  truncate to a different choice.
 
 ## [0.1.2] - 2026-10-11
 

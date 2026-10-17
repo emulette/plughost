@@ -1,4 +1,4 @@
-use super::{AUParameter, AuError, Plugin, Retained, lock};
+use super::{AUParameter, AuError, Plugin, Retained, lock, parameter_info};
 use objc2::msg_send;
 use objc2_foundation::NSString;
 use plughost_core::{
@@ -48,7 +48,13 @@ impl Plugin {
         if !min.is_finite() || !max.is_finite() || min > max {
             return Err(AuError::ParameterResult);
         }
-        Ok(min + value * (max - min))
+        let plain = min + value * (max - min);
+        // Whole for a discrete parameter, as an edit with `value` selects it.
+        Ok(if parameter_info(&parameter).flags.discrete {
+            plain.round()
+        } else {
+            plain
+        })
     }
 
     pub(crate) fn parameter_to_normalized(&self, id: u64, plain: f64) -> Result<f64, AuError> {
