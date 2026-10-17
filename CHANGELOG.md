@@ -12,6 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - VST3 `parameter_details` and `parameter_choices` no longer fail with a parameter group error
   for plugins that leave the root unit out of their unit list, as the VST3 SDK examples do. The
   group path ends below the implicit root.
+- VST3 `set_bypass` works before `prepare_audio`, like `bypass`, `set_parameter` on the bypass
+  parameter and the CLAP and Audio Unit bypass, instead of failing with `NotPrepared`.
 
 ## [0.1.2] - 2026-10-11
 

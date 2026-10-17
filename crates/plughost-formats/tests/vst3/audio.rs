@@ -213,6 +213,39 @@ fn multibus_f64_surround_and_bypass_survive_state_and_reset() {
 
 #[test]
 #[ignore = "needs routing test plugin"]
+fn bypass_set_before_preparation_holds_once_prepared() {
+    let _serial = serial();
+    let mut plugin = plugin("plughost-test-routing");
+    plugin.set_bypass(true).unwrap();
+    assert_eq!(plugin.bypass().unwrap().enabled, Some(true));
+    plugin
+        .prepare_audio(&buses(SampleFormat::F32, Layout::Stereo))
+        .unwrap();
+    // Bypassed, the main output passes the main input on without the gain.
+    plugin.set_parameter(0, 0.5).unwrap();
+    let (key, left, right) = ([0.25f32; 4], [2.0; 4], [4.0; 4]);
+    let mut outputs = [[0.0f32; 4]; 4];
+    let mut slices: Vec<_> = outputs
+        .iter_mut()
+        .map(|channel| channel.as_mut_slice())
+        .collect();
+    plugin
+        .process(
+            &plughost_core::BlockContext::new(4),
+            &[&key, &left, &right],
+            &mut slices,
+            &[],
+            &[],
+            &mut Vec::new(),
+        )
+        .unwrap();
+    assert_eq!(plugin.bypass().unwrap().enabled, Some(true));
+    assert_eq!(outputs[2], left);
+    assert_eq!(outputs[3], right);
+}
+
+#[test]
+#[ignore = "needs routing test plugin"]
 fn invalid_native_audio_requests_and_unsupported_bypass_are_explicit() {
     let _serial = serial();
     let mut routing = plugin("plughost-test-routing");

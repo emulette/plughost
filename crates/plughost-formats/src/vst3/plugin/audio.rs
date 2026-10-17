@@ -67,9 +67,6 @@ impl Plugin {
         let id = self
             .bypass_parameter()
             .ok_or(Vst3Error::BypassUnsupported)?;
-        if lock(&self.engine).prepared.is_none() {
-            return Err(Vst3Error::NotPrepared);
-        }
         let value = if enabled { 1.0 } else { 0.0 };
         if !self.handler.can_edit(id) {
             return Err(Vst3Error::Input(plughost_core::InputError::EventCapacity));
