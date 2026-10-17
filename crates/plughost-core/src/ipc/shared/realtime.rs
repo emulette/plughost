@@ -93,8 +93,13 @@ impl RingDescriptor {
 /// How the worker finished a quantum.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Outcome {
-    /// The output holds the quantum; `latency` and `tail` are the chain's afterwards.
-    Done { latency: u32, tail: Tail },
+    /// The output holds the quantum; `latency` and `tail` are the chain's afterwards. The worker
+    /// completed it `elapsed` [`clock`] ticks after its submission.
+    Done {
+        latency: u32,
+        tail: Tail,
+        elapsed: u64,
+    },
     /// The quantum failed in `slot`, or in the chain, with `kind`.
     Failed {
         slot: Option<usize>,
@@ -522,7 +527,16 @@ impl Ring {
             (STATUS_DONE, Report::Done(tail)) => {
                 let latency = u32::try_from(control.word(header + LATENCY).load(Ordering::Relaxed))
                     .map_err(|_| invalid(BLOCK))?;
-                Outcome::Done { latency, tail }
+                let submitted = control.header(lane, false) + STAMP;
+                let elapsed = control
+                    .word(header + STAMP)
+                    .load(Ordering::Relaxed)
+                    .saturating_sub(control.word(submitted).load(Ordering::Relaxed));
+                Outcome::Done {
+                    latency,
+                    tail,
+                    elapsed,
+                }
             }
             (STATUS_FAILED, Report::Failed(kind)) => {
                 let slot = control.word(header + SLOT).load(Ordering::Relaxed);

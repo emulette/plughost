@@ -100,18 +100,19 @@ fn a_quantum_travels_to_the_worker_and_back_with_its_events() {
         .unwrap();
     assert_eq!(owner.completed(), 1);
     // System exclusive events would allocate in the callback; they are counted instead.
-    assert_eq!(
+    assert!(matches!(
         owner
             .read_f32(4, 1, &mut views(&mut output), 1, &mut produced)
             .unwrap(),
         Some((
             Outcome::Done {
                 latency: 32,
-                tail: Tail::Samples(64)
+                tail: Tail::Samples(64),
+                ..
             },
             1
         ))
-    );
+    ));
     assert_eq!(output, [vec![1.0; 8], vec![2.0; 8]]);
     assert_eq!(produced, [note]);
     // Another generation's reader does not take it.

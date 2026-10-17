@@ -6,7 +6,9 @@
 use std::io;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
+use plughost_core::ipc::shared::clock;
 use plughost_core::ipc::shared::realtime::{Outcome, Ring};
 use plughost_core::{
     AutomationEvent, BlockContext, Event, FailureKind, InputError, RoutedChainConfig, Sample,
@@ -64,6 +66,8 @@ pub struct RealtimeEndpoint {
     wet: bool,
     /// Each output channel's last played sample, which a fallback ramps from.
     last: Vec<f64>,
+    /// Ticks from submission to completion of the output the last callback played.
+    completion: Option<u64>,
     dry: Option<Box<DryDelay>>,
 }
 
@@ -160,6 +164,7 @@ impl RealtimeEndpoint {
             sequence: 0,
             wet: false,
             last: vec![0.0; output_channels],
+            completion: None,
             dry,
         }
     }
@@ -285,8 +290,14 @@ impl RealtimeEndpoint {
             produced,
         );
         match read {
-            Ok(Some((Outcome::Done { latency, .. }, dropped))) => {
+            Ok(Some((
+                Outcome::Done {
+                    latency, elapsed, ..
+                },
+                dropped,
+            ))) => {
                 State::count(&self.state.processed);
+                self.completion = Some(elapsed);
                 self.state
                     .dropped_events
                     .fetch_add(dropped as u64, Ordering::Relaxed);
@@ -310,6 +321,13 @@ impl RealtimeEndpoint {
                 Ok(self.fallback(output, FallbackReason::Resync))
             }
         }
+    }
+
+    /// How long the helper took to complete the output the last callback played, from its
+    /// submission; `None` when the callback played the fallback. Call it outside the callback, or
+    /// keep the value for later: the conversion reads the system's timebase.
+    pub fn last_completion(&self) -> Option<Duration> {
+        self.completion.map(clock::duration)
     }
 
     /// Follows a new generation, whose quanta start again from 1.
@@ -358,6 +376,7 @@ impl RealtimeEndpoint {
             }
         }
         self.wet = false;
+        self.completion = None;
         RealtimeOutput::Fallback(reason)
     }
 

@@ -29,10 +29,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   whole latency (`Fallback::Dry`), ramping into and out of it over one quantum. Without misses the
   output is the offline output, `latency * quantum` frames later. `Chain::start_realtime` and
   `stop_realtime` run the helper's worker, and `realtime_status` reports misses, overflows,
-  callbacks of another size, failed quanta and late completions. After a resync, stop the
-  endpoint, `reset` the chain and start it again. While the endpoint runs, `restore_state`,
-  presets, `select_factory_preset`, `reset`, `prepare_audio`, `reprepare` and processing through
-  the chain fail with `Error::RealtimeRunning`; parameter edits, state saves and editors go on.
+  callbacks of another size, failed quanta and late completions; `last_completion` says how long
+  the helper took for the output a callback just played. After a resync, stop the endpoint,
+  `reset` the chain and start it again. While the endpoint runs, `restore_state`, presets,
+  `select_factory_preset`, `reset`, `prepare_audio`, `reprepare` and processing through the chain
+  fail with `Error::RealtimeRunning`; parameter edits, state saves and editors go on.
   A VST3 or CLAP restart request while the endpoint runs is reported through `take_changes` and
   the stream goes on with the plugin's current activation; prepare the chain again after stopping.
   The helper's worker runs with the time-constraint policy in a workgroup interval of its own and
