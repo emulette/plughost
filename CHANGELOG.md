@@ -35,6 +35,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - `RenderError::SessionClosed` is classified as `FailureKind::Closed` instead of `NotPrepared`:
   the session finished, was cancelled or failed, and preparing the processor again does not
   reopen it.
+- Failures of `preset_providers` and `discover_presets` name no slot; they reported slot 0 of a
+  chain that does not exist.
 
 ## [0.1.2] - 2026-10-11
 

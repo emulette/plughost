@@ -88,6 +88,13 @@ fn provider_queries_are_isolated_and_failure_does_not_affect_live_chain() {
         };
         let error = discover_presets(&helper(), &bundle(), &identity, &query, timeout).unwrap_err();
         assert_eq!(error.kind(), kind, "{suffix}");
+        if kind == FailureKind::State {
+            // A provider query has no chain slot to name.
+            assert!(
+                matches!(error, Error::Operation { slot: None, .. }),
+                "{suffix}: {error:?}"
+            );
+        }
         assert_eq!(output(&mut chain), vec![1.0; 32]);
     }
 }

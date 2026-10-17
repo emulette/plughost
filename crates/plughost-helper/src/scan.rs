@@ -23,7 +23,7 @@ pub fn scan(bundle: &Path, responder: &Responder) -> io::Result<()> {
     };
     let classes = match classes {
         Ok(classes) => classes,
-        Err(error) => return responder.fail(Some(0), error.failure()),
+        Err(error) => return responder.fail(None, error.failure()),
     };
     responder.send(&Response::ModuleLoaded)?;
     for class in classes {
