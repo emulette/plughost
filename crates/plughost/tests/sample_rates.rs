@@ -1,11 +1,14 @@
 //! Offline rendering at every common sample rate and at block sizes that do and do not divide the
 //! input, through real helpers. Build the helper and the test plugins first (see `support`).
 
-use plughost::{Chain, Layout, PluginFormat, RenderOptions, SampleFormat, TailPolicy, render};
+use plughost::{
+    BlockContext, Chain, Event, FailureKind, Layout, PluginFormat, RenderOptions, SampleFormat,
+    TailPolicy, render,
+};
 
 mod support;
 
-use support::{delay, spawn};
+use support::{delay, spawn, synth};
 
 const RATES: [f64; 6] = [44_100.0, 48_000.0, 88_200.0, 96_000.0, 176_400.0, 192_000.0];
 const BLOCKS: [usize; 3] = [32, 500, 4096];
@@ -78,4 +81,47 @@ fn delay_renders_exactly_at_every_rate_and_block_size() {
             }
         }
     }
+}
+
+/// Plays a note for one block and returns the loudest sample of the left channel.
+fn note_peak(chain: &mut Chain) -> Result<f32, plughost::Error> {
+    let (mut left, mut right) = (vec![0.0f32; 256], vec![0.0f32; 256]);
+    chain.process_audio_f32(
+        &BlockContext::new(256),
+        &[],
+        &mut [&mut left, &mut right],
+        &[],
+        &[Event::note_on(0, 0, 60, 100)],
+        &mut Vec::new(),
+    )?;
+    Ok(left.iter().fold(0.0, |peak, sample| peak.max(sample.abs())))
+}
+
+#[test]
+#[ignore = "needs scripts/build-helper.ps1 and scripts/build-test-plugins.ps1 (or .sh)"]
+fn a_plugin_that_cannot_save_its_state_is_prepared_again_in_place() {
+    // The synth fixture has no CLAP state extension, so no fresh instance can take its state.
+    let mut chain = spawn(&[synth(PluginFormat::Clap)]);
+    let at = |chain: &mut Chain, rate: f64, output: Layout| {
+        chain
+            .main_bus_config(rate, 512, Layout::None, &[output])
+            .unwrap()
+    };
+    let config = at(&mut chain, 48_000.0, Layout::Stereo);
+    chain.prepare_audio(&config).unwrap();
+    assert!(note_peak(&mut chain).unwrap() > 0.0);
+    let config = at(&mut chain, 44_100.0, Layout::Stereo);
+    chain.prepare_audio(&config).unwrap();
+    assert!(note_peak(&mut chain).unwrap() > 0.0);
+    chain.reprepare().unwrap();
+    assert!(note_peak(&mut chain).unwrap() > 0.0);
+    // The active instance changed before the failure, so the chain is no longer prepared.
+    let refused = at(&mut chain, 44_100.0, Layout::Mono);
+    assert!(chain.prepare_audio(&refused).is_err());
+    assert_eq!(
+        note_peak(&mut chain).unwrap_err().kind(),
+        FailureKind::NotPrepared
+    );
+    chain.prepare_audio(&config).unwrap();
+    assert!(note_peak(&mut chain).unwrap() > 0.0);
 }

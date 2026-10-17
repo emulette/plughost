@@ -243,8 +243,11 @@ plugin support. There is no resampler or implicit conversion between processing 
 Use `process_audio_f32` / `process_audio_f64` in the prepared precision.
 
 Reconfiguring a prepared chain stages fresh instances and preserves the active chain on
-returned native setup errors. Initial preparation can partly configure an unprepared native
-instance before failing. A native crash or timeout can terminate the shared helper.
+returned native setup errors. A plugin that cannot save its state is prepared again in place
+after the other slots are staged; a failure from then on leaves the chain unprepared, and blocks
+fail with `FailureKind::NotPrepared` until it is prepared again. Initial preparation can partly
+configure an unprepared native instance before failing. A native crash or timeout can terminate
+the shared helper.
 
 ## Blocks, transport, and events
 

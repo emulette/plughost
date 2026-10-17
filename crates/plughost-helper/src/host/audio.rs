@@ -1,6 +1,8 @@
 //! Bus preparation. Preparing an already prepared chain stages every slot on a fresh instance
 //! restored from the active one and commits only when every slot succeeds, so a failure leaves
-//! the prepared chain and its pending audio intact. Initial setup has no old DSP to retain.
+//! the prepared chain and its pending audio intact. Initial setup has no old DSP to retain. A
+//! slot whose plugin cannot save its state is prepared again in place instead; once one is, a
+//! failure leaves the chain unprepared.
 use super::*;
 use crate::process;
 use plughost_core::AudioBusInfo;
@@ -32,13 +34,14 @@ impl Host {
 
     fn configure(
         &mut self,
-        mut config: RoutedChainConfig,
+        config: RoutedChainConfig,
         transport: process::shared::Transport,
     ) -> Response {
-        let generation = transport.descriptor().generation;
         let staged = self.audio_config.is_some();
         let calls = self.calls.clone();
-        let mut candidates: Vec<Box<dyn HostedPlugin>> = Vec::new();
+        // `None` prepares the active instance in place: every slot of an unprepared chain, and
+        // a slot of a prepared chain whose plugin cannot save the state a fresh instance needs.
+        let mut candidates: Vec<Option<Box<dyn HostedPlugin>>> = Vec::new();
         let mut reports = Vec::new();
         if staged {
             for slot in 0..self.slots.len() {
@@ -50,6 +53,12 @@ impl Host {
                 let state = match self.slots[slot].save_state(plughost_core::StatePurpose::Project)
                 {
                     Ok(state) => state,
+                    // A CLAP restart likewise deactivates and activates the same instance.
+                    Err(error) if error.failure().kind == FailureKind::Unsupported => {
+                        candidates.push(None);
+                        reports.push(None);
+                        continue;
+                    }
                     Err(error) => return failed(slot, &error),
                 };
                 let mut candidate =
@@ -68,8 +77,8 @@ impl Host {
                     });
                 match result {
                     Ok(report) => {
-                        reports.push(report);
-                        candidates.push(candidate);
+                        reports.push(Some(report));
+                        candidates.push(Some(candidate));
                     }
                     Err(error) => {
                         self.retain_diagnostics(slot, candidate.as_ref());
@@ -78,14 +87,48 @@ impl Host {
                 }
             }
         } else {
-            for (slot, plugin) in self.slots.iter_mut().enumerate() {
+            candidates.resize_with(self.slots.len(), || None);
+            reports.resize(self.slots.len(), None);
+        }
+        // Fresh instances are all staged before any active one is changed. From then on a
+        // failure cannot leave the prepared chain as it was, so it leaves the chain unprepared.
+        let in_place = staged && candidates.iter().any(Option::is_none);
+        let response = self.prepare_slots(config, transport, candidates, reports);
+        if in_place && !matches!(response, Response::AudioPrepared { .. }) {
+            self.unprepare();
+        }
+        response
+    }
+
+    fn prepare_slots(
+        &mut self,
+        mut config: RoutedChainConfig,
+        transport: process::shared::Transport,
+        mut candidates: Vec<Option<Box<dyn HostedPlugin>>>,
+        mut reports: Vec<Option<Vec<AudioBusInfo>>>,
+    ) -> Response {
+        let generation = transport.descriptor().generation;
+        let staged = self.audio_config.is_some();
+        let calls = self.calls.clone();
+        let mut next: Vec<&mut (dyn HostedPlugin + 'static)> = candidates
+            .iter_mut()
+            .zip(&mut self.slots)
+            .map(|(candidate, active)| match candidate {
+                Some(candidate) => candidate.as_mut(),
+                None => active.as_mut(),
+            })
+            .collect();
+        for (slot, report) in reports.iter_mut().enumerate() {
+            if report.is_none() {
                 let _call = calls.enter(Caller::Main, slot);
-                match prepare(&config, slot, plugin.as_mut()) {
-                    Ok(report) => reports.push(report),
+                match prepare(&config, slot, &mut *next[slot]) {
+                    Ok(prepared) => *report = Some(prepared),
                     Err(error) => return failed(slot, &error),
                 }
             }
         }
+        // Every slot has its report now.
+        let reports: Vec<Vec<AudioBusInfo>> = reports.into_iter().flatten().collect();
         for (slot, report) in reports.iter().enumerate() {
             // Flattening uses native indices, not caller vector order or numeric bus IDs.
             let request = &mut config.slots[slot];
@@ -130,27 +173,17 @@ impl Host {
                     .map(|info| info.index)
             });
         }
-        let candidate_processors: Option<Vec<Box<dyn BlockProcessor>>> = staged.then(|| {
-            candidates
-                .iter()
-                .map(|candidate| candidate.processor())
-                .collect()
-        });
-        let prepared = if staged { &candidates } else { &self.slots };
-        let timings = match audio_timing::chain_timings(prepared, &calls) {
+        let processors: Option<Vec<Box<dyn BlockProcessor>>> =
+            staged.then(|| next.iter().map(|plugin| plugin.processor()).collect());
+        let timings = match audio_timing::chain_timings(&next, &calls) {
             Ok(timings) => timings,
             Err((slot, error)) => return failed(slot, &error),
         };
-        let prepared_slots = if staged {
-            &mut candidates
-        } else {
-            &mut self.slots
-        };
         let mut parameters = Vec::new();
         let mut event_ports = Vec::new();
-        for (slot, plugin) in prepared_slots.iter_mut().enumerate() {
+        for (slot, plugin) in next.iter_mut().enumerate() {
             let _call = calls.enter(Caller::Main, slot);
-            parameters.push(parameter_infos(plugin.as_mut()));
+            parameters.push(parameter_infos(&mut **plugin));
             plugin.take_parameter_events();
             match plugin.event_ports() {
                 Ok(ports) => event_ports.push(ports),
@@ -185,14 +218,17 @@ impl Host {
             }
         };
         let reopen: Vec<bool> = self.editors.iter().map(Option::is_some).collect();
-        let old = candidate_processors.is_some().then(|| {
+        if staged {
             self.close_editors();
-            let old = std::mem::replace(&mut self.slots, candidates);
-            for (slot, plugin) in old.iter().enumerate() {
+        }
+        let mut old = Vec::new();
+        for (slot, candidate) in candidates.into_iter().enumerate() {
+            if let Some(candidate) = candidate {
+                let plugin = std::mem::replace(&mut self.slots[slot], candidate);
                 self.retain_diagnostics(slot, plugin.as_ref());
+                old.push(plugin);
             }
-            old
-        });
+        }
         self.audio_slots = config
             .slots
             .iter()
@@ -215,7 +251,7 @@ impl Host {
         drop(
             self.processing
                 .request(Command::Prepare(Box::new(process::Prepare {
-                    processors: candidate_processors,
+                    processors,
                     prepared: Some(storage),
                     transport: Some(transport),
                     audio_config: Some(config),
@@ -238,6 +274,30 @@ impl Host {
             latency,
             tail,
         }
+    }
+}
+
+impl Host {
+    /// Forgets the prepared chain after its active instances were changed, so blocks fail as
+    /// unprepared until the chain is prepared again.
+    fn unprepare(&mut self) {
+        self.audio_config = None;
+        self.audio_slots.clear();
+        self.timing = None;
+        self.timing_polls.clear();
+        drop(
+            self.processing
+                .request(Command::Prepare(Box::new(process::Prepare {
+                    processors: None,
+                    prepared: None,
+                    transport: None,
+                    audio_config: None,
+                    alignment: None,
+                    events: None,
+                    parameters: Vec::new(),
+                    timings: Vec::new(),
+                }))),
+        );
     }
 }
 

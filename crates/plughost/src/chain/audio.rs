@@ -158,6 +158,10 @@ impl Chain {
     /// concatenated in `config.inputs` order; active output buses use native index order.
     /// Reconfiguration of a prepared chain stages fresh instances and commits only on success.
     /// Initial preparation can partially configure an unprepared native instance on failure.
+    /// A slot whose plugin cannot save its state (`FailureKind::Unsupported`) is instead prepared
+    /// again in place after the others are staged; if preparation fails from then on, the chain
+    /// is left unprepared and blocks fail with `FailureKind::NotPrepared` until it is prepared
+    /// again.
     /// Reserves helper-owned audio storage for the configured maximum block size.
     /// External-input alignment storage is also reserved, up to a 256 MiB budget.
     /// Exceeding that budget fails preparation before replacing a prepared chain.

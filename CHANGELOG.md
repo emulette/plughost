@@ -20,6 +20,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   `Chain::reset` before `prepare_audio` no longer fails for chains with a CLAP slot.
 - A `Timeouts` field too long to end at a representable instant, such as `Duration::MAX`, waits
   without a deadline instead of panicking in the application.
+- Preparing a prepared chain again, including `reprepare()` after a CLAP restart request, no
+  longer fails for plugins that cannot save their state, such as CLAP plugins without the `state`
+  extension. Such a slot is prepared again in place after the others are staged; a failure from
+  then on leaves the chain unprepared instead of preserving it.
 
 ## [0.1.2] - 2026-10-11
 

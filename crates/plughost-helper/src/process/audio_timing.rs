@@ -1,6 +1,8 @@
 //! Latency and tail follow connected audio paths. External inputs joining a delayed path are
 //! delayed to that path's arrival time, so a sidechain and its main input refer to the same sample.
 
+use std::borrow::Borrow;
+
 use plughost_core::ipc::shared::Caller;
 use plughost_core::render::Tail;
 use plughost_core::{
@@ -13,8 +15,8 @@ use crate::calls::Calls;
 /// Every slot's timing, read on the main thread, which also refreshes what the slots' processors
 /// report to the processing thread. A failure names its slot. Chain totals come only from
 /// [`AudioTiming`].
-pub(crate) fn chain_timings(
-    plugins: &[Box<dyn HostedPlugin>],
+pub(crate) fn chain_timings<P: Borrow<dyn HostedPlugin>>(
+    plugins: &[P],
     calls: &Calls,
 ) -> Result<Vec<PluginTiming>, (usize, Error)> {
     plugins
@@ -22,7 +24,7 @@ pub(crate) fn chain_timings(
         .enumerate()
         .map(|(slot, plugin)| {
             let _call = calls.enter(Caller::Main, slot);
-            plugin.timing().map_err(|error| (slot, error))
+            plugin.borrow().timing().map_err(|error| (slot, error))
         })
         .collect()
 }
