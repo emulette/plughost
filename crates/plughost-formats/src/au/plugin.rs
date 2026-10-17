@@ -303,6 +303,7 @@ impl Plugin {
     pub(crate) fn processor(&self) -> Processor {
         Processor {
             engine: Arc::clone(&self.engine),
+            invalidated: Arc::clone(&lock(&self.engine).invalidated),
         }
     }
 
@@ -959,6 +960,8 @@ impl Engine {
 #[derive(Clone)]
 pub struct Processor {
     engine: Arc<Mutex<Engine>>,
+    /// The engine's invalidation flag, read without its lock.
+    invalidated: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for Processor {
@@ -972,7 +975,7 @@ impl std::fmt::Debug for Processor {
 impl Processor {
     /// Sticky after the system reports loss of this extension connection. A new instance is needed.
     pub(crate) fn restart_required(&self) -> bool {
-        lock(&self.engine).invalidated.load(Ordering::Acquire)
+        self.invalidated.load(Ordering::Acquire)
     }
     /// Processes one block; `events` go to the unit's MIDI input on port 0. `produced` receives
     /// the MIDI the unit sent on the prepared outputs.

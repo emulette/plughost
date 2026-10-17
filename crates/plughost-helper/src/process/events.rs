@@ -109,7 +109,10 @@ impl EventPlan {
             }
         }
         validate_event_budget(automation, into)?;
-        into.sort_by_key(|event| event.offset);
+        // A stable sort of a longer list allocates, even when it is already in order.
+        if !into.is_sorted_by_key(|event| event.offset) {
+            into.sort_by_key(|event| event.offset);
+        }
         Ok(())
     }
 

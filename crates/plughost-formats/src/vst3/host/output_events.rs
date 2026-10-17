@@ -76,7 +76,10 @@ impl OutputEventList {
         for event in &mut output.events {
             event.offset = event.offset.min(last);
         }
-        output.events.sort_by_key(|event| event.offset);
+        // A stable sort of a longer list allocates, even when it is already in order.
+        if !output.events.is_sorted_by_key(|event| event.offset) {
+            output.events.sort_by_key(|event| event.offset);
+        }
         into.append(&mut output.events);
         Ok(())
     }

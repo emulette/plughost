@@ -144,7 +144,10 @@ impl Output {
             collected.events.clear();
             return Err(AuError::OutputEventCapacity);
         }
-        collected.events.sort_by_key(|event| event.offset);
+        // A stable sort of a longer list allocates, even when it is already in order.
+        if !collected.events.is_sorted_by_key(|event| event.offset) {
+            collected.events.sort_by_key(|event| event.offset);
+        }
         into.append(&mut collected.events);
         Ok(())
     }

@@ -204,8 +204,11 @@ impl Processor {
             produced.clear();
             return Err(ClapError::OutputEventCapacity);
         }
-        // Plugins push events in time order; the stable sort only enforces it.
-        produced.sort_by_key(|event| event.offset);
+        // Plugins push events in time order; the stable sort only enforces it, and would allocate
+        // for a longer list even when it is already in order.
+        if !produced.is_sorted_by_key(|event| event.offset) {
+            produced.sort_by_key(|event| event.offset);
+        }
         outputs.copy_output(output, prepared.main_output, all_buses);
         Ok(())
     }
