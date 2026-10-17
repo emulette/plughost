@@ -27,6 +27,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - A failed reconfiguration keeps the diagnostics of every staged instance it discards, not
   only of the instance that failed, and a crash or hang while a reconfiguration releases replaced
   or discarded instances names their slot.
+- Restoring state, importing or loading a preset and selecting a factory preset keep the slot's
+  native bypass unless the state or preset sets it. Audio Unit bypass, which unit state does not
+  hold, was lost on restore, and factory preset selection reset bypass in every format.
 
 ## [0.1.2] - 2026-10-11
 

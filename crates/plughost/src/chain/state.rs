@@ -71,6 +71,8 @@ impl Chain {
     /// preparation and timing checks succeed. Returned native failures preserve the active slot;
     /// a crash or timeout can still terminate the shared helper. Successful restore clears DSP
     /// history for this slot. An open editor is recreated and reopen failures enter diagnostics.
+    /// The slot keeps its native bypass unless the state sets it, as a VST3 or CLAP state holding
+    /// a bypass parameter can; the same holds for presets and factory presets.
     pub fn restore_state(
         &mut self,
         slot: usize,

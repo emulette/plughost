@@ -318,3 +318,40 @@ fn serial_previous_bus_and_explicit_mono_stereo_adaptation() {
         assert_audio(format, &run(&mut chain, &audio), &[audio[0][0] * 0.625; 2]);
     }
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "needs helper and the VST3 SDK example fixtures"]
+fn replacing_a_slot_instance_keeps_its_bypass_unless_the_change_sets_it() {
+    use plughost::StatePurpose::Project;
+    // Apple's AUMatrixReverb, 'aufx' 'mrev' 'appl', which has factory presets. Audio Unit bypass
+    // is a property outside the state.
+    let reverb = PluginRef {
+        format: PluginFormat::AudioUnit,
+        bundle: None,
+        class_id: "617566786D7265766170706C".to_owned(),
+    };
+    let mut chain = spawn(&[reverb]);
+    support::prepare(&mut chain);
+    chain.set_bypass(0, true).unwrap();
+    let saved = chain.save_state(0, Project).unwrap();
+    chain.restore_state(0, &saved, Project).unwrap();
+    assert_eq!(chain.bypass(0).unwrap().enabled, Some(true));
+    let presets = chain.factory_presets(0).unwrap();
+    chain.select_factory_preset(0, &presets[0].id).unwrap();
+    assert_eq!(chain.bypass(0).unwrap().enabled, Some(true));
+    // AGain keeps its bypass parameter in its state, so a restored state sets it.
+    let mut chain = spawn(&[support::fixture(
+        PluginFormat::Vst3,
+        "again",
+        "84E8DE5F92554F5396FAE4133C935A18",
+    )]);
+    support::prepare(&mut chain);
+    let active = chain.save_state(0, Project).unwrap();
+    chain.set_bypass(0, true).unwrap();
+    let bypassed = chain.save_state(0, Project).unwrap();
+    chain.restore_state(0, &active, Project).unwrap();
+    assert_eq!(chain.bypass(0).unwrap().enabled, Some(false));
+    chain.restore_state(0, &bypassed, Project).unwrap();
+    assert_eq!(chain.bypass(0).unwrap().enabled, Some(true));
+}

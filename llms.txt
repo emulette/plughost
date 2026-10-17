@@ -445,7 +445,9 @@ can reject unsupported purposes.
 
 `restore_state` stages a fresh instance, prepares it, and validates timing before replacing
 the slot. Returned native failures preserve the active slot. A crash/timeout can still end
-the helper. Successful restore clears that slot's DSP history. An open editor is recreated;
+the helper. Successful restore clears that slot's DSP history. The slot keeps its native
+bypass unless the state sets it, as a VST3 or CLAP state holding a bypass parameter can; preset
+imports, discovered presets and factory presets do the same. An open editor is recreated;
 reopening failures appear in diagnostics. State payloads are bounded by `MAX_STATE_BYTES`
 (128 MiB across processor and controller payloads). A VST3 component or controller that
 rejects its state fails the restore; a controller without state support does not.

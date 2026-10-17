@@ -73,6 +73,16 @@ impl Host {
             Ok(candidate) => candidate,
             Err(error) => return failed(slot, &error),
         };
+        // Bypass belongs to the slot, as when the change is applied in place: the fresh instance
+        // takes the active one's before the change, which overrides it only by setting it, as a
+        // VST3 or CLAP state that holds a bypass parameter does.
+        let bypass = match self.slots[slot].bypass() {
+            Ok(bypass) => bypass.enabled,
+            Err(error) => return failed(slot, &error),
+        };
+        if let Some(Err(error)) = bypass.map(|enabled| candidate.set_bypass(enabled)) {
+            return self.reject_candidate(slot, candidate.as_ref(), slot, error.failure());
+        }
         let (audio_config, routing, active) = (
             self.audio_slots.get(slot).cloned(),
             self.audio_config.clone(),
