@@ -49,7 +49,10 @@ impl Module {
         identity.validate().map_err(Vst3Error::Input)?;
         let (binary, factory) = platform::Binary::open(path)?;
         // SAFETY: GetPluginFactory returns an owned reference.
-        let factory = unsafe { ComPtr::from_raw(factory) }.ok_or(Vst3Error::NoFactory)?;
+        let Some(factory) = (unsafe { ComPtr::from_raw(factory) }) else {
+            binary.exit();
+            return Err(Vst3Error::NoFactory);
+        };
         let host = ComWrapper::new(HostApplication {
             name: identity.name.clone(),
         });
@@ -258,9 +261,11 @@ mod platform {
             if !unsafe { entry(bundle_ref) } {
                 return Err(Vst3Error::EntryFailed);
             }
-            let get_factory = binary
-                .function(&["GetPluginFactory"])
-                .ok_or(Vst3Error::NoEntryPoint("GetPluginFactory"))?;
+            // An entered module is exited even when loading fails from here, as the SDK does.
+            let Some(get_factory) = binary.function(&["GetPluginFactory"]) else {
+                binary.exit();
+                return Err(Vst3Error::NoEntryPoint("GetPluginFactory"));
+            };
             // SAFETY: GetPluginFactory has this signature in the VST3 module ABI.
             let get_factory: GetPluginFactory = unsafe { std::mem::transmute(get_factory) };
             let factory = unsafe { get_factory() };
@@ -329,10 +334,14 @@ mod platform {
                 {
                     return Err(Vst3Error::EntryFailed);
                 }
-                let get_factory = binary
+                // An entered module is exited even when loading fails from here, as the SDK does.
+                let Ok(get_factory) = binary
                     .library
                     .get::<GetPluginFactory>(b"GetPluginFactory\0")
-                    .map_err(|_| Vst3Error::NoEntryPoint("GetPluginFactory"))?;
+                else {
+                    binary.exit();
+                    return Err(Vst3Error::NoEntryPoint("GetPluginFactory"));
+                };
                 let factory = get_factory();
                 Ok((binary, factory))
             }

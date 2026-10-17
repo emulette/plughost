@@ -47,6 +47,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Audio Unit `parameter_to_plain` and `parameter_text` round discrete parameters to the whole
   value that `set_parameter` and automation select, instead of converting a fraction that units
   truncate to a different choice.
+- A VST3 module whose entry succeeded but that provides no factory is exited with `bundleExit`
+  or `ExitDll` before it is released, as the VST3 SDK hosts do.
 
 ## [0.1.2] - 2026-10-11
 

@@ -13,3 +13,4 @@ pub const GUI_PARENT: &str = "the host gave the test editor no Cocoa view to dra
 pub const WRONG_THREAD: &str = "called on the wrong thread: ";
 pub const STALL_ADDRESS: &str = "the stall fixture needs a barrier address as its host name";
 pub const STALL_CONNECT: &str = "the stall fixture could not announce entry to its barrier";
+pub const EXIT_MARKER: &str = "could not create the module exit marker";

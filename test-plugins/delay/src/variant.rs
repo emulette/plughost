@@ -29,10 +29,11 @@ pub enum Variant {
     ContextRequired,
     MappingProbe,
     CrashOnDestroy,
+    NoFactory,
 }
 
 /// Module file name (without extension), class ID suffix, and plugin name of each variant.
-const VARIANTS: [(Variant, &str, u32, &str); 21] = [
+const VARIANTS: [(Variant, &str, u32, &str); 22] = [
     (
         Variant::Delay,
         "plughost-test-delay",
@@ -158,6 +159,12 @@ const VARIANTS: [(Variant, &str, u32, &str); 21] = [
         "plughost-test-crash-on-destroy",
         0x79000015,
         "plughost test crash on destroy",
+    ),
+    (
+        Variant::NoFactory,
+        "plughost-test-no-factory",
+        0x79000016,
+        "plughost test no factory",
     ),
 ];
 

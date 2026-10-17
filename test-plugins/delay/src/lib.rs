@@ -12,7 +12,8 @@
 //! name of the module the host loaded (see `variant.rs`), to test crash and hang isolation:
 //! `crash-in-process`, `hang-in-process`, `crash-on-scan` (in `GetPluginFactory`),
 //! `hang-on-scan`, and `crash-on-destroy` (as the VST3 component terminates or the CLAP plugin is
-//! destroyed). `noop-reset` reproduces a CLAP plugin whose reset leaves audio behind.
+//! destroyed). `no-factory` returns no VST3 factory after its module entry succeeded.
+//! `noop-reset` reproduces a CLAP plugin whose reset leaves audio behind.
 //! `stall-main-thread` makes the CLAP side hold up the host's main thread once, connecting to
 //! the test barrier address in the host name and waiting for release. On macOS,
 //! `editor` gives the CLAP side an editor inside the host's window (see `editor.rs`).
@@ -940,6 +941,7 @@ extern "C" fn bundleEntry(_bundle: *mut c_void) -> bool {
 #[cfg(target_os = "macos")]
 #[unsafe(no_mangle)]
 extern "C" fn bundleExit() -> bool {
+    mark_exit();
     true
 }
 
@@ -952,13 +954,27 @@ extern "system" fn InitDll() -> bool {
 #[cfg(target_os = "windows")]
 #[unsafe(no_mangle)]
 extern "system" fn ExitDll() -> bool {
+    mark_exit();
     true
+}
+
+/// The `no-factory` variant creates the file `PLUGHOST_TEST_EXIT_MARKER` names when the host
+/// exits the module.
+fn mark_exit() {
+    if variant() == Variant::NoFactory
+        && let Some(marker) = std::env::var_os("PLUGHOST_TEST_EXIT_MARKER")
+    {
+        std::fs::write(marker, []).expect(errors::EXIT_MARKER);
+    }
 }
 
 #[unsafe(no_mangle)]
 extern "system" fn GetPluginFactory() -> *mut IPluginFactory {
     if matches!(variant(), Variant::CrashOnScan | Variant::HangOnScan) {
         fail();
+    }
+    if variant() == Variant::NoFactory {
+        return std::ptr::null_mut();
     }
     ComWrapper::new(Factory)
         .to_com_ptr::<IPluginFactory>()

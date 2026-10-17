@@ -46,6 +46,35 @@ fn module(name: &str) -> Rc<Module> {
     Module::load(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
 }
 
+/// Where the `no-factory` fixture marks that its module was exited.
+const EXIT_MARKER: &str = "PLUGHOST_TEST_EXIT_MARKER";
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.ps1 or .sh"]
+fn a_module_without_a_factory_is_exited_after_its_entry() {
+    let directory = tempfile::tempdir().unwrap();
+    let marker = directory.path().join("exited");
+    // The module is loaded in a process of its own, which alone sees the marker's location.
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "--ignored", "load_a_module_without_a_factory"])
+        .env(EXIT_MARKER, &marker)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(marker.exists());
+}
+
+#[test]
+#[ignore = "entry of a_module_without_a_factory_is_exited_after_its_entry"]
+fn load_a_module_without_a_factory() {
+    if std::env::var_os(EXIT_MARKER).is_none() {
+        return;
+    }
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/test-plugins/plughost-test-no-factory.vst3");
+    assert!(matches!(Module::load(&path), Err(Vst3Error::NoFactory)));
+}
+
 #[test]
 #[ignore = "needs routing VST3 fixture"]
 fn factory_receives_a_live_host_before_class_enumeration() {
