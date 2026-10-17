@@ -139,7 +139,10 @@ fn offline_equivalence(format: PluginFormat) {
         assert_eq!(played, RealtimeOutput::Processed, "callback {index}");
         // The helper completed the quantum well before the callback that played it.
         let completion = endpoint.last_completion().unwrap();
-        assert!(completion > Duration::ZERO && completion < PACE, "{completion:?}");
+        assert!(
+            completion > Duration::ZERO && completion < PACE,
+            "{completion:?}"
+        );
         let mut wanted = expected[index - 2].clone();
         if index == 2 {
             // The first output fades in from the silent fallback over the quantum.
