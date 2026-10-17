@@ -266,9 +266,12 @@ impl Plugin {
 
     /// Processes one block on this thread. `input` and `output` hold the main port channels
     /// after [`HostedPlugin::prepare`], or every active port's channels in native order after
-    /// [`HostedPlugin::prepare_audio`]. `events` go to the first note input port: notes as CLAP
-    /// note events when the port takes them, other messages (and notes on MIDI-only ports) as
-    /// MIDI events when it takes MIDI; the rest are dropped.
+    /// [`HostedPlugin::prepare_audio`]. `events` address note input ports by native index: the
+    /// first one after [`HostedPlugin::prepare`], the requested ones after
+    /// [`HostedPlugin::prepare_audio`]; an event on another port fails the block with
+    /// `InputError::EventPort`. Notes go as CLAP note events when the port takes them, other
+    /// messages (and notes on MIDI-only ports) as MIDI events when it takes MIDI; messages the
+    /// port takes in neither form are dropped.
     ///
     /// [`HostedPlugin::prepare`]: crate::HostedPlugin::prepare
     /// [`HostedPlugin::prepare_audio`]: crate::HostedPlugin::prepare_audio
@@ -600,8 +603,9 @@ impl Plugin {
         Some((size.width, size.height))
     }
 
-    /// Serves what the plugin asked of the main thread: callbacks, timers, parameter flushes,
-    /// restarts, and editor resizes. Call it regularly from the owning thread.
+    /// Serves what the plugin asked of the main thread: callbacks, timers, parameter flushes and
+    /// editor resizes. A restart it asked for needs the plugin prepared again. Call it regularly
+    /// from the owning thread.
     pub(crate) fn idle(&mut self) {
         let (callback, flush, timer, requested) = {
             let shared = self.shared();
