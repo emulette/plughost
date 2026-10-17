@@ -55,7 +55,17 @@ const INSTRUMENT: &str = "instrument";
 
 /// The plugin classes in a `.clap` module.
 pub fn classes(bundle: &Path) -> Result<Vec<PluginInfo>, ClapError> {
+    classes_once_loaded(bundle, || {})
+}
+
+/// The plugin classes in a `.clap` module, calling `loaded` once its entry has initialized,
+/// before the classes are read and the entry is deinitialized.
+pub fn classes_once_loaded(
+    bundle: &Path,
+    loaded: impl FnOnce(),
+) -> Result<Vec<PluginInfo>, ClapError> {
     let entry = load_entry(bundle)?;
+    loaded();
     let factory = entry.get_plugin_factory().ok_or(ClapError::NoFactory)?;
     Ok(factory.plugin_descriptors().filter_map(info).collect())
 }

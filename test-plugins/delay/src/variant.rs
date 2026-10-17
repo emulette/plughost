@@ -30,10 +30,11 @@ pub enum Variant {
     MappingProbe,
     CrashOnDestroy,
     NoFactory,
+    SlowUnload,
 }
 
 /// Module file name (without extension), class ID suffix, and plugin name of each variant.
-const VARIANTS: [(Variant, &str, u32, &str); 22] = [
+const VARIANTS: [(Variant, &str, u32, &str); 23] = [
     (
         Variant::Delay,
         "plughost-test-delay",
@@ -165,6 +166,12 @@ const VARIANTS: [(Variant, &str, u32, &str); 22] = [
         "plughost-test-no-factory",
         0x79000016,
         "plughost test no factory",
+    ),
+    (
+        Variant::SlowUnload,
+        "plughost-test-slow-unload",
+        0x79000017,
+        "plughost test slow unload",
     ),
 ];
 

@@ -7,6 +7,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ## [Unreleased]
 
+### Added
+
+- `plughost_formats::clap::classes_once_loaded` lists a CLAP module's classes and reports when
+  its entry has initialized, before the classes are read and the entry is deinitialized.
+
 ### Fixed
 
 - VST3 `parameter_details` and `parameter_choices` no longer fail with a parameter group error
@@ -51,6 +56,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   or `ExitDll` before it is released, as the VST3 SDK hosts do.
 - The `RenderError::Events` message no longer calls render events MIDI messages on existing ports;
   ports a processor lacks fail `Process::validate_events` instead.
+- Scan helpers report `ScanStage::ModuleLoaded` as soon as a module has loaded, as documented,
+  instead of after its classes were read and it was unloaded, so loading and the work after it
+  each get the stall timeout instead of sharing one.
 
 ## [0.1.2] - 2026-10-11
 

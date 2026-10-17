@@ -5,7 +5,7 @@ mod host;
 mod plugin;
 
 pub use errors::ClapError;
-pub use plugin::{Plugin, Processor, classes};
+pub use plugin::{Plugin, Processor, classes, classes_once_loaded};
 
 mod transport;
 

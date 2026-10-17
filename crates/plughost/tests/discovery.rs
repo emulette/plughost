@@ -1,9 +1,10 @@
 //! Static discovery and native inspection through the public Scanner API.
 use std::fs;
 use std::io::Write;
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
-use plughost::{ScanOutcome, Scanner, Source};
+use plughost::{ScanControl, ScanEvent, ScanOutcome, ScanStage, Scanner, Source};
 
 mod support;
 
@@ -186,6 +187,36 @@ fn a_changed_bundle_whose_scan_is_interrupted_does_not_report_its_old_failures()
         interrupted.outcome
     );
     assert_eq!((interrupted.failures, interrupted.excluded), (0, false));
+}
+
+#[test]
+#[ignore = "needs helper and slow-unload fixtures"]
+fn module_loading_is_reported_before_the_module_unloads() {
+    // The fixture takes half a second to exit its module or deinitialize its CLAP entry.
+    const UNLOAD: Duration = Duration::from_millis(500);
+    for extension in ["vst3", "clap"] {
+        let directory = tempfile::tempdir().unwrap();
+        let name = format!("plughost-test-slow-unload.{extension}");
+        copy(&plugins().join(&name), &directory.path().join(&name));
+        let (loaded, finished) = (Mutex::new(None), Mutex::new(None));
+        let scanned = Scanner::new(&helper(), &directory.path().join("cache.json"))
+            .directories(vec![directory.path().to_owned()])
+            .scan_controlled(&ScanControl::default(), &|event| match event {
+                ScanEvent::Progress {
+                    stage: ScanStage::ModuleLoaded,
+                    ..
+                } => *loaded.lock().unwrap() = Some(Instant::now()),
+                ScanEvent::BundleFinished(_) => *finished.lock().unwrap() = Some(Instant::now()),
+                _ => {}
+            })
+            .unwrap();
+        assert!(
+            matches!(scanned.bundles[0].outcome, ScanOutcome::Found(_)),
+            "{extension}"
+        );
+        let unloading = finished.lock().unwrap().unwrap() - loaded.lock().unwrap().unwrap();
+        assert!(unloading >= UNLOAD, "{extension}: {unloading:?}");
+    }
 }
 
 #[cfg(target_os = "macos")]

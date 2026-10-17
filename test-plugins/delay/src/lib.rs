@@ -12,7 +12,8 @@
 //! name of the module the host loaded (see `variant.rs`), to test crash and hang isolation:
 //! `crash-in-process`, `hang-in-process`, `crash-on-scan` (in `GetPluginFactory`),
 //! `hang-on-scan`, and `crash-on-destroy` (as the VST3 component terminates or the CLAP plugin is
-//! destroyed). `no-factory` returns no VST3 factory after its module entry succeeded.
+//! destroyed). `no-factory` returns no VST3 factory after its module entry succeeded, and
+//! `slow-unload` takes [`UNLOAD`] to exit its VST3 module or deinitialize its CLAP entry.
 //! `noop-reset` reproduces a CLAP plugin whose reset leaves audio behind.
 //! `stall-main-thread` makes the CLAP side hold up the host's main thread once, connecting to
 //! the test barrier address in the host name and waiting for release. On macOS,
@@ -958,9 +959,15 @@ extern "system" fn ExitDll() -> bool {
     true
 }
 
+/// How long the `slow-unload` variant takes to exit its module.
+pub const UNLOAD: std::time::Duration = std::time::Duration::from_millis(500);
+
 /// The `no-factory` variant creates the file `PLUGHOST_TEST_EXIT_MARKER` names when the host
-/// exits the module.
+/// exits the module; `slow-unload` takes [`UNLOAD`] to exit.
 fn mark_exit() {
+    if variant() == Variant::SlowUnload {
+        std::thread::sleep(UNLOAD);
+    }
     if variant() == Variant::NoFactory
         && let Some(marker) = std::env::var_os("PLUGHOST_TEST_EXIT_MARKER")
     {

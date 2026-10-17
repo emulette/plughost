@@ -6,7 +6,7 @@
 #                                    -arrangement-false, -editor, -restart-on-activate, -timers,
 #                                    -latency-change, -thread-check, -start-failure,
 #                                    -flush-request, -mpe-ports, -context-required, -mapping-probe,
-#                                    -crash-on-destroy, -no-factory
+#                                    -crash-on-destroy, -no-factory, -slow-unload
 #                                    (the same binary; the plugin picks its variant from its
 #                                    bundle name)
 #   plughost-test-synth.{vst3,clap}  from test-plugins/synth
@@ -47,7 +47,7 @@ cargo build --release --locked -p plughost-test-delay --manifest-path "$root/Car
 for variant in delay crash-in-process hang-in-process crash-on-scan hang-on-scan noop-reset \
     latency-overflow large-state stall-main-thread arrangement-false editor restart-on-activate \
     timers latency-change thread-check start-failure flush-request mpe-ports context-required mapping-probe \
-    crash-on-destroy no-factory; do
+    crash-on-destroy no-factory slow-unload; do
     for extension in vst3 clap; do
         package "$root/target/release/libplughost_test_delay.dylib" "plughost-test-$variant" "$extension"
     done

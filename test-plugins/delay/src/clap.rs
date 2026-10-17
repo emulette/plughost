@@ -991,6 +991,14 @@ impl Entry for TestEntry {
     }
 }
 
+impl Drop for TestEntry {
+    fn drop(&mut self) {
+        if variant() == Variant::SlowUnload {
+            std::thread::sleep(crate::UNLOAD);
+        }
+    }
+}
+
 clack_export_entry!(TestEntry);
 
 impl PluginTailImpl for Processor<'_> {
