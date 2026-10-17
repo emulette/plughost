@@ -362,6 +362,8 @@ Rendering trims reported latency and appends a tail bounded by
 `RenderOptions::max_tail_seconds` (`RenderOptions::new(tail, max_tail_seconds)`). The default
 uses `TailPolicy::UntilSilence` with a
 linear peak threshold of `1.585e-5`, a one-second hold, and a 30-second maximum tail.
+Silence is judged on audio output only: output events do not count, and a chain without audio
+outputs is silent from the end of the input, so its render stops one hold later.
 `TailPolicy::Reported` uses the tail the chain reports when the render starts, capped by that
 maximum; a tail reported during the render does not change its length.
 

@@ -32,7 +32,9 @@ pub enum TailPolicy {
     /// Render until the output has stayed at or below `threshold` (linear peak) for
     /// `hold_seconds`, then cut after the last sample above it. Both values must be finite and
     /// non-negative; zero is allowed, and a linear peak threshold may exceed one. Plugins often report a wrong
-    /// tail, so this is the default.
+    /// tail, so this is the default. Only audio output counts: output events do not, and a
+    /// processor without audio outputs is silent from the end of the input, so use
+    /// [`TailPolicy::Reported`] for one that produces only events.
     UntilSilence {
         /// Maximum absolute sample amplitude considered silent.
         threshold: f64,
