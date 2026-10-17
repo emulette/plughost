@@ -323,7 +323,7 @@ pub(crate) const MALFORMED_MESSAGE: &str = "the message could not be decoded";
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RenderError {
-    /// The streaming render session has already finished or failed.
+    /// The streaming render session has already finished, been cancelled or failed.
     SessionClosed,
     /// A shared processing or control input contract was violated.
     Input(InputError),
@@ -362,7 +362,7 @@ impl RenderError {
     /// Classifies a render error without deriving a retry policy.
     pub fn kind(&self) -> FailureKind {
         match self {
-            Self::SessionClosed => FailureKind::NotPrepared,
+            Self::SessionClosed => FailureKind::Closed,
             Self::Input(_)
             | Self::TailDuration
             | Self::SilenceThreshold

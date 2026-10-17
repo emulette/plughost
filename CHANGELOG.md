@@ -32,6 +32,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   hold, was lost on restore, and factory preset selection reset bypass in every format.
 - A `TailPolicy::UntilSilence` hold close to the largest representable length no longer
   overflows and panics while the tail is scanned in large blocks.
+- `RenderError::SessionClosed` is classified as `FailureKind::Closed` instead of `NotPrepared`:
+  the session finished, was cancelled or failed, and preparing the processor again does not
+  reopen it.
 
 ## [0.1.2] - 2026-10-11
 

@@ -1,6 +1,7 @@
 use plughost_core::render::*;
 use plughost_core::{
-    AutomationEvent, BlockContext, Event, InputError, ParameterChange, RenderError, Transport,
+    AutomationEvent, BlockContext, Event, FailureKind, InputError, ParameterChange, RenderError,
+    Transport,
 };
 use std::cell::Cell;
 
@@ -302,7 +303,9 @@ fn session_continues_transport_and_rejects_calls_after_finish_or_cancel() {
         .finish(&options(), |_| panic!("no tail"), || false)
         .unwrap();
     assert_eq!(session.state(), SessionState::Finished);
-    assert!(session.finish(&options(), |_| {}, || false).is_err());
+    let closed = session.finish(&options(), |_| {}, || false).unwrap_err();
+    assert_eq!(closed, RenderError::SessionClosed);
+    assert_eq!(closed.kind(), FailureKind::Closed);
     for (index, sample) in output.iter().enumerate() {
         assert!((sample - index as f32 / 100.0).abs() < 1e-6);
     }
@@ -320,7 +323,8 @@ fn session_continues_transport_and_rejects_calls_after_finish_or_cancel() {
         )
         .unwrap();
     assert_eq!(session.state(), SessionState::Cancelled);
-    assert!(session.finish(&options(), |_| {}, || false).is_err());
+    let closed = session.finish(&options(), |_| {}, || false).unwrap_err();
+    assert_eq!(closed.kind(), FailureKind::Closed);
 }
 
 #[test]
