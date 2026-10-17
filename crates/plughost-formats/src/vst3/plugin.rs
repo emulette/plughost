@@ -117,6 +117,8 @@ impl Plugin {
     /// Hands the controller's current values to the prepared processing side; see
     /// [`super::engine::Prepared::seed_held_values`].
     pub(super) fn seed_held_values(&self) {
+        // Values automation left on the processing side reach the controller first.
+        self.sync_controller();
         let parameters = self.parameter_cache();
         let generation = self.handler.values_generation();
         let values: Vec<f64> = (0..parameters.len())

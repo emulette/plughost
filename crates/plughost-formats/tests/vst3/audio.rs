@@ -213,6 +213,51 @@ fn multibus_f64_surround_and_bypass_survive_state_and_reset() {
 
 #[test]
 #[ignore = "needs routing test plugin"]
+fn preparing_again_holds_the_value_automation_left() {
+    let _serial = serial();
+    let (key, left, right) = ([0.0f32; 4], [2.0; 4], [4.0; 4]);
+    let block = |plugin: &mut Plugin, offset: usize, value: f64| {
+        let mut outputs = [[0.0f32; 4]; 4];
+        let mut slices: Vec<_> = outputs
+            .iter_mut()
+            .map(|channel| channel.as_mut_slice())
+            .collect();
+        plugin
+            .process(
+                &plughost_core::BlockContext::new(4),
+                &[&key, &left, &right],
+                &mut slices,
+                &[plughost_core::ParameterChange {
+                    id: 0,
+                    offset,
+                    value,
+                }],
+                &[],
+                &mut Vec::new(),
+            )
+            .unwrap();
+        outputs
+    };
+    let config = buses(SampleFormat::F32, Layout::Stereo);
+    // Automation leaves the gain at 0.8. The reference hands that to its controller before it is
+    // prepared again; the other is prepared again right away.
+    let mut outputs = Vec::new();
+    for synced in [true, false] {
+        let mut plugin = plugin("plughost-test-routing");
+        plugin.prepare_audio(&config).unwrap();
+        block(&mut plugin, 0, 0.8);
+        if synced {
+            plugin.flush().unwrap();
+        }
+        plugin.prepare_audio(&config).unwrap();
+        // Before its first point, the next block holds the value automation left.
+        outputs.push(block(&mut plugin, 2, 0.25));
+    }
+    assert_eq!(outputs[0], outputs[1]);
+}
+
+#[test]
+#[ignore = "needs routing test plugin"]
 fn bypass_set_before_preparation_holds_once_prepared() {
     let _serial = serial();
     let mut plugin = plugin("plughost-test-routing");

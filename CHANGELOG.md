@@ -62,6 +62,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Direct CLAP use: `HostedPlugin::prepare` after a `prepare_audio` that left ports out no longer
   fails with an unsupported-audio error for plugins without audio port activation, whose ports
   stayed active.
+- Direct VST3 use: preparing a prepared plugin again holds the values block automation left,
+  instead of the controller's older values, until the next block's first point.
 
 ## [0.1.2] - 2026-10-11
 
