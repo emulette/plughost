@@ -96,8 +96,13 @@ When the helper's output is late, the callback plays silence, or the delayed inp
 and ramps into and out of it. The control thread reads `realtime_status` and, after a
 resynchronization, stops the endpoint, resets the chain, and starts it again. The
 [realtime example](https://github.com/emulette/plughost/blob/v0.1.2/crates/plughost/examples/realtime.rs)
-does this while it plays a chain through the default output device, cutting the device's
-callbacks, whatever their size, from fixed quanta.
+does this while it plays a chain through the default output device, which it asks for callbacks
+of one quantum.
+
+Realtime processing is measured on Apple Silicon at 48 kHz with quanta of 64 and 128 frames
+and a latency of one quantum. plughost bounds the work, waiting, and allocation of its own
+callback code and of the helper's; a plugin's own code or the operating system can still take
+longer, which the endpoint reports as late or missed quanta.
 
 ## Capabilities and limits
 
