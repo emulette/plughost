@@ -24,8 +24,7 @@ impl Plugin {
             .iter()
             .any(|info| info.flags.automatable)
             .into();
-        let engine = lock(&self.engine);
-        let instance = engine.instance()?;
+        let instance = lock(&self.engine).handle()?;
         let precision = |size| match unsafe { instance.processor.canProcessSampleSize(size) } {
             result if result == kResultOk => Support::Supported,
             result if result == kResultFalse => Support::Unsupported,

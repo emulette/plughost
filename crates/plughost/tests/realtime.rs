@@ -458,6 +458,37 @@ fn a_stalled_plugin_misses_overflows_and_recovers_after_a_restart() {
 }
 
 #[test]
+#[ignore = "needs helper and the stall-in-state fixture (.ps1 or .sh build scripts)"]
+fn a_slow_state_save_does_not_hold_up_the_endpoint() {
+    let mut stall = support::stall::Stall::new();
+    let mut chain = spawn_with(
+        &[delay_variant(PluginFormat::Vst3, "stall-in-state", 0x19)],
+        &stall.identity(),
+        Timeouts::default(),
+    );
+    prepare(&mut chain);
+    let mut endpoint = started(&mut chain, &RealtimeConfig::new(QUANTUM));
+    // The fixture holds up the first save after it processed.
+    for index in 0..2 {
+        callback(&mut endpoint, &sine(index));
+    }
+    let saving = thread::spawn(move || {
+        let state = chain.save_state(0, StatePurpose::Project);
+        (chain, state)
+    });
+    // The plugin goes on processing while its component saves its state.
+    stall.wait_until_entered();
+    for index in 2..10 {
+        let played = callback(&mut endpoint, &sine(index)).0;
+        assert_eq!(played, RealtimeOutput::Processed, "callback {index}");
+    }
+    drop(stall);
+    let (chain, state) = saving.join().unwrap();
+    state.unwrap();
+    assert_eq!(chain.realtime_status().unwrap().missed, 0);
+}
+
+#[test]
 #[ignore = "needs helper and the delay fixture (.ps1 or .sh build scripts)"]
 fn paced_callbacks_play_the_offline_output() {
     const CALLBACKS: usize = 750;

@@ -4,7 +4,7 @@ use objc2_audio_toolbox::{
 };
 use plughost_core::{BypassState, PluginKind, Support};
 
-use super::{AuError, Plugin, lock};
+use super::{AuError, Plugin};
 
 fn support(unit: &AUAudioUnit, kind: PluginKind) -> Support {
     if kind != PluginKind::Effect {
@@ -31,9 +31,8 @@ fn support(unit: &AUAudioUnit, kind: PluginKind) -> Support {
 
 impl Plugin {
     pub(crate) fn bypass(&self) -> Result<BypassState, AuError> {
-        let engine = lock(&self.engine);
-        let unit = engine.unit()?;
-        let support = support(unit, self.info.kind);
+        let unit = self.shared_unit()?;
+        let support = support(&unit, self.info.kind);
         Ok(BypassState {
             support,
             enabled: (support != Support::Unsupported)
@@ -43,9 +42,8 @@ impl Plugin {
 
     /// Sets native bypass without replacing state or overriding native latency/tail reports.
     pub(crate) fn set_bypass(&mut self, enabled: bool) -> Result<(), AuError> {
-        let engine = lock(&self.engine);
-        let unit = engine.unit()?;
-        if support(unit, self.info.kind) == Support::Unsupported {
+        let unit = self.shared_unit()?;
+        if support(&unit, self.info.kind) == Support::Unsupported {
             return Err(AuError::BypassUnsupported);
         }
         unsafe { unit.setShouldBypassEffect(enabled) };

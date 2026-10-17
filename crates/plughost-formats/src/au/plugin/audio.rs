@@ -47,11 +47,12 @@ impl BusBuffer {
 
 impl Plugin {
     pub(crate) fn audio_buses(&self) -> Result<Vec<AudioBusInfo>, AuError> {
-        let engine = lock(&self.engine);
-        buses(
-            engine.unit()?,
-            engine.prepared.as_ref().map(|prepared| &prepared.config),
-        )
+        let unit = self.shared_unit()?;
+        let config = lock(&self.engine)
+            .prepared
+            .as_ref()
+            .map(|prepared| prepared.config.clone());
+        buses(&unit, config.as_ref())
     }
 
     /// AU reports channel-count constraints, not enumerated configuration identities.
@@ -66,8 +67,7 @@ impl Plugin {
     /// The MIDI input and the MIDI output cables. Units take MIDI 1.0 alone, so expressions other
     /// than pressure do not reach them; a unit declares whether it takes MPE.
     pub(crate) fn event_ports(&self) -> Result<Vec<plughost_core::EventPortInfo>, AuError> {
-        let engine = lock(&self.engine);
-        let unit = engine.unit()?;
+        let unit = self.shared_unit()?;
         let mpe = Support::from(unsafe { unit.supportsMPE() });
         let port = |index: u32, name: String, direction| {
             let mut event_port_info =
@@ -81,8 +81,7 @@ impl Plugin {
             };
             event_port_info
         };
-        let outputs = midi_output_names(unit);
-        drop(engine);
+        let outputs = midi_output_names(&unit);
         Ok(self
             .midi_input()?
             .then(|| port(0, String::new(), AudioDirection::Input))

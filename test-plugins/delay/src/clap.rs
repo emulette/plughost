@@ -320,20 +320,9 @@ impl<'a> PluginMainThread<'a, Shared> for MainThread<'a> {
         self.check("on_main_thread");
         static STALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if variant() == Variant::StallMainThread && !STALLED.swap(true, Ordering::Relaxed) {
-            stall(self.shared.stall_endpoint);
+            crate::stall::stall(self.shared.stall_endpoint);
         }
     }
-}
-
-/// Announces entry to the test's barrier at `address` and holds up the calling thread until the
-/// test explicitly releases or disconnects. No timer can end it prematurely.
-fn stall(address: Option<std::net::SocketAddr>) {
-    let address = address.expect(crate::errors::STALL_ADDRESS);
-    let mut connection = std::net::TcpStream::connect(address).expect(crate::errors::STALL_CONNECT);
-    connection
-        .write_all(&[1])
-        .expect(crate::errors::STALL_CONNECT);
-    let _ = connection.read_exact(&mut [0]);
 }
 
 impl PluginAudioPortsImpl for MainThread<'_> {
@@ -839,7 +828,7 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
             Variant::StallInProcess => {
                 static CALLS: AtomicU32 = AtomicU32::new(0);
                 if CALLS.fetch_add(1, Ordering::Relaxed) == crate::STALL_AT {
-                    stall(self.shared.stall_endpoint);
+                    crate::stall::stall(self.shared.stall_endpoint);
                 }
             }
             Variant::CrashInProcess => crate::fail(),

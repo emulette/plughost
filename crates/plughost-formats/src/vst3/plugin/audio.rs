@@ -13,9 +13,9 @@ impl Plugin {
     }
     /// Full native bus order. Current activation is only known after host preparation.
     pub(crate) fn audio_buses(&self) -> Result<Vec<AudioBusInfo>, Vst3Error> {
-        let engine = lock(&self.engine);
-        let mut buses = engine.instance()?.audio_buses()?;
-        if let Some(prepared) = &engine.prepared {
+        let instance = lock(&self.engine).handle()?;
+        let mut buses = instance.audio_buses()?;
+        if let Some(prepared) = &lock(&self.engine).prepared {
             for bus in &mut buses {
                 bus.active = prepared
                     .audio_buses
@@ -28,7 +28,8 @@ impl Plugin {
     }
     /// Event buses in both directions, inputs first; each ID is the bus index.
     pub(crate) fn event_ports(&self) -> Result<Vec<plughost_core::EventPortInfo>, Vst3Error> {
-        lock(&self.engine).instance()?.event_ports()
+        let instance = lock(&self.engine).handle()?;
+        instance.event_ports()
     }
     /// VST3 negotiates speaker arrangements but has no complete configuration enumerator.
     pub(crate) fn audio_configurations(&self) -> Result<Vec<AudioConfiguration>, Vst3Error> {

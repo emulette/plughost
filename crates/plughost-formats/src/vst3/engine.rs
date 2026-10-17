@@ -42,8 +42,9 @@ use super::parameter_cache::ParameterCache;
 const RESTART_REQUIRED: i32 = RestartFlags_::kIoChanged | RestartFlags_::kReloadComponent;
 
 pub(crate) struct Engine {
-    /// `None` once the plugin is closed.
-    pub instance: Option<Instance>,
+    /// `None` once the plugin is closed. The owning thread takes the instance out for queries
+    /// it may make while the plugin processes (see [`Engine::handle`]).
+    pub instance: Option<Arc<Instance>>,
     pub prepared: Option<Prepared>,
     /// Blocks go on while a restart request waits (see `BlockProcessor::defer_restart`).
     pub restart_deferred: bool,
@@ -128,7 +129,14 @@ pub(crate) fn lock(engine: &Shared) -> MutexGuard<'_, Engine> {
 
 impl Engine {
     pub fn instance(&self) -> Result<&Instance, Vst3Error> {
-        self.instance.as_ref().ok_or(Vst3Error::Closed)
+        self.instance.as_deref().ok_or(Vst3Error::Closed)
+    }
+
+    /// The instance, for the owning thread's queries that VST3 allows while the processor
+    /// processes, such as `getState` and the bus and tail queries. They run without the engine
+    /// lock, which the processing thread takes for each block.
+    pub fn handle(&self) -> Result<Arc<Instance>, Vst3Error> {
+        self.instance.clone().ok_or(Vst3Error::Closed)
     }
 
     /// Negotiates the main bus layouts, sets up processing, and activates the plugin.
@@ -409,15 +417,20 @@ impl Engine {
         Ok(timing)
     }
 
-    /// Reads the tail again, on the owning thread. VST3 has no notification for it.
-    pub fn refresh_tail(&mut self) {
-        if let (Some(instance), Some(prepared)) = (&self.instance, &mut self.prepared) {
-            prepared.tail = tail(&instance.processor);
+    /// The instance while it is prepared, whose tail the owning thread reads again: VST3 has no
+    /// notification for it.
+    pub fn tail_source(&self) -> Option<Arc<Instance>> {
+        self.prepared.as_ref().and(self.instance.clone())
+    }
+
+    pub fn set_tail(&mut self, tail: Tail) {
+        if let Some(prepared) = &mut self.prepared {
+            prepared.tail = tail;
         }
     }
 }
 
-fn tail(processor: &ComPtr<IAudioProcessor>) -> Tail {
+pub(crate) fn tail(processor: &ComPtr<IAudioProcessor>) -> Tail {
     match unsafe { processor.getTailSamples() } {
         samples if samples == kInfiniteTail => Tail::Infinite,
         samples => Tail::Samples(samples),

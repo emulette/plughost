@@ -14,6 +14,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   direct formats API. Denormal arithmetic no longer slows plugins that do not protect themselves,
   and output changes only for samples at subnormal level (about −758 dBFS). The calling thread's
   mode is restored after each call; out-of-process AUv3 extensions keep their own.
+- VST3 state saves, tail reads and bus, port and capability queries, and Audio Unit state saves,
+  bypass, factory preset, bus and capability queries no longer hold the lock the processing thread
+  takes for each block, as both formats let the owning thread make them while the plugin
+  processes. A slow state save no longer holds up processing on another thread.
 
 ### Added
 

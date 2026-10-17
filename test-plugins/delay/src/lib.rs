@@ -17,7 +17,8 @@
 //! `noop-reset` reproduces a CLAP plugin whose reset leaves audio behind.
 //! `stall-main-thread` makes the CLAP side hold up the host's main thread once, connecting to
 //! the test barrier address in the host name and waiting for release; `stall-in-process` holds
-//! up its process call [`STALL_AT`] the same way. On macOS,
+//! up its process call [`STALL_AT`] the same way, and `stall-in-state` the VST3 side's first
+//! component state save after it processed audio. On macOS,
 //! `editor` gives the CLAP side an editor inside the host's window (see `editor.rs`).
 //! `restart-on-activate` makes the VST3 side report changed buses each time it activates.
 //! `timers` gives the CLAP side two timers, the first of which removes the second (`timers.rs`).
@@ -36,6 +37,7 @@
 
 use std::collections::VecDeque;
 use std::ffi::{c_char, c_void};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use vst3::Steinberg::Vst::ControllerNumbers_::{kCtrlExpression, kCtrlVolume};
@@ -63,6 +65,7 @@ mod clap;
 mod editor;
 mod errors;
 mod mapping_probe;
+mod stall;
 mod state_payload;
 mod system_timer;
 mod timers;
@@ -440,6 +443,13 @@ impl IComponentTrait for Delay {
         let Some(stream) = (unsafe { ComRef::from_raw(state) }) else {
             return kInvalidArgument;
         };
+        static STALLED: AtomicBool = AtomicBool::new(false);
+        if variant() == Variant::StallInState
+            && lock(&self.values)[5] > 0.0
+            && !STALLED.swap(true, Ordering::Relaxed)
+        {
+            stall::stall(lock(&self.host_name).parse().ok());
+        }
         let gain = *lock(&self.gain);
         let bytes = gain.to_le_bytes();
         let mut written = 0;

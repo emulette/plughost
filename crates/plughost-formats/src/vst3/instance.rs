@@ -70,6 +70,10 @@ fn create<I: Interface>(module: &Module, cid: &TUID) -> Option<ComPtr<I>> {
 // plugin (the plugin's own handle to it, and prepare and drop, which run there). Pointer clones on
 // both threads only change the atomic COM reference count.
 unsafe impl Send for Instance {}
+// SAFETY: besides the calls the engine mutex orders, the thread that created the plugin shares the
+// instance only for the queries VST3 lets the UI thread make while the processor processes:
+// `getState`, `getTailSamples`, `canProcessSampleSize` and the bus queries.
+unsafe impl Sync for Instance {}
 
 impl Instance {
     pub fn create(

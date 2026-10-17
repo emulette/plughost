@@ -19,9 +19,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use block2::{DynBlock, RcBlock};
-use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::Bool;
+use objc2::{Message, msg_send};
 use objc2_audio_toolbox::{
     AUAudioFrameCount, AUAudioUnit, AUAudioUnitStatus, AUAudioUnitV2Bridge, AUEventSampleTime,
     AUHostTransportStateFlags, AUParameter, AUParameterAddress, AUParameterListenerNotify, AUValue,
@@ -238,10 +238,17 @@ impl Plugin {
         }
     }
 
+    /// The unit, for the queries an Audio Unit answers on the owning thread while it renders,
+    /// such as its full state, bypass, factory presets, buses and capabilities. They run without
+    /// the engine lock, which the processing thread takes for each block.
+    fn shared_unit(&self) -> Result<Retained<AUAudioUnit>, AuError> {
+        lock(&self.engine).unit().map(|unit| unit.retain())
+    }
+
     /// Queries native metadata without requesting a view controller or saving state.
     pub(crate) fn capabilities(&self) -> Result<Capabilities, AuError> {
-        let engine = lock(&self.engine);
-        let unit = engine.unit()?;
+        let unit = self.shared_unit()?;
+        let prepared = lock(&self.engine).prepared.is_some();
         Ok({
             let mut capabilities = Capabilities::default();
             capabilities.embedded_editor = if self.editor.is_some() {
@@ -257,7 +264,7 @@ impl Plugin {
             capabilities.factory_presets = unsafe { unit.factoryPresets() }
                 .is_some_and(|presets| !presets.is_empty())
                 .into();
-            capabilities.f32 = if engine.prepared.is_some() {
+            capabilities.f32 = if prepared {
                 Support::Supported
             } else {
                 Support::Unknown
@@ -399,9 +406,8 @@ impl Plugin {
         if std::mem::take(&mut self.edited) {
             run_loop_for(EDIT_SETTLE);
         }
-        let engine = lock(&self.engine);
-        let unit = engine.unit()?;
-        let state = current_state(unit, purpose)?;
+        let unit = self.shared_unit()?;
+        let state = current_state(&unit, purpose)?;
         let component = plist::encode(&state, NSPropertyListFormat::BinaryFormat_v1_0)?;
         Ok(PluginState {
             format: PluginFormat::AudioUnit,

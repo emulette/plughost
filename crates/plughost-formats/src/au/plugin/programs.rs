@@ -3,8 +3,7 @@ use plughost_core::{FactoryPreset, FactoryPresetId, MAX_FACTORY_PRESETS};
 
 impl Plugin {
     pub(crate) fn factory_presets(&self) -> Result<Vec<FactoryPreset>, AuError> {
-        let engine = lock(&self.engine);
-        let unit = engine.unit()?;
+        let unit = self.shared_unit()?;
         let Some(presets) = (unsafe { unit.factoryPresets() }) else {
             return Ok(Vec::new());
         };

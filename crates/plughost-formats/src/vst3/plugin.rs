@@ -90,7 +90,7 @@ impl Plugin {
             handler: instance.handler.clone(),
             parameters: RefCell::new(Arc::new(ParameterCache::read(&instance.controller))),
             engine: Arc::new(Mutex::new(Engine {
-                instance: Some(instance),
+                instance: Some(Arc::new(instance)),
                 prepared: None,
                 restart_deferred: false,
             })),
@@ -198,19 +198,27 @@ impl Plugin {
         if self.handler.has_pending() && lock(&self.engine).prepared.is_some() {
             self.deliver_edits()?;
         }
-        let mut engine = lock(&self.engine);
-        engine.refresh_tail();
-        engine.timing()
+        let source = lock(&self.engine).tail_source();
+        if let Some(instance) = source {
+            let tail = super::engine::tail(&instance.processor);
+            lock(&self.engine).set_tail(tail);
+        }
+        lock(&self.engine).timing()
     }
 
+    /// As [`Plugin::timing`], unless the processing thread holds the engine.
     pub(crate) fn poll_timing(&self) -> Option<PluginTiming> {
-        let mut engine = match self.engine.try_lock() {
-            Ok(engine) => engine,
-            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => return None,
+        let try_lock = || match self.engine.try_lock() {
+            Ok(engine) => Some(engine),
+            Err(std::sync::TryLockError::Poisoned(error)) => Some(error.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => None,
         };
-        engine.refresh_tail();
-        engine.timing().ok()
+        let source = try_lock()?.tail_source();
+        if let Some(instance) = source {
+            let tail = super::engine::tail(&instance.processor);
+            try_lock()?.set_tail(tail);
+        }
+        try_lock()?.timing().ok()
     }
 
     /// The optional VST3 processor's requested context flags, queried on the owning thread
@@ -302,12 +310,8 @@ impl Plugin {
         let kind = state_kind(purpose)?;
         let component = MemoryStream::from_bytes(&[], kind);
         self.deliver_edits()?;
-        let result = unsafe {
-            lock(&self.engine)
-                .instance()?
-                .component
-                .getState(stream_ptr(&component))
-        };
+        let instance = lock(&self.engine).handle()?;
+        let result = unsafe { instance.component.getState(stream_ptr(&component)) };
         if component.exceeded() {
             return Err(Vst3Error::StateTooLarge);
         }
