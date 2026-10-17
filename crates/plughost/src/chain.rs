@@ -99,6 +99,9 @@ impl Chain {
     /// application switches to the returned chain when it is ready, and keeps this one to retry
     /// after a failure. The recovered chain holds only what the states hold: edits made after
     /// they were saved and DSP history such as tails are not recovered, and editors are closed.
+    /// Native bypass returns only when a state holds it, as a VST3 or CLAP bypass parameter does;
+    /// Audio Unit bypass never does. Apply the bypass the application recorded with
+    /// [`Chain::set_bypass`] before switching to the recovered chain.
     pub fn recover(&self, states: &[PluginState]) -> Result<Chain, Error> {
         if !states.is_empty() && states.len() != self.plugins.len() {
             return Err(Error::Input {

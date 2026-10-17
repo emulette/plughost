@@ -505,7 +505,9 @@ and prepares it with the saved audio configuration. The original chain is not mo
 application keeps a last known good snapshot from `save_state`, recovers from it, and replaces
 its chain only once recovery succeeds; after a failure the original remains available for
 another attempt. Edits after the snapshot, DSP history, open editors and unread diagnostics are
-not recovered. `reprepare()` reactivates the saved configuration once; repeated native restart
+not recovered. Native bypass returns only when a state holds it (a VST3 or CLAP bypass parameter;
+never Audio Unit bypass), so the application records each slot's bypass with its snapshot and
+applies it with `set_bypass` before switching to the recovered chain. `reprepare()` reactivates the saved configuration once; repeated native restart
 requests remain visible to the caller.
 
 `helper_monitor()` returns a clonable `HelperMonitor` for the current helper generation. Its
