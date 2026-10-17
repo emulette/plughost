@@ -8,7 +8,7 @@ impl Plugin {
         &self,
         id: u64,
     ) -> Result<plughost_core::ParameterDetails, Vst3Error> {
-        use vst3::Steinberg::Vst::{IUnitInfo, IUnitInfoTrait, UnitInfo};
+        use vst3::Steinberg::Vst::{IUnitInfo, IUnitInfoTrait, UnitInfo, kRootUnitId};
         let parameters = self.parameter_cache();
         let index = parameters
             .index(id)
@@ -28,14 +28,19 @@ impl Plugin {
                 if !seen.insert(current) {
                     return Err(Vst3Error::ParameterGroups);
                 }
-                let unit = (0..count)
-                    .find_map(|index| {
-                        let mut unit: UnitInfo = unsafe { std::mem::zeroed() };
-                        (unsafe { units.getUnitInfo(index, &mut unit) } == kResultOk
-                            && unit.id == current)
-                            .then_some(unit)
-                    })
-                    .ok_or(Vst3Error::ParameterGroups)?;
+                let unit = (0..count).find_map(|index| {
+                    let mut unit: UnitInfo = unsafe { std::mem::zeroed() };
+                    (unsafe { units.getUnitInfo(index, &mut unit) } == kResultOk
+                        && unit.id == current)
+                        .then_some(unit)
+                });
+                // Plugins may leave the root unit implicit, as the SDK's own examples do.
+                let Some(unit) = unit else {
+                    if current == kRootUnitId {
+                        break;
+                    }
+                    return Err(Vst3Error::ParameterGroups);
+                };
                 path.push(plughost_core::ParameterGroup {
                     id: unit.id.to_string(),
                     name: wide_string(&unit.name),

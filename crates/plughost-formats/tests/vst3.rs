@@ -27,6 +27,7 @@ mod lifecycle;
 mod sdk_samples;
 const AGAIN_CLASS: &str = "84E8DE5F92554F5396FAE4133C935A18";
 const AGAIN_GAIN: u64 = 0;
+const AGAIN_BYPASS: u64 = 2;
 const ADELAY_DELAY: u64 = 100;
 const TEST_DELAY_LATENCY: u32 = 480;
 const RATES: [f64; 6] = [44_100.0, 48_000.0, 88_200.0, 96_000.0, 176_400.0, 192_000.0];

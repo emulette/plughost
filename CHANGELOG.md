@@ -5,6 +5,14 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- VST3 `parameter_details` and `parameter_choices` no longer fail with a parameter group error
+  for plugins that leave the root unit out of their unit list, as the VST3 SDK examples do. The
+  group path ends below the implicit root.
+
 ## [0.1.2] - 2026-10-11
 
 ### Added
