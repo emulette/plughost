@@ -1,12 +1,14 @@
 //! The flow of a live application: find a plugin class, prepare a chain at the default output
 //! device's rate, and play it through that device with a realtime endpoint. Effects process a
-//! quiet stereo tone and instruments play a repeating note. Devices may ask for any number of
-//! frames per callback (WASAPI's shared mode does), so the callback cuts its output from quanta
-//! of a fixed size, which adds up to one quantum of latency. The control thread prints the
+//! quiet stereo tone and instruments play a repeating note. The stream asks the device for
+//! callbacks of one quantum, since the endpoint expects one call per quantum's time: quanta
+//! processed in a burst find the previous one unfinished. Devices may still call back with other
+//! sizes (WASAPI's shared mode does), so the callback cuts its output from quanta, which adds up
+//! to one quantum of latency. The control thread prints the
 //! endpoint's status each second and, after a resynchronization, stops the endpoint, resets the
 //! chain and starts it again. Ends after the given seconds.
 //!
-//! usage: realtime <helper executable> <bundle.vst3 | bundle.clap | Audio Unit class ID> [class index] [seconds]
+//! usage: realtime <helper executable> <bundle.vst3 | bundle.clap | Audio Unit class ID> [class index] [seconds] [quantum]
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -19,11 +21,9 @@ use plughost::{
     PluginKind, PluginRef, RealtimeConfig, RealtimeEndpoint, ScanOutcome, Scanner, Timeouts,
 };
 
-const USAGE: &str = "usage: realtime <helper executable> <bundle.vst3 | bundle.clap | Audio Unit class ID> [class index] [seconds]";
+const USAGE: &str = "usage: realtime <helper executable> <bundle.vst3 | bundle.clap | Audio Unit class ID> [class index] [seconds] [quantum]";
 const NO_CLASS: &str = "no plugin class found for that bundle and index or class ID";
 const NO_DEVICE: &str = "no default output device with f32 samples";
-/// Frames per quantum: each endpoint call processes one.
-const QUANTUM: usize = 256;
 /// The tone effects hear, and the instruments' note.
 const PITCH: f64 = 220.0;
 const KEY: u8 = 57;
@@ -76,6 +76,8 @@ fn find(helper: &Path, target: &Path, index: usize) -> Result<Option<(PluginRef,
 /// quantum it played last, and the input it is fed.
 struct Callback {
     endpoint: RealtimeEndpoint,
+    /// Frames per quantum: each endpoint call processes one.
+    quantum: usize,
     instrument: bool,
     rate: f64,
     output: [Vec<f32>; 2],
@@ -91,7 +93,7 @@ impl Callback {
     /// Fills an interleaved device buffer of `channels` channels.
     fn fill(&mut self, data: &mut [f32], channels: usize) {
         for frame in data.chunks_mut(channels) {
-            if self.played == QUANTUM {
+            if self.played == self.quantum {
                 self.next();
             }
             for (channel, sample) in frame.iter_mut().enumerate() {
@@ -106,7 +108,7 @@ impl Callback {
 
     /// Processes the next quantum.
     fn next(&mut self) {
-        let start = self.quanta * QUANTUM as u64;
+        let start = self.quanta * self.quantum as u64;
         for (frame, sample) in self.tone[0].iter_mut().enumerate() {
             let time = (start + frame as u64) as f64 / self.rate;
             *sample = 0.1 * (time * PITCH * std::f64::consts::TAU).sin() as f32;
@@ -114,7 +116,7 @@ impl Callback {
         let [left_tone, right_tone] = &mut self.tone;
         right_tone.copy_from_slice(left_tone);
         // Instruments play the note for one second of every two.
-        let second = (self.rate / QUANTUM as f64) as u64;
+        let second = (self.rate / self.quantum as f64) as u64;
         let notes = match self.quanta % (2 * second) {
             0 if self.instrument => Some(Event::note_on(0, 0, KEY, 100)),
             phase if self.instrument && phase == second => Some(Event::note_off(0, 0, KEY, 0)),
@@ -124,7 +126,7 @@ impl Callback {
         let input = if self.instrument { &[][..] } else { &input[..] };
         let [left, right] = &mut self.output;
         let played = self.endpoint.process_audio_f32(
-            &BlockContext::new(QUANTUM),
+            &BlockContext::new(self.quantum),
             input,
             &mut [left, right],
             &[],
@@ -141,7 +143,13 @@ impl Callback {
     }
 }
 
-fn run(helper: &Path, target: &Path, index: usize, seconds: u64) -> Result<bool, Error> {
+fn run(
+    helper: &Path,
+    target: &Path,
+    index: usize,
+    seconds: u64,
+    quantum: usize,
+) -> Result<bool, Error> {
     let Some((plugin, instrument)) = find(helper, target, index)? else {
         out!("{NO_CLASS}");
         return Ok(false);
@@ -156,6 +164,13 @@ fn run(helper: &Path, target: &Path, index: usize, seconds: u64) -> Result<bool,
     };
     let rate = f64::from(device_config.sample_rate());
     let channels = usize::from(device_config.channels());
+    let mut stream_config = device_config.config();
+    if let cpal::SupportedBufferSize::Range { min, max } = *device_config.buffer_size()
+        && let Ok(frames) = u32::try_from(quantum)
+        && (min..=max).contains(&frames)
+    {
+        stream_config.buffer_size = cpal::BufferSize::Fixed(frames);
+    }
 
     let mut chain = Chain::spawn(
         helper,
@@ -168,28 +183,29 @@ fn run(helper: &Path, target: &Path, index: usize, seconds: u64) -> Result<bool,
     } else {
         Layout::Stereo
     };
-    let mut config = chain.main_bus_config(rate, QUANTUM, input, &[Layout::Stereo])?;
+    let mut config = chain.main_bus_config(rate, quantum, input, &[Layout::Stereo])?;
     config.mode = plughost::ProcessMode::Realtime;
     chain.prepare_audio(&config)?;
-    let endpoint = chain.realtime_endpoint(&RealtimeConfig::new(QUANTUM))?;
+    let endpoint = chain.realtime_endpoint(&RealtimeConfig::new(quantum))?;
     let latency = chain.start_realtime()?;
     out!(
-        "playing at {rate} Hz, latency {latency} frames plus up to {QUANTUM} for the device's callback size"
+        "playing at {rate} Hz, latency {latency} frames plus up to {quantum} for the device's callback size"
     );
 
     let mut callback = Callback {
         endpoint,
+        quantum,
         instrument,
         rate,
-        output: [vec![0.0; QUANTUM], vec![0.0; QUANTUM]],
-        played: QUANTUM,
-        tone: [vec![0.0; QUANTUM], vec![0.0; QUANTUM]],
+        output: [vec![0.0; quantum], vec![0.0; quantum]],
+        played: quantum,
+        tone: [vec![0.0; quantum], vec![0.0; quantum]],
         quanta: 0,
         produced: Vec::with_capacity(MAX_BLOCK_EVENTS),
     };
     let stream = device
         .build_output_stream::<f32, _, _>(
-            device_config.config(),
+            stream_config,
             move |data, _| callback.fill(data, channels),
             |error| out!("device: {error}"),
             None,
@@ -239,7 +255,8 @@ fn main() -> ExitCode {
             .and_then(|value| value.to_str()?.parse().ok())
             .unwrap_or(default)
     };
-    match run(helper, target, number(2, 0) as usize, number(3, 10)) {
+    let (index, seconds, quantum) = (number(2, 0), number(3, 10), number(4, 256));
+    match run(helper, target, index as usize, seconds, quantum as usize) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {

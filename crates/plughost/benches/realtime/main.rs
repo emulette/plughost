@@ -7,6 +7,9 @@
 //! limit. With `--stall`, the CLAP stall-in-process fixture holds up one process call for
 //! `--stall-ms`; then only the callback limit applies, and the endpoint is restarted after the
 //! resynchronization that follows, as an application does. `--load` keeps every core busy.
+//! `--automation` gives every quantum eight gain points, and `--control` edits the gain from the
+//! control thread every 10 ms and saves the state every 100 ms, as an editor and an autosave do;
+//! with either, the run records its results and only the callback limit applies.
 mod driver;
 mod errors;
 mod usage;
@@ -20,17 +23,20 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use plughost::{
-    BlockContext, Chain, FallbackReason, HostIdentity, Layout, MAX_BLOCK_EVENTS, PluginFormat,
-    PluginRef, RealtimeConfig, RealtimeEndpoint, RealtimeOutput, Timeouts,
+    AutomationEvent, BlockContext, Chain, FallbackReason, HostIdentity, Layout, MAX_BLOCK_EVENTS,
+    ParameterChange, PluginFormat, PluginRef, RealtimeConfig, RealtimeEndpoint, RealtimeOutput,
+    StatePurpose, Timeouts,
 };
 use plughost_core::ipc::shared::clock;
 
 use errors::Result;
 
-const USAGE: &str = "cargo bench -p plughost --bench realtime -- [--seconds 600] [--quantum 128] [--latency 1] [--load] [--stall] [--stall-ms 100] [--callback-limit 200] [--helper FILE] [--assets DIR]\n\
+const USAGE: &str = "cargo bench -p plughost --bench realtime -- [--seconds 600] [--quantum 128] [--latency 1] [--load] [--automation] [--control] [--stall] [--stall-ms 100] [--callback-limit 200] [--helper FILE] [--assets DIR]\n\
 Calls a routing-fixture chain's realtime endpoint at 48 kHz and exits with a failure when the gate fails.\n\
 --callback-limit is in microseconds. Build the repository test plugins and the helper first.";
 const RATE: f64 = 48_000.0;
+/// The routing fixture's gain parameter, which the stall fixture also has.
+const GAIN: u64 = 0;
 
 macro_rules! out {
     ($($arg:tt)*) => {{
@@ -43,6 +49,8 @@ struct Options {
     quantum: usize,
     latency: usize,
     load: bool,
+    automation: bool,
+    control: bool,
     /// How long the stall fixture holds up its process call, with `--stall`.
     stall: Option<Duration>,
     callback_limit: Duration,
@@ -61,6 +69,8 @@ fn options() -> Result<Option<Options>> {
         quantum: 128,
         latency: 1,
         load: false,
+        automation: false,
+        control: false,
         stall: None,
         // The first measurement's longest callback was 63 µs (see benches/README.md).
         callback_limit: Duration::from_micros(200),
@@ -82,6 +92,8 @@ fn options() -> Result<Option<Options>> {
                 return Ok(None);
             }
             "--load" => options.load = true,
+            "--automation" => options.automation = true,
+            "--control" => options.control = true,
             "--stall" => stall = true,
             _ => {
                 let value = arguments.next().ok_or_else(|| invalid(()))?;
@@ -137,8 +149,28 @@ struct Measured {
     fallbacks: [u64; 4],
 }
 
+/// Eight points on the gain of slot 0 across a quantum, or none.
+fn automation(quantum: usize, enabled: bool) -> Vec<AutomationEvent> {
+    let points = if enabled { 8 } else { 0 };
+    (0..points)
+        .map(|point| AutomationEvent {
+            slot: 0,
+            change: ParameterChange {
+                id: GAIN,
+                offset: point * quantum / 8,
+                value: if point % 2 == 0 { 0.25 } else { 0.75 },
+            },
+        })
+        .collect()
+}
+
 /// Calls the endpoint `callbacks` times on the grid of quanta, from a realtime thread.
-fn drive(mut endpoint: RealtimeEndpoint, quantum: usize, callbacks: usize) -> Measured {
+fn drive(
+    mut endpoint: RealtimeEndpoint,
+    quantum: usize,
+    callbacks: usize,
+    automation: &[AutomationEvent],
+) -> Measured {
     let period = clock::ticks(Duration::from_secs_f64(quantum as f64 / RATE));
     driver::schedule(period);
     let input = noise(quantum);
@@ -166,7 +198,7 @@ fn drive(mut endpoint: RealtimeEndpoint, quantum: usize, callbacks: usize) -> Me
             &context,
             &input,
             &mut [left, right],
-            &[],
+            automation,
             &[],
             &mut produced,
         );
@@ -295,13 +327,29 @@ fn run(options: &Options) -> Result<()> {
     let load = options.load.then(Load::start);
     let callbacks = (options.seconds * RATE / options.quantum as f64) as usize;
     let quantum = options.quantum;
+    let points = automation(quantum, options.automation);
     let callback = thread::Builder::new()
         .name("realtime benchmark callback".into())
-        .spawn(move || drive(endpoint, quantum, callbacks))?;
-    // Restart the endpoint after a resynchronization, as an application does.
-    let mut restarts = 0;
-    while !callback.is_finished() {
-        thread::sleep(Duration::from_millis(100));
+        .spawn(move || drive(endpoint, quantum, callbacks, &points))?;
+    // Edit and save as an editor and an autosave do, and restart the endpoint after a
+    // resynchronization, as an application does.
+    let (mut restarts, mut edits, mut saves) = (0, 0, 0);
+    for tick in 0u64.. {
+        if callback.is_finished() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+        if options.control {
+            chain.set_parameter(0, GAIN, if tick % 2 == 0 { 0.5 } else { 1.0 })?;
+            edits += 1;
+        }
+        if tick % 10 != 0 {
+            continue;
+        }
+        if options.control {
+            chain.save_state(0, StatePurpose::Project)?;
+            saves += 1;
+        }
         if chain.realtime_status().is_some_and(|status| status.resync) {
             chain.stop_realtime()?;
             chain.reset()?;
@@ -334,6 +382,12 @@ fn run(options: &Options) -> Result<()> {
             None => "routing fixture".into(),
         }
     );
+    if options.automation || options.control {
+        out!(
+            "automation points per quantum {} | control edits {edits} | state saves {saves}",
+            if options.automation { 8 } else { 0 }
+        );
+    }
     let [stopped, priming, missed, resync] = measured.fallbacks;
     out!(
         "callbacks {} | processed {} | fallback: stopped {stopped}, priming {priming}, missed {missed}, resync {resync} | driver skipped {} slots",
@@ -385,7 +439,7 @@ fn run(options: &Options) -> Result<()> {
     if clock::duration(longest) > options.callback_limit {
         return Err(errors::fail(errors::CALLBACK));
     }
-    if options.stall.is_none() {
+    if options.stall.is_none() && !options.automation && !options.control {
         if status.late > 0 {
             return Err(errors::fail(errors::LATE));
         }

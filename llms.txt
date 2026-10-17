@@ -455,7 +455,10 @@ offline output for blocks of one quantum, `latency * quantum` frames later. `pro
 the output events except system exclusive ones, up to its capacity; reserve `MAX_BLOCK_EVENTS`.
 Invalid input is an error and starts a resync; wrong output buffers or precision are an error
 and leave `output` unchanged. `endpoint.last_completion()` says how long the helper took for
-the output just played. Drop the endpoint on a control thread.
+the output just played. Drop the endpoint on a control thread. Call the endpoint once per
+quantum's worth of time, as a device calls back: quanta processed in a burst find the previous
+ones unfinished and play the fallback. Ask the device for callbacks of one quantum; cutting each
+device callback into several quanta needs a latency of as many quanta as a callback holds.
 
 From a control thread, `chain.start_realtime()` starts processing and returns the whole latency
 in frames: the chain's latency plus `latency * quantum`. `chain.stop_realtime()` stops between

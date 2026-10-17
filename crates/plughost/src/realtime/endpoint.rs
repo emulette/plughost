@@ -47,6 +47,12 @@ pub enum FallbackReason {
 /// Move it to the callback's thread and call `process_audio_f32` or `process_audio_f64` there,
 /// in the chain's prepared precision, once per callback. Drop it on a control thread: dropping
 /// releases shared memory.
+///
+/// Call it once per quantum's worth of time, as an audio device calls back: the helper works on
+/// a quantum until the call `latency` quanta later, so quanta processed in a burst find the
+/// previous ones unfinished and play the fallback ([`FallbackReason::Missed`]). Ask the device
+/// for callbacks of one quantum; an application that cuts each device callback into several
+/// quanta needs a latency of as many quanta as a callback holds.
 pub struct RealtimeEndpoint {
     ring: Ring,
     state: Arc<State>,
