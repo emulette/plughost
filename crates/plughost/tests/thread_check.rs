@@ -92,3 +92,36 @@ fn the_helper_calls_each_clap_function_on_its_thread() {
     chain.take_changes().unwrap();
     assert_eq!(wrong_threads(&mut chain), Vec::<String>::new());
 }
+
+#[test]
+#[ignore = "needs helper and the thread-check fixture (.ps1 or .sh build scripts)"]
+fn the_helper_scans_clap_ports_only_while_the_plugin_is_inactive() {
+    // The fixture counts audio and note port scans between its activation and deactivation.
+    const ACTIVE_PORT_SCANS: u64 = 20;
+    let mut chain = spawn(&[delay_variant(PluginFormat::Clap, "thread-check", 0xF)]);
+    let inactive = (
+        chain.audio_buses(0).unwrap(),
+        chain.event_ports(0).unwrap(),
+        chain.capabilities(0).unwrap(),
+    );
+    prepare(&mut chain);
+    block(&mut chain, &[]);
+    // An active plugin answers with the ports it was activated with.
+    assert_eq!(chain.event_ports(0).unwrap(), inactive.1);
+    assert_eq!(chain.capabilities(0).unwrap(), inactive.2);
+    let active = chain.audio_buses(0).unwrap();
+    assert_eq!(active.len(), inactive.0.len());
+    let scans = chain
+        .parameters(0)
+        .unwrap()
+        .into_iter()
+        .find(|(info, _)| info.id == ACTIVE_PORT_SCANS)
+        .unwrap()
+        .1;
+    assert_eq!(
+        chain
+            .parameter_to_plain(0, ACTIVE_PORT_SCANS, scans)
+            .unwrap(),
+        0.0
+    );
+}

@@ -67,6 +67,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - On macOS, a window size that a resizable editor refuses returns the window to the size the editor
   last accepted, as on Windows, instead of keeping the refused size and offering it again on every
   tick.
+- CLAP audio and note ports are scanned only while the plugin is inactive, as CLAP requires. An
+  active plugin answers bus, event port and capability queries, including the helper's own after
+  each preparation, with the ports it was activated with.
 
 ## [0.1.2] - 2026-10-11
 

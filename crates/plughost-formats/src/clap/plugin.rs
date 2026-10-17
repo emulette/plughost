@@ -117,7 +117,11 @@ struct Prepared {
     buffers: buffers::AudioBuffers,
     config: ProcessConfig,
     audio_config: Option<plughost_core::AudioConfig>,
+    /// The ports as scanned just before activation. CLAP lets a host scan them only while the
+    /// plugin is inactive, so queries while it is active answer with these.
     buses: Vec<plughost_core::AudioBusInfo>,
+    event_ports: Vec<plughost_core::EventPortInfo>,
+    port_support: capabilities::PortSupport,
     /// Channel count of every input and output port; the main port is at `main_input` or
     /// `main_output`.
     inputs: Vec<usize>,

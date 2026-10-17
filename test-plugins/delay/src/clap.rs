@@ -11,7 +11,7 @@ use std::ffi::CStr;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use clack_extensions::audio_ports::{
     AudioPortFlags, AudioPortInfo, AudioPortInfoWriter, AudioPortType, PluginAudioPorts,
@@ -76,7 +76,7 @@ impl Plugin for TestPlugin {
         if variant() == Variant::Timers {
             builder.register::<clack_extensions::timer::PluginTimer>();
         }
-        if variant() == Variant::MpePorts {
+        if matches!(variant(), Variant::MpePorts | Variant::ThreadCheck) {
             builder.register::<PluginNotePorts>();
         }
         #[cfg(target_os = "macos")]
@@ -110,6 +110,8 @@ impl DefaultPluginFactory for TestPlugin {
             has_log: host.get_extension::<HostLog>().is_some(),
             checks: AtomicU32::new(0),
             wrong_threads: AtomicU32::new(0),
+            active: AtomicBool::new(false),
+            active_port_scans: AtomicU32::new(0),
             stall_endpoint: (variant() == Variant::StallMainThread)
                 .then(|| {
                     host.name()
@@ -170,6 +172,10 @@ pub struct Shared {
     has_log: bool,
     checks: AtomicU32,
     wrong_threads: AtomicU32,
+    /// Between activation and deactivation, when CLAP forbids the host to scan ports.
+    active: AtomicBool,
+    /// Port scans the `thread-check` variant saw while active.
+    active_port_scans: AtomicU32,
     stall_endpoint: Option<std::net::SocketAddr>,
     saved_context: AtomicU32,
     loaded_context: AtomicU32,
@@ -282,6 +288,16 @@ impl MainThread<'_> {
         self.shared
             .check(&self.host.shared(), Thread::Main, function);
     }
+
+    /// A port scan, which CLAP allows only while the plugin is inactive.
+    fn scan(&self, function: &str) {
+        self.check(function);
+        if variant() == Variant::ThreadCheck && self.shared.active.load(Ordering::Relaxed) {
+            self.shared
+                .active_port_scans
+                .fetch_add(1, Ordering::Relaxed);
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -319,12 +335,12 @@ impl<'a> PluginMainThread<'a, Shared> for MainThread<'a> {
 
 impl PluginAudioPortsImpl for MainThread<'_> {
     fn count(&self, _is_input: bool) -> u32 {
-        self.check("audio_ports.count");
+        self.scan("audio_ports.count");
         1
     }
 
     fn get(&self, index: u32, is_input: bool, writer: &mut AudioPortInfoWriter) {
-        self.check("audio_ports.get");
+        self.scan("audio_ports.get");
         if index == 0 {
             writer.set(&AudioPortInfo {
                 id: ClapId::new(0),
@@ -347,9 +363,11 @@ impl PluginLatencyImpl for MainThread<'_> {
 
 impl PluginNotePortsImpl for MainThread<'_> {
     fn count(&self, _input: bool) -> u32 {
+        self.scan("note_ports.count");
         1
     }
     fn get(&self, index: u32, _input: bool, writer: &mut NotePortInfoWriter) {
+        self.scan("note_ports.get");
         if index == 0 {
             writer.set(&NotePortInfo {
                 id: ClapId::new(0),
@@ -369,13 +387,13 @@ impl PluginMainThreadParams for MainThread<'_> {
             Variant::Editor | Variant::Timers | Variant::FlushRequest | Variant::ThreadCheck
         )) + u32::from(variant() == Variant::Editor)
             + 2 * u32::from(variant() == Variant::Timers)
-            + 4 * u32::from(variant() == Variant::ThreadCheck)
+            + 5 * u32::from(variant() == Variant::ThreadCheck)
     }
 
     fn get_info(&self, index: u32, info: &mut ParamInfoWriter) {
         self.check("params.get_info");
         match index {
-            16..=19 if variant() == Variant::ThreadCheck => info.set(&ParamInfo {
+            16..=20 if variant() == Variant::ThreadCheck => info.set(&ParamInfo {
                 id: ClapId::new(index),
                 flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
                 cookie: Cookie::empty(),
@@ -383,7 +401,8 @@ impl PluginMainThreadParams for MainThread<'_> {
                     16 => b"Host thread check present",
                     17 => b"Host log present",
                     18 => b"Thread checks",
-                    _ => b"Wrong thread calls",
+                    19 => b"Wrong thread calls",
+                    _ => b"Port scans while active",
                 },
                 module: b"",
                 min_value: 0.0,
@@ -572,6 +591,11 @@ impl PluginMainThreadParams for MainThread<'_> {
                 17 => return Some(f64::from(self.shared.has_log)),
                 18 => return Some(f64::from(self.shared.checks.load(Ordering::Relaxed))),
                 19 => return Some(f64::from(self.shared.wrong_threads.load(Ordering::Relaxed))),
+                20 => {
+                    return Some(f64::from(
+                        self.shared.active_port_scans.load(Ordering::Relaxed),
+                    ));
+                }
                 _ => {}
             }
         }
@@ -773,6 +797,7 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
                 .unwrap()
                 .request_flush(&host.shared());
         }
+        shared.active.store(true, Ordering::Relaxed);
         Ok(Processor {
             start_attempted: false,
             rate: config.sample_rate,
@@ -902,6 +927,7 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
 
     fn deactivate(self, main_thread: &MainThread<'a>) {
         main_thread.check("deactivate");
+        main_thread.shared.active.store(false, Ordering::Relaxed);
     }
 
     fn start_processing(&mut self) -> Result<(), PluginError> {

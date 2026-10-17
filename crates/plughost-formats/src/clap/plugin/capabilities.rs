@@ -6,13 +6,27 @@ use plughost_core::{Capabilities, Support};
 
 use super::Plugin;
 
+/// What the plugin's audio and note ports support, scanned while it is inactive.
+#[derive(Clone, Copy)]
+pub(super) struct PortSupport {
+    note_input: Support,
+    note_output: Support,
+    f32: Support,
+    f64: Support,
+}
+
 impl Plugin {
     /// Queries advertised extensions and the current ports/parameters, without opening a GUI.
+    /// An active plugin's ports are those it was activated with.
     pub(crate) fn capabilities(&mut self) -> Capabilities {
+        let cached = super::lock(&self.engine)
+            .prepared
+            .as_ref()
+            .map(|prepared| prepared.port_support);
+        let ports = cached.unwrap_or_else(|| self.port_support());
         let extensions = self.shared().extensions();
-        let (audio, notes, params, gui, state) = (
+        let (audio, params, gui, state) = (
             extensions.audio_ports,
-            extensions.note_ports,
             extensions.params,
             extensions.gui,
             extensions.state,
@@ -31,6 +45,41 @@ impl Plugin {
                 })
             })
             .into();
+        let mut automation = Support::Unsupported;
+        if let Some(params) = params {
+            let mut buffer = ParamInfoBuffer::new();
+            for index in 0..params.count(&handle) {
+                match params.get_info(&handle, index, &mut buffer) {
+                    Some(info) if info.flags.contains(ParamInfoFlags::IS_AUTOMATABLE) => {
+                        automation = Support::Supported;
+                        break;
+                    }
+                    Some(_) => {}
+                    None => automation = Support::Unknown,
+                }
+            }
+        }
+        {
+            let mut capabilities = Capabilities::default();
+            capabilities.embedded_editor = embedded_editor;
+            capabilities.bus_discovery = audio.is_some().into();
+            capabilities.note_input = ports.note_input;
+            capabilities.note_output = ports.note_output;
+            capabilities.sample_accurate_automation = automation;
+            capabilities.state = state.is_some().into();
+            // Discovery uses a separate factory; the current instance query does not inspect it.
+            capabilities.factory_presets = Support::Unknown;
+            capabilities.f32 = ports.f32;
+            capabilities.f64 = ports.f64;
+            capabilities
+        }
+    }
+
+    /// Scans the ports, which CLAP allows only while the plugin is inactive.
+    pub(super) fn port_support(&mut self) -> PortSupport {
+        let extensions = self.shared().extensions();
+        let (audio, notes) = (extensions.audio_ports, extensions.note_ports);
+        let handle = self.instance.plugin_handle();
         let note_support = |is_input| {
             let Some(notes) = notes else {
                 return Support::Unsupported;
@@ -52,20 +101,6 @@ impl Plugin {
             }
             support
         };
-        let mut automation = Support::Unsupported;
-        if let Some(params) = params {
-            let mut buffer = ParamInfoBuffer::new();
-            for index in 0..params.count(&handle) {
-                match params.get_info(&handle, index, &mut buffer) {
-                    Some(info) if info.flags.contains(ParamInfoFlags::IS_AUTOMATABLE) => {
-                        automation = Support::Supported;
-                        break;
-                    }
-                    Some(_) => {}
-                    None => automation = Support::Unknown,
-                }
-            }
-        }
         let (mut f32, mut f64) = (Support::Unsupported, Support::Unsupported);
         if let Some(audio) = audio {
             let mut buffer = AudioPortInfoBuffer::new();
@@ -99,19 +134,11 @@ impl Plugin {
                 };
             }
         }
-        {
-            let mut capabilities = Capabilities::default();
-            capabilities.embedded_editor = embedded_editor;
-            capabilities.bus_discovery = audio.is_some().into();
-            capabilities.note_input = note_support(true);
-            capabilities.note_output = note_support(false);
-            capabilities.sample_accurate_automation = automation;
-            capabilities.state = state.is_some().into();
-            // Discovery uses a separate factory; the current instance query does not inspect it.
-            capabilities.factory_presets = Support::Unknown;
-            capabilities.f32 = f32;
-            capabilities.f64 = f64;
-            capabilities
+        PortSupport {
+            note_input: note_support(true),
+            note_output: note_support(false),
+            f32,
+            f64,
         }
     }
 }

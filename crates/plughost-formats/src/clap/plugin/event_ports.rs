@@ -41,6 +41,9 @@ impl Plugin {
     /// dialect; system exclusive messages need the MIDI dialect, note expressions the CLAP dialect,
     /// and MPE the MIDI dialect with MPE.
     pub(crate) fn event_ports(&mut self) -> Result<Vec<EventPortInfo>, ClapError> {
+        if let Some(prepared) = &lock(&self.engine).prepared {
+            return Ok(prepared.event_ports.clone());
+        }
         let mut ports = Vec::new();
         for (input, direction) in [
             (true, AudioDirection::Input),

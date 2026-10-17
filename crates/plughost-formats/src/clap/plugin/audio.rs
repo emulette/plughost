@@ -25,6 +25,9 @@ impl Plugin {
     }
 
     pub(crate) fn audio_buses(&mut self) -> Result<Vec<AudioBusInfo>, ClapError> {
+        if let Some(prepared) = &lock(&self.engine).prepared {
+            return Ok(prepared.buses.clone());
+        }
         self.read_audio_buses()
     }
     fn read_audio_buses(&mut self) -> Result<Vec<AudioBusInfo>, ClapError> {
@@ -389,6 +392,9 @@ impl Plugin {
             .map_err(|_| ClapError::EventStorage)?;
         let sounding = output_events::sounding()?;
         let event_inputs = self.event_inputs(events)?;
+        // The last scan CLAP allows before the plugin is active again.
+        let event_ports = self.event_ports()?;
+        let port_support = self.port_support();
         let extensions = self.shared().extensions();
         let (render, latency_extension) = (extensions.render, extensions.latency);
         let handle = self.instance.plugin_handle();
@@ -445,6 +451,8 @@ impl Plugin {
             config,
             audio_config,
             buses,
+            event_ports,
+            port_support,
             inputs,
             outputs,
             main_input,

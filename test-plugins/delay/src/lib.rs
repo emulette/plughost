@@ -25,7 +25,8 @@
 //! next time it activates; its latency and tail getters, which VST3 lets only the thread that
 //! created the plugin call, answer 0 and an infinite tail on any other thread. `thread-check`
 //! makes the CLAP side ask the host's thread check in each function CLAP assigns to the main or
-//! the audio thread, and log a host misbehaving whenever the host calls it on another thread.
+//! the audio thread, and log a host misbehaving whenever the host calls it on another thread; it
+//! also counts the port scans it sees while active, which CLAP forbids.
 
 #![allow(non_snake_case)]
 // VST3 enum constants are i32 on Windows and u32 elsewhere, so a cast needed on one platform is
