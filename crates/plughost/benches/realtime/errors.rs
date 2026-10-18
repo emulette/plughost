@@ -9,7 +9,8 @@ pub const THREAD: &str = "the callback thread panicked";
 pub const STALL: &str = "the stall fixture did not hold up its process call";
 pub const LATE: &str = "fail: the helper completed quanta later than the endpoint's latency";
 pub const RESYNC: &str = "fail: the endpoint resynchronized";
-pub const CALLBACK: &str = "fail: a callback took longer than the limit";
+pub const CALLBACK: &str = "fail: callbacks at p99.9 took longer than the limit";
+pub const DEADLINE: &str = "fail: a callback took longer than its quantum";
 
 pub fn fail(message: &'static str) -> BenchError {
     std::io::Error::other(message).into()

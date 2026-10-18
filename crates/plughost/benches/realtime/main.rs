@@ -3,13 +3,15 @@
 //! repository's VST3 routing fixture on an absolute grid of quanta at 48 kHz, and skips to its
 //! next slot when it wakes late instead of calling back in a burst; that delay is the driver's and
 //! is reported apart. The run passes when the helper completed every quantum within the
-//! endpoint's latency, the endpoint never resynchronized, and no callback took longer than the
-//! limit. With `--stall`, the CLAP stall-in-process fixture holds up one process call for
-//! `--stall-ms`; then only the callback limit applies, and the endpoint is restarted after the
+//! endpoint's latency, the endpoint never resynchronized, callbacks at p99.9 took no longer than
+//! the limit, and none took longer than its quantum. The longest callback is reported: the system
+//! can stop any thread for a few hundred microseconds, which the thread cannot tell from its own
+//! work. With `--stall`, the CLAP stall-in-process fixture holds up one process call for
+//! `--stall-ms`; then only the callback limits apply, and the endpoint is restarted after the
 //! resynchronization that follows, as an application does. `--load` keeps every core busy.
 //! `--automation` gives every quantum eight gain points, and `--control` edits the gain from the
 //! control thread every 10 ms and saves the state every 100 ms, as an editor and an autosave do;
-//! with either, the run records its results and only the callback limit applies.
+//! with either, the run records its results and only the callback limits apply.
 mod driver;
 mod errors;
 mod usage;
@@ -33,7 +35,7 @@ use errors::Result;
 
 const USAGE: &str = "cargo bench -p plughost --bench realtime -- [--seconds 600] [--quantum 128] [--latency 1] [--load] [--automation] [--control] [--stall] [--stall-ms 100] [--callback-limit 200] [--helper FILE] [--assets DIR]\n\
 Calls a routing-fixture chain's realtime endpoint at 48 kHz and exits with a failure when the gate fails.\n\
---callback-limit is in microseconds. Build the repository test plugins and the helper first.";
+--callback-limit is in microseconds, at p99.9. Build the repository test plugins and the helper first.";
 const RATE: f64 = 48_000.0;
 /// The routing fixture's gain parameter, which the stall fixture also has.
 const GAIN: u64 = 0;
@@ -405,16 +407,19 @@ fn run(options: &Options) -> Result<()> {
     measured.delays.sort_unstable();
     measured.callbacks.sort_unstable();
     measured.completions.sort_unstable();
-    let longest = measured.callbacks.last().copied().unwrap_or(0);
+    let callback = clock::duration(quantile(&measured.callbacks, 0.999));
+    let longest = clock::duration(measured.callbacks.last().copied().unwrap_or(0));
+    let quantum = Duration::from_secs_f64(options.quantum as f64 / RATE);
     let completion =
         |quantile_at: f64| quantile(&measured.completions, quantile_at).as_secs_f64() * 1e6;
     out!(
-        "driver delay µs p99.9 {:.1} max {:.1} | callback µs p99.9 {:.1} max {:.1} (limit {}) | completion µs p99.9 {:.1} max {:.1} of {:.1}",
+        "driver delay µs p99.9 {:.1} max {:.1} | callback µs p99.9 {:.1} (limit {}) max {:.1} of {:.1} | completion µs p99.9 {:.1} max {:.1} of {:.1}",
         micros(quantile(&measured.delays, 0.999)),
         micros(measured.delays.last().copied().unwrap_or(0)),
-        micros(quantile(&measured.callbacks, 0.999)),
-        micros(longest),
+        callback.as_secs_f64() * 1e6,
         options.callback_limit.as_micros(),
+        longest.as_secs_f64() * 1e6,
+        quantum.as_secs_f64() * 1e6,
         completion(0.999),
         completion(1.0),
         budget.as_secs_f64() * 1e6
@@ -436,8 +441,11 @@ fn run(options: &Options) -> Result<()> {
     {
         return Err(errors::fail(errors::STALL));
     }
-    if clock::duration(longest) > options.callback_limit {
+    if callback > options.callback_limit {
         return Err(errors::fail(errors::CALLBACK));
+    }
+    if longest > quantum {
+        return Err(errors::fail(errors::DEADLINE));
     }
     if options.stall.is_none() && !options.automation && !options.control {
         if status.late > 0 {

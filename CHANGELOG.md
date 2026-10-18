@@ -42,8 +42,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   endpoint and recovers it after a resynchronization. It asks the device for callbacks of one
   quantum, or of the device's nearest callback size, such as WASAPI's shared-mode period. The
   `realtime` benchmark calls an endpoint at the audio rate from a realtime thread and fails when
-  the helper completes a quantum late, the endpoint resynchronizes, or a callback takes longer
-  than its limit.
+  the helper completes a quantum late, the endpoint resynchronizes, callbacks at p99.9 take
+  longer than their limit, or a callback takes longer than its quantum.
 - The `realtime-audit` feature of `plughost` marks the realtime endpoint's callback for the
   real-time audit, and `plughost_core::audit::processing_allocations` returns the allocations and
   frees it counted.

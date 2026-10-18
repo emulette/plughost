@@ -160,17 +160,21 @@ Options: `--seconds` (default 600), `--quantum` (frames, default 128), `--latenc
 default 1), `--load` (keeps every core busy), `--automation` (eight gain points per quantum),
 `--control` (a gain edit from the control thread every 10 ms and a state save every 100 ms, as
 an editor and an autosave make), `--stall` with `--stall-ms` (the CLAP stall-in-process fixture
-holds up one process call, default 100 ms), `--callback-limit` (microseconds, default 200),
-`--helper FILE`, and `--assets DIR`.
+holds up one process call, default 100 ms), `--callback-limit` (microseconds at p99.9, default
+200), `--helper FILE`, and `--assets DIR`.
 
 It prints the driver's wake delay, which is not counted against plughost, the callback time and
 the helper's completion time (from submission, against the latency budget) at p99.9 and
 maximum, the endpoint's counters, and the CPU (percent of one core; the application's includes
 `--load`'s threads) and memory of the application and the helper. The run fails with a non-zero
 exit code when the helper completed a quantum later than the latency, the endpoint
-resynchronized, or a callback took longer than the limit. With `--stall`, misses are expected:
-the control thread restarts the endpoint after the resynchronization, and only the callback
-limit applies, as with `--automation` and `--control`, whose results are recorded. The limit is about three times the longest callback of the first measurement.
+resynchronized, callbacks at p99.9 took longer than the limit, or a callback took longer than
+its quantum. The longest callback is recorded but not held to the limit: the system can stop any
+thread for a few hundred microseconds, which the thread cannot tell from its own work. On Windows,
+firmware interrupts and the hypervisor of virtualization-based security can. With `--stall`,
+misses are expected: the control thread restarts the endpoint after the resynchronization, and
+only the callback limits apply, as with `--automation` and `--control`, whose results are
+recorded. The limit is about three times the longest callback of the first measurement.
 
 On Apple Silicon, 0.1.3 passed at 64 and 128 frames with a latency of one quantum, idle and with
 every core busy: no quantum completed late, the helper took at most 120 µs per quantum, and the
