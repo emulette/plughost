@@ -81,7 +81,9 @@ pub trait HostedPlugin {
     fn audio_buses(&mut self) -> Result<Vec<plughost_core::AudioBusInfo>, Error>;
     /// Native event ports in both directions, inputs first.
     fn event_ports(&mut self) -> Result<Vec<plughost_core::EventPortInfo>, Error>;
-    /// Lists named native bus configurations when the format supports them.
+    /// Lists named native bus configurations when the format supports them. A CLAP plugin that
+    /// has configurations but cannot describe their ports (`audio-ports-config` without
+    /// `audio-ports-config-info`) fails with an unsupported-audio error.
     fn audio_configurations(&mut self) -> Result<Vec<plughost_core::AudioConfiguration>, Error>;
     /// Applies explicit audio and event bus configuration and returns the resulting bus metadata.
     fn prepare_audio(

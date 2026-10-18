@@ -217,6 +217,8 @@ Realtime processing), which does not change the mode itself.
 
 Call `audio_buses(slot)` and `audio_configurations(slot)` for native bus information.
 An empty configuration list does not mean individually configurable buses are unavailable.
+A CLAP plugin with configurations it cannot describe port by port (`audio-ports-config`
+without `audio-ports-config-info`) fails `audio_configurations` with an unsupported error.
 An unknown speaker layout must not be inferred from its channel count.
 
 `RoutedChainConfig` configures explicit routing and f32/f64 precision.

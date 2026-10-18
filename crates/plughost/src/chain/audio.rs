@@ -29,7 +29,9 @@ impl Chain {
     }
 
     /// Enumerates selectable native configurations. An empty list does not imply that the
-    /// current buses cannot be configured individually.
+    /// current buses cannot be configured individually. A CLAP plugin that has configurations
+    /// but cannot describe their ports (`audio-ports-config` without `audio-ports-config-info`)
+    /// fails with [`crate::FailureKind::Unsupported`] instead of listing them without buses.
     pub fn audio_configurations(&mut self, slot: usize) -> Result<Vec<AudioConfiguration>, Error> {
         match self.request(Request::AudioConfigurations { slot }, self.timeouts.control)? {
             Response::AudioConfigurations(configurations) => Ok(configurations),
