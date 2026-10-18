@@ -450,9 +450,10 @@ the quantum submitted `latency` callbacks before; it never waits, locks, or allo
 returns `RealtimeOutput::Processed` or `RealtimeOutput::Fallback(reason)`: `Stopped`,
 `Priming` (the first `latency` callbacks after a start), `Missed` (the helper had not completed
 that output), or `Resync`. A change of source ramps over one quantum: into the fallback from the
-last sample played, back to the output with a crossfade. Without misses, the output is the
-offline output for blocks of one quantum, `latency * quantum` frames later. `produced` receives
-the output events except system exclusive ones, up to its capacity; reserve `MAX_BLOCK_EVENTS`.
+last sample played, and back to the output after a miss with a crossfade. The first output after
+a start plays as is, so without misses the output is the offline output for blocks of one
+quantum, `latency * quantum` frames later. `produced` receives the output events except system
+exclusive ones, up to its capacity; reserve `MAX_BLOCK_EVENTS`.
 Invalid input is an error and starts a resync; wrong output buffers or precision are an error
 and leave `output` unchanged. `endpoint.last_completion()` says how long the helper took for
 the output just played. Drop the endpoint on a control thread. Call the endpoint once per

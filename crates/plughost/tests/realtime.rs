@@ -10,13 +10,13 @@ use std::time::{Duration, Instant};
 
 use plughost::{
     AutomationEvent, BlockContext, Chain, Error, FailureKind, Fallback, FallbackReason,
-    ParameterChange, PluginFormat, RealtimeConfig, RealtimeEndpoint, RealtimeOutput, StatePurpose,
-    Timeouts,
+    ParameterChange, PluginFormat, PluginRef, RealtimeConfig, RealtimeEndpoint, RealtimeOutput,
+    StatePurpose, Timeouts,
 };
 
 mod support;
 
-use support::{delay, delay_variant, prepare, spawn, spawn_with, stereo_config};
+use support::{delay, delay_variant, prepare, routing, spawn, spawn_with, stereo_config};
 
 const QUANTUM: usize = 128;
 /// The delay fixture's latency, by which it passes its input through.
@@ -75,9 +75,9 @@ fn callback(endpoint: &mut RealtimeEndpoint, input: &Stereo) -> (RealtimeOutput,
     serve(endpoint, input)
 }
 
-/// The fixture's output for each of `callbacks` sine quanta processed offline, one block each.
-fn offline(format: PluginFormat, callbacks: usize) -> Vec<Stereo> {
-    let mut chain = spawn(&[delay(format)]);
+/// The plugin's output for each of `callbacks` sine quanta processed offline, one block each.
+fn offline(plugin: &PluginRef, callbacks: usize) -> Vec<Stereo> {
+    let mut chain = spawn(std::slice::from_ref(plugin));
     prepare(&mut chain);
     (0..callbacks)
         .map(|index| {
@@ -107,26 +107,31 @@ fn started(chain: &mut Chain, config: &RealtimeConfig) -> RealtimeEndpoint {
 }
 
 #[test]
-#[ignore = "needs helper and the delay fixture (.ps1 or .sh build scripts)"]
+#[ignore = "needs helper and the delay and routing fixtures (.ps1 or .sh build scripts)"]
 fn clap_realtime_output_is_the_offline_output_latency_quanta_later() {
-    offline_equivalence(PluginFormat::Clap);
+    offline_equivalence(delay(PluginFormat::Clap), LATENCY);
+    offline_equivalence(routing(PluginFormat::Clap), 0);
 }
 
 #[test]
-#[ignore = "needs helper and the delay fixture (.ps1 or .sh build scripts)"]
+#[ignore = "needs helper and the delay and routing fixtures (.ps1 or .sh build scripts)"]
 fn vst3_realtime_output_is_the_offline_output_latency_quanta_later() {
-    offline_equivalence(PluginFormat::Vst3);
+    offline_equivalence(delay(PluginFormat::Vst3), LATENCY);
+    offline_equivalence(routing(PluginFormat::Vst3), 0);
 }
 
-fn offline_equivalence(format: PluginFormat) {
+/// Without misses, the endpoint plays the plugin's offline output `latency` quanta later, from the
+/// first output after priming on. The routing fixture has no latency, so its first output is not
+/// silent.
+fn offline_equivalence(plugin: PluginRef, plugin_latency: usize) {
     const CALLBACKS: usize = 24;
-    let expected = offline(format, CALLBACKS);
-    let mut chain = spawn(&[delay(format)]);
+    let expected = offline(&plugin, CALLBACKS);
+    let mut chain = spawn(&[plugin]);
     prepare(&mut chain);
     let mut endpoint = chain
         .realtime_endpoint(&RealtimeConfig::new(QUANTUM).with_latency(2))
         .unwrap();
-    let whole = (LATENCY + 2 * QUANTUM) as u32;
+    let whole = (plugin_latency + 2 * QUANTUM) as u32;
     assert_eq!(chain.start_realtime().unwrap(), whole);
     for index in 0..CALLBACKS {
         let (played, output) = callback(&mut endpoint, &sine(index));
@@ -143,16 +148,7 @@ fn offline_equivalence(format: PluginFormat) {
             completion > Duration::ZERO && completion < PACE,
             "{completion:?}"
         );
-        let mut wanted = expected[index - 2].clone();
-        if index == 2 {
-            // The first output fades in from the silent fallback over the quantum.
-            for channel in &mut wanted {
-                for (frame, sample) in channel.iter_mut().enumerate() {
-                    *sample = (f64::from(*sample) * (frame + 1) as f64 / QUANTUM as f64) as f32;
-                }
-            }
-        }
-        assert_eq!(output, wanted, "callback {index}");
+        assert_eq!(output, expected[index - 2], "callback {index}");
     }
     let status = chain.realtime_status().unwrap();
     assert!(status.running && !status.resync);
@@ -499,7 +495,7 @@ fn a_slow_state_save_does_not_hold_up_the_endpoint() {
 #[ignore = "needs helper and the delay fixture (.ps1 or .sh build scripts)"]
 fn paced_callbacks_play_the_offline_output() {
     const CALLBACKS: usize = 750;
-    let expected = offline(PluginFormat::Clap, CALLBACKS);
+    let expected = offline(&delay(PluginFormat::Clap), CALLBACKS);
     let mut chain = spawn(&[delay(PluginFormat::Clap)]);
     prepare(&mut chain);
     let mut endpoint = started(&mut chain, &RealtimeConfig::new(QUANTUM).with_latency(2));
@@ -517,8 +513,11 @@ fn paced_callbacks_play_the_offline_output() {
         // A driver that fell behind skips to its next slot instead of calling back in a burst.
         let passed = (start.elapsed().as_secs_f64() / period.as_secs_f64()).ceil() as u32;
         slot = (slot + 1).max(passed);
-        // A callback after the fallback fades in; the others play the offline output exactly.
-        if played == RealtimeOutput::Processed && previous == RealtimeOutput::Processed {
+        // A callback after a missed output fades in; the others, the first after the start too,
+        // play the offline output exactly.
+        if played == RealtimeOutput::Processed
+            && previous != RealtimeOutput::Fallback(FallbackReason::Missed)
+        {
             assert!(output == expected[index - 2], "callback {index}");
         }
         previous = played;

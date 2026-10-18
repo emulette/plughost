@@ -1,9 +1,9 @@
 //! The realtime endpoint's callback allocates and frees nothing in any path it takes, through real
 //! helper processes: stopped, priming and processing with events and automation, the dry fallback
-//! and its ramps, missed outputs, a full ring and a callback of another size. Run it with the
-//! `realtime-audit` feature; on macOS, building with `RTSAN_ENABLE=1` also makes
-//! RealtimeSanitizer abort on any allocation, lock or system call the callback makes. Build the
-//! helper and the test plugins first (see `support`).
+//! and its ramps, missed outputs and the crossfade back, a full ring and a callback of another
+//! size. Run it with the `realtime-audit` feature; on macOS, building with `RTSAN_ENABLE=1` also
+//! makes RealtimeSanitizer abort on any allocation, lock or system call the callback makes. Build
+//! the helper and the test plugins first (see `support`).
 #![cfg(feature = "realtime-audit")]
 
 use std::thread;
@@ -118,6 +118,29 @@ fn the_realtime_callback_allocates_nothing() {
         call(&mut endpoint, 2, QUANTUM, &[], &[]),
         fallback(FallbackReason::Stopped)
     );
+
+    // A stalled effect misses an output, plays its delayed input, and crossfades back to the
+    // output once the helper catches up.
+    let mut stall = support::stall::Stall::new();
+    let mut chain = spawn_with(
+        &[delay_variant(PluginFormat::Clap, "stall-in-process", 0x18)],
+        &stall.identity(),
+        Timeouts::default(),
+    );
+    prepare(&mut chain);
+    let mut endpoint = chain.realtime_endpoint(&config).unwrap();
+    chain.start_realtime().unwrap();
+    for _ in 0..=STALL_AT {
+        call(&mut endpoint, 2, QUANTUM, &[], &[]);
+    }
+    stall.wait_until_entered();
+    assert_eq!(
+        call(&mut endpoint, 2, QUANTUM, &[], &[]),
+        fallback(FallbackReason::Missed)
+    );
+    drop(stall);
+    assert_eq!(call(&mut endpoint, 2, QUANTUM, &[], &[]), processed);
+    chain.stop_realtime().unwrap();
 
     // A stalled plugin misses outputs and then fills the ring.
     let mut stall = support::stall::Stall::new();

@@ -35,7 +35,8 @@ pub enum RealtimeOutput {
 pub enum FallbackReason {
     /// The endpoint is not running.
     Stopped,
-    /// The endpoint started less than `latency` callbacks ago, so no output is due yet.
+    /// The endpoint started less than `latency` callbacks ago, so no output is due yet. The first
+    /// output plays as is, without a crossfade from this fallback.
     Priming,
     /// The helper had not completed the output in time.
     Missed,
@@ -70,6 +71,9 @@ pub struct RealtimeEndpoint {
     sequence: u64,
     /// The previous callback played the chain's output.
     wet: bool,
+    /// The previous callback played the fallback for a missed output, which the next output
+    /// crossfades from. The first output after a start plays as is.
+    crossfade: bool,
     /// Each output channel's last played sample, which a fallback ramps from.
     last: Vec<f64>,
     /// Ticks from submission to completion of the output the last callback played.
@@ -169,6 +173,7 @@ impl RealtimeEndpoint {
             generation: 0,
             sequence: 0,
             wet: false,
+            crossfade: false,
             last: vec![0.0; output_channels],
             completion: None,
             dry,
@@ -382,16 +387,17 @@ impl RealtimeEndpoint {
             }
         }
         self.wet = false;
+        self.crossfade = reason == FallbackReason::Missed;
         self.completion = None;
         RealtimeOutput::Fallback(reason)
     }
 
     /// Plays the chain's output, which the ring wrote into `output`, crossfading from the
-    /// fallback when the previous callback played it.
+    /// fallback when the previous callback played it for a missed output.
     fn play<S: Wire>(&mut self, output: &mut [&mut [S]]) {
         for (index, channel) in output.iter_mut().enumerate() {
             let frames = channel.len();
-            if !self.wet {
+            if self.crossfade {
                 for frame in 0..frames {
                     let gain = (frame + 1) as f64 / frames as f64;
                     let fallback = self.fallback_sample(index, frame, frames);
@@ -404,6 +410,7 @@ impl RealtimeEndpoint {
             }
         }
         self.wet = true;
+        self.crossfade = false;
     }
 }
 
