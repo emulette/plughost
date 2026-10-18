@@ -10,7 +10,7 @@ run() {
 }
 run scripts/build-test-plugins.sh
 run scripts/build-helper.sh
-# Benchmarks are ignored tests too; run them as crates/plughost/benches/README.md describes.
+# Benchmarks are ignored tests too; they run on their own, in release mode.
 run cargo test --workspace --locked -- --include-ignored --skip benchmark
 run cargo fmt --all -- --check
 run cargo clippy --workspace --all-targets --locked -- -D warnings

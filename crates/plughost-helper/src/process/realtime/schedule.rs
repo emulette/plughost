@@ -1,9 +1,9 @@
-//! The realtime worker's scheduling, for as long as it runs (realtime design decision 3). On
-//! macOS the worker takes the time-constraint policy for its quantum, joins a workgroup interval
-//! of its own, which it starts and finishes around each quantum, and holds a latency-critical
-//! activity that keeps App Nap away from the helper. On Windows it joins the MMCSS "Pro Audio"
-//! task. Each is undone when the worker stops. A part the system refuses leaves the worker as it
-//! was and is reported in the helper's diagnostics.
+//! The realtime worker's scheduling, for as long as it runs. On macOS the worker takes the
+//! time-constraint policy for its quantum, joins a workgroup interval of its own, which it starts
+//! and finishes around each quantum, and holds a latency-critical activity that keeps App Nap away
+//! from the helper. On Windows it joins the MMCSS "Pro Audio" task. Each is undone when the worker
+//! stops. A part the system refuses leaves the worker as it was and is reported in the helper's
+//! diagnostics.
 
 use std::time::Duration;
 

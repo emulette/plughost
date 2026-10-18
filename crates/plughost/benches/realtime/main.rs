@@ -1,5 +1,5 @@
-//! Isolated realtime processing at the audio rate for minutes, the gate of realtime design
-//! decision 10. A synthetic audio device calls the realtime endpoint of a chain of the
+//! Isolated realtime processing at the audio rate for minutes, the gate for changes to realtime
+//! processing. A synthetic audio device calls the realtime endpoint of a chain of the
 //! repository's VST3 routing fixture on an absolute grid of quanta at 48 kHz, and skips to its
 //! next slot when it wakes late instead of calling back in a burst; that delay is the driver's and
 //! is reported apart. The run passes when the helper completed every quantum within the
@@ -74,7 +74,7 @@ fn options() -> Result<Option<Options>> {
         automation: false,
         control: false,
         stall: None,
-        // The first measurement's longest callback was 63 µs (see benches/README.md).
+        // About three times the longest callback of the first measurement, 63 µs.
         callback_limit: Duration::from_micros(200),
         helper: target.join(if cfg!(target_os = "macos") {
             "helper/PlughostHelper.app/Contents/MacOS/plughost-helper"
