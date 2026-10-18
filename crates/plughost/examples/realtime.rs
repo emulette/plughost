@@ -2,9 +2,10 @@
 //! device's rate, and play it through that device with a realtime endpoint. Effects process a
 //! quiet stereo tone and instruments play a repeating note. The stream asks the device for
 //! callbacks of one quantum, since the endpoint expects one call per quantum's time: quanta
-//! processed in a burst find the previous one unfinished. Devices may still call back with other
-//! sizes (WASAPI's shared mode does), so the callback cuts its output from quanta, which adds up
-//! to one quantum of latency. The control thread prints the
+//! processed in a burst find the previous one unfinished. A quantum the device cannot call back
+//! with becomes its nearest callback size: WASAPI's shared mode has only its period. Devices may
+//! still call back with other sizes (WASAPI's shared mode does as it starts), so the callback cuts
+//! its output from quanta, which adds up to one quantum of latency. The control thread prints the
 //! endpoint's status each second and, after a resynchronization, stops the endpoint, resets the
 //! chain and starts it again. Ends after the given seconds.
 //!
@@ -165,11 +166,12 @@ fn run(
     let rate = f64::from(device_config.sample_rate());
     let channels = usize::from(device_config.channels());
     let mut stream_config = device_config.config();
-    if let cpal::SupportedBufferSize::Range { min, max } = *device_config.buffer_size()
-        && let Ok(frames) = u32::try_from(quantum)
-        && (min..=max).contains(&frames)
-    {
-        stream_config.buffer_size = cpal::BufferSize::Fixed(frames);
+    let mut quantum = quantum;
+    // The device calls back with sizes in this range only; WASAPI's shared mode has one, its
+    // period.
+    if let cpal::SupportedBufferSize::Range { min, max } = *device_config.buffer_size() {
+        quantum = quantum.clamp(min as usize, max as usize);
+        stream_config.buffer_size = cpal::BufferSize::Fixed(quantum as u32);
     }
 
     let mut chain = Chain::spawn(
@@ -189,7 +191,7 @@ fn run(
     let endpoint = chain.realtime_endpoint(&RealtimeConfig::new(quantum))?;
     let latency = chain.start_realtime()?;
     out!(
-        "playing at {rate} Hz, latency {latency} frames plus up to {quantum} for the device's callback size"
+        "playing at {rate} Hz in quanta of {quantum} frames, latency {latency} frames plus up to {quantum} for the device's callback size"
     );
 
     let mut callback = Callback {
