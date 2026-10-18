@@ -99,8 +99,9 @@ resynchronization, stops the endpoint, resets the chain, and starts it again. Th
 does this while it plays a chain through the default output device, which it asks for callbacks
 of one quantum.
 
-Realtime processing is measured on Apple Silicon at 48 kHz with quanta of 64 and 128 frames
-and a latency of one quantum. The endpoint's callback never waits, locks, or allocates; the
+Realtime processing is measured at 48 kHz with a latency of one quantum, on Apple Silicon with
+quanta of 64 and 128 frames and on Windows x64 with quanta of 480 frames, the period of
+WASAPI's shared mode. The endpoint's callback never waits, locks, or allocates; the
 helper's processing, the plugins' own code, and the operating system can still take longer,
 which the endpoint reports as late or missed quanta.
 
