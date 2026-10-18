@@ -177,11 +177,11 @@ only the callback limits apply, as with `--automation` and `--control`, whose re
 recorded. The limit is about three times the longest callback of the first measurement.
 
 On Apple Silicon, 0.1.3 passed at 64 and 128 frames with a latency of one quantum, idle and with
-every core busy: no quantum completed late, the helper took at most 120 µs per quantum, and the
-longest callback took 68 µs, also through a 100 ms helper stall. On Windows x64, it passed at 64,
-128 and 480 frames the same way: no quantum completed late, the helper took at most 791 µs per
-quantum, and callbacks took at most 58 µs at p99.9, also through the stall. The longest took
-340 µs.
+every core busy: no quantum completed late, the helper took at most 137 µs per quantum, and
+callbacks took at most 47 µs at p99.9, also through a 100 ms helper stall. The longest took
+78 µs. On Windows x64, it passed at 64, 128 and 480 frames the same way: no quantum completed
+late, the helper took at most 791 µs per quantum, and callbacks took at most 58 µs at p99.9, also
+through the stall. The longest took 340 µs.
 
 # Real-time audit
 
