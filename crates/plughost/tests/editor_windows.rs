@@ -1,19 +1,19 @@
-//! Editor windows of a real helper on the desktop: keyboard focus, and editors that show, hide
-//! and close themselves. Build the helper and the test plugins first (see `support`).
+//! Editor windows of a real helper on the desktop: keyboard focus, window sizes the system
+//! corrects, and editors that show, hide and close themselves. Build the helper and the test plugins first (see `support`).
 #![cfg(target_os = "windows")]
 
 use std::time::{Duration, Instant};
 
 use plughost::{BlockContext, Chain, Event, Layout, PluginFormat};
-use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GA_ROOT, GUITHREADINFO, GetAncestor, GetClassNameW, GetGUIThreadInfo,
-    GetWindowThreadProcessId, IsWindowVisible,
+    EnumWindows, GA_ROOT, GUITHREADINFO, GetAncestor, GetClassNameW, GetClientRect,
+    GetGUIThreadInfo, GetWindowThreadProcessId, IsWindowVisible,
 };
 
 mod support;
 
-use support::{fixture, prepare, spawn};
+use support::{delay_variant, fixture, prepare, spawn};
 
 fn class_name(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
     let mut name = [0u16; 128];
@@ -146,6 +146,48 @@ fn an_activated_editor_window_gives_the_editor_keyboard_focus() {
     // Keys reach the plugin's view inside the window, not the host's frame around it.
     assert_ne!(focus, window);
     assert_eq!(unsafe { GetAncestor(focus, GA_ROOT) }, window);
+    chain.close_editor(0).unwrap();
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_window_the_system_widens_past_the_editor_is_not_offered_to_it() {
+    let _serial = support::editor_test();
+    // The editor variant is 40 pixels wide, narrower than the system lets a window be. It claims
+    // to be resizable, accepts only its own size and counts the sizes it refused.
+    const WIDTH: i32 = 40;
+    const REFUSED_SIZES: u64 = 16;
+    let mut chain = spawn(&[delay_variant(PluginFormat::Clap, "editor", 0xB)]);
+    chain.open_editor(0).unwrap();
+    let pid = chain.helper_monitor().process_id();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let width = loop {
+        if let Some(window) = window(pid, "PlughostEditorWindow") {
+            let mut rect = RECT::default();
+            if unsafe { GetClientRect(window, &mut rect) } != 0 && rect.right > 0 {
+                break rect.right - rect.left;
+            }
+        }
+        assert!(Instant::now() < deadline, "the editor window never opened");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(width > WIDTH, "the window is {width} pixels wide");
+    // The helper checks the window's size each time it serves its editors.
+    let deadline = Instant::now() + Duration::from_millis(300);
+    while Instant::now() < deadline {
+        assert!(chain.editor_open(0).unwrap());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let (_, value) = chain
+        .parameters(0)
+        .unwrap()
+        .into_iter()
+        .find(|(info, _)| info.id == REFUSED_SIZES)
+        .unwrap();
+    assert_eq!(
+        chain.parameter_to_plain(0, REFUSED_SIZES, value).unwrap(),
+        0.0
+    );
     chain.close_editor(0).unwrap();
 }
 

@@ -79,7 +79,7 @@ impl Plugin for TestPlugin {
         if matches!(variant(), Variant::MpePorts | Variant::ThreadCheck) {
             builder.register::<PluginNotePorts>();
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         if variant() == Variant::Editor {
             builder.register::<clack_extensions::gui::PluginGui>();
         }
@@ -164,7 +164,7 @@ impl DefaultPluginFactory for TestPlugin {
             shared,
             params: host.get_extension(),
             host,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             editor: Default::default(),
         })
     }
@@ -274,7 +274,7 @@ pub struct MainThread<'a> {
     pub(crate) timers: Option<crate::timers::Timers>,
     _system_timer: Option<crate::system_timer::SystemTimer>,
     params: Option<HostParams>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     editor: crate::editor::Slot,
 }
 
@@ -303,12 +303,13 @@ impl MainThread<'_> {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 impl MainThread<'_> {
     pub(crate) fn editor(&self) -> &crate::editor::Slot {
         &self.editor
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn focus(&self) -> Arc<AtomicU32> {
         Arc::clone(&self.shared.editor_focus)
     }

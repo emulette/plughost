@@ -25,4 +25,4 @@ objc2-app-kit = { workspace = true, features = ["NSGraphicsContext"] }
 objc2-foundation.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }

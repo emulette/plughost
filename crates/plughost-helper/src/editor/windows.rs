@@ -78,7 +78,20 @@ impl WindowState {
                 ) != 0
         };
         if resized {
-            self.size.set((width, height));
+            // The system keeps a window between its smallest and largest sizes. Record the size
+            // the window got, which `tick` compares it with; a minimized window has no client area.
+            let mut client = RECT::default();
+            let size = if unsafe { IsIconic(hwnd) } == 0
+                && unsafe { GetClientRect(hwnd, &mut client) } != 0
+            {
+                (
+                    (client.right - client.left) as u32,
+                    (client.bottom - client.top) as u32,
+                )
+            } else {
+                (width, height)
+            };
+            self.size.set(size);
         }
         resized
     }

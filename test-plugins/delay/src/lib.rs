@@ -63,6 +63,9 @@ use vst3::{Class, ComPtr, ComRef, ComWrapper, uid};
 mod clap;
 #[cfg(target_os = "macos")]
 mod editor;
+#[cfg(target_os = "windows")]
+#[path = "editor_windows.rs"]
+mod editor;
 mod errors;
 mod mapping_probe;
 mod stall;
