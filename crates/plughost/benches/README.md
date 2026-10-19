@@ -234,8 +234,15 @@ most 189 µs per quantum, and callbacks took at most 35 µs at p99.9, also throu
 with automation and control edits. At 128 frames, the ten-minute fault runs recovered every
 fault: 29 crashes in a median of 177 ms, 10 hangs in 156 ms, 29 overflows resynchronized in 6 ms
 and 29 rate changes in 15 ms, and 59 replacements went on without a late quantum or a resync.
-Callbacks took at most 38 µs at p99.9 in every run; the longest took 104 µs. Windows x64 is not
-measured for 0.1.4 yet.
+Callbacks took at most 38 µs at p99.9 in every run; the longest took 104 µs.
+
+On Windows x64, 0.1.4 passed the same profiles at 64, 128 and 480 frames: no quantum completed
+late, the helper took at most 698 µs per quantum, and callbacks took at most 80 µs at p99.9, also
+through the stall and with automation and control edits. At 128 frames, the ten-minute fault runs
+recovered every fault: 29 crashes in a median of 29 ms, 10 hangs in 30 ms, 29 overflows
+resynchronized in 5 ms and 29 rate changes in 13 ms, and 29 replacements went on without a late
+quantum or a resync. Callbacks took at most 50 µs at p99.9 in the fault runs; the longest callback
+of all runs took 371 µs.
 
 # Real-time audit
 
