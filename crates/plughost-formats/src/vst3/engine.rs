@@ -269,16 +269,27 @@ impl Engine {
         // Activating again applies a changed latency but not a new bus configuration, so a
         // restart the plugin asked for before still stands.
         let requested = instance.handler.restart_flags() & RESTART_REQUIRED;
-        let result = unsafe {
-            instance.processor.setProcessing(0);
-            instance.component.setActive(0);
-            instance.component.setActive(1)
+        let activation = {
+            let _audit = plughost_core::audit::plugin();
+            let _floats = crate::float_mode::FlushToZero::enter();
+            let result = unsafe {
+                instance.processor.setProcessing(0);
+                instance.component.setActive(0);
+                instance.component.setActive(1)
+            };
+            if result == kResultOk {
+                Ok(activated(&instance.processor))
+            } else {
+                Err(result)
+            }
         };
-        if result != kResultOk {
-            self.prepared = None;
-            return Err(Vst3Error::Activate(result));
-        }
-        let latency = activated(&instance.processor);
+        let latency = match activation {
+            Ok(latency) => latency,
+            Err(result) => {
+                self.prepared = None;
+                return Err(Vst3Error::Activate(result));
+            }
+        };
         let tail = tail(&instance.processor);
         // Requests made while activating again are about the configuration it keeps.
         instance.handler.take_restart_flags();
@@ -460,11 +471,18 @@ fn flush_inactive(instance: &Instance, parameters: &ParameterCache) -> Result<()
     if result != kResultOk {
         return Err(Vst3Error::SetupRejected(result));
     }
-    let result = unsafe { instance.component.setActive(1) };
+    let result = {
+        let _audit = plughost_core::audit::plugin();
+        let _floats = crate::float_mode::FlushToZero::enter();
+        let result = unsafe { instance.component.setActive(1) };
+        if result == kResultOk {
+            activated(processor);
+        }
+        result
+    };
     if result != kResultOk {
         return Err(Vst3Error::Activate(result));
     }
-    activated(processor);
     instance
         .handler
         .drain_pending(|id, value| changes.push(id, 0, value));
@@ -483,11 +501,15 @@ fn flush_inactive(instance: &Instance, parameters: &ParameterCache) -> Result<()
         outputEvents: OutputEventList::ptr(&output_events),
         processContext: &mut context,
     };
-    let result = unsafe {
-        let result = processor.process(&mut data);
-        processor.setProcessing(0);
-        instance.component.setActive(0);
-        result
+    let result = {
+        let _audit = plughost_core::audit::plugin();
+        let _floats = crate::float_mode::FlushToZero::enter();
+        unsafe {
+            let result = processor.process(&mut data);
+            processor.setProcessing(0);
+            instance.component.setActive(0);
+            result
+        }
     };
     output_changes.each_last_value(|id, value| {
         if let Some(index) = parameters.index(u64::from(id)) {

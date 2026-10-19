@@ -5,6 +5,13 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- VST3 `reset`, the VST3 parameter flush before `prepare_audio` and Audio Unit `reset` also run
+  with subnormal numbers flushed to zero, as 0.1.3 documented for every format.
+
 ## [0.1.3] - 2026-10-18
 
 ### Changed

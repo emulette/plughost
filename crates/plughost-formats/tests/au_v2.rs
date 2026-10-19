@@ -14,6 +14,8 @@ use std::sync::{Mutex, MutexGuard, Once};
 /// The sample times of the renders of a unit whose `STEPS` is `TIMED`.
 static RENDER_TIMES: Mutex<Vec<f64>> = Mutex::new(Vec::new());
 const TIMED: f32 = 7.0;
+/// Whether the unit's `reset` ran with subnormal numbers flushed, once per call.
+static RESETS_FLUSHED: Mutex<Vec<bool>> = Mutex::new(Vec::new());
 /// A note on this key makes the next render fail.
 const FAIL_KEY: u8 = 127;
 
@@ -220,6 +222,9 @@ unsafe extern "C-unwind" fn no_op(_: NonNull<c_void>) -> OsStatus {
 }
 
 unsafe extern "C-unwind" fn reset(_: NonNull<c_void>, _: AudioUnitScope, _: u32) -> OsStatus {
+    // The product is zero only when the thread flushes subnormal results.
+    let product = std::hint::black_box(f32::MIN_POSITIVE / 2.0) * std::hint::black_box(1.0f32);
+    RESETS_FLUSHED.lock().unwrap().push(product == 0.0);
     0
 }
 
@@ -727,6 +732,13 @@ fn midi_a_v2_unit_sends_arrives_through_the_bridge_at_its_offsets() {
         [sysex.clone().at(0)]
     );
     assert_eq!(block(&mut plugin, &[]), []);
+}
+
+#[test]
+fn reset_runs_with_subnormal_numbers_flushed_to_zero() {
+    let mut plugin = prepared();
+    plugin.reset().unwrap();
+    assert_eq!(*RESETS_FLUSHED.lock().unwrap(), [true]);
 }
 
 #[test]

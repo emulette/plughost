@@ -447,7 +447,12 @@ impl Plugin {
     /// prepared unit's latency is read again, and the host aligns to it from here on.
     pub(crate) fn reset(&mut self) -> Result<(), AuError> {
         let mut engine = lock(&self.engine);
-        unsafe { engine.unit()?.reset() };
+        let unit = engine.unit()?;
+        {
+            let _audit = plughost_core::audit::plugin();
+            let _floats = crate::float_mode::FlushToZero::enter();
+            unsafe { unit.reset() };
+        }
         if let Some(prepared) = &engine.prepared {
             if let Some(midi_output) = &prepared.midi_output {
                 midi_output.reset();

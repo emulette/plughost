@@ -28,7 +28,9 @@
 //! created the plugin call, answer 0 and an infinite tail on any other thread. `thread-check`
 //! makes the CLAP side ask the host's thread check in each function CLAP assigns to the main or
 //! the audio thread, and log a host misbehaving whenever the host calls it on another thread; it
-//! also counts the port scans it sees while active, which CLAP forbids.
+//! also counts the port scans it sees while active, which CLAP forbids. `float-mode` makes the
+//! VST3 side count the activation, processing and flush calls it sees with subnormal numbers not
+//! flushed, in the parameter that reports concurrent mapping for `mapping-probe`.
 
 #![allow(non_snake_case)]
 // VST3 enum constants are i32 on Windows and u32 elsewhere, so a cast needed on one platform is
@@ -37,7 +39,7 @@
 
 use std::collections::VecDeque;
 use std::ffi::{c_char, c_void};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use vst3::Steinberg::Vst::ControllerNumbers_::{kCtrlExpression, kCtrlVolume};
@@ -180,6 +182,8 @@ struct Delay {
     /// The delay since the plugin last activated, and the frames processed so far; the
     /// `latency-change` variant doubles the delay once those reach `LATENCY_CHANGE_AFTER`.
     latency: Mutex<(usize, usize)>,
+    /// The lifecycle calls the `float-mode` variant saw run with subnormal numbers not flushed.
+    unflushed: AtomicU32,
     /// The thread that created the plugin, the only one VST3 lets call the edit controller.
     owner: std::thread::ThreadId,
 }
@@ -200,7 +204,20 @@ impl Delay {
             handler: Mutex::new(None),
             arrangement: Mutex::new(SpeakerArr::kStereo),
             latency: Mutex::new((LATENCY, 0)),
+            unflushed: AtomicU32::new(0),
             owner: std::thread::current().id(),
+        }
+    }
+
+    /// Counts a `float-mode` lifecycle call that runs with subnormal numbers not flushed.
+    fn check_float_mode(&self) {
+        if variant() != Variant::FloatMode {
+            return;
+        }
+        // The product is zero only when the processor flushes subnormal results.
+        let product = std::hint::black_box(f32::MIN_POSITIVE / 2.0) * std::hint::black_box(1.0f32);
+        if product != 0.0 {
+            self.unflushed.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -404,6 +421,7 @@ impl IComponentTrait for Delay {
     }
 
     unsafe fn setActive(&self, state: TBool) -> tresult {
+        self.check_float_mode();
         if state != 0 {
             let mut latency = lock(&self.latency);
             if variant() == Variant::LatencyChange && latency.1 >= LATENCY_CHANGE_AFTER {
@@ -535,6 +553,7 @@ impl IAudioProcessorTrait for Delay {
     }
 
     unsafe fn setProcessing(&self, _state: TBool) -> tresult {
+        self.check_float_mode();
         kResultOk
     }
 
@@ -607,6 +626,9 @@ impl IAudioProcessorTrait for Delay {
             }
         }
         if data.numSamples == 0 || data.numInputs < 1 || data.numOutputs < 1 {
+            if data.numSamples == 0 {
+                self.check_float_mode();
+            }
             return kResultOk;
         }
         if matches!(variant(), Variant::CrashInProcess | Variant::HangInProcess) {
@@ -785,7 +807,10 @@ impl IEditControllerTrait for Delay {
 
     unsafe fn getParamNormalized(&self, id: ParamID) -> ParamValue {
         if id == 10 {
-            return f64::from(self.mapping_probe.processed());
+            return match variant() {
+                Variant::FloatMode => f64::from(self.unflushed.load(Ordering::Relaxed)),
+                _ => f64::from(self.mapping_probe.processed()),
+            };
         }
         lock(&self.values).get(id as usize).copied().unwrap_or(0.0)
     }

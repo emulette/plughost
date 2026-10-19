@@ -39,6 +39,34 @@ fn inactive_flush_delivers_processor_output_to_the_controller() {
     assert!(plugin.config().is_none());
 }
 
+/// The float-mode fixture's parameter counting lifecycle calls made with subnormal numbers not
+/// flushed.
+const FLOAT_MODE_UNFLUSHED: u64 = 10;
+
+#[test]
+#[ignore = "needs float-mode VST3 fixture"]
+fn inactive_flush_runs_with_subnormal_numbers_flushed_to_zero() {
+    let _serial = serial();
+    let mut plugin = plugin("plughost-test-float-mode");
+    plugin.set_parameter(0, 0.25).unwrap();
+    plugin.flush().unwrap();
+    assert_eq!(plugin.parameter_value(FLOAT_MODE_UNFLUSHED), 0.0);
+}
+
+#[test]
+#[ignore = "needs float-mode VST3 fixture"]
+fn reset_runs_with_subnormal_numbers_flushed_to_zero() {
+    let _serial = serial();
+    let mut plugin = plugin("plughost-test-float-mode");
+    plugin
+        .prepare(&config(48_000.0, SampleFormat::F32))
+        .unwrap();
+    // Preparing does not flush, so reset is measured against the calls made until now.
+    let prepared = plugin.parameter_value(FLOAT_MODE_UNFLUSHED);
+    plugin.reset().unwrap();
+    assert_eq!(plugin.parameter_value(FLOAT_MODE_UNFLUSHED), prepared);
+}
+
 #[test]
 #[ignore = "needs mapping-probe VST3 fixture"]
 fn midi_assignment_queries_allow_the_processing_thread_to_advance() {
