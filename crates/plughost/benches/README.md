@@ -161,9 +161,10 @@ default 1), `--load` (keeps every core busy), `--automation` (eight gain points 
 `--control` (a gain edit from the control thread every 10 ms and a state save every 100 ms, as
 an editor and an autosave make), `--stall` with `--stall-ms` (the CLAP stall-in-process fixture
 holds up one process call, default 100 ms), `--callback-limit` (microseconds at p99.9, default
-200), `--helper FILE`, and `--assets DIR`. One of `--crash`, `--hang` and `--rate-change`
-injects faults, with `--fault-interval` (seconds, default 20), `--faults` (at most so many) and
-`--hang-ms` (default 100); see below.
+200), `--helper FILE`, and `--assets DIR`. One of `--crash`, `--hang`, `--overflow` and
+`--rate-change` injects faults, and `--reconfigure` replaces the plugin periodically, with
+`--fault-interval` (seconds, default 20), `--faults` (at most so many) and `--hang-ms`
+(default 100); see below.
 
 It prints the driver's wake delay, which is not counted against plughost, the callback time and
 the helper's completion time (from submission, against the latency budget) at p99.9 and
@@ -174,7 +175,8 @@ resynchronized, callbacks at p99.9 took longer than the limit, or a callback too
 its quantum. The longest callback is recorded but not held to the limit: the system can stop any
 thread for a few hundred microseconds, which the thread cannot tell from its own work. On Windows,
 firmware interrupts and the hypervisor of virtualization-based security can. With `--stall`,
-misses are expected: the control thread restarts the endpoint after the resynchronization, and
+misses are expected: the control thread resynchronizes the endpoint with
+`Chain::resync_realtime`, without stopping it, once the resync shows, and
 only the callback limits apply, as with `--automation` and `--control`, whose results are
 recorded. The limit is about three times the longest callback of the first measurement.
 
@@ -194,18 +196,30 @@ at one and a half times that, creates a new endpoint and starts it. The callback
 endpoint: its driver takes the next one from a channel between two callbacks, outside the time it
 measures, and returns the old one for the control thread to free, so that no callback allocates
 or locks. The driver builds the new profile's buffers and grid there; the endpoint it leaves
-plays its stopped fallback until then. `--crash` and `--rate-change` inject faults
-until `--faults` if given; the run ends after `--seconds` once the last fault is recovered from.
-They do not combine with each other, `--stall` or `--control`.
+plays its stopped fallback until then. `--overflow` makes the callback thread submit one block
+of more events than a block may hold (`MAX_BLOCK_EVENTS` + 1, built before the run) every
+`--fault-interval` seconds; the endpoint finds it invalid, plays its fallback and sets
+`resync`, and the control thread, seeing that, calls `Chain::resync_realtime` and waits for the
+first processed output. `--crash`, `--overflow` and `--rate-change` inject faults until
+`--faults` if given; the run ends after `--seconds` once the last fault is recovered from. They
+do not combine with each other, `--reconfigure`, `--stall` or `--control`.
+
+`--reconfigure` is not a fault run. Every `--fault-interval` seconds the control thread
+replaces the routing fixture under the running endpoint, alternately with `restore_state` of a
+saved state with another gain than the current one and with `reprepare_slot(0)`; the stream must
+go on. The routing fixture keeps its latency, so no replacement may resynchronize the endpoint
+or make a quantum late: the run is judged like the plain one, and fails also when a replacement
+returns an error or none ran. It prints the replacements made.
 
 Besides the usual lines, a fault run prints the faults injected and recovered, the recovery time
 (from noticing the fault, or for `--rate-change` from the stop, to the endpoint's first processed
 output of the new generation) and the callbacks that played the fallback from the injection to
 that output, per fault at the median and maximum, and the snapshots saved. The helper's usage
 is unavailable once it was replaced, and `--rate-change` counts only its last endpoint's late
-quanta and overflows. The callback limits apply as always, and a fault run fails with a non-zero
-exit code also when a recovery fails or times out (10 seconds to the first processed output) or
-when no fault was injected. Its misses, late quanta, resyncs and fallbacks are expected and are
+quanta and overflows. The `--overflow` recovery time is from the control thread seeing `resync`
+to the first processed output after `resync_realtime`. The callback limits apply as always, and a
+fault run fails with a non-zero exit code also when a recovery fails or times out (10 seconds to
+the first processed output) or when no fault was injected. Its misses, late quanta, resyncs and fallbacks are expected and are
 not judged.
 
 On Apple Silicon, 0.1.3 passed at 64 and 128 frames with a latency of one quantum, idle and with

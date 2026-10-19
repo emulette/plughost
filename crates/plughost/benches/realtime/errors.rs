@@ -11,6 +11,8 @@ pub const PROCESS: &str = "the helper's process id is not valid";
 pub const SNAPSHOT: &str = "the run took no snapshot to recover from";
 pub const COME_BACK: &str = "the endpoint played no processed output after the fault in time";
 pub const NO_FAULTS: &str = "fail: no fault was injected; run longer or lower --fault-interval";
+pub const NO_REPLACEMENTS: &str =
+    "fail: no plugin was replaced; run longer or lower --fault-interval";
 pub const RECOVERY: &str = "fail: a fault was not recovered from";
 pub const LATE: &str = "fail: the helper completed quanta later than the endpoint's latency";
 pub const RESYNC: &str = "fail: the endpoint resynchronized";

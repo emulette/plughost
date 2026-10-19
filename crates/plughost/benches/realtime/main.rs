@@ -7,11 +7,16 @@
 //! the limit, and none took longer than its quantum. The longest callback is reported: the system
 //! can stop any thread for a few hundred microseconds, which the thread cannot tell from its own
 //! work. With `--stall`, the CLAP stall-in-process fixture holds up one process call for
-//! `--stall-ms`; then only the callback limits apply, and the endpoint is restarted after the
-//! resynchronization that follows, as an application does. `--load` keeps every core busy.
+//! `--stall-ms`; then only the callback limits apply, and the control thread resynchronizes the
+//! endpoint (`Chain::resync_realtime`) after the resync that follows, as an application does.
+//! `--load` keeps every core busy.
 //! `--automation` gives every quantum eight gain points, and `--control` edits the gain from the
 //! control thread every 10 ms and saves the state every 100 ms, as an editor and an autosave do;
-//! with either, the run records its results and only the callback limits apply.
+//! with either, the run records its results and only the callback limits apply. `--reconfigure`
+//! replaces the plugin under the running endpoint every `--fault-interval`, alternately with
+//! `restore_state` of a saved state with another gain and with `reprepare_slot`; these are not
+//! faults, so the stream must go on without a resync or late quantum, and a replacement that
+//! fails fails the run.
 //!
 //! The fault-injection runs check what an application does when the helper fails or the audio
 //! configuration changes while its callback goes on with the same endpoint. `--crash` kills the
@@ -19,7 +24,10 @@
 //! control thread saves every second while the helper is well. `--hang` holds up the helper's
 //! process call with the stall fixture, which never returns, notices it once the endpoint has
 //! stalled for `--hang-ms`, and recovers the same way; every recovered helper hangs again, so it
-//! injects `--faults` hangs back to back. `--rate-change` stops the endpoint every
+//! injects `--faults` hangs back to back. `--overflow` makes the callback submit one block of
+//! more events than a block may hold every `--fault-interval`, which the endpoint refuses and
+//! resynchronizes on, and the control thread resynchronizes it without stopping it
+//! (`Chain::resync_realtime`). `--rate-change` stops the endpoint every
 //! `--fault-interval`, prepares the chain at another rate and quantum, and starts a new endpoint,
 //! which the driver takes over between two callbacks. Only the callback limits and the recovery
 //! are judged: the misses, late quanta and fallbacks of a fault are expected, and its recovery
@@ -44,17 +52,18 @@ use plughost::{
 };
 use plughost_core::ipc::shared::clock;
 
-use callback::{Feed, Handover, Profile, Shared};
+use callback::{Feed, Handover, Inputs, Profile, Shared};
 use errors::Result;
 use faults::{Fault, Faults, Hang};
 
-const USAGE: &str = "cargo bench -p plughost --bench realtime -- [--seconds 600] [--quantum 128] [--latency 1] [--load] [--automation] [--control] [--stall] [--stall-ms 100] [--crash | --hang | --rate-change] [--fault-interval 20] [--faults N] [--hang-ms 100] [--callback-limit 200] [--helper FILE] [--assets DIR]\n\
+const USAGE: &str = "cargo bench -p plughost --bench realtime -- [--seconds 600] [--quantum 128] [--latency 1] [--load] [--automation] [--control] [--stall] [--stall-ms 100] [--crash | --hang | --overflow | --rate-change] [--reconfigure] [--fault-interval 20] [--faults N] [--hang-ms 100] [--callback-limit 200] [--helper FILE] [--assets DIR]\n\
 Calls a routing-fixture chain's realtime endpoint at 48 kHz and exits with a failure when the gate fails.\n\
 --callback-limit is in microseconds, at p99.9. Build the repository test plugins and the helper first.\n\
---crash kills the helper and --rate-change prepares the chain at 44.1 kHz and 1.5 quanta and back every\n\
---fault-interval seconds (at most --faults times); --hang (stall fixture) hangs every recovered helper\n\
-until --faults (default 10) hangs are injected. Each is recovered from, and the recovery time and the\n\
-fallback quanta per fault are reported.";
+--crash kills the helper, --overflow submits too many events and --rate-change prepares the chain at\n\
+44.1 kHz and 1.5 quanta and back every --fault-interval seconds (at most --faults times); --hang (stall\n\
+fixture) hangs every recovered helper until --faults (default 10) hangs are injected. Each is recovered\n\
+from, and the recovery time and the fallback quanta per fault are reported. --reconfigure replaces the\n\
+plugin every --fault-interval seconds with restore_state and reprepare_slot; the stream must go on.";
 const RATE: f64 = 48_000.0;
 /// The rate `--rate-change` alternates to, with a quantum of one and a half.
 const OTHER_RATE: f64 = 44_100.0;
@@ -90,6 +99,8 @@ struct Options {
     faults: Option<u64>,
     /// How long the endpoint stalls before `--hang` calls it hung.
     hang: Duration,
+    /// With `--reconfigure`, whether the control thread replaces the plugin periodically.
+    reconfigure: bool,
     callback_limit: Duration,
     helper: PathBuf,
     assets: PathBuf,
@@ -113,6 +124,7 @@ fn options() -> Result<Option<Options>> {
         fault_interval: Duration::from_secs(20),
         faults: None,
         hang: Duration::from_millis(100),
+        reconfigure: false,
         // About three times the longest callback of the first measurement, 63 µs.
         callback_limit: Duration::from_micros(200),
         helper: target.join(if cfg!(target_os = "macos") {
@@ -139,6 +151,8 @@ fn options() -> Result<Option<Options>> {
             "--stall" => stall = true,
             "--crash" => faults.push(Fault::Crash),
             "--hang" => faults.push(Fault::Hang),
+            "--overflow" => faults.push(Fault::Overflow),
+            "--reconfigure" => options.reconfigure = true,
             "--rate-change" => faults.push(Fault::RateChange),
             _ => {
                 let value = arguments.next().ok_or_else(|| invalid(()))?;
@@ -170,8 +184,12 @@ fn options() -> Result<Option<Options>> {
     if options.seconds <= 0.0 || options.quantum == 0 {
         return Err(invalid(()));
     }
-    // One fault per run, which neither the stall nor the control thread's edits go along with.
-    if faults.len() > 1 || (!faults.is_empty() && (stall || options.control)) {
+    // One fault per run, which neither the stall nor the control thread's edits go along with, and
+    // no replacements either.
+    if faults.len() > 1
+        || ((!faults.is_empty() || options.reconfigure) && (stall || options.control))
+        || (!faults.is_empty() && options.reconfigure)
+    {
         return Err(invalid(()));
     }
     options.fault = faults.pop();
@@ -286,6 +304,16 @@ fn run(options: &Options) -> Result<()> {
     let snapshot = matches!(options.fault, Some(Fault::Crash | Fault::Hang))
         .then(|| chain.snapshot())
         .transpose()?;
+    // What `--reconfigure` restores: the plugin's state at its gain, and at another.
+    let states = if options.reconfigure {
+        let state = chain.save_state(0, StatePurpose::Project)?;
+        chain.set_parameter(0, GAIN, 0.5)?;
+        let other = chain.save_state(0, StatePurpose::Project)?;
+        chain.restore_state(0, &state, StatePurpose::Project)?;
+        Some([state, other])
+    } else {
+        None
+    };
     let config = RealtimeConfig::new(options.quantum).with_latency(options.latency);
     let endpoint = chain.realtime_endpoint(&config)?;
     let latency = chain.start_realtime()?;
@@ -321,10 +349,13 @@ fn run(options: &Options) -> Result<()> {
         .name("realtime benchmark callback".into())
         .spawn({
             let shared = Arc::clone(&shared);
-            let automated = options.automation;
-            move || callback::drive(first, callbacks, automated, &shared, feed)
+            let inputs = Inputs {
+                automation: options.automation,
+                overflow: options.fault == Some(Fault::Overflow),
+            };
+            move || callback::drive(first, callbacks, inputs, &shared, feed)
         })?;
-    let (mut restarts, mut edits, mut saves) = (0, 0, 0);
+    let (mut resyncs, mut edits, mut saves, mut replacements) = (0, 0, 0, 0);
     let report = if let Some(fault) = options.fault {
         Some(
             Faults {
@@ -340,8 +371,9 @@ fn run(options: &Options) -> Result<()> {
             .run(&mut chain, &callback, started),
         )
     } else {
-        // Edit and save as an editor and an autosave do, and restart the endpoint after a
-        // resynchronization, as an application does.
+        // Edit and save as an editor and an autosave do, replace the plugin, and resynchronize the
+        // endpoint after a resync, as an application does.
+        let mut replaced = Instant::now();
         for tick in 0u64.. {
             if callback.is_finished() {
                 break;
@@ -351,6 +383,21 @@ fn run(options: &Options) -> Result<()> {
                 chain.set_parameter(0, GAIN, if tick % 2 == 0 { 0.5 } else { 1.0 })?;
                 edits += 1;
             }
+            if let Some(states) = &states
+                && replaced.elapsed() >= options.fault_interval
+            {
+                if replacements % 2 == 0 {
+                    chain.restore_state(
+                        0,
+                        &states[(replacements / 2 + 1) % 2],
+                        StatePurpose::Project,
+                    )?;
+                } else {
+                    chain.reprepare_slot(0)?;
+                }
+                replacements += 1;
+                replaced = Instant::now();
+            }
             if tick % 10 != 0 {
                 continue;
             }
@@ -359,10 +406,8 @@ fn run(options: &Options) -> Result<()> {
                 saves += 1;
             }
             if chain.realtime_status().is_some_and(|status| status.resync) {
-                chain.stop_realtime()?;
-                chain.reset()?;
-                chain.start_realtime()?;
-                restarts += 1;
+                chain.resync_realtime()?;
+                resyncs += 1;
             }
         }
         None
@@ -413,6 +458,9 @@ fn run(options: &Options) -> Result<()> {
             if options.automation { 8 } else { 0 }
         );
     }
+    if options.reconfigure {
+        out!("plugin replacements {replacements} (restore_state and reprepare_slot, alternately)");
+    }
     let [stopped, priming, missed, resync] = measured.fallbacks;
     out!(
         "callbacks {} | processed {} | fallback: stopped {stopped}, priming {priming}, missed {missed}, resync {resync} | driver skipped {} slots",
@@ -421,7 +469,7 @@ fn run(options: &Options) -> Result<()> {
         measured.skipped
     );
     out!(
-        "helper late {} | overflows {} | size mismatches {} | failures {} | restarts {restarts}",
+        "helper late {} | overflows {} | size mismatches {} | failures {} | resyncs {resyncs}",
         status.late,
         status.overflows,
         status.size_mismatches,
@@ -506,10 +554,13 @@ fn run(options: &Options) -> Result<()> {
             return Err(errors::fail(errors::NO_FAULTS));
         }
     } else if options.stall.is_none() && !options.automation && !options.control {
+        if options.reconfigure && replacements == 0 {
+            return Err(errors::fail(errors::NO_REPLACEMENTS));
+        }
         if status.late > 0 {
             return Err(errors::fail(errors::LATE));
         }
-        if restarts > 0 || resync > 0 {
+        if resyncs > 0 || resync > 0 {
             return Err(errors::fail(errors::RESYNC));
         }
     }

@@ -1,6 +1,7 @@
-//! The control thread of the fault-injection runs (`--crash`, `--hang`, `--rate-change`): it
-//! injects the fault, notices it, brings the endpoint back and records how long that took and how
-//! many quanta the callback played its fallback meanwhile, while the callback thread goes on.
+//! The control thread of the fault-injection runs (`--crash`, `--hang`, `--overflow`,
+//! `--rate-change`): it injects the fault, notices it, brings the endpoint back and records how
+//! long that took and how many quanta the callback played its fallback meanwhile, while the
+//! callback thread goes on.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -32,6 +33,8 @@ pub enum Fault {
     Crash,
     /// Holds up the helper's processing: the stall fixture does not return.
     Hang,
+    /// Makes the callback submit more events than a block may hold, which starts a resync.
+    Overflow,
     /// Stops the endpoint, prepares the chain at the other profile and starts a new endpoint.
     RateChange,
 }
@@ -224,6 +227,11 @@ impl Faults<'_> {
                         profile += 1;
                         last = Instant::now();
                     }
+                    Fault::Overflow => {
+                        injected = Some(self.shared.fallbacks());
+                        report.injected += 1;
+                        self.shared.overflow.store(true, Ordering::Relaxed);
+                    }
                     Fault::Hang => {}
                 }
                 continue;
@@ -231,11 +239,16 @@ impl Faults<'_> {
             // A fault is in progress: recover from it once it shows.
             let shows = match self.fault {
                 Fault::Crash => monitor.exit_status().is_some(),
+                Fault::Overflow => status.resync,
                 _ => status.stalled >= hang,
             };
             if shows {
-                self.recover(chain, at, report)?;
-                monitor = chain.helper_monitor();
+                if self.fault == Fault::Overflow {
+                    self.resync(chain, at, report)?;
+                } else {
+                    self.recover(chain, at, report)?;
+                    monitor = chain.helper_monitor();
+                }
                 injected = None;
                 last = Instant::now();
             }
@@ -264,6 +277,20 @@ impl Faults<'_> {
         came_back?;
         report.recoveries.push(Recovery {
             time,
+            fallbacks: self.shared.fallbacks() - injected,
+        });
+        Ok(())
+    }
+
+    /// Resynchronizes the endpoint without stopping it, as an application does on seeing `resync`
+    /// set, and waits for its first processed output.
+    fn resync(&mut self, chain: &mut Chain, injected: u64, report: &mut Report) -> Result<()> {
+        let noticed = Instant::now();
+        chain.resync_realtime()?;
+        let processed = self.shared.processed();
+        self.await_processed(chain, processed)?;
+        report.recoveries.push(Recovery {
+            time: noticed.elapsed(),
             fallbacks: self.shared.fallbacks() - injected,
         });
         Ok(())

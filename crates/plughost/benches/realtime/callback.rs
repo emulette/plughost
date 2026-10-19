@@ -48,12 +48,23 @@ pub struct Handover {
     pub profile: Profile,
 }
 
+/// What the callback gives the endpoint besides the audio.
+#[derive(Clone, Copy)]
+pub struct Inputs {
+    /// Eight gain points per quantum.
+    pub automation: bool,
+    /// One block of more events than a block may hold whenever `Shared::overflow` is set.
+    pub overflow: bool,
+}
+
 /// What the control thread shares with the callback thread. The callback thread publishes its
 /// counts after each callback, outside the time it measures.
 #[derive(Default)]
 pub struct Shared {
     /// Ends the callbacks.
     pub stop: AtomicBool,
+    /// Makes the next callback submit more events than a block may hold; the callback clears it.
+    pub overflow: AtomicBool,
     fallbacks: AtomicU64,
     processed: AtomicU64,
 }
@@ -93,15 +104,14 @@ fn noise(frames: usize) -> Vec<Vec<f32>> {
         .collect()
 }
 
-/// Eight points on the gain of slot 0 across a quantum, or none.
-fn automation(quantum: usize, enabled: bool) -> Vec<AutomationEvent> {
-    let points = if enabled { 8 } else { 0 };
+/// `points` points on the gain of slot 0 across a quantum.
+fn automation(quantum: usize, points: usize) -> Vec<AutomationEvent> {
     (0..points)
         .map(|point| AutomationEvent {
             slot: 0,
             change: ParameterChange {
                 id: GAIN,
-                offset: point * quantum / 8,
+                offset: point * quantum / points,
                 value: if point % 2 == 0 { 0.25 } else { 0.75 },
             },
         })
@@ -116,13 +126,15 @@ struct Lane {
     input: Vec<Vec<f32>>,
     output: Vec<Vec<f32>>,
     points: Vec<AutomationEvent>,
+    /// An over-budget block's events, with `--overflow`.
+    excess: Vec<AutomationEvent>,
     /// The grid's first slot, and the slot the next callback is due at.
     start: u64,
     slot: u64,
 }
 
 impl Lane {
-    fn new(handover: Handover, automated: bool) -> Lane {
+    fn new(handover: Handover, inputs: Inputs) -> Lane {
         let Handover { endpoint, profile } = handover;
         let period = clock::ticks(profile.duration());
         driver::schedule(period);
@@ -132,7 +144,15 @@ impl Lane {
             period,
             input: noise(profile.quantum),
             output: noise(profile.quantum),
-            points: automation(profile.quantum, automated),
+            points: automation(profile.quantum, if inputs.automation { 8 } else { 0 }),
+            excess: automation(
+                profile.quantum,
+                if inputs.overflow {
+                    MAX_BLOCK_EVENTS + 1
+                } else {
+                    0
+                },
+            ),
             start: clock::now() + period,
             slot: 0,
         }
@@ -144,11 +164,11 @@ impl Lane {
 pub fn drive(
     first: Handover,
     callbacks: usize,
-    automated: bool,
+    inputs: Inputs,
     shared: &Shared,
     feed: Option<Feed>,
 ) -> Measured {
-    let mut lane = Lane::new(first, automated);
+    let mut lane = Lane::new(first, inputs);
     let mut produced = Vec::with_capacity(MAX_BLOCK_EVENTS);
     let mut measured = Measured {
         delays: Vec::with_capacity(callbacks),
@@ -167,11 +187,17 @@ pub fn drive(
             && let Ok(next) = feed.next.try_recv()
         {
             measured.shortest = measured.shortest.min(next.profile.duration());
-            let old = std::mem::replace(&mut lane, Lane::new(next, automated));
+            let old = std::mem::replace(&mut lane, Lane::new(next, inputs));
             let _ = feed.retired.send(old.endpoint);
         }
         let due = lane.start + lane.slot * lane.period;
         driver::wait_until(due);
+        // The endpoint finds an over-budget block invalid, plays its fallback and resyncs.
+        let points = if shared.overflow.swap(false, Ordering::Relaxed) {
+            &lane.excess
+        } else {
+            &lane.points
+        };
         let woke = clock::now();
         let [input_left, input_right] = &lane.input[..] else {
             unreachable!("the chain has two input channels");
@@ -183,7 +209,7 @@ pub fn drive(
             &BlockContext::new(lane.profile.quantum),
             &[input_left, input_right],
             &mut [left, right],
-            &lane.points,
+            points,
             &[],
             &mut produced,
         );
