@@ -27,8 +27,8 @@ pub use recovery::ChainSnapshot;
 #[non_exhaustive]
 pub struct Timeouts {
     /// Loading plugins, restoring state, importing/loading presets, selecting factory presets,
-    /// opening editors and preparing an already configured chain again (which reloads its
-    /// plugins). Large instruments take minutes.
+    /// opening editors, preparing a slot again and preparing an already configured chain again
+    /// (which reloads its plugins). Large instruments take minutes.
     pub load: Duration,
     /// Initial preparation, resetting, saving state, parameter access and other control calls.
     pub control: Duration,
@@ -313,7 +313,8 @@ impl Chain {
         }
     }
 
-    /// Clears every plugin's internal state (tails, delay lines), keeping its settings.
+    /// Clears every plugin's internal state (tails, delay lines), keeping its settings. Refused
+    /// while the realtime endpoint runs; [`Chain::resync_realtime`] resets the plugins under it.
     pub fn reset(&mut self) -> Result<(), Error> {
         self.refuse_while_realtime()?;
         self.request_timing(Request::Reset).map(|_| ())

@@ -1,7 +1,7 @@
 //! The endpoint's callback. Each call submits the callback's quantum and plays the output of the
 //! quantum submitted `latency` callbacks before, or the fallback when it is missing. The call
 //! allocates nothing, takes no lock and waits for nothing: it copies into and out of the ring,
-//! rings the doorbell, and updates atomic counters.
+//! rings the doorbell, updates atomic counters, and keeps track of the notes it delivered.
 
 use std::io;
 use std::sync::Arc;
@@ -16,6 +16,7 @@ use plughost_core::{
 };
 
 use super::dry::DryDelay;
+use super::notes::Notes;
 use super::{Fallback, RealtimeConfig, State};
 use crate::Error;
 
@@ -40,8 +41,9 @@ pub enum FallbackReason {
     Priming,
     /// The helper had not completed the output in time.
     Missed,
-    /// The endpoint waits to be stopped, the chain reset and the endpoint started again, or to
-    /// be recovered.
+    /// The endpoint waits for [`crate::Chain::resync_realtime`], to be stopped, the chain reset
+    /// and the endpoint started again, or to be recovered; or a resync or recovery is under way.
+    /// The first output of the new generation plays as is, as after a start.
     Resync,
 }
 
@@ -82,6 +84,10 @@ pub struct RealtimeEndpoint {
     /// Ticks from submission to completion of the output the last callback played.
     completion: Option<u64>,
     dry: Option<Box<DryDelay>>,
+    /// The chain latency of the generation's first output. A replacement that changes it waits
+    /// for a new generation rather than go on in this one's timeline.
+    planned: Option<u32>,
+    notes: Notes,
 }
 
 impl std::fmt::Debug for RealtimeEndpoint {
@@ -180,6 +186,8 @@ impl RealtimeEndpoint {
             last: vec![0.0; output_channels],
             completion: None,
             dry,
+            planned: None,
+            notes: Notes::new(),
         }
     }
 
@@ -222,6 +230,21 @@ impl RealtimeEndpoint {
         produced: &mut Vec<Event>,
     ) -> Result<RealtimeOutput, Error> {
         let _audit = plughost_core::audit::processing();
+        self.state.enter();
+        let played = self.serve(context, input, output, automation, events, produced);
+        self.state.leave();
+        played
+    }
+
+    fn serve<S: Wire>(
+        &mut self,
+        context: &BlockContext,
+        input: &[&[S]],
+        output: &mut [&mut [S]],
+        automation: &[AutomationEvent],
+        events: &[Event],
+        produced: &mut Vec<Event>,
+    ) -> Result<RealtimeOutput, Error> {
         produced.clear();
         if S::FORMAT != self.format {
             return Err(Error::Input {
@@ -240,6 +263,12 @@ impl RealtimeEndpoint {
         let generation = self.state.generation.load(Ordering::Acquire);
         if generation != self.generation {
             self.begin(generation);
+            // The new generation's plugins will not end the notes earlier outputs started. Its
+            // first callback reads no output, which would replace `produced`.
+            let dropped = self.notes.end_all(produced);
+            self.state
+                .dropped_events
+                .fetch_add(dropped, Ordering::Relaxed);
         }
         let input_fits = input.len() == self.input_channels
             && input.iter().all(|channel| channel.len() == frames);
@@ -252,7 +281,7 @@ impl RealtimeEndpoint {
         if !self.state.running.load(Ordering::Acquire) {
             return Ok(self.fallback(output, FallbackReason::Stopped));
         }
-        if self.state.resync.load(Ordering::Relaxed) {
+        if self.state.resync.load(Ordering::Relaxed) || self.state.halted(self.generation) {
             return Ok(self.fallback(output, FallbackReason::Resync));
         }
         if frames != self.quantum {
@@ -310,7 +339,13 @@ impl RealtimeEndpoint {
                 },
                 dropped,
             ))) => {
+                if *self.planned.get_or_insert(latency) != latency {
+                    produced.clear();
+                    self.state.resync.store(true, Ordering::Relaxed);
+                    return Ok(self.fallback(output, FallbackReason::Resync));
+                }
                 State::count(&self.state.processed);
+                self.notes.record(produced);
                 self.completion = Some(elapsed);
                 self.state
                     .dropped_events
@@ -349,6 +384,7 @@ impl RealtimeEndpoint {
     fn begin(&mut self, generation: u64) {
         self.generation = generation;
         self.sequence = 0;
+        self.planned = None;
         self.state.ring.receive(&mut self.ring);
         if let Some(dry) = &mut self.dry {
             self.state.dry.receive(dry);
@@ -428,7 +464,10 @@ macro_rules! endpoint_process {
             /// for the quantum submitted `latency` callbacks before, or the fallback. Each slice
             /// is the callback's frames long, which must be the quantum. `produced` is replaced
             /// with that output's events except system exclusive ones, up to its capacity;
-            /// reserve [`crate::MAX_BLOCK_EVENTS`] to receive them all.
+            /// reserve [`crate::MAX_BLOCK_EVENTS`] to receive them all. The first callback after
+            /// a start or a resync puts there instead a note off at offset 0 for each note
+            /// earlier outputs started and did not end, in the form it started in: a MIDI note
+            /// off, or a note off with the note's ID.
             ///
             /// Invalid input is an error and starts a resync, like a callback of another size;
             /// the fallback then plays. Wrong output buffers or precision are an error and leave

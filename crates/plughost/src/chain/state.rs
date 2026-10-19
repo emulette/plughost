@@ -74,6 +74,12 @@ impl Chain {
     /// The slot keeps its native bypass unless the state sets it, as a VST3 or CLAP state holding
     /// a bypass parameter can; the same holds for presets and factory presets. Notes the replaced
     /// instance already sent to later slots are not ended: [`Chain::reset`] ends them.
+    ///
+    /// While the realtime endpoint runs, the slot is replaced between quanta and the stream goes
+    /// on, as it does for presets, factory presets and [`Chain::reprepare_slot`]. A replacement
+    /// that changes the chain's latency resynchronizes the endpoint right after, as
+    /// [`Chain::resync_realtime`] does, so that the new latency starts with a new generation;
+    /// that resets every plugin.
     pub fn restore_state(
         &mut self,
         slot: usize,
@@ -92,13 +98,31 @@ impl Chain {
         self.accept_restored(request)
     }
 
+    /// Prepares the plugin in `slot` again on a fresh instance that holds the active one's
+    /// project state, replacing the slot as [`Chain::restore_state`] does, including while the
+    /// realtime endpoint runs. Use it after a plugin asks to be prepared again (a VST3 or CLAP
+    /// restart request, reported by [`Chain::take_changes`]): the fresh instance has no pending
+    /// request, nor the DSP history or notes of the replaced one. A plugin that cannot save its
+    /// state, such as an invalidated Audio Unit, fails the call and stays as it is; restore a
+    /// state the application saved instead.
+    pub fn reprepare_slot(&mut self, slot: usize) -> Result<(), Error> {
+        if self.config.is_none() {
+            return Err(Error::NotPrepared);
+        }
+        self.accept_restored(Request::ReprepareSlot { slot })
+    }
+
     fn accept_restored(&mut self, request: Request<'_>) -> Result<(), Error> {
-        self.refuse_while_realtime()?;
         match self.request(request, self.timeouts.load)? {
             Response::StateRestored { timing } => {
                 if let Some((latency, tail)) = timing {
+                    let changed = latency != self.latency;
                     self.latency = latency;
                     self.tail = tail;
+                    // The endpoint does not go on in its generation's timeline at another latency.
+                    if changed && self.realtime_running() {
+                        self.resync_realtime()?;
+                    }
                 }
                 Ok(())
             }

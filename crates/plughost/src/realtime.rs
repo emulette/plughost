@@ -2,14 +2,15 @@
 //! owns hands each callback's quantum to the chain's helper through shared memory, and returns
 //! the quantum the helper completed `latency` quanta earlier. The callback never waits for the
 //! helper: when that output is missing it plays the configured [`Fallback`], ramping into and
-//! out of it over one quantum. The chain starts and stops the endpoint from the application's
-//! control thread and reports its [`RealtimeStatus`].
+//! out of it over one quantum. The chain starts, resynchronizes and stops the endpoint from the
+//! application's control thread and reports its [`RealtimeStatus`].
 
 mod dry;
 mod endpoint;
 mod mailbox;
+mod notes;
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, fence};
 use std::time::Duration;
 
 use plughost_core::FailureKind;
@@ -81,8 +82,11 @@ pub struct RealtimeFailure {
 pub struct RealtimeStatus {
     /// The endpoint processes: started and not stopped.
     pub running: bool,
-    /// The endpoint plays its fallback until it is stopped, the chain reset and the endpoint
-    /// started again, or until [`crate::Chain::recover_realtime`] succeeds.
+    /// The endpoint plays its fallback until [`crate::Chain::resync_realtime`], until it is
+    /// stopped, the chain reset and the endpoint started again, or until
+    /// [`crate::Chain::recover_realtime`] succeeds: after an overflow, a callback of another size,
+    /// invalid input, a failed quantum, a replacement that changed the chain's latency, a resync
+    /// that did not complete, or while a recovery is under way.
     pub resync: bool,
     /// Callbacks the endpoint served.
     pub callbacks: u64,
@@ -102,7 +106,9 @@ pub struct RealtimeStatus {
     /// or not the callback still waited for them.
     pub late: u64,
     /// Output events left out: system exclusive events, which the callback cannot copy without
-    /// allocating, and events beyond `produced`'s capacity.
+    /// allocating, and events beyond `produced`'s capacity. A new generation's note offs for the
+    /// notes earlier outputs left on count too when they do not fit `produced`, as does each
+    /// note on beyond the 256 notes the endpoint keeps track of.
     pub dropped_events: u64,
     /// The endpoint's whole latency in frames: the chain's latency the helper last reported,
     /// plus `latency * quantum`.
@@ -145,6 +151,10 @@ pub(crate) struct State {
     /// The chain was prepared again or dropped; the endpoint plays its fallback for good.
     closed: AtomicBool,
     generation: AtomicU64,
+    /// The generation a resync stopped: the callback submits nothing more of it.
+    halted: AtomicU64,
+    /// Odd while a callback runs.
+    inside: AtomicU64,
     resync: AtomicBool,
     callbacks: AtomicU64,
     processed: AtomicU64,
@@ -213,13 +223,46 @@ impl State {
         self.running.load(Ordering::Acquire)
     }
 
-    /// Starts generation `generation` with the chain's current latency, once the helper runs.
+    /// Starts generation `generation` with the chain's current latency, once the helper runs or
+    /// adopted it.
     pub(crate) fn start(&self, generation: u64, latency: u32, dry_delay: u64) {
         self.latency.store(latency, Ordering::Relaxed);
         self.dry_delay.store(dry_delay, Ordering::Relaxed);
         self.resync.store(false, Ordering::Relaxed);
         self.generation.store(generation, Ordering::Release);
         self.running.store(true, Ordering::Release);
+    }
+
+    /// Callback: begins a call. Either [`State::halt`] sees the call begin and waits for it to
+    /// end, or the call sees the halt.
+    fn enter(&self) {
+        self.inside.fetch_add(1, Ordering::Relaxed);
+        fence(Ordering::SeqCst);
+    }
+
+    /// Callback: ends a call, after which the control thread sees what it wrote to the ring.
+    fn leave(&self) {
+        self.inside.fetch_add(1, Ordering::Release);
+    }
+
+    /// Whether a resync stopped the callback's submissions to `generation`.
+    fn halted(&self, generation: u64) -> bool {
+        self.halted.load(Ordering::Relaxed) == generation
+    }
+
+    /// Stops the callback's submissions to the current generation for a resync, and returns once
+    /// no call submits any more. A call that began before the halt is waited for. A call that
+    /// read the current generation and sees the halt only after the next start cleared `resync`
+    /// still finds that generation halted; it submits again once it follows the new one.
+    pub(crate) fn halt(&self) {
+        self.halted.store(self.generation(), Ordering::Relaxed);
+        self.resync.store(true, Ordering::Relaxed);
+        fence(Ordering::SeqCst);
+        let inside = self.inside.load(Ordering::Acquire);
+        // A call never waits, so this ends within one call.
+        while inside % 2 == 1 && self.inside.load(Ordering::Acquire) == inside {
+            std::thread::yield_now();
+        }
     }
 
     /// Stops the callback's submissions before the helper stops.

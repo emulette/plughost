@@ -97,14 +97,28 @@ impl AudioTiming {
     /// every activation plans the chain again; a latency the plan does not have, like a restart
     /// request, needs a new configuration and fresh delay lines, and fails with its slot.
     pub fn tail(&self, native: &[PluginTiming]) -> Result<Tail, (usize, Failure)> {
-        if let Some(slot) = native
+        self.applied(native, None)?;
+        Ok(self.current_tail(native))
+    }
+
+    /// Fails with the first slot but `except` whose latency is not the planned one or that asked
+    /// to be prepared again, as [`AudioTiming::tail`] does.
+    pub fn applied(
+        &self,
+        native: &[PluginTiming],
+        except: Option<usize>,
+    ) -> Result<(), (usize, Failure)> {
+        let differs = native
             .iter()
             .zip(&self.native_latencies)
-            .position(|(timing, expected)| timing.latency != *expected || timing.restart_required)
-        {
-            return Err((slot, restart_required()));
+            .enumerate()
+            .position(|(slot, (timing, expected))| {
+                Some(slot) != except && (timing.latency != *expected || timing.restart_required)
+            });
+        match differs {
+            Some(slot) => Err((slot, restart_required())),
+            None => Ok(()),
         }
-        Ok(self.current_tail(native))
     }
 
     /// The chain tail of the slots' current tails, whether or not they still match the plan.

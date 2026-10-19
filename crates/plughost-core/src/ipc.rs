@@ -17,7 +17,7 @@ use crate::render::Tail;
 use crate::state::{PluginState, PresetInfo, StatePurpose};
 use crate::{CapabilityReport, DiagnosticBatch, Failure, HostIdentity};
 
-pub const PROTOCOL_VERSION: u32 = 28;
+pub const PROTOCOL_VERSION: u32 = 29;
 /// Upper bound on one message. A helper whose memory a plugin corrupted could send anything.
 pub const MAX_MESSAGE_BYTES: usize = 256 << 20;
 
@@ -179,6 +179,11 @@ pub enum Request<'a> {
         slot: usize,
         bytes: Cow<'a, [u8]>,
     },
+    /// Replaces the slot's instance with a fresh one restored from the active one's project
+    /// state, staged like `RestoreState`.
+    ReprepareSlot {
+        slot: usize,
+    },
     Reset,
     Timing,
     /// Opens the plugin's editor in a window of the helper, which processes while it is open.
@@ -202,6 +207,9 @@ pub enum Request<'a> {
     RealtimeStart,
     /// Stops the realtime worker between quanta.
     RealtimeStop,
+    /// Resynchronizes the running worker: it adopts the generation the application stored in
+    /// the ring between quanta, and every slot is reset as by `Reset`. Answered with the timing.
+    RealtimeResync,
     Shutdown,
 }
 
@@ -231,6 +239,7 @@ impl Request<'_> {
             | Self::InspectPreset { slot, .. }
             | Self::ExportPreset { slot }
             | Self::ImportPreset { slot, .. }
+            | Self::ReprepareSlot { slot }
             | Self::SaveState { slot, .. }
             | Self::RestoreState { slot, .. }
             | Self::LoadState { slot, .. }

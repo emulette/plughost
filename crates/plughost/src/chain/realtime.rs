@@ -1,6 +1,7 @@
 //! The chain's control of its realtime endpoint: creating it for the prepared configuration, and
-//! starting and stopping the helper's worker. While the endpoint runs, the chain refuses what
-//! would change the plugins under it.
+//! starting, resynchronizing and stopping the helper's worker. While the endpoint runs, the chain
+//! replaces one slot's instance between quanta and refuses what would reconfigure or reset the
+//! chain under it.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -132,8 +133,9 @@ impl Chain {
 
     /// Starts the realtime endpoint: its callbacks submit their quanta from now on, numbered
     /// from 1, and play the chain's output `latency` callbacks later. Returns the endpoint's
-    /// whole latency in frames, the chain's plus `latency * quantum`. After a resync, stop the
-    /// endpoint, [`Chain::reset`] the chain and start it again.
+    /// whole latency in frames, the chain's plus `latency * quantum`. After a resync, call
+    /// [`Chain::resync_realtime`]; stopping the endpoint, [`Chain::reset`]ting the chain and
+    /// starting it again works too.
     pub fn start_realtime(&mut self) -> Result<u32, Error> {
         self.start_generation(None)
     }
@@ -151,18 +153,7 @@ impl Chain {
             (realtime.config.latency * realtime.config.quantum) as f64 / config.sample_rate;
         let deadline = clock::ticks(Duration::from_secs_f64(quantum_seconds));
         let added = realtime.added();
-        let dry_delay = self.latency as usize + added as usize;
-        if realtime.config.fallback == Fallback::Dry
-            && dry_delay + realtime.config.quantum > realtime.dry_capacity
-        {
-            let capacity = dry_delay + realtime.config.quantum;
-            realtime
-                .state
-                .send_dry(Box::new(DryDelay::new(config.input_channels(), capacity)));
-            if let Some(realtime) = &mut self.realtime {
-                realtime.dry_capacity = capacity;
-            }
-        }
+        let dry_delay = self.dry_delay()?;
         let realtime = self.realtime.as_ref().ok_or(Error::NotPrepared)?;
         realtime.control.start(generation, deadline);
         let response = self.request(Request::RealtimeStart, self.timeouts.control)?;
@@ -176,6 +167,60 @@ impl Chain {
         realtime.state.start(generation, latency, dry_delay as u64);
         realtime.running = true;
         Ok(latency.saturating_add(added))
+    }
+
+    /// Resynchronizes the running realtime endpoint without stopping it, and returns its whole
+    /// latency in frames, as [`Chain::start_realtime`] does. Call it from the control thread once
+    /// [`RealtimeStatus::resync`] is set; nothing resynchronizes on its own. The callbacks stop
+    /// submitting and play the fallback ([`crate::FallbackReason::Resync`]) while every plugin is
+    /// reset as by [`Chain::reset`], which ends the notes the plugins hold and applies a latency
+    /// they announced. The helper's worker goes on and numbers the new generation's quanta from
+    /// 1; its first output plays as is `latency` callbacks later, as after a start, and the
+    /// first callback ends the notes earlier outputs delivered through `produced`.
+    ///
+    /// A plugin whose reset does not return within the control timeout, as when it holds up
+    /// the worker, fails it with [`Error::TimedOut`], and the endpoint plays its fallback until
+    /// the application recovers. A stopped endpoint has nothing to resynchronize: the call
+    /// returns its latency, as [`Chain::start_realtime`] would, and changes nothing.
+    pub fn resync_realtime(&mut self) -> Result<u32, Error> {
+        let realtime = self.realtime.as_ref().ok_or(Error::NotPrepared)?;
+        if !realtime.running {
+            return Ok(self.latency.saturating_add(realtime.added()));
+        }
+        realtime.state.halt();
+        let generation = realtime.state.generation() + 1;
+        // No callback submits now, so the control thread may clear the submitted sequence; the
+        // worker adopts the generation before the helper resets the plugins.
+        realtime.control.resync(generation);
+        match self.request(Request::RealtimeResync, self.timeouts.control)? {
+            Response::Timing { latency, tail, .. } => {
+                self.latency = latency;
+                self.tail = tail;
+            }
+            _ => return Err(self.protocol_error()),
+        }
+        let dry_delay = self.dry_delay()?;
+        let latency = self.latency;
+        let realtime = self.realtime.as_mut().ok_or(Error::NotPrepared)?;
+        realtime.started = clock::now();
+        realtime.state.start(generation, latency, dry_delay as u64);
+        Ok(latency.saturating_add(realtime.added()))
+    }
+
+    /// The dry path's delay for a generation at the chain's current latency. The callback gets
+    /// storage enough for it, which it takes as it follows the generation.
+    fn dry_delay(&mut self) -> Result<usize, Error> {
+        let config = self.config.as_ref().ok_or(Error::NotPrepared)?;
+        let realtime = self.realtime.as_mut().ok_or(Error::NotPrepared)?;
+        let delay = self.latency as usize + realtime.added() as usize;
+        let capacity = delay + realtime.config.quantum;
+        if realtime.config.fallback == Fallback::Dry && capacity > realtime.dry_capacity {
+            realtime
+                .state
+                .send_dry(Box::new(DryDelay::new(config.input_channels(), capacity)));
+            realtime.dry_capacity = capacity;
+        }
+        Ok(delay)
     }
 
     /// Stops the realtime endpoint between quanta; its callbacks play the fallback until it is
@@ -212,7 +257,7 @@ impl Chain {
             .is_some_and(|realtime| realtime.running)
     }
 
-    /// Refuses what would change the plugins under a running endpoint.
+    /// Refuses what would reconfigure or reset the chain under a running endpoint.
     pub(super) fn refuse_while_realtime(&self) -> Result<(), Error> {
         if self.realtime_running() {
             return Err(Error::RealtimeRunning);

@@ -66,8 +66,8 @@ pub enum Error {
     /// A scan writer could not lock, read, publish, or flush its cache. Discovery reads
     /// instead treat unreadable caches as empty.
     Cache(std::io::Error),
-    /// The chain's realtime endpoint runs, which refuses what would change the plugins under it
-    /// and processing through the chain itself.
+    /// The chain's realtime endpoint runs, which refuses what would reconfigure or reset the
+    /// chain under it, and processing through the chain itself.
     RealtimeRunning,
 }
 

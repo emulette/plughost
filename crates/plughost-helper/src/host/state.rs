@@ -61,6 +61,19 @@ impl Host {
         })
     }
 
+    /// Prepares the slot again on a fresh instance restored from the active one's project state,
+    /// which leaves a restart request the active one made behind. An instance that cannot save
+    /// its state, such as an invalidated Audio Unit, stays as it is.
+    pub(super) fn reprepare_slot(&mut self, slot: usize) -> Response {
+        let state = match self.slots[slot].save_state(plughost_core::StatePurpose::Project) {
+            Ok(state) => state,
+            Err(error) => return failed(slot, &error),
+        };
+        self.replace_candidate(slot, false, |candidate| {
+            candidate.restore_state(&state, plughost_core::StatePurpose::Project)
+        })
+    }
+
     /// Factory program changes need an active processor for the native parameter flush. State
     /// and discovered presets are applied before activation. Neither path prepares twice.
     fn replace_candidate(
@@ -116,10 +129,11 @@ impl Host {
                     return self.reject_candidate(slot, candidate.as_ref(), index, error.failure());
                 }
             };
-            // The active chain must still match its alignment before one slot is retimed. A
-            // failure names the slot that does not match, or the one being replaced.
+            // The rest of the active chain must still match its alignment before one slot is
+            // retimed; the replaced instance, a restart request included, goes. A failure names
+            // the slot that does not match, or the one being replaced.
             let checked = match &active {
-                Some(active) => active.tail(&timings).map(|_| active),
+                Some(active) => active.applied(&timings, Some(slot)).map(|()| active),
                 None => Err((
                     slot,
                     Failure::new(

@@ -1,7 +1,7 @@
 //! The realtime endpoint's callback allocates and frees nothing in any path it takes, through real
 //! helper processes: stopped, priming and processing with events and automation, the dry fallback
 //! and its ramps, missed outputs and the crossfade back, a full ring and a callback of another
-//! size. Run it with the `realtime-audit` feature; on macOS, building with `RTSAN_ENABLE=1` also
+//! size, a resync and the note offs that follow it. Run it with the `realtime-audit` feature; on macOS, building with `RTSAN_ENABLE=1` also
 //! makes RealtimeSanitizer abort on any allocation, lock or system call the callback makes. Build
 //! the helper and the test plugins first (see `support`).
 #![cfg(feature = "realtime-audit")]
@@ -16,7 +16,7 @@ use plughost::{
 
 mod support;
 
-use support::{delay, delay_variant, prepare, spawn, spawn_with, synth};
+use support::{delay, delay_variant, prepare, routing, spawn, spawn_with, synth};
 
 #[global_allocator]
 static ALLOCATOR: plughost_core::audit::Allocator = plughost_core::audit::Allocator;
@@ -54,7 +54,7 @@ fn call(
 }
 
 #[test]
-#[ignore = "needs helper and the delay, synth and stall-in-process fixtures (.ps1 or .sh build scripts)"]
+#[ignore = "needs helper and the delay, synth, routing and stall-in-process fixtures (.ps1 or .sh build scripts)"]
 fn the_realtime_callback_allocates_nothing() {
     let processed = RealtimeOutput::Processed;
     let fallback = RealtimeOutput::Fallback;
@@ -169,6 +169,27 @@ fn the_realtime_callback_allocates_nothing() {
         fallback(FallbackReason::Resync)
     );
     drop(stall);
+
+    // Notes the chain sent end in the first callback after a resync.
+    let mut chain = spawn(&[routing(PluginFormat::Clap)]);
+    prepare(&mut chain);
+    let mut endpoint = chain
+        .realtime_endpoint(&RealtimeConfig::new(QUANTUM))
+        .unwrap();
+    chain.start_realtime().unwrap();
+    let notes = [Event::note_on(0, 0, 60, 100), Event::note_on(0, 0, 62, 100)];
+    assert_eq!(
+        call(&mut endpoint, 2, QUANTUM, &[], &notes),
+        fallback(FallbackReason::Priming)
+    );
+    assert_eq!(call(&mut endpoint, 2, QUANTUM, &[], &[]), processed);
+    chain.resync_realtime().unwrap();
+    assert_eq!(
+        call(&mut endpoint, 2, QUANTUM, &[], &[]),
+        fallback(FallbackReason::Priming)
+    );
+    assert_eq!(call(&mut endpoint, 2, QUANTUM, &[], &[]), processed);
+    chain.stop_realtime().unwrap();
 
     assert_eq!(plughost_core::audit::processing_allocations(), (0, 0));
 }

@@ -10,7 +10,11 @@
 //! writes, and checks after reading an output that the lane still holds it.
 //!
 //! The control mapping also holds the start generation, the last submitted and completed
-//! sequences, the doorbell counter, and the worker's heartbeat and late-completion count.
+//! sequences, the doorbell counter, and the worker's heartbeat and late-completion count. Each
+//! side writes one of the sequences: the callback the submitted one, the worker the completed
+//! one. A start resets both while neither runs; a resync under a running worker resets each on
+//! its own side, the submitted one while the callback is held off and the completed one as the
+//! worker adopts the new generation.
 
 use std::io;
 use std::ptr;
@@ -158,6 +162,16 @@ impl Control {
         self.word(SUBMITTED).store(0, Ordering::Relaxed);
         self.word(COMPLETED).store(0, Ordering::Relaxed);
         self.word(DEADLINE).store(deadline, Ordering::Relaxed);
+        self.word(GENERATION_WORD)
+            .store(generation, Ordering::Release);
+    }
+
+    /// Starts generation `generation` under a running worker, once the callback no longer
+    /// submits the current one: clears the submitted sequence, so the worker takes no further
+    /// quantum of the current generation, and publishes the new one, which the worker adopts
+    /// between quanta with [`Ring::adopt`] before the callback submits its first quantum.
+    pub fn resync(&self, generation: u64) {
+        self.word(SUBMITTED).store(0, Ordering::Release);
         self.word(GENERATION_WORD)
             .store(generation, Ordering::Release);
     }
@@ -328,6 +342,14 @@ impl Ring {
             generation,
             self.control.word(DEADLINE).load(Ordering::Relaxed),
         )
+    }
+
+    /// Worker, between quanta: adopts the generation [`Control::resync`] published, whose quanta
+    /// are numbered from 1, and clears the completed sequence, so the callback reuses the lanes
+    /// of the new generation only as the worker completes its quanta.
+    pub fn adopt(&self) -> u64 {
+        self.control.word(COMPLETED).store(0, Ordering::Release);
+        self.control.word(GENERATION_WORD).load(Ordering::Acquire)
     }
 
     /// The last quantum the application submitted.

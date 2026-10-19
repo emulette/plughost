@@ -1,7 +1,8 @@
 //! The realtime worker. While the application's endpoint runs, the processing thread waits on the
 //! ring's doorbell instead of the queue. Each wake it first runs the commands the main thread
 //! queued, which ring the doorbell too, and then processes every submitted quantum in order into
-//! its lane. A quantum's failure is reported in its lane; the worker goes on with the next.
+//! its lane. A quantum's failure is reported in its lane; the worker goes on with the next. A
+//! resync command switches it to a new generation between quanta, without leaving its loop.
 
 mod schedule;
 
@@ -50,6 +51,9 @@ pub(crate) enum Realtime {
     Start,
     /// Returns the processing thread to its queue.
     Stop,
+    /// Adopts the generation the application published in the ring, numbered from 1, without
+    /// leaving the worker.
+    Resync,
 }
 
 /// Hands `start` back once the worker is scheduled, so that the application's first quanta find
@@ -98,7 +102,7 @@ fn work(
     pipeline: &mut Pipeline,
     schedule: &Schedule,
     control: &Control,
-    generation: u64,
+    mut generation: u64,
     queue: &Receiver<Work>,
     handed_back: &SyncSender<Command>,
     responder: &Responder,
@@ -110,6 +114,15 @@ fn work(
             match queue.try_recv() {
                 Ok(Work::Command(mut command)) => {
                     let stop = matches!(command, Command::Realtime(Realtime::Stop));
+                    // The application cleared the submitted sequence before it asked, and its
+                    // callback submits nothing until the answer: what is submitted from now on
+                    // belongs to the adopted generation.
+                    if let (Command::Realtime(Realtime::Resync), Some(transport)) =
+                        (&command, &pipeline.realtime)
+                    {
+                        generation = transport.ring.adopt();
+                        processed = 0;
+                    }
                     pipeline.apply(&mut command);
                     if handed_back.send(command).is_err() {
                         return false;

@@ -1,9 +1,12 @@
 //! The application's realtime endpoint, from the main thread: installing its ring for the
-//! prepared chain, and starting and stopping the worker. While the worker runs, the requests that
-//! would change the chain under it are refused; the application refuses them first.
+//! prepared chain, and starting, resynchronizing and stopping the worker. While the worker runs,
+//! the requests that would reconfigure the chain under it are refused; the application refuses
+//! them first. Replacing one slot's instance goes on between quanta.
 
 use super::*;
-use crate::errors::{REALTIME_NOT_INSTALLED, REALTIME_RING, REALTIME_RUNNING};
+use crate::errors::{
+    REALTIME_NOT_INSTALLED, REALTIME_NOT_RUNNING, REALTIME_RING, REALTIME_RUNNING,
+};
 use crate::process::realtime::{Realtime, Transport};
 use plughost_core::ipc::shared::realtime::RingDescriptor;
 
@@ -67,6 +70,22 @@ impl Host {
         Response::Done
     }
 
+    /// Resynchronizes the running worker without stopping it. The application's callback no
+    /// longer submits, so once the worker adopts the new generation it takes no quantum of the
+    /// old one; it does so before the slots are reset, so none is processed between the resets.
+    /// The slots are then reset and the alignment planned again as by `Reset`, which also ends
+    /// the notes they hold, and the timing is the new generation's.
+    pub(super) fn resync_realtime(&mut self) -> Response {
+        if !self.realtime_running {
+            return failure(FailureKind::InvalidInput, REALTIME_NOT_RUNNING);
+        }
+        drop(self.processing.request(Command::Realtime(Realtime::Resync)));
+        match self.reset() {
+            Response::Done => self.timing(),
+            failed => failed,
+        }
+    }
+
     /// Removes the installed ring, which no longer matches a chain prepared again or replaced,
     /// stopping a running worker.
     pub(super) fn remove_realtime(&mut self) {
@@ -81,16 +100,12 @@ impl Host {
         }
     }
 
-    /// Requests the running worker cannot serve between quanta: they replace or reconfigure
-    /// plugins, reset them, or process through the connection.
+    /// Requests the running worker cannot serve between quanta: they reconfigure or reload the
+    /// chain, or reset it outside a resync.
     pub(super) fn refused_while_running(&self, request: &Request<'_>) -> Option<Response> {
         let refused = matches!(
             request,
             Request::PrepareAudio { .. }
-                | Request::RestoreState { .. }
-                | Request::ImportPreset { .. }
-                | Request::LoadDiscoveredPreset { .. }
-                | Request::SelectFactoryPreset { .. }
                 | Request::Reset
                 | Request::Load { .. }
                 | Request::LoadState { .. }

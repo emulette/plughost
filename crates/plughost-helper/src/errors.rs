@@ -34,6 +34,7 @@ pub const ALIGNMENT_STORAGE: &str =
 pub const REALTIME_RUNNING: &str =
     "the request is refused while the realtime endpoint runs; stop it first";
 pub const REALTIME_NOT_INSTALLED: &str = "no realtime endpoint is installed for the prepared chain";
+pub const REALTIME_NOT_RUNNING: &str = "the realtime endpoint is not running";
 pub const REALTIME_RING: &str =
     "the realtime ring does not match the prepared chain's precision, channels or block size";
 #[cfg(target_os = "macos")]

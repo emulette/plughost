@@ -269,6 +269,7 @@ impl Host {
                 plughost_formats::preset::encode(&state).map(Response::Preset)
             }),
             Request::ImportPreset { slot, bytes } => self.import_preset(slot, &bytes),
+            Request::ReprepareSlot { slot } => self.reprepare_slot(slot),
             Request::Reset => self.reset(),
             Request::Timing => self.timing(),
             Request::OpenEditor { slot } => self.open_editor(slot),
@@ -285,6 +286,7 @@ impl Host {
             Request::RealtimeInstall { ring, tokens } => self.install_realtime(ring, &tokens),
             Request::RealtimeStart => self.start_realtime(),
             Request::RealtimeStop => self.stop_realtime(),
+            Request::RealtimeResync => self.resync_realtime(),
             Request::PresetProviders { .. }
             | Request::DiscoverPresets { .. }
             | Request::Scan { .. }

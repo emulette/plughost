@@ -241,7 +241,7 @@ fn the_dry_fallback_lines_up_with_the_processed_output() {
 
 #[test]
 #[ignore = "needs helper and the delay fixture (.ps1 or .sh build scripts)"]
-fn changes_under_a_running_endpoint_are_refused() {
+fn reconfiguring_the_chain_under_a_running_endpoint_is_refused() {
     let mut chain = spawn(&[delay(PluginFormat::Clap)]);
     prepare(&mut chain);
     let config = stereo_config(&mut chain);
@@ -252,11 +252,6 @@ fn changes_under_a_running_endpoint_are_refused() {
     assert!(running(chain.reset()));
     assert!(running(chain.reprepare()));
     assert!(running(chain.prepare_audio(&config).map(|_| ())));
-    assert!(running(chain.restore_state(
-        0,
-        &state,
-        StatePurpose::Project
-    )));
     let input = sine(0);
     let mut output = silence(QUANTUM);
     let [left, right] = &mut output;
@@ -273,8 +268,13 @@ fn changes_under_a_running_endpoint_are_refused() {
             .realtime_endpoint(&RealtimeConfig::new(QUANTUM))
             .map(|_| ())
     ));
-    // Parameter edits reach the running chain between quanta.
+    // Parameter edits and replacements of a slot's instance reach the running chain between
+    // quanta.
     chain.set_parameter(0, gain, 0.25).unwrap();
+    chain
+        .restore_state(0, &state, StatePurpose::Project)
+        .unwrap();
+    chain.reprepare_slot(0).unwrap();
     for index in 0..4 {
         callback(&mut endpoint, &sine(index));
     }

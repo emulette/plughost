@@ -167,6 +167,10 @@ impl Pipeline {
                 self.resync = false;
             }
             Command::Replace(replace) => {
+                // The running worker defers the new instance's restart requests too.
+                if self.restart_deferred {
+                    replace.processor.defer_restart(true);
+                }
                 swap(&mut self.processors[replace.slot], &mut replace.processor);
                 if let (Some(retime), Some(alignment)) = (&mut replace.retime, &mut self.alignment)
                 {
@@ -213,8 +217,11 @@ impl Pipeline {
             Command::Realtime(realtime::Realtime::Install(transport)) => {
                 swap(&mut self.realtime, transport);
             }
-            // The processing thread runs the worker, which hands the start command back.
-            Command::Realtime(realtime::Realtime::Start | realtime::Realtime::Stop) => {}
+            // The processing thread runs the worker, which hands the start command back and
+            // adopts a resync's generation.
+            Command::Realtime(
+                realtime::Realtime::Start | realtime::Realtime::Stop | realtime::Realtime::Resync,
+            ) => {}
         }
     }
 }
