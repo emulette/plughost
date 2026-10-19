@@ -52,6 +52,10 @@ mod platform {
     }
 
     pub fn schedule(_quantum: u64) {
+        // `--rate-change` calls this again for each profile; the thread stays in its task.
+        if !TIMER.get().is_null() {
+            return;
+        }
         let name: Vec<u16> = "Pro Audio".encode_utf16().chain([0]).collect();
         let mut index = 0;
         // SAFETY: a NUL-terminated task name; the thread stays in the task until it ends.

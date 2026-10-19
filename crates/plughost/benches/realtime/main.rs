@@ -12,31 +12,57 @@
 //! `--automation` gives every quantum eight gain points, and `--control` edits the gain from the
 //! control thread every 10 ms and saves the state every 100 ms, as an editor and an autosave do;
 //! with either, the run records its results and only the callback limits apply.
+//!
+//! The fault-injection runs check what an application does when the helper fails or the audio
+//! configuration changes while its callback goes on with the same endpoint. `--crash` kills the
+//! helper every `--fault-interval` and recovers the endpoint from the last snapshot, which the
+//! control thread saves every second while the helper is well. `--hang` holds up the helper's
+//! process call with the stall fixture, which never returns, notices it once the endpoint has
+//! stalled for `--hang-ms`, and recovers the same way; every recovered helper hangs again, so it
+//! injects `--faults` hangs back to back. `--rate-change` stops the endpoint every
+//! `--fault-interval`, prepares the chain at another rate and quantum, and starts a new endpoint,
+//! which the driver takes over between two callbacks. Only the callback limits and the recovery
+//! are judged: the misses, late quanta and fallbacks of a fault are expected, and its recovery
+//! time and fallback quanta are reported.
+mod callback;
 mod driver;
 mod errors;
+mod faults;
 mod usage;
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::channel;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use plughost::{
-    AutomationEvent, BlockContext, Chain, FallbackReason, HostIdentity, Layout, MAX_BLOCK_EVENTS,
-    ParameterChange, PluginFormat, PluginRef, RealtimeConfig, RealtimeEndpoint, RealtimeOutput,
-    StatePurpose, Timeouts,
+    Chain, HostIdentity, Layout, PluginFormat, PluginRef, RealtimeConfig, StatePurpose, Timeouts,
 };
 use plughost_core::ipc::shared::clock;
 
+use callback::{Feed, Handover, Profile, Shared};
 use errors::Result;
+use faults::{Fault, Faults, Hang};
 
-const USAGE: &str = "cargo bench -p plughost --bench realtime -- [--seconds 600] [--quantum 128] [--latency 1] [--load] [--automation] [--control] [--stall] [--stall-ms 100] [--callback-limit 200] [--helper FILE] [--assets DIR]\n\
+const USAGE: &str = "cargo bench -p plughost --bench realtime -- [--seconds 600] [--quantum 128] [--latency 1] [--load] [--automation] [--control] [--stall] [--stall-ms 100] [--crash | --hang | --rate-change] [--fault-interval 20] [--faults N] [--hang-ms 100] [--callback-limit 200] [--helper FILE] [--assets DIR]\n\
 Calls a routing-fixture chain's realtime endpoint at 48 kHz and exits with a failure when the gate fails.\n\
---callback-limit is in microseconds, at p99.9. Build the repository test plugins and the helper first.";
+--callback-limit is in microseconds, at p99.9. Build the repository test plugins and the helper first.\n\
+--crash kills the helper and --rate-change prepares the chain at 44.1 kHz and 1.5 quanta and back every\n\
+--fault-interval seconds (at most --faults times); --hang (stall fixture) hangs every recovered helper\n\
+until --faults (default 10) hangs are injected. Each is recovered from, and the recovery time and the\n\
+fallback quanta per fault are reported.";
 const RATE: f64 = 48_000.0;
+/// The rate `--rate-change` alternates to, with a quantum of one and a half.
+const OTHER_RATE: f64 = 44_100.0;
+/// How many hangs `--hang` injects unless `--faults` says otherwise.
+const HANGS: u64 = 10;
+/// How long a fault run goes on past `--seconds` at most, for the control thread to bring the
+/// endpoint back from its last fault, in the callbacks the callback thread may make.
+const GRACE: f64 = 60.0;
 /// The routing fixture's gain parameter, which the stall fixture also has.
 const GAIN: u64 = 0;
 
@@ -55,6 +81,15 @@ struct Options {
     control: bool,
     /// How long the stall fixture holds up its process call, with `--stall`.
     stall: Option<Duration>,
+    /// The fault to inject, with `--crash`, `--hang` or `--rate-change`.
+    fault: Option<Fault>,
+    /// How long after the run starts or the last recovery `--crash` and `--rate-change` inject
+    /// the next fault.
+    fault_interval: Duration,
+    /// How many faults to inject at most.
+    faults: Option<u64>,
+    /// How long the endpoint stalls before `--hang` calls it hung.
+    hang: Duration,
     callback_limit: Duration,
     helper: PathBuf,
     assets: PathBuf,
@@ -74,6 +109,10 @@ fn options() -> Result<Option<Options>> {
         automation: false,
         control: false,
         stall: None,
+        fault: None,
+        fault_interval: Duration::from_secs(20),
+        faults: None,
+        hang: Duration::from_millis(100),
         // About three times the longest callback of the first measurement, 63 µs.
         callback_limit: Duration::from_micros(200),
         helper: target.join(if cfg!(target_os = "macos") {
@@ -85,6 +124,7 @@ fn options() -> Result<Option<Options>> {
     };
     let mut stall_ms = 100;
     let mut stall = false;
+    let mut faults = Vec::new();
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
@@ -97,6 +137,9 @@ fn options() -> Result<Option<Options>> {
             "--automation" => options.automation = true,
             "--control" => options.control = true,
             "--stall" => stall = true,
+            "--crash" => faults.push(Fault::Crash),
+            "--hang" => faults.push(Fault::Hang),
+            "--rate-change" => faults.push(Fault::RateChange),
             _ => {
                 let value = arguments.next().ok_or_else(|| invalid(()))?;
                 match argument.as_str() {
@@ -104,6 +147,15 @@ fn options() -> Result<Option<Options>> {
                     "--quantum" => options.quantum = value.parse().map_err(invalid)?,
                     "--latency" => options.latency = value.parse().map_err(invalid)?,
                     "--stall-ms" => stall_ms = value.parse().map_err(invalid)?,
+                    "--fault-interval" => {
+                        options.fault_interval =
+                            Duration::try_from_secs_f64(value.parse().map_err(invalid)?)
+                                .map_err(invalid)?;
+                    }
+                    "--faults" => options.faults = Some(value.parse().map_err(invalid)?),
+                    "--hang-ms" => {
+                        options.hang = Duration::from_millis(value.parse().map_err(invalid)?);
+                    }
                     "--callback-limit" => {
                         options.callback_limit =
                             Duration::from_micros(value.parse().map_err(invalid)?);
@@ -118,116 +170,13 @@ fn options() -> Result<Option<Options>> {
     if options.seconds <= 0.0 || options.quantum == 0 {
         return Err(invalid(()));
     }
+    // One fault per run, which neither the stall nor the control thread's edits go along with.
+    if faults.len() > 1 || (!faults.is_empty() && (stall || options.control)) {
+        return Err(invalid(()));
+    }
+    options.fault = faults.pop();
     options.stall = stall.then(|| Duration::from_millis(stall_ms));
     Ok(Some(options))
-}
-
-/// Uniform white noise in [-0.25, 0.25), the same on every run.
-fn noise(frames: usize) -> Vec<Vec<f32>> {
-    let mut state = 1u32;
-    (0..2)
-        .map(|_| {
-            (0..frames)
-                .map(|_| {
-                    state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                    ((state >> 8) as f32 / (1u32 << 24) as f32 - 0.5) / 2.0
-                })
-                .collect()
-        })
-        .collect()
-}
-
-/// What the callback thread measured.
-struct Measured {
-    /// How late the driver woke for each callback, in clock ticks.
-    delays: Vec<u64>,
-    /// How long each callback took, in clock ticks.
-    callbacks: Vec<u64>,
-    /// How long the helper took for each output played.
-    completions: Vec<Duration>,
-    /// Grid slots the driver skipped after waking late.
-    skipped: u64,
-    /// Callbacks that played the fallback, by reason: stopped, priming, missed, resync.
-    fallbacks: [u64; 4],
-}
-
-/// Eight points on the gain of slot 0 across a quantum, or none.
-fn automation(quantum: usize, enabled: bool) -> Vec<AutomationEvent> {
-    let points = if enabled { 8 } else { 0 };
-    (0..points)
-        .map(|point| AutomationEvent {
-            slot: 0,
-            change: ParameterChange {
-                id: GAIN,
-                offset: point * quantum / 8,
-                value: if point % 2 == 0 { 0.25 } else { 0.75 },
-            },
-        })
-        .collect()
-}
-
-/// Calls the endpoint `callbacks` times on the grid of quanta, from a realtime thread.
-fn drive(
-    mut endpoint: RealtimeEndpoint,
-    quantum: usize,
-    callbacks: usize,
-    automation: &[AutomationEvent],
-) -> Measured {
-    let period = clock::ticks(Duration::from_secs_f64(quantum as f64 / RATE));
-    driver::schedule(period);
-    let input = noise(quantum);
-    let input: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
-    let mut output = noise(quantum);
-    let mut produced = Vec::with_capacity(MAX_BLOCK_EVENTS);
-    let context = BlockContext::new(quantum);
-    let mut measured = Measured {
-        delays: Vec::with_capacity(callbacks),
-        callbacks: Vec::with_capacity(callbacks),
-        completions: Vec::with_capacity(callbacks),
-        skipped: 0,
-        fallbacks: [0; 4],
-    };
-    let start = clock::now() + period;
-    let mut slot = 0;
-    for _ in 0..callbacks {
-        let due = start + slot * period;
-        driver::wait_until(due);
-        let woke = clock::now();
-        let [left, right] = &mut output[..] else {
-            unreachable!("the chain has two output channels");
-        };
-        let played = endpoint.process_audio_f32(
-            &context,
-            &input,
-            &mut [left, right],
-            automation,
-            &[],
-            &mut produced,
-        );
-        let done = clock::now();
-        measured.delays.push(woke.saturating_sub(due));
-        measured.callbacks.push(done.saturating_sub(woke));
-        match played {
-            Ok(RealtimeOutput::Processed) => {
-                measured.completions.extend(endpoint.last_completion());
-            }
-            Ok(RealtimeOutput::Fallback(reason)) => {
-                let index = match reason {
-                    FallbackReason::Stopped => 0,
-                    FallbackReason::Priming => 1,
-                    FallbackReason::Missed => 2,
-                    _ => 3,
-                };
-                measured.fallbacks[index] += 1;
-            }
-            // The driver passes valid input; a failure would show as a resync.
-            Ok(_) | Err(_) => measured.fallbacks[3] += 1,
-        }
-        let next = (clock::now().saturating_sub(start) / period + 1).max(slot + 1);
-        measured.skipped += next - slot - 1;
-        slot = next;
-    }
-    measured
 }
 
 /// Threads that keep every core busy until dropped.
@@ -292,9 +241,35 @@ fn micros(ticks: u64) -> f64 {
     clock::duration(ticks).as_secs_f64() * 1e6
 }
 
+/// The CLAP stall-in-process fixture, which finds its barrier's address in the host name.
+fn stall_fixture(assets: &Path, address: String) -> (PluginRef, HostIdentity) {
+    let identity = HostIdentity {
+        name: address,
+        ..HostIdentity::default()
+    };
+    let plugin = PluginRef {
+        format: PluginFormat::Clap,
+        bundle: Some(assets.join("plughost-test-stall-in-process.clap")),
+        class_id: "com.studio.plughost.test-delay.79000018".into(),
+    };
+    (plugin, identity)
+}
+
 fn run(options: &Options) -> Result<()> {
-    let (plugin, identity, stalled) = match options.stall {
-        None => (
+    let mut hang = None;
+    let (plugin, identity, stalled) = match (options.stall, options.fault) {
+        (Some(hold), _) => {
+            let (address, stalled) = barrier(hold)?;
+            let (plugin, identity) = stall_fixture(&options.assets, address);
+            (plugin, identity, Some(stalled))
+        }
+        (None, Some(Fault::Hang)) => {
+            let barrier = Hang::bind(options.faults.unwrap_or(HANGS))?;
+            let (plugin, identity) = stall_fixture(&options.assets, barrier.address().into());
+            hang = Some(barrier);
+            (plugin, identity, None)
+        }
+        (None, _) => (
             PluginRef {
                 format: PluginFormat::Vst3,
                 bundle: Some(options.assets.join("plughost-test-routing.vst3")),
@@ -303,23 +278,14 @@ fn run(options: &Options) -> Result<()> {
             HostIdentity::default(),
             None,
         ),
-        Some(hold) => {
-            let (address, stalled) = barrier(hold)?;
-            let identity = HostIdentity {
-                name: address,
-                ..HostIdentity::default()
-            };
-            let plugin = PluginRef {
-                format: PluginFormat::Clap,
-                bundle: Some(options.assets.join("plughost-test-stall-in-process.clap")),
-                class_id: "com.studio.plughost.test-delay.79000018".into(),
-            };
-            (plugin, identity, Some(stalled))
-        }
     };
     let mut chain = Chain::spawn(&options.helper, &[plugin], &identity, Timeouts::default())?;
     let config = chain.main_bus_config(RATE, options.quantum, Layout::Stereo, &[Layout::Stereo])?;
     chain.prepare_audio(&config)?;
+    // What a crash or a hang is recovered from, taken before the stall fixture can hang.
+    let snapshot = matches!(options.fault, Some(Fault::Crash | Fault::Hang))
+        .then(|| chain.snapshot())
+        .transpose()?;
     let config = RealtimeConfig::new(options.quantum).with_latency(options.latency);
     let endpoint = chain.realtime_endpoint(&config)?;
     let latency = chain.start_realtime()?;
@@ -327,49 +293,105 @@ fn run(options: &Options) -> Result<()> {
     let before = processes.map(usage::usage);
     let started = Instant::now();
     let load = options.load.then(Load::start);
-    let callbacks = (options.seconds * RATE / options.quantum as f64) as usize;
-    let quantum = options.quantum;
-    let points = automation(quantum, options.automation);
+    // A fault run goes on for its faults to be recovered from; the control thread ends it.
+    let callbacks = ((options.seconds + if options.fault.is_some() { GRACE } else { 0.0 }) * RATE
+        / options.quantum as f64) as usize;
+    let profiles = [
+        Profile {
+            rate: RATE,
+            quantum: options.quantum,
+        },
+        Profile {
+            rate: OTHER_RATE,
+            quantum: options.quantum * 3 / 2,
+        },
+    ];
+    let shared = Arc::new(Shared::default());
+    let (handover, next) = channel();
+    let (retired_sender, retired) = channel();
+    let feed = (options.fault == Some(Fault::RateChange)).then_some(Feed {
+        next,
+        retired: retired_sender,
+    });
+    let first = Handover {
+        endpoint,
+        profile: profiles[0],
+    };
     let callback = thread::Builder::new()
         .name("realtime benchmark callback".into())
-        .spawn(move || drive(endpoint, quantum, callbacks, &points))?;
-    // Edit and save as an editor and an autosave do, and restart the endpoint after a
-    // resynchronization, as an application does.
+        .spawn({
+            let shared = Arc::clone(&shared);
+            let automated = options.automation;
+            move || callback::drive(first, callbacks, automated, &shared, feed)
+        })?;
     let (mut restarts, mut edits, mut saves) = (0, 0, 0);
-    for tick in 0u64.. {
-        if callback.is_finished() {
-            break;
+    let report = if let Some(fault) = options.fault {
+        Some(
+            Faults {
+                fault,
+                options,
+                shared: &shared,
+                snapshot,
+                hang,
+                profiles,
+                handover: (fault == Fault::RateChange).then_some(handover),
+                retired: (fault == Fault::RateChange).then_some(retired),
+            }
+            .run(&mut chain, &callback, started),
+        )
+    } else {
+        // Edit and save as an editor and an autosave do, and restart the endpoint after a
+        // resynchronization, as an application does.
+        for tick in 0u64.. {
+            if callback.is_finished() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+            if options.control {
+                chain.set_parameter(0, GAIN, if tick % 2 == 0 { 0.5 } else { 1.0 })?;
+                edits += 1;
+            }
+            if tick % 10 != 0 {
+                continue;
+            }
+            if options.control {
+                chain.save_state(0, StatePurpose::Project)?;
+                saves += 1;
+            }
+            if chain.realtime_status().is_some_and(|status| status.resync) {
+                chain.stop_realtime()?;
+                chain.reset()?;
+                chain.start_realtime()?;
+                restarts += 1;
+            }
         }
-        thread::sleep(Duration::from_millis(10));
-        if options.control {
-            chain.set_parameter(0, GAIN, if tick % 2 == 0 { 0.5 } else { 1.0 })?;
-            edits += 1;
-        }
-        if tick % 10 != 0 {
-            continue;
-        }
-        if options.control {
-            chain.save_state(0, StatePurpose::Project)?;
-            saves += 1;
-        }
-        if chain.realtime_status().is_some_and(|status| status.resync) {
-            chain.stop_realtime()?;
-            chain.reset()?;
-            chain.start_realtime()?;
-            restarts += 1;
-        }
-    }
+        None
+    };
     let mut measured = callback.join().map_err(|_| errors::fail(errors::THREAD))?;
     let after = processes.map(usage::usage);
     let wall = started.elapsed();
     drop(load);
     let status = chain.realtime_status().unwrap_or_default();
-    chain.stop_realtime()?;
+    // A fault that was not recovered from may leave the helper unable to stop.
+    let stopped = chain.stop_realtime();
+    if report
+        .as_ref()
+        .is_none_or(|report| report.failure.is_none())
+    {
+        stopped?;
+    }
 
     let budget = Duration::from_secs_f64((options.latency * options.quantum) as f64 / RATE);
     out!(
-        "{} frames at 48 kHz, added latency {} x {} frames ({:.2} ms, {latency} frames in all), {}, {:.0} s, {}",
-        options.quantum,
+        "{}, added latency {} x {} frames ({:.2} ms, {latency} frames in all), {}, {:.0} s, {}",
+        if options.fault == Some(Fault::RateChange) {
+            format!(
+                "{} frames at 48 kHz and {} frames at 44.1 kHz",
+                options.quantum, profiles[1].quantum
+            )
+        } else {
+            format!("{} frames at 48 kHz", options.quantum)
+        },
         options.latency,
         options.quantum,
         budget.as_secs_f64() * 1e3,
@@ -379,9 +401,10 @@ fn run(options: &Options) -> Result<()> {
             "idle"
         },
         options.seconds,
-        match options.stall {
-            Some(hold) => format!("stall fixture held {} ms", hold.as_millis()),
-            None => "routing fixture".into(),
+        match (options.stall, options.fault) {
+            (Some(hold), _) => format!("stall fixture held {} ms", hold.as_millis()),
+            (None, Some(Fault::Hang)) => "stall fixture held until recovered".into(),
+            (None, _) => "routing fixture".into(),
         }
     );
     if options.automation || options.control {
@@ -394,7 +417,7 @@ fn run(options: &Options) -> Result<()> {
     out!(
         "callbacks {} | processed {} | fallback: stopped {stopped}, priming {priming}, missed {missed}, resync {resync} | driver skipped {} slots",
         measured.callbacks.len(),
-        status.processed,
+        shared.processed(),
         measured.skipped
     );
     out!(
@@ -409,7 +432,7 @@ fn run(options: &Options) -> Result<()> {
     measured.completions.sort_unstable();
     let callback = clock::duration(quantile(&measured.callbacks, 0.999));
     let longest = clock::duration(measured.callbacks.last().copied().unwrap_or(0));
-    let quantum = Duration::from_secs_f64(options.quantum as f64 / RATE);
+    let quantum = measured.shortest;
     let completion =
         |quantile_at: f64| quantile(&measured.completions, quantile_at).as_secs_f64() * 1e6;
     out!(
@@ -435,6 +458,34 @@ fn run(options: &Options) -> Result<()> {
         _ => "unavailable".into(),
     });
     out!("application {application} | helper {helper}");
+    if let Some(report) = &report {
+        let mut times: Vec<Duration> = report
+            .recoveries
+            .iter()
+            .map(|recovery| recovery.time)
+            .collect();
+        let mut fallbacks: Vec<u64> = report
+            .recoveries
+            .iter()
+            .map(|recovery| recovery.fallbacks)
+            .collect();
+        times.sort_unstable();
+        fallbacks.sort_unstable();
+        let millis = |quantile_at: f64| quantile(&times, quantile_at).as_secs_f64() * 1e3;
+        out!(
+            "faults injected {} | recovered {} | recovery ms median {:.1} max {:.1} | fallback quanta per fault median {} max {} | snapshots {}",
+            report.injected,
+            report.recoveries.len(),
+            millis(0.5),
+            millis(1.0),
+            quantile(&fallbacks, 0.5),
+            quantile(&fallbacks, 1.0),
+            report.snapshots
+        );
+        if let Some(failure) = &report.failure {
+            out!("{failure}");
+        }
+    }
 
     if let Some(stalled) = stalled
         && !(stalled.is_finished() && stalled.join().unwrap_or(false))
@@ -447,7 +498,14 @@ fn run(options: &Options) -> Result<()> {
     if longest > quantum {
         return Err(errors::fail(errors::DEADLINE));
     }
-    if options.stall.is_none() && !options.automation && !options.control {
+    if let Some(report) = &report {
+        if report.failure.is_some() || report.recoveries.len() as u64 != report.injected {
+            return Err(errors::fail(errors::RECOVERY));
+        }
+        if report.injected == 0 {
+            return Err(errors::fail(errors::NO_FAULTS));
+        }
+    } else if options.stall.is_none() && !options.automation && !options.control {
         if status.late > 0 {
             return Err(errors::fail(errors::LATE));
         }
