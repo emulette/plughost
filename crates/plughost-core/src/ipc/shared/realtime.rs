@@ -162,7 +162,16 @@ impl Control {
             .store(generation, Ordering::Release);
     }
 
-    /// How many quanta the worker completed later than their deadline, and its heartbeat.
+    /// The last quantum the application submitted and the last the worker completed.
+    pub fn progress(&self) -> (u64, u64) {
+        (
+            self.word(SUBMITTED).load(Ordering::Acquire),
+            self.word(COMPLETED).load(Ordering::Acquire),
+        )
+    }
+
+    /// How many quanta the worker completed later than their deadline, and its heartbeat: the
+    /// time it last completed one, in [`clock`] ticks.
     pub fn worker(&self) -> (u64, u64) {
         (
             self.word(LATE).load(Ordering::Relaxed),

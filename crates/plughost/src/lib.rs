@@ -52,7 +52,7 @@ mod presets;
 mod realtime;
 mod scan;
 
-pub use chain::{Chain, Timeouts};
+pub use chain::{Chain, ChainSnapshot, Timeouts};
 pub use errors::Error;
 pub use helper::HelperMonitor;
 pub use plughost_core::render::{

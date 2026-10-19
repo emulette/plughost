@@ -2,6 +2,7 @@
 
 mod audio;
 mod realtime;
+mod recovery;
 mod shared;
 mod state;
 
@@ -16,6 +17,8 @@ use plughost_core::{Event, HostIdentity, ParameterInfo, PluginInfo, PluginState,
 
 use crate::errors::Error;
 use crate::helper::{Helper, Mode};
+
+pub use recovery::ChainSnapshot;
 
 /// How long each kind of operation may go without a response from the helper. Start from
 /// [`Timeouts::default`] and change the fields that need other values. A duration too long to

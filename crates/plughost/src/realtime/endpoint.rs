@@ -40,14 +40,16 @@ pub enum FallbackReason {
     Priming,
     /// The helper had not completed the output in time.
     Missed,
-    /// The endpoint waits to be stopped, the chain reset and the endpoint started again.
+    /// The endpoint waits to be stopped, the chain reset and the endpoint started again, or to
+    /// be recovered.
     Resync,
 }
 
 /// The audio callback's side of a chain's realtime endpoint, from [`crate::Chain::realtime_endpoint`].
 /// Move it to the callback's thread and call `process_audio_f32` or `process_audio_f64` there,
 /// in the chain's prepared precision, once per callback. Drop it on a control thread: dropping
-/// releases shared memory.
+/// releases shared memory. [`crate::Chain::recover_realtime`] moves the endpoint to the chain it
+/// recovers in a new helper, while the callback keeps this value.
 ///
 /// Call it once per quantum's worth of time, as an audio device calls back: the helper works on
 /// a quantum until the call `latency` quanta later, so quanta processed in a burst find the
@@ -55,7 +57,8 @@ pub enum FallbackReason {
 /// for callbacks of one quantum; an application that cuts each device callback into several
 /// quanta needs a latency of as many quanta as a callback holds.
 pub struct RealtimeEndpoint {
-    ring: Ring,
+    /// Boxed so that recovery can hand the callback another chain's ring without allocating.
+    ring: Box<Ring>,
     state: Arc<State>,
     quantum: usize,
     latency: u64,
@@ -158,7 +161,7 @@ impl RealtimeEndpoint {
     ) -> RealtimeEndpoint {
         let output_channels = chain.output_channels();
         RealtimeEndpoint {
-            ring,
+            ring: Box::new(ring),
             state,
             quantum: config.quantum,
             latency: config.latency as u64,
@@ -341,10 +344,12 @@ impl RealtimeEndpoint {
         self.completion.map(clock::duration)
     }
 
-    /// Follows a new generation, whose quanta start again from 1.
+    /// Follows a new generation, whose quanta start again from 1, in the ring of the chain that
+    /// recovered the endpoint when recovery started it.
     fn begin(&mut self, generation: u64) {
         self.generation = generation;
         self.sequence = 0;
+        self.state.ring.receive(&mut self.ring);
         if let Some(dry) = &mut self.dry {
             self.state.dry.receive(dry);
             dry.set_delay(self.state.dry_delay.load(Ordering::Relaxed) as usize);

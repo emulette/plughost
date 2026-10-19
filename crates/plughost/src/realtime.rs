@@ -7,10 +7,13 @@
 
 mod dry;
 mod endpoint;
+mod mailbox;
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::time::Duration;
 
 use plughost_core::FailureKind;
+use plughost_core::ipc::shared::realtime::Ring;
 
 pub use endpoint::{FallbackReason, RealtimeEndpoint, RealtimeOutput};
 
@@ -79,7 +82,7 @@ pub struct RealtimeStatus {
     /// The endpoint processes: started and not stopped.
     pub running: bool,
     /// The endpoint plays its fallback until it is stopped, the chain reset and the endpoint
-    /// started again.
+    /// started again, or until [`crate::Chain::recover_realtime`] succeeds.
     pub resync: bool,
     /// Callbacks the endpoint served.
     pub callbacks: u64,
@@ -104,6 +107,14 @@ pub struct RealtimeStatus {
     /// The endpoint's whole latency in frames: the chain's latency the helper last reported,
     /// plus `latency * quantum`.
     pub latency: u32,
+    /// While quanta the callback submitted are not all completed, the time since the helper's
+    /// worker last completed one, or since the endpoint started, or was recovered, when the
+    /// worker has completed none since; zero while none are outstanding or the endpoint is not
+    /// running. It grows while a plugin hangs in its processing. How long a stall counts as a
+    /// hang is the application's choice, after which it recovers the endpoint with
+    /// [`crate::Chain::recover_realtime`]. A crashed helper shows as its exit through
+    /// [`crate::Chain::helper_monitor`].
+    pub stalled: Duration,
 }
 
 /// The kinds a failure is stored as, by index.
@@ -148,7 +159,10 @@ pub(crate) struct State {
     latency: AtomicU32,
     /// The dry path's delay for the current generation, in frames.
     dry_delay: AtomicU64,
-    dry: dry::Mailbox<dry::DryDelay>,
+    dry: mailbox::Mailbox<dry::DryDelay>,
+    /// A recovered chain's ring, which the callback takes when the generation that recovery
+    /// started begins, handing back the ring it replaces.
+    ring: mailbox::Mailbox<Ring>,
 }
 
 impl State {
@@ -175,7 +189,7 @@ impl State {
         })
     }
 
-    pub(crate) fn status(&self, late: u64, added: u32) -> RealtimeStatus {
+    pub(crate) fn status(&self, late: u64, stalled: Duration, added: u32) -> RealtimeStatus {
         let load = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
         RealtimeStatus {
             running: self.running.load(Ordering::Acquire),
@@ -190,7 +204,13 @@ impl State {
             late,
             dropped_events: load(&self.dropped_events),
             latency: self.latency.load(Ordering::Relaxed).saturating_add(added),
+            stalled,
         }
+    }
+
+    /// Whether the endpoint runs.
+    pub(crate) fn running(&self) -> bool {
+        self.running.load(Ordering::Acquire)
     }
 
     /// Starts generation `generation` with the chain's current latency, once the helper runs.
@@ -205,7 +225,19 @@ impl State {
     /// Stops the callback's submissions before the helper stops.
     pub(crate) fn stop(&self) {
         self.running.store(false, Ordering::Release);
+        self.reclaim();
+    }
+
+    /// Makes the callback play its fallback without submitting, as after an overflow, until the
+    /// next start.
+    pub(crate) fn suspend(&self) {
+        self.resync.store(true, Ordering::Relaxed);
+    }
+
+    /// Frees what the callback replaced.
+    pub(crate) fn reclaim(&self) {
         self.dry.reclaim();
+        self.ring.reclaim();
     }
 
     pub(crate) fn close(&self) {
@@ -220,6 +252,14 @@ impl State {
     pub(crate) fn send_dry(&self, delay: Box<dry::DryDelay>) {
         self.dry.send(delay);
     }
+
+    /// Hands the callback the ring of the generation started next.
+    pub(crate) fn send_ring(&self, ring: Box<Ring>) {
+        self.ring.send(ring);
+    }
 }
 
 pub(crate) use dry::DryDelay;
+
+#[cfg(test)]
+mod tests;

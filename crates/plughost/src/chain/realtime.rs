@@ -16,18 +16,34 @@ use crate::realtime::{
 
 /// The control thread's handle on the chain's endpoint.
 pub(super) struct Realtime {
-    state: Arc<State>,
-    control: Arc<Control>,
-    config: RealtimeConfig,
-    running: bool,
+    pub(super) state: Arc<State>,
+    /// The control mapping of the chain's ring.
+    pub(super) control: Arc<Control>,
+    pub(super) config: RealtimeConfig,
+    /// The helper's worker runs.
+    pub(super) running: bool,
     /// The dry path's storage capacity the callback has, in frames.
     dry_capacity: usize,
+    /// When the current generation started, in [`clock`] ticks.
+    started: u64,
 }
 
 impl Realtime {
     /// Frames the endpoint adds to the chain's latency.
     fn added(&self) -> u32 {
         (self.config.latency * self.config.quantum) as u32
+    }
+
+    /// The time since the worker last completed a quantum, or since the generation started,
+    /// while a submitted quantum is outstanding. The worker stamps its heartbeat only when it
+    /// completes one.
+    fn stalled(&self, running: bool) -> Duration {
+        let (submitted, completed) = self.control.progress();
+        if !running || submitted <= completed {
+            return Duration::ZERO;
+        }
+        let heartbeat = self.control.worker().1;
+        clock::duration(clock::now().saturating_sub(heartbeat.max(self.started)))
     }
 }
 
@@ -39,10 +55,11 @@ impl Drop for Realtime {
 
 impl Chain {
     /// Creates the realtime endpoint for the prepared chain, replacing one created before, which
-    /// then plays its fallback for good, as does an endpoint after the chain is prepared again or
-    /// dropped. Each callback is one quantum of `config.quantum` frames, at most the prepared
-    /// maximum block size, in the prepared precision. Move the returned endpoint to the audio
-    /// callback's thread; it plays its fallback until [`Chain::start_realtime`].
+    /// then plays its fallback for good, as does an endpoint after the chain that has it is
+    /// prepared again or dropped; [`Chain::recover_realtime`] moves it to another chain. Each
+    /// callback is one quantum of `config.quantum` frames, at most the prepared maximum block
+    /// size, in the prepared precision. Move the returned endpoint to the audio callback's thread;
+    /// it plays its fallback until [`Chain::start_realtime`].
     pub fn realtime_endpoint(
         &mut self,
         config: &RealtimeConfig,
@@ -60,6 +77,32 @@ impl Chain {
         if dry && chain.input_channels() != chain.output_channels() {
             return Err(invalid(InputError::RealtimeDry));
         }
+        let ring = self.install_ring(config)?;
+        let chain = self.config.as_ref().ok_or(Error::NotPrepared)?;
+        let state = Arc::new(State::default());
+        let added = config.latency * config.quantum;
+        let dry_capacity = self.latency as usize + added + config.quantum;
+        let dry = dry.then(|| {
+            let mut delay = DryDelay::new(chain.input_channels(), dry_capacity);
+            delay.set_delay(self.latency as usize + added);
+            Box::new(delay)
+        });
+        let control = ring.control();
+        let endpoint = RealtimeEndpoint::new(ring, Arc::clone(&state), config, chain, dry);
+        self.realtime = Some(Realtime {
+            control,
+            state,
+            config: *config,
+            running: false,
+            dry_capacity,
+            started: 0,
+        });
+        Ok(endpoint)
+    }
+
+    /// Creates a ring of `config`'s shape for the prepared chain and installs it in the helper.
+    pub(super) fn install_ring(&mut self, config: &RealtimeConfig) -> Result<Ring, Error> {
+        let chain = self.config.as_ref().ok_or(Error::NotPrepared)?;
         let lanes = config.latency + 2;
         let first = self.generation.checked_add(1).ok_or(Error::Protocol)?;
         self.generation = first + lanes as u64;
@@ -84,25 +127,7 @@ impl Chain {
             self.timeouts.control,
         )?;
         expect_done(response)?;
-        let chain = self.config.as_ref().ok_or(Error::NotPrepared)?;
-        let state = Arc::new(State::default());
-        let added = config.latency * config.quantum;
-        let dry_capacity = self.latency as usize + added + config.quantum;
-        let dry = dry.then(|| {
-            let mut delay = DryDelay::new(chain.input_channels(), dry_capacity);
-            delay.set_delay(self.latency as usize + added);
-            Box::new(delay)
-        });
-        let control = ring.control();
-        let endpoint = RealtimeEndpoint::new(ring, Arc::clone(&state), config, chain, dry);
-        self.realtime = Some(Realtime {
-            control,
-            state,
-            config: *config,
-            running: false,
-            dry_capacity,
-        });
-        Ok(endpoint)
+        Ok(ring)
     }
 
     /// Starts the realtime endpoint: its callbacks submit their quanta from now on, numbered
@@ -110,6 +135,12 @@ impl Chain {
     /// whole latency in frames, the chain's plus `latency * quantum`. After a resync, stop the
     /// endpoint, [`Chain::reset`] the chain and start it again.
     pub fn start_realtime(&mut self) -> Result<u32, Error> {
+        self.start_generation(None)
+    }
+
+    /// Starts the endpoint's next generation once the helper's worker runs, handing the callback
+    /// `ring` for it.
+    pub(super) fn start_generation(&mut self, ring: Option<Box<Ring>>) -> Result<u32, Error> {
         let realtime = self.realtime.as_ref().ok_or(Error::NotPrepared)?;
         if realtime.running {
             return Ok(self.latency.saturating_add(realtime.added()));
@@ -138,6 +169,10 @@ impl Chain {
         expect_done(response)?;
         let latency = self.latency;
         let realtime = self.realtime.as_mut().ok_or(Error::NotPrepared)?;
+        if let Some(ring) = ring {
+            realtime.state.send_ring(ring);
+        }
+        realtime.started = clock::now();
         realtime.state.start(generation, latency, dry_delay as u64);
         realtime.running = true;
         Ok(latency.saturating_add(added))
@@ -158,14 +193,17 @@ impl Chain {
         expect_done(response)
     }
 
-    /// What the realtime endpoint did, or `None` without one.
+    /// What the realtime endpoint did, or `None` without one. Call it from a control thread: it
+    /// also releases the ring the endpoint stopped using after a recovery.
     pub fn realtime_status(&self) -> Option<RealtimeStatus> {
         let realtime = self.realtime.as_ref()?;
-        Some(
-            realtime
-                .state
-                .status(realtime.control.worker().0, realtime.added()),
-        )
+        realtime.state.reclaim();
+        let running = realtime.state.running();
+        Some(realtime.state.status(
+            realtime.control.worker().0,
+            realtime.stalled(running),
+            realtime.added(),
+        ))
     }
 
     pub(super) fn realtime_running(&self) -> bool {

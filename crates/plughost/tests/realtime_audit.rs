@@ -172,3 +172,32 @@ fn the_realtime_callback_allocates_nothing() {
 
     assert_eq!(plughost_core::audit::processing_allocations(), (0, 0));
 }
+
+#[test]
+#[ignore = "needs helper and the delay fixture (.ps1 or .sh build scripts)"]
+fn the_realtime_callback_allocates_nothing_across_a_recovery() {
+    let processed = RealtimeOutput::Processed;
+    let fallback = RealtimeOutput::Fallback;
+
+    // The callback takes the recovered chain's ring and hands back its own.
+    let mut chain = spawn(&[delay(PluginFormat::Clap)]);
+    prepare(&mut chain);
+    let mut endpoint = chain
+        .realtime_endpoint(&RealtimeConfig::new(QUANTUM))
+        .unwrap();
+    chain.start_realtime().unwrap();
+    call(&mut endpoint, 2, QUANTUM, &[], &[]);
+    assert_eq!(call(&mut endpoint, 2, QUANTUM, &[], &[]), processed);
+    let snapshot = chain.snapshot().unwrap();
+    let mut recovered = chain.recover_realtime(&snapshot).unwrap();
+    assert_eq!(
+        call(&mut endpoint, 2, QUANTUM, &[], &[]),
+        fallback(FallbackReason::Priming)
+    );
+    for _ in 0..4 {
+        assert_eq!(call(&mut endpoint, 2, QUANTUM, &[], &[]), processed);
+    }
+    recovered.stop_realtime().unwrap();
+
+    assert_eq!(plughost_core::audit::processing_allocations(), (0, 0));
+}
