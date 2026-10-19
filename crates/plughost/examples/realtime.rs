@@ -6,8 +6,12 @@
 //! with becomes its nearest callback size: WASAPI's shared mode has only its period. Devices may
 //! still call back with other sizes (WASAPI's shared mode does as it starts), so the callback cuts
 //! its output from quanta, which adds up to one quantum of latency. The control thread prints the
-//! endpoint's status each second and, after a resynchronization, stops the endpoint, resets the
-//! chain and starts it again. Ends after the given seconds.
+//! endpoint's status each second and handles its failures: after a resynchronization it
+//! resynchronizes the endpoint without stopping it. It snapshots the chain every few seconds
+//! while the chain is well, and recovers the endpoint in a new helper from the last snapshot when
+//! the helper exits or its processing stalls; the callback keeps its endpoint through the move.
+//! A failed recovery ends the example: nothing restarts the helper in a loop. Ends after the
+//! given seconds.
 //!
 //! usage: realtime <helper executable> <bundle.vst3 | bundle.clap | Audio Unit class ID> [class index] [seconds] [quantum]
 
@@ -28,6 +32,11 @@ const NO_DEVICE: &str = "no default output device with f32 samples";
 /// The tone effects hear, and the instruments' note.
 const PITCH: f64 = 220.0;
 const KEY: u8 = 57;
+/// Seconds between snapshots of a chain that is well.
+const SNAPSHOT_EVERY: u64 = 3;
+/// How long the helper may go without completing a quantum before the processing counts as hung:
+/// many quanta, and long enough not to mistake a slow moment for a hang.
+const HANG_AFTER: Duration = Duration::from_millis(500);
 
 macro_rules! out {
     ($($arg:tt)*) => {{
@@ -221,23 +230,54 @@ fn run(
         }
     };
 
+    // Snapshots restore the plugins' settings in a new helper, so take them while the chain is
+    // well.
+    let mut snapshot = chain.snapshot()?;
     for second in 1..=seconds {
         std::thread::sleep(Duration::from_secs(1));
+        let exit = chain.helper_monitor().exit_status();
         let Some(status) = chain.realtime_status() else {
             break;
         };
         out!(
-            "{second} s: {} processed, {} missed, {} late, latency {} frames",
+            "{second} s: {} processed, {} missed, {} late, stalled {:?}, latency {} frames",
             status.processed,
             status.missed,
             status.late,
+            status.stalled,
             status.latency
         );
-        if status.resync {
+        let mut recover = exit.is_some() || status.stalled > HANG_AFTER;
+        if status.resync && !recover {
             out!("resynchronizing after {:?}", status.last_failure);
-            chain.stop_realtime()?;
-            chain.reset()?;
-            chain.start_realtime()?;
+            // A helper that hung or died since the check above fails the resynchronization.
+            if let Err(error) = chain.resync_realtime() {
+                out!("resynchronization failed: {}", describe(&error));
+                recover = true;
+            }
+        }
+        if recover {
+            out!(
+                "recovering: helper exit {exit:?}, stalled {:?}",
+                status.stalled
+            );
+            // The endpoint moves to the new chain; the callback keeps it. The old chain, whose
+            // helper may hang on, is dropped as the new one replaces it.
+            match chain.recover_realtime(&snapshot) {
+                Ok(recovered) => chain = recovered,
+                Err(error) => {
+                    out!("recovery failed: {}", describe(&error));
+                    return Ok(false);
+                }
+            }
+        } else if second % SNAPSHOT_EVERY == 0 && !status.resync && status.stalled < HANG_AFTER / 10
+        {
+            // A helper that died since the check above fails the snapshot; the next second's
+            // check finds its exit and recovers from the previous one.
+            match chain.snapshot() {
+                Ok(taken) => snapshot = taken,
+                Err(error) => out!("snapshot failed: {}", describe(&error)),
+            }
         }
     }
     // The stream owns the endpoint; dropping it stops the callbacks before the chain stops.
