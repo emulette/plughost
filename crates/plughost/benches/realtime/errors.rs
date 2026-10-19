@@ -7,6 +7,7 @@ pub const ARGUMENTS: &str = "invalid arguments; use --help for realtime benchmar
 pub const RELEASE: &str = "the realtime benchmark requires an optimized release build";
 pub const THREAD: &str = "the callback thread panicked";
 pub const STALL: &str = "the stall fixture did not hold up its process call";
+#[cfg(target_os = "macos")]
 pub const PROCESS: &str = "the helper's process id is not valid";
 pub const SNAPSHOT: &str = "the run took no snapshot to recover from";
 pub const COME_BACK: &str = "the endpoint played no processed output after the fault in time";
