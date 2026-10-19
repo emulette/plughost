@@ -7,6 +7,49 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ## [Unreleased]
 
+### Added
+
+- `Chain::resync_realtime` resynchronizes a running realtime endpoint without stopping it: the
+  callbacks play the fallback while every plugin is reset as by `reset`, which ends the notes the
+  plugins hold and applies an announced latency, and the helper's worker goes on with a new
+  generation. It returns the endpoint's whole latency, as `start_realtime` does, and changes
+  nothing on a stopped endpoint. Stopping the endpoint, resetting the chain and starting it again
+  still works.
+- `Chain::snapshot` returns a `ChainSnapshot` with each slot's project state and native bypass,
+  also while the endpoint runs. `Chain::recover_realtime(&snapshot)` recovers the endpoint in a
+  new helper: it prepares a chain from the snapshot, applies the bypass, and moves the same
+  endpoint to it while the audio callback keeps the `RealtimeEndpoint` it has. The callback plays
+  its fallback during the recovery, and after `latency` priming callbacks the new chain's output.
+  Switch to the returned chain and drop the old one. A failed recovery leaves the endpoint with
+  the old chain and retries nothing. `recover_realtime` loads with the load timeout and prepares
+  with the control timeout.
+- `RealtimeStatus::stalled` reports how long the helper's worker has gone without completing a
+  quantum the callback submitted, which grows while a plugin hangs in its processing; a crashed
+  helper shows through `helper_monitor`. Together they tell when to call `recover_realtime`.
+- `Chain::reprepare_slot` prepares one slot again on a fresh instance holding the active one's
+  project state, which drops a pending restart request, as `reprepare` does for the chain. It
+  uses the load timeout and works while the realtime endpoint runs.
+
+### Changed
+
+- `restore_state`, `import_preset`, `load_discovered_preset` and `select_factory_preset` work
+  while the realtime endpoint runs: the helper stages the fresh instance as it does offline and
+  the worker swaps it in between quanta, and the stream goes on. A replacement that changes the
+  chain's latency resynchronizes the endpoint right after, as `resync_realtime` does. Only
+  `reset`, `prepare_audio`, `reprepare`, `realtime_endpoint`, processing through the chain and
+  rendering still fail with `Error::RealtimeRunning`; use `resync_realtime` instead of `reset`,
+  and `reprepare_slot` instead of `reprepare` for a restart request.
+- The first callback of every new generation (a start, a resync or a recovery) ends the notes
+  that earlier outputs delivered through `produced` and did not end, with note offs at offset 0;
+  the endpoint keeps track of up to 256 notes, and events that do not fit count as
+  `dropped_events`. Notes a replaced instance sent to later slots are still ended only by a
+  reset or resync.
+- `restore_state`, presets and factory presets on a slot with a pending VST3 or CLAP restart
+  request now succeed, also offline, and drop the request with the replaced instance; they
+  failed with `RestartRequired` for that slot before.
+- The internal helper protocol is now 29. Applications and helpers with different protocol
+  versions fail the handshake; rebuild and distribute the helper with the application.
+
 ### Fixed
 
 - VST3 `reset`, the VST3 parameter flush before `prepare_audio` and Audio Unit `reset` also run
@@ -479,6 +522,7 @@ Windows x64, and of Audio Units on macOS, with each chain isolated in a helper p
 - Failures: typed errors with the failing slot, helper exit monitoring, diagnostics, and chain
   recovery in a new helper from saved states.
 
+[Unreleased]: https://github.com/emulette/plughost/compare/v0.1.3...HEAD
 [0.1.3]: https://github.com/emulette/plughost/releases/tag/v0.1.3
 [0.1.2]: https://github.com/emulette/plughost/releases/tag/v0.1.2
 [0.1.1]: https://github.com/emulette/plughost/releases/tag/v0.1.1

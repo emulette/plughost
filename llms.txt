@@ -24,7 +24,8 @@ The application depends on `plughost = "=0.1.3"`. A separate executable depends 
 `plughost-helper = "=0.1.3"` and calls `plughost_helper::run()` from `main`, returning
 `std::process::ExitCode`. Ship that executable with the application and pass its path to
 `Scanner::new` and `Chain::spawn`. The library supplies the helper's command-line arguments
-and IPC handshake. Keep application and helper versions matched.
+and IPC handshake. Keep application and helper versions matched; the internal helper protocol
+is 29, and an application and a helper with different protocol versions fail the handshake.
 
 Supported targets are `aarch64-apple-darwin`, on macOS 15 or newer, and
 `x86_64-pc-windows-msvc`. Audio Units are macOS-only. The helper and loaded plugin must use the same architecture. Intel Macs,
@@ -177,10 +178,12 @@ slice of `PluginRef`, in chain order. Slots are zero-based indices in that slice
 A duration too long to end at a representable instant, such as `Duration::MAX`, waits without a
 deadline.
 Loading, restoring state, importing or loading a preset, selecting a factory preset, opening
-an editor, and preparing an already configured chain again use the load timeout. Initial
-preparation, reset, saving state, preset inspection/export, and parameter/control queries use
-the control timeout. Processing one block uses the process timeout. Scan stall timeouts are
-configured separately on `Scanner`; they do not use `Timeouts`.
+an editor, preparing one slot again (`reprepare_slot`), and preparing an already configured
+chain again use the load timeout. Initial preparation, reset, `resync_realtime`, saving state,
+preset inspection/export, and parameter/control queries use the control timeout.
+`recover_realtime` uses the load timeout for loading the plugins and restoring their states and
+the control timeout for the rest. Processing one block uses the process timeout. Scan stall
+timeouts are configured separately on `Scanner`; they do not use `Timeouts`.
 
 Types that later versions extend are `#[non_exhaustive]`: the enums `Layout`, `PluginFormat`,
 `PluginKind`, `EventData`, `ExpressionKind`, `TailPolicy`, `RenderStatus`, `StatePurpose`,
@@ -192,8 +195,9 @@ The structs `Event`, `Note`, `NoteExpression`, `RenderOptions`, `Transport`, `Bl
 `PluginInfo`, `EventPortInfo`, `AudioBusInfo`, `Capabilities`, `CapabilityReport`,
 `PluginTiming`, `ParameterInfo`, `ParameterFlags`, `ParameterDetails`, `FactoryPreset` and
 `PresetInfo` are built with their `new` or `default` constructors and then their public fields,
-not struct literals. `Rendered`, `RenderProgress` and `Delivery` are non-exhaustive output-only
-structs supplied by rendering; callers read their fields rather than construct them.
+not struct literals. `Rendered`, `RenderProgress`, `Delivery` and `ChainSnapshot` are
+non-exhaustive output-only structs supplied by rendering or `Chain::snapshot`; callers read
+their fields rather than construct them.
 
 `chain.plugins()` returns loaded plugin metadata. `chain.capabilities(slot)` returns a
 `CapabilityReport` with native plugin evidence and isolated-host implementation support.
@@ -381,14 +385,17 @@ latency throughout. Each plugin's latency is read as it activates, on the helper
 A latency a plugin announces while it processes (VST3 `kLatencyChanged`, an Audio Unit's changed
 latency property) does not stop processing or a render already running, and `take_changes()`
 reports `PluginTiming::latency_changed` for its slot. `reprepare()` activates the plugins again
-and applies it; VST3 plugins and Audio Units also take it on `reset()`. VST3 asks plugins to keep
+and applies it; VST3 plugins and Audio Units also take it on `reset()`, and, while a realtime
+endpoint runs, on `resync_realtime()`. `reprepare_slot(slot)` does it for one slot, which a fresh
+instance activates with its current latency. VST3 asks plugins to keep
 the latency they were activated with until then, but many, like Audio Units, delay by the new
 latency at once, so the chain's output is out of alignment until the application applies it. A
 render does not start while a change is pending: it fails with `RenderError::LatencyNotApplied`
 (`FailureKind::RestartRequired`) before processing anything. CLAP plugins change their latency by asking for a restart, which refuses processing until
 the chain is prepared again. A plugin that asked to be prepared again (a CLAP restart, a VST3
 `kIoChanged` or `kReloadComponent`) fails blocks with `FailureKind::RestartRequired` for its
-slot until `reprepare()`; `reset()` keeps the request, and edits and resets still apply. Tails follow
+slot until `reprepare()` or `reprepare_slot(slot)`; `reset()` keeps the request, and edits and
+resets still apply. Tails follow
 the plugins. Explicit timing reads, parameter/text edits, resets and render startup read current
 native timing. Idle ticks and `take_changes()` poll VST3 and AU at most once per 100 ms after a
 successful observation. A busy processing engine skips that poll and retries on a later tick;
@@ -443,18 +450,19 @@ prepared chain. Every callback is one quantum of `quantum` frames, at most the p
 quanta (default 1). `with_fallback(Fallback::Dry)` plays the input delayed by the whole latency
 instead of silence while output is missing; it needs as many output as input channels. A new
 endpoint replaces the previous one; preparing the chain again or dropping it retires the
-endpoint for good, which then plays `FallbackReason::Stopped`.
+endpoint for good, which then plays `FallbackReason::Stopped`; `recover_realtime` moves it to
+another chain instead.
 
 Move the endpoint to the audio callback's thread and call `process_audio_f32` or
 `process_audio_f64` there once per callback, with the arguments of `Chain::process_audio_*`.
 The call copies the input into shared memory, wakes the helper, and copies out the output of
 the quantum submitted `latency` callbacks before; it never waits, locks, or allocates. It
 returns `RealtimeOutput::Processed` or `RealtimeOutput::Fallback(reason)`: `Stopped`,
-`Priming` (the first `latency` callbacks after a start), `Missed` (the helper had not completed
-that output), or `Resync`. A change of source ramps over one quantum: into the fallback from the
-last sample played, and back to the output after a miss with a crossfade. The first output after
-a start plays as is, so without misses the output is the offline output for blocks of one
-quantum, `latency * quantum` frames later. `produced` receives the output events except system
+`Priming` (the first `latency` callbacks after a start, a resync or a recovery), `Missed` (the
+helper had not completed that output), or `Resync`. A change of source ramps over one quantum:
+into the fallback from the last sample played, and back to the output after a miss with a
+crossfade. The first output after a start, a resync or a recovery plays as is, so without misses
+the output is the offline output for blocks of one quantum, `latency * quantum` frames later. `produced` receives the output events except system
 exclusive ones, up to its capacity; reserve `MAX_BLOCK_EVENTS`.
 Invalid input is an error and starts a resync; wrong output buffers or precision are an error
 and leave `output` unchanged. `endpoint.last_completion()` says how long the helper took for
@@ -467,21 +475,50 @@ From a control thread, `chain.start_realtime()` starts processing and returns th
 in frames: the chain's latency plus `latency * quantum`. `chain.stop_realtime()` stops between
 quanta. `chain.realtime_status()` reports callbacks, processed and missed outputs, overflows,
 callbacks of another size, failed quanta and the last failure, late completions (quanta the
-helper completed more than `latency` quanta after their submission), dropped events, and the
-latency. A callback of another size, a full ring (the helper fell `latency + 2` quanta
-behind), a failed quantum, or invalid input sets `resync`: the endpoint plays its fallback until
-the application stops it, calls `chain.reset()`, which ends held notes and applies an announced
-latency, and starts it again.
+helper completed more than `latency` quanta after their submission), dropped events, the
+latency, and `stalled`. A callback of another size, a full ring (the helper fell `latency + 2`
+quanta behind), a failed quantum, or invalid input sets `resync`: the endpoint plays its fallback until
+the application calls `chain.resync_realtime()` (or `recover_realtime`, below). It halts the
+callbacks' submissions, which play `Resync` meanwhile, resets every plugin as `reset()` does,
+ending held notes and applying an announced latency, and starts a new generation without
+stopping the helper's worker: its quanta are numbered from 1 again and the first output plays as
+is after `latency` priming callbacks, as after a start. It returns the whole latency in frames,
+as `start_realtime` does, and changes nothing on a stopped endpoint. Stopping the endpoint,
+calling `chain.reset()` and starting it again still works. The first callback of every new
+generation (a start, a resync or a recovery) puts in `produced`, in place of the output's events,
+a note off at offset 0 for each note earlier outputs started there and did not end, in the form
+it started in; they count as `dropped_events` when `produced` cannot hold them, and so does a
+note on beyond the 256 notes the endpoint tracks. A plugin whose reset does not return within the
+control timeout fails the resync with `Error::TimedOut`.
 
-While the endpoint runs, `restore_state`, `import_preset`, `load_discovered_preset`,
-`select_factory_preset`, `reset`, `prepare_audio`, `reprepare`, `realtime_endpoint`,
+`status.stalled` is the time since the helper's worker last completed a quantum (or since the
+endpoint started or was recovered), while quanta the callback submitted are outstanding; it is
+zero otherwise. It grows while a plugin hangs in its processing, and how long counts as a hang
+is the application's choice. A crashed helper shows through `helper_monitor()` instead.
+`chain.snapshot()` returns a `ChainSnapshot` with each slot's `StatePurpose::Project` state
+(`states`) and native bypass (`bypass`, `None` where unavailable); it also works while the
+endpoint runs, and plughost takes none by itself. After a crash or hang, call
+`chain.recover_realtime(&snapshot)`: it prepares a chain from the snapshot in a new helper as
+`recover` does, applies each recorded bypass, installs a new ring there and moves the same
+endpoint to the new chain, which starts the next generation (the callback goes on with the
+`RealtimeEndpoint` it has, plays `Resync` from the call on and takes the new ring on its first
+call of that generation). The application need not stop the endpoint first. Switch to the
+returned chain and drop the old one; the old helper is not contacted, and a hung one only ever
+sees the old shared memory. A failed recovery leaves the endpoint with the old chain, playing its
+fallback with `resync` set, and retries nothing; without an endpoint the call returns
+`Error::NotPrepared`. A new chain holds only what the snapshot holds.
+
+While the endpoint runs, `reset`, `prepare_audio`, `reprepare`, `realtime_endpoint`,
 `process_audio_*` and rendering fail with `Error::RealtimeRunning`; after `stop_realtime` they
-work as before. Parameter edits and queries, bus and capability queries, editors, bypass,
-`save_state`, `export_preset`, `take_changes`, and diagnostics go on. Edits reach the plugins
-between quanta, and timing changes arrive through `take_changes` instead of each edit's reply.
-A VST3 or CLAP restart request is reported there while processing goes on with the current
-activation; prepare the chain again after stopping. `recover` is allowed, but the new helper
-competes for the CPU.
+work as before (`resync_realtime` resets under a running endpoint). Parameter edits and queries,
+bus and capability queries, editors, bypass, `save_state`, `snapshot`, `export_preset`,
+`take_changes`, and diagnostics go on, and so does replacing one slot: `restore_state`,
+`import_preset`, `load_discovered_preset`, `select_factory_preset` and `reprepare_slot` swap a
+fresh instance in between quanta (see below). Edits reach the plugins between quanta, and timing
+changes arrive through `take_changes` instead of each edit's reply. A VST3 or CLAP restart
+request is reported there while processing goes on with the current activation; call
+`reprepare_slot(slot)` for that slot, or prepare the chain again after stopping. `recover` is
+allowed, but the new helper competes for the CPU.
 
 The helper's worker runs with the time-constraint policy for the quantum in an audio workgroup
 interval of its own on macOS, holding an activity that keeps App Nap away, and in the MMCSS
@@ -509,13 +546,29 @@ can reject unsupported purposes.
 
 `restore_state` stages a fresh instance, prepares it, and validates timing before replacing
 the slot. Returned native failures preserve the active slot. A crash/timeout can still end
-the helper. Successful restore clears that slot's DSP history. The slot keeps its native
+the helper. Successful restore clears that slot's DSP history. It succeeds on a slot with a
+pending restart request, which the replacement drops with the replaced instance (0.1.3 failed it
+with `RestartRequired`); the same holds for the other replacements below. The slot keeps its native
 bypass unless the state sets it, as a VST3 or CLAP state holding a bypass parameter can; preset
 imports, discovered presets and factory presets do the same. Notes the replaced instance already
 sent to later slots are not ended, so a note-producing plugin's replacement can leave them held;
-`reset()` ends them. An open editor is recreated; reopening failures appear in diagnostics. State payloads are bounded by `MAX_STATE_BYTES`
+`reset()` ends them, and `resync_realtime()` does while an endpoint runs. An open editor is recreated; reopening failures appear in diagnostics. State payloads are bounded by `MAX_STATE_BYTES`
 (128 MiB across processor and controller payloads). A VST3 component or controller that
 rejects its state fails the restore; a controller without state support does not.
+
+`reprepare_slot(slot)` prepares one slot again on a fresh instance that holds the active one's
+project state, replacing the slot as `restore_state` does. Use it for a restart request: the new
+instance has no pending request, DSP history or notes of the replaced one. A plugin that cannot
+save its state, such as an invalidated Audio Unit, fails the call and stays as it is; restore a
+state the application saved instead. It requires a prepared chain.
+
+All of these replacements work while a realtime endpoint runs, and use the load timeout. The
+helper stages the fresh instance on its main thread as it does offline, and the worker swaps it
+in between quanta, deferring the new instance's restart requests as it does the old one's; the
+stream goes on. A replacement that changes the chain's latency resynchronizes the endpoint right
+after, as `resync_realtime()` does (which resets every plugin), because the endpoint does not go
+on in a generation's timeline at another latency; the new latency is the one the resync
+returns and `realtime_status` reports. A replacement that keeps the latency does not.
 
 `inspect_preset`, `export_preset`, and `import_preset` operate on native preset bytes;
 the caller owns file I/O. `MAX_PRESET_BYTES` is 64 MiB. `factory_presets` and
@@ -527,7 +580,8 @@ and skips unreadable entries; only an unreadable root is an error.
 A directory location is crawled in one helper for the provider's declared file types, as preset
 roots are; each `DiscoveredPreset` names its `location` (the plugin or the file it was found in),
 and files the provider refused are listed in `failed_files`. A crash or timeout fails the whole
-query. `load_discovered_preset` applies a preset's location/key on a fresh instance.
+query. `load_discovered_preset` applies a preset's location/key on a fresh instance, also while
+a realtime endpoint runs.
 Discovery metadata alone does not prove a preset belongs to the currently loaded class.
 
 The VST3 SDK's AUv3 samples pass parameter edits to their processor only while processing
@@ -569,8 +623,13 @@ its chain only once recovery succeeds; after a failure the original remains avai
 another attempt. Edits after the snapshot, DSP history, open editors and unread diagnostics are
 not recovered. Native bypass returns only when a state holds it (a VST3 or CLAP bypass parameter;
 never Audio Unit bypass), so the application records each slot's bypass with its snapshot and
-applies it with `set_bypass` before switching to the recovered chain. `reprepare()` reactivates the saved configuration once; repeated native restart
-requests remain visible to the caller.
+applies it with `set_bypass` before switching to the recovered chain. `snapshot()` saves the
+states and bypass together as a `ChainSnapshot`, which `recover_realtime` applies for a chain
+with a realtime endpoint (see Realtime processing); `recover(&snapshot.states)` leaves the
+endpoint with the old chain, and the bypass to the application.
+`reprepare()` reactivates the saved configuration once, and `reprepare_slot(slot)` one slot,
+also while a realtime endpoint runs; repeated native restart requests remain visible to the
+caller.
 
 `helper_monitor()` returns a clonable `HelperMonitor` for the current helper generation. Its
 `exit_status()` and `wait_for_exit(timeout)` observe the OS exit without IPC, including while
@@ -591,7 +650,7 @@ stdout is discarded. Applications own recovery decisions and user-facing reporti
 
 Repository examples are `plughost --example scan`, `plughost --example render` (an offline
 batch with a state snapshot and recovery), `plughost --example realtime` (an audio callback
-driving a realtime endpoint, with its recovery), `plughost --example editor`,
+driving a realtime endpoint, with resynchronization and recovery), `plughost --example editor`,
 `plughost-helper --example helper`, and `plughost-formats --example check`.
 Run them through `cargo run -p <crate> --example <name> -- <arguments>`; each source file
 lists its arguments. Native loading can show license dialogs, so select plugins explicitly.

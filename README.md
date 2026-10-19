@@ -94,10 +94,16 @@ fn start(chain: &mut Chain) -> Result<(RealtimeEndpoint, u32), Error> {
 
 When the helper's output is late, the callback plays silence, or the delayed input for effects,
 and ramps into and out of it. The control thread reads `realtime_status` and, after a
-resynchronization, stops the endpoint, resets the chain, and starts it again. The
+resynchronization, calls `resync_realtime`, which resets every plugin and starts a new generation
+without stopping the endpoint. Replacing a slot with `restore_state`, a preset or
+`reprepare_slot` goes on under a running endpoint. `RealtimeStatus::stalled` shows how long the
+helper has gone without completing a quantum, so the application can tell a hang from a crash,
+which `helper_monitor` reports. `snapshot` saves each slot's state and bypass, and
+`recover_realtime` moves the same endpoint to a chain it prepares in a new helper, while the
+audio callback keeps it. The
 [realtime example](https://github.com/emulette/plughost/blob/v0.1.3/crates/plughost/examples/realtime.rs)
-does this while it plays a chain through the default output device, which it asks for callbacks
-of one quantum.
+plays a chain through the default output device, which it asks for callbacks of one quantum,
+resynchronizes it, and recovers it after its helper crashes or hangs.
 
 Realtime processing is measured at 48 kHz with a latency of one quantum, on Apple Silicon with
 quanta of 64 and 128 frames and on Windows x64 with quanta of 480 frames, the period of

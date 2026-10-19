@@ -48,7 +48,8 @@ impl Default for Timeouts {
 
 /// Plugins processed in order, isolated in their own helper process. If a plugin crashes or
 /// hangs, the chain's methods return [`Error::Crashed`] or [`Error::TimedOut`] and the application
-/// decides whether to [`Chain::recover`].
+/// decides whether to [`Chain::recover`], or [`Chain::recover_realtime`] for a chain with a
+/// realtime endpoint.
 pub struct Chain {
     identity: HostIdentity,
     helper_path: PathBuf,
@@ -105,8 +106,10 @@ impl Chain {
     /// after a failure. The recovered chain holds only what the states hold: edits made after
     /// they were saved and DSP history such as tails are not recovered, and editors are closed.
     /// Native bypass returns only when a state holds it, as a VST3 or CLAP bypass parameter does;
-    /// Audio Unit bypass never does. Apply the bypass the application recorded with
-    /// [`Chain::set_bypass`] before switching to the recovered chain.
+    /// Audio Unit bypass never does. [`Chain::snapshot`] saves the states and the bypass together;
+    /// apply the bypass with [`Chain::set_bypass`] before switching to the recovered chain, or let
+    /// [`Chain::recover_realtime`] do it. The realtime endpoint stays with this chain: it is not
+    /// moved to the recovered one.
     pub fn recover(&self, states: &[PluginState]) -> Result<Chain, Error> {
         if !states.is_empty() && states.len() != self.plugins.len() {
             return Err(Error::Input {
@@ -174,6 +177,7 @@ impl Chain {
 
     /// Explicitly reactivates the saved configuration once. A repeated plugin restart request
     /// remains visible and never causes an automatic retry loop. DSP history may be discarded.
+    /// [`Chain::reprepare_slot`] prepares one slot again, also while the realtime endpoint runs.
     pub fn reprepare(&mut self) -> Result<(), Error> {
         let config = self.config.clone().ok_or(Error::NotPrepared)?;
         self.prepare_audio(&config).map(|_| ())

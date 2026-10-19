@@ -465,9 +465,9 @@ macro_rules! endpoint_process {
             /// is the callback's frames long, which must be the quantum. `produced` is replaced
             /// with that output's events except system exclusive ones, up to its capacity;
             /// reserve [`crate::MAX_BLOCK_EVENTS`] to receive them all. The first callback after
-            /// a start or a resync puts there instead a note off at offset 0 for each note
-            /// earlier outputs started and did not end, in the form it started in: a MIDI note
-            /// off, or a note off with the note's ID.
+            /// a start, a resync or a recovery puts there instead a note off at offset 0 for each
+            /// note earlier outputs started and did not end, in the form it started in: a MIDI
+            /// note off, or a note off with the note's ID.
             ///
             /// Invalid input is an error and starts a resync, like a callback of another size;
             /// the fallback then plays. Wrong output buffers or precision are an error and leave
