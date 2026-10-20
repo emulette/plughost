@@ -54,6 +54,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 - VST3 `reset`, the VST3 parameter flush before `prepare_audio` and Audio Unit `reset` also run
   with subnormal numbers flushed to zero, as 0.1.3 documented for every format.
+- Discovery reads a VST3 bundle's `moduleinfo.json` in time and memory proportional to its size.
+  The JSON5 parser copied a string or identifier again for each escape sequence in it, so a 256 KB
+  file of escapes allocated 17 GB and took a third of a second; plughost now requires json5 1.3.3,
+  which fixes it.
 
 ## [0.1.3] - 2026-10-18
 
