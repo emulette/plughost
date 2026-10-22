@@ -24,7 +24,8 @@ fn main() {
         cache::child(&args[2], Path::new(&args[3]));
         return;
     }
-    if args.get(1).map(String::as_str) == Some("scan") {
+    // A chain starts its helper in host mode; only the protocol fault is used there.
+    if matches!(args.get(1).map(String::as_str), Some("scan" | "host")) {
         peer(&args[2], u64::from_str_radix(&args[3], 16).unwrap());
         return;
     }
@@ -67,7 +68,11 @@ fn peer(name: &str, token: u64) {
     let mut write = MessageWriter::new(write);
     write
         .write(&Hello {
-            protocol: PROTOCOL_VERSION,
+            protocol: if fault == "protocol" {
+                PROTOCOL_VERSION + 1
+            } else {
+                PROTOCOL_VERSION
+            },
             token: if fault == "wrong-hello" {
                 token ^ 1
             } else {
@@ -75,7 +80,7 @@ fn peer(name: &str, token: u64) {
             },
         })
         .unwrap();
-    if fault == "wrong-hello" {
+    if fault == "wrong-hello" || fault == "protocol" {
         return;
     }
     if fault == "closed" {

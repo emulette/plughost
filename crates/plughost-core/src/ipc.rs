@@ -21,7 +21,8 @@ pub const PROTOCOL_VERSION: u32 = 29;
 /// Upper bound on one message. A helper whose memory a plugin corrupted could send anything.
 pub const MAX_MESSAGE_BYTES: usize = 256 << 20;
 
-/// The helper's first message after connecting.
+/// The helper's first message after connecting. Its encoding is the same in every protocol
+/// version, so an application can report the version of a helper built with another one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hello {
     pub protocol: u32,

@@ -156,18 +156,21 @@ impl Helper {
             shared,
             processing: false,
         };
-        match helper.message_controlled(START_TIMEOUT, cancelled)? {
-            Some(Incoming::Hello(hello))
-                if hello.protocol == PROTOCOL_VERSION && hello.token == token =>
-            {
-                Ok(Some(helper))
+        let error = match helper.message_controlled(START_TIMEOUT, cancelled)? {
+            Some(Incoming::Hello(hello)) if hello.token == token => {
+                if hello.protocol == PROTOCOL_VERSION {
+                    return Ok(Some(helper));
+                }
+                Error::ProtocolVersion {
+                    application: PROTOCOL_VERSION,
+                    helper: hello.protocol,
+                }
             }
-            None => Ok(None),
-            _ => {
-                helper.kill();
-                Err(Error::Handshake)
-            }
-        }
+            None => return Ok(None),
+            _ => Error::Handshake,
+        };
+        helper.kill();
+        Err(error)
     }
 
     /// Sends a request and waits for its reply. `timeout` bounds writing the request and the wait

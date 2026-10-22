@@ -25,7 +25,8 @@ The application depends on `plughost = "=0.1.4"`. A separate executable depends 
 `std::process::ExitCode`. Ship that executable with the application and pass its path to
 `Scanner::new` and `Chain::spawn`. The library supplies the helper's command-line arguments
 and IPC handshake. Keep application and helper versions matched; the internal helper protocol
-is 29, and an application and a helper with different protocol versions fail the handshake.
+is 29, and an application and a helper with different protocol versions fail the handshake with
+`Error::ProtocolVersion`, which carries both versions.
 
 Supported targets are `aarch64-apple-darwin`, on macOS 15 or newer, and
 `x86_64-pc-windows-msvc`. Audio Units are macOS-only. The helper and loaded plugin must use the same architecture. Intel Macs,

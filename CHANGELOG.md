@@ -5,6 +5,15 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Error::ProtocolVersion` reports a helper built with another plughost version than the
+  application, with both internal protocol versions, instead of `Error::Handshake`, which now
+  means only that the helper did not present the expected token. Scans record it as a protocol
+  failure with the same message.
+
 ## [0.1.4] - 2026-10-20
 
 ### Added
@@ -526,6 +535,7 @@ Windows x64, and of Audio Units on macOS, with each chain isolated in a helper p
 - Failures: typed errors with the failing slot, helper exit monitoring, diagnostics, and chain
   recovery in a new helper from saved states.
 
+[Unreleased]: https://github.com/emulette/plughost/compare/v0.1.4...HEAD
 [0.1.4]: https://github.com/emulette/plughost/releases/tag/v0.1.4
 [0.1.3]: https://github.com/emulette/plughost/releases/tag/v0.1.3
 [0.1.2]: https://github.com/emulette/plughost/releases/tag/v0.1.2

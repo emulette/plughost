@@ -12,6 +12,9 @@ pub(super) fn run(only: Option<&str>) {
     if only.is_none_or(|name| name == "helper-start") {
         helper_start_failures_preserve_bundle_history();
     }
+    if only.is_none_or(|name| name == "protocol-version") {
+        helpers_of_another_version_report_both_protocol_versions();
+    }
     if only.is_none_or(|name| name == "path-encoding") {
         unsupported_bundle_paths_do_not_poison_other_scans_or_start_a_chain();
     }
@@ -110,6 +113,46 @@ fn audio_unit_registry_overlaps_a_blocked_bundle_within_the_job_budget() {
     );
     assert_eq!(result.bundles[0].outcome, ScanOutcome::Cancelled);
     assert_eq!(result.audio_units, ScanOutcome::Cancelled);
+}
+
+fn helpers_of_another_version_report_both_protocol_versions() {
+    use plughost::{Chain, Error, HostIdentity, PluginFormat, PluginRef, Timeouts};
+    let directory = Directory::new();
+    let root = directory.path();
+    let path = bundle(root, "a");
+    let plugin = PluginRef {
+        format: PluginFormat::Clap,
+        bundle: Some(path.clone()),
+        class_id: "fixture".into(),
+    };
+    let scanner = directory.fault("protocol");
+    let mismatch = Error::ProtocolVersion {
+        application: PROTOCOL_VERSION,
+        helper: PROTOCOL_VERSION + 1,
+    };
+    assert_eq!(
+        scanner.retry(&path).unwrap().outcome,
+        ScanOutcome::Failed(Failure::new(FailureKind::Protocol, mismatch.to_string()))
+    );
+    let helper = root.join(if cfg!(windows) {
+        "helper.exe"
+    } else {
+        "helper"
+    });
+    let result = Chain::spawn(
+        &helper,
+        &[plugin],
+        &HostIdentity::default(),
+        Timeouts::default(),
+    );
+    assert!(
+        matches!(
+            result,
+            Err(Error::ProtocolVersion { application, helper })
+                if application == PROTOCOL_VERSION && helper == PROTOCOL_VERSION + 1
+        ),
+        "{result:?}"
+    );
 }
 
 fn unsupported_bundle_paths_do_not_poison_other_scans_or_start_a_chain() {

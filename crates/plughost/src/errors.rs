@@ -5,7 +5,10 @@ use plughost_core::messages::{BUFFERS, CHAIN_NOT_PREPARED};
 use plughost_core::{Failure, FailureKind, InputError, RenderError};
 
 const HELPER_START: &str = "could not start the helper";
-const HANDSHAKE: &str = "the helper did not identify itself with the expected token and protocol";
+const HANDSHAKE: &str = "the helper did not identify itself with the expected token";
+const PROTOCOL_VERSION: &str =
+    "the helper was built with another plughost version: its protocol is";
+const APPLICATION_PROTOCOL: &str = "the application's is";
 const CRASHED: &str = "the helper exited";
 const TIMED_OUT: &str = "the helper stopped responding and was terminated";
 const OPERATION: &str = "the operation failed";
@@ -24,8 +27,16 @@ const REALTIME_RUNNING: &str =
 pub enum Error {
     /// The helper could not be launched or its local transport could not be established.
     HelperStart(std::io::Error),
-    /// The helper did not present the expected token and internal protocol version.
+    /// The helper did not present the expected token.
     Handshake,
+    /// The helper presented the expected token with another internal protocol version: it was
+    /// built with another plughost version than the application. Build both with the same one.
+    ProtocolVersion {
+        /// The application's internal protocol version.
+        application: u32,
+        /// The helper's internal protocol version.
+        helper: u32,
+    },
     /// The helper process ended. `slot` is the plugin the helper was calling, as far as the helper
     /// had recorded it, preferring the thread serving the failed request; a plugin-owned thread,
     /// the other helper thread, or earlier memory corruption can also be the cause.
@@ -83,6 +94,13 @@ impl fmt::Display for Error {
         match self {
             Error::HelperStart(_) => f.write_str(HELPER_START),
             Error::Handshake => f.write_str(HANDSHAKE),
+            Error::ProtocolVersion {
+                application,
+                helper,
+            } => write!(
+                f,
+                "{PROTOCOL_VERSION} {helper}, {APPLICATION_PROTOCOL} {application}"
+            ),
             Error::Crashed {
                 slot: which,
                 status,
@@ -151,7 +169,9 @@ impl Error {
     pub fn kind(&self) -> FailureKind {
         match self {
             Self::HelperStart(_) | Self::Cache(_) => FailureKind::Host,
-            Self::Handshake | Self::Protocol => FailureKind::Protocol,
+            Self::Handshake | Self::ProtocolVersion { .. } | Self::Protocol => {
+                FailureKind::Protocol
+            }
             Self::Crashed { .. } => FailureKind::Crashed,
             Self::TimedOut { .. } => FailureKind::TimedOut,
             Self::Operation { failure, .. } => failure.kind,
