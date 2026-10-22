@@ -329,15 +329,13 @@ mod platform {
             let binary = Binary { library };
             // SAFETY: InitDll and GetPluginFactory have these signatures in the VST3 module ABI.
             unsafe {
-                if let Ok(init) = binary.library.get::<ModuleEntry>(b"InitDll\0")
+                if let Ok(init) = binary.library.get::<ModuleEntry>(c"InitDll")
                     && !init()
                 {
                     return Err(Vst3Error::EntryFailed);
                 }
                 // An entered module is exited even when loading fails from here, as the SDK does.
-                let Ok(get_factory) = binary
-                    .library
-                    .get::<GetPluginFactory>(b"GetPluginFactory\0")
+                let Ok(get_factory) = binary.library.get::<GetPluginFactory>(c"GetPluginFactory")
                 else {
                     binary.exit();
                     return Err(Vst3Error::NoEntryPoint("GetPluginFactory"));
@@ -350,7 +348,7 @@ mod platform {
         pub fn exit(&self) {
             // SAFETY: ExitDll has this signature in the VST3 module ABI.
             unsafe {
-                if let Ok(exit) = self.library.get::<ModuleEntry>(b"ExitDll\0") {
+                if let Ok(exit) = self.library.get::<ModuleEntry>(c"ExitDll") {
                     exit();
                 }
             }
