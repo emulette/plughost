@@ -94,7 +94,7 @@ checksum = "103a00f784a6477d82dc4580ea125e875074729c2703ccb29e5e9fb40bea5308"
 dependencies = [
  "clack-common",
  "clap-sys",
- "libloading",
+ "libloading 0.8.9",
  "objc2-foundation",
 ]
 
@@ -411,6 +411,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "libloading"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -694,7 +704,7 @@ dependencies = [
  "clack-host",
  "clap-sys",
  "libc",
- "libloading",
+ "libloading 0.9.0",
  "objc2",
  "objc2-app-kit",
  "objc2-audio-toolbox",
