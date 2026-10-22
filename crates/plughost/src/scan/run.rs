@@ -28,6 +28,7 @@ impl Scanner {
         control: &ScanControl,
         events: &(dyn Fn(&ScanEvent) + Sync),
     ) -> Result<Catalog, Error> {
+        self.validate_host()?;
         let paths = bundle::find(&self.directories, &|| control.is_cancelled());
         if control.is_cancelled() {
             return Ok(Catalog {

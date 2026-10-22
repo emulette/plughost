@@ -19,9 +19,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use plughost_core::PluginRef;
 use plughost_core::ipc::Request;
 use plughost_core::{Failure, PluginInfo};
+use plughost_core::{HostIdentity, PluginRef};
 use serde::{Deserialize, Serialize};
 
 use self::bundle::Inspection;
@@ -178,6 +178,7 @@ pub struct Scanner {
     stall_timeout: Duration,
     exclude_after: u32,
     policy: ScanPolicy,
+    host: HostIdentity,
 }
 
 /// A bundle's scan result and the cache entry to keep for it.
@@ -213,7 +214,18 @@ impl Scanner {
             stall_timeout: Duration::from_secs(30),
             exclude_after: 2,
             policy: ScanPolicy::default(),
+            host: HostIdentity::default(),
         }
+    }
+
+    /// The identity native inspection presents to plugins, as [`crate::Chain::spawn`] does
+    /// (default: [`HostIdentity::default`]). VST3 factories receive it as their host context;
+    /// CLAP inspection reads descriptors without a host. Cached native results are reused
+    /// whichever identity inspected them. An invalid identity fails [`Self::scan`] and
+    /// [`Self::retry`] with [`Error::Input`] before any helper starts.
+    pub fn host(mut self, host: HostIdentity) -> Scanner {
+        self.host = host;
+        self
     }
 
     /// Folders to scan, highest priority first.
@@ -338,6 +350,7 @@ impl Scanner {
         control: &ScanControl,
         events: &(dyn Fn(&ScanEvent) + Sync),
     ) -> Result<BundleScan, Error> {
+        self.validate_host()?;
         if control.is_cancelled() {
             let cache = cache::load(&self.cache);
             let scan = self.interrupted(
@@ -366,6 +379,12 @@ impl Scanner {
         writer.finish().map_err(Error::Cache)?;
         events(&ScanEvent::BundleFinished(scan.clone()));
         Ok(scan)
+    }
+
+    fn validate_host(&self) -> Result<(), Error> {
+        self.host
+            .validate()
+            .map_err(|error| Error::Input { slot: None, error })
     }
 
     fn interrupted(
@@ -478,6 +497,7 @@ impl Scanner {
         let outcome = match self.execute(
             Request::Scan {
                 bundle: path.to_path_buf(),
+                host: self.host.clone(),
                 interactive: mode == ScanMode::Retry,
             },
             mode.stall_timeout(self.stall_timeout),

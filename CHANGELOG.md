@@ -13,6 +13,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   application, with both internal protocol versions, instead of `Error::Handshake`, which now
   means only that the helper did not present the expected token. Scans record it as a protocol
   failure with the same message.
+- `Scanner::host` sets the identity native inspection presents to plugins, which VST3 factories
+  receive as their host context. Scans presented the default plughost identity before, while a
+  chain presented the application's.
+
+### Changed
+
+- The internal helper protocol is now 30. Applications and helpers with different protocol
+  versions fail the handshake; rebuild and distribute the helper with the application.
 
 ## [0.1.4] - 2026-10-20
 

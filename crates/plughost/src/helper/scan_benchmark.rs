@@ -23,6 +23,7 @@ fn warm_scan_benchmark() {
             .send(
                 Request::Scan {
                     bundle: bundle.clone(),
+                    host: plughost_core::HostIdentity::default(),
                     interactive: false,
                 },
                 timeout,

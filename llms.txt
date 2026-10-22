@@ -25,7 +25,7 @@ The application depends on `plughost = "=0.1.4"`. A separate executable depends 
 `std::process::ExitCode`. Ship that executable with the application and pass its path to
 `Scanner::new` and `Chain::spawn`. The library supplies the helper's command-line arguments
 and IPC handshake. Keep application and helper versions matched; the internal helper protocol
-is 29, and an application and a helper with different protocol versions fail the handshake with
+is 30, and an application and a helper with different protocol versions fail the handshake with
 `Error::ProtocolVersion`, which carries both versions.
 
 Supported targets are `aarch64-apple-darwin`, on macOS 15 or newer, and
@@ -58,6 +58,11 @@ Use `.directories(Vec<PathBuf>)` to choose bundle directories explicitly. Native
 is serial by default; `.jobs(n)` explicitly enables parallel loading (`0` selects `1`).
 On macOS, Audio Unit registry enumeration uses one of those worker slots and overlaps bundle
 inspection when the limit exceeds one. The serial default queries the registry after bundles.
+`.host(HostIdentity)` sets the identity native inspection presents to plugins, as
+`Chain::spawn` does (default: `HostIdentity::default()`): VST3 factories receive it as their host
+context, and CLAP inspection reads descriptors without a host. Cached native results are reused
+whichever identity inspected them. An invalid identity fails `scan` and `retry` with
+`Error::Input` (`InputError::HostIdentity`) before any helper starts.
 
 Use `.policy(ScanPolicy)` for explicit selection. `ScanPolicy::default()` allows all items;
 `ScanPolicy::new(ScanAction::Block)` allows only identities with an explicit Allow rule.
@@ -117,7 +122,8 @@ exceeding 64 nested value levels are ignored. Only audio module classes are list
 are not interpreted. Native factory enumeration supplies IPluginFactory3::setHostContext
 when supported, with a live IHostApplication retained for the module lifetime. Direct
 `Module::load_with_host(path, &HostIdentity)` and the generic formats loader use the caller's
-identity; `Module::load` and scan helpers use the default plughost identity. Instance initialization
+identity; `Module::load` uses the default plughost identity, and scan helpers use the
+`Scanner`'s. Instance initialization
 still receives its own host context. A factory that ignores the optional context remains usable.
 
 Native inspection may show plugin license dialogs. `scan_controlled(&control, &events)`,

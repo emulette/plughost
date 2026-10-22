@@ -5,12 +5,13 @@
 use std::io;
 use std::path::Path;
 
+use plughost_core::HostIdentity;
 use plughost_core::ipc::Response;
 use plughost_formats::vst3::Module;
 
 use crate::Responder;
 
-pub fn scan(bundle: &Path, responder: &Responder) -> io::Result<()> {
+pub fn scan(bundle: &Path, host: &HostIdentity, responder: &Responder) -> io::Result<()> {
     let is_clap = bundle
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("clap"));
@@ -27,7 +28,7 @@ pub fn scan(bundle: &Path, responder: &Responder) -> io::Result<()> {
             }
         }
     } else {
-        let module = match Module::load(bundle) {
+        let module = match Module::load_with_host(bundle, host) {
             Ok(module) => module,
             Err(error) => {
                 return responder.fail(None, plughost_formats::Error::from(error).failure());

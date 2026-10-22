@@ -2,11 +2,13 @@
 //! titles. State restoration cannot synthesize these observations.
 use std::path::Path;
 
-use plughost::{Chain, Error, HostIdentity, InputError, PluginFormat, Timeouts};
+use plughost::{
+    Chain, Error, HostIdentity, InputError, PluginFormat, ScanOutcome, Scanner, Timeouts,
+};
 
 mod support;
 
-use support::{delay, prepare, spawn_with};
+use support::{bundle, delay, helper, prepare, spawn_with};
 
 fn check_lifecycle(format: PluginFormat, first_parameter: u64) {
     // The second name exactly fills VST3's 127 UTF-16 units, including surrogate pairs.
@@ -65,6 +67,25 @@ fn clap_receives_host_identity_after_reset_and_recovery() {
     check_lifecycle(PluginFormat::Clap, 2);
 }
 
+/// The routing fixture reports the name in its factory's host context as its vendor.
+#[test]
+#[ignore = "needs scripts/build-helper.ps1 and scripts/build-test-plugins.ps1 (or .sh)"]
+fn vst3_scans_present_the_scanner_host_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let identity = HostIdentity {
+        name: "검증 🎛 Scan Host".to_owned(),
+        ..HostIdentity::default()
+    };
+    let scan = Scanner::new(&helper(), &directory.path().join("cache.json"))
+        .host(identity.clone())
+        .retry(&bundle(PluginFormat::Vst3, "plughost-test-routing"))
+        .unwrap();
+    let ScanOutcome::Found(classes) = &scan.outcome else {
+        panic!("{:?}", scan.outcome)
+    };
+    assert_eq!(classes[0].vendor, identity.name);
+}
+
 #[test]
 fn invalid_host_identity_is_rejected_before_starting_a_helper() {
     let invalid = [
@@ -101,6 +122,26 @@ fn invalid_host_identity_is_rejected_before_starting_a_helper() {
                 &host,
                 Timeouts::default()
             ),
+            Err(Error::Input {
+                slot: None,
+                error: InputError::HostIdentity
+            })
+        ));
+        let scanner = Scanner::new(
+            Path::new("/nonexistent/helper"),
+            Path::new("/nonexistent/cache.json"),
+        )
+        .directories(Vec::new())
+        .host(host);
+        assert!(matches!(
+            scanner.scan(&|_| {}),
+            Err(Error::Input {
+                slot: None,
+                error: InputError::HostIdentity
+            })
+        ));
+        assert!(matches!(
+            scanner.retry(Path::new("/nonexistent/plugin.vst3")),
             Err(Error::Input {
                 slot: None,
                 error: InputError::HostIdentity

@@ -177,13 +177,14 @@ fn handle(
             None,
             Request::Scan {
                 bundle,
+                host,
                 interactive,
             },
         ) => {
             if interactive {
                 events::activate();
             }
-            scan::scan(&bundle, responder)?
+            scan::scan(&bundle, &host, responder)?
         }
         (None, Request::PresetProviders { bundle, host }) => {
             presets::providers(&bundle, &host, responder)?
