@@ -72,7 +72,7 @@ mod tests {
         };
     }
     fn plugin() -> Plugin {
-        // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+        // SAFETY: the tests load only the repository's fixtures and Apple's own units.
         let mut plugin = unsafe { Plugin::new("6175667864656C796170706C") }.unwrap();
         plugin
             .prepare(&ProcessConfig::new(

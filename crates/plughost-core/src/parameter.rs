@@ -40,6 +40,7 @@ pub struct ParameterInfo {
 
 impl ParameterInfo {
     /// A continuous parameter without a default, short title, units or flags.
+    #[must_use]
     pub fn new(id: u64, title: impl Into<String>) -> ParameterInfo {
         ParameterInfo {
             id,
@@ -92,6 +93,7 @@ pub struct ParameterChange {
 
 impl ParameterChange {
     /// Native parameter `id` taking normalized `value` from sample `offset`.
+    #[must_use]
     pub const fn new(id: u64, offset: usize, value: f64) -> ParameterChange {
         ParameterChange { id, offset, value }
     }
@@ -110,6 +112,7 @@ pub struct AutomationEvent {
 
 impl AutomationEvent {
     /// `change` for the plugin in `slot`.
+    #[must_use]
     pub const fn new(slot: usize, change: ParameterChange) -> AutomationEvent {
         AutomationEvent { slot, change }
     }
@@ -162,6 +165,7 @@ pub struct ParameterGroup {
 impl ParameterGroup {
     /// Each field as given. Internal to the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(id: String, name: String, program_list_id: Option<i32>) -> ParameterGroup {
         ParameterGroup {
             id,
@@ -189,6 +193,7 @@ pub struct ParameterDetails {
 
 impl ParameterDetails {
     /// Details without a native unit or group information.
+    #[must_use]
     pub fn new(info: ParameterInfo, plain_at_zero: f64, plain_at_one: f64) -> ParameterDetails {
         ParameterDetails {
             info,
@@ -220,6 +225,7 @@ pub struct ParameterChoice {
 impl ParameterChoice {
     /// Each field as given. Internal to the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(index: u64, normalized: f64, plain: f64, text: String) -> ParameterChoice {
         ParameterChoice {
             index,
@@ -245,6 +251,7 @@ pub struct ParameterChoicePage {
 impl ParameterChoicePage {
     /// Each field as given. Internal to the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(total: u64, start: u64, choices: Vec<ParameterChoice>) -> ParameterChoicePage {
         ParameterChoicePage {
             total,

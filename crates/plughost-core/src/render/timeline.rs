@@ -14,6 +14,7 @@ pub struct TransportChange {
 
 impl TransportChange {
     /// `transport` from `offset` on; `None` removes it.
+    #[must_use]
     pub const fn new(offset: usize, transport: Option<Transport>) -> TransportChange {
         TransportChange { offset, transport }
     }
@@ -33,12 +34,14 @@ pub struct RenderSchedule<'a> {
 
 impl<'a> RenderSchedule<'a> {
     /// Transport changes, in offset order.
+    #[must_use]
     pub const fn with_transport(mut self, transport: &'a [TransportChange]) -> RenderSchedule<'a> {
         self.transport = transport;
         self
     }
 
     /// Automation points, in offset order.
+    #[must_use]
     pub const fn with_automation(
         mut self,
         automation: &'a [AutomationEvent],
@@ -48,6 +51,7 @@ impl<'a> RenderSchedule<'a> {
     }
 
     /// Automation ramps.
+    #[must_use]
     pub const fn with_ramps(mut self, ramps: &'a [AutomationRamp]) -> RenderSchedule<'a> {
         self.ramps = ramps;
         self
@@ -76,6 +80,7 @@ pub struct AutomationRamp {
 impl AutomationRamp {
     /// Parameter `id` of the plugin in `slot` going linearly from `from` at `start` to `to` at
     /// `end`, both inclusive.
+    #[must_use]
     pub const fn new(
         slot: usize,
         id: u64,

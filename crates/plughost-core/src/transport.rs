@@ -14,6 +14,7 @@ pub struct TimeSignature {
 
 impl TimeSignature {
     /// `numerator` beats of `denominator` note values per bar.
+    #[must_use]
     pub const fn new(numerator: u16, denominator: u16) -> TimeSignature {
         TimeSignature {
             numerator,
@@ -39,6 +40,7 @@ pub struct LoopRegion {
 impl LoopRegion {
     /// A loop from `start` to `end` in quarter notes, which are samples `sample_start` to
     /// `sample_end`.
+    #[must_use]
     pub const fn new(start: f64, end: f64, sample_start: i64, sample_end: i64) -> LoopRegion {
         LoopRegion {
             start,
@@ -61,6 +63,7 @@ pub struct BarPosition {
 
 impl BarPosition {
     /// Bar `number`, which starts at `start` quarter notes.
+    #[must_use]
     pub const fn new(start: f64, number: i32) -> BarPosition {
         BarPosition { start, number }
     }
@@ -89,6 +92,7 @@ pub struct Transport {
 
 impl Transport {
     /// A position with no musical time, tempo, meter or loop.
+    #[must_use]
     pub fn new(sample_position: i64, playing: bool) -> Transport {
         Transport {
             sample_position,
@@ -201,6 +205,7 @@ pub struct BlockContext {
 
 impl BlockContext {
     /// Constructs a block duration with no transport snapshot.
+    #[must_use]
     pub const fn new(frames: usize) -> Self {
         Self {
             frames,
@@ -209,6 +214,7 @@ impl BlockContext {
     }
 
     /// The same block at `transport`.
+    #[must_use]
     pub const fn with_transport(self, transport: Transport) -> Self {
         Self {
             transport: Some(transport),

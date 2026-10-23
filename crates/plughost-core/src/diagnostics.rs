@@ -53,6 +53,7 @@ pub struct Diagnostic {
 impl Diagnostic {
     /// Each field as given. Internal to the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(
         severity: DiagnosticSeverity,
         message: String,
@@ -75,6 +76,7 @@ impl Diagnostic {
 /// Records drained since the last snapshot. Loss is explicit; this is not an audit log.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[must_use]
 pub struct DiagnosticBatch {
     /// Retained diagnostics in observed order.
     pub records: Vec<Diagnostic>,

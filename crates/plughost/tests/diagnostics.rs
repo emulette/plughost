@@ -96,7 +96,7 @@ fn a_failed_reconfiguration_keeps_what_its_staged_instances_logged() {
     // The CLAP delay logs as each instance is created; the routing VST3 refuses this rate.
     let mut chain = spawn(&[delay(PluginFormat::Clap), routing(PluginFormat::Vst3)]);
     prepare(&mut chain);
-    chain.take_diagnostics().unwrap();
+    let _ = chain.take_diagnostics().unwrap();
     let config = chain
         .main_bus_config(12_345.0, 512, Layout::Stereo, &[Layout::Stereo; 2])
         .unwrap();

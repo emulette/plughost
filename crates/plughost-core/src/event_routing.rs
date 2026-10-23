@@ -35,6 +35,7 @@ pub struct EventPortInfo {
 
 impl EventPortInfo {
     /// A port whose support for each kind of event is unknown.
+    #[must_use]
     pub fn new(id: u64, index: u32, name: impl Into<String>, direction: AudioDirection) -> Self {
         EventPortInfo {
             id,
@@ -79,6 +80,7 @@ pub struct EventInputRoute {
 
 impl EventInputRoute {
     /// Native event input `port` fed from `source`.
+    #[must_use]
     pub const fn new(port: u64, source: EventSource) -> EventInputRoute {
         EventInputRoute { port, source }
     }
@@ -107,6 +109,7 @@ pub struct EventConfig {
 
 impl EventConfig {
     /// The native event inputs and outputs to activate.
+    #[must_use]
     pub fn new(inputs: Vec<u64>, outputs: Vec<u64>) -> EventConfig {
         EventConfig { inputs, outputs }
     }
@@ -114,6 +117,7 @@ impl EventConfig {
 
 impl SlotEventConfig {
     /// A slot's routed event inputs and its active event outputs.
+    #[must_use]
     pub fn new(inputs: Vec<EventInputRoute>, outputs: Vec<u64>) -> SlotEventConfig {
         SlotEventConfig { inputs, outputs }
     }

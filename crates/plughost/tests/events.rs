@@ -365,7 +365,7 @@ fn events_a_plugin_sends_past_the_block_land_on_its_last_frame() {
     // The fixture sends a note off on key 0 at the block's length; CLAP also reports its end.
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let (mut chain, config) = routing_chain(format, true);
-        chain.take_diagnostics().unwrap();
+        let _ = chain.take_diagnostics().unwrap();
         let (_, produced) = run(
             &mut chain,
             &config,

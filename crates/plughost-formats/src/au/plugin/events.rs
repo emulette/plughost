@@ -250,9 +250,9 @@ mod tests {
     #[test]
     fn host_edits_are_not_reported_back_as_edits_of_the_unit() {
         // AUDelay is a v2 unit; its bridge reports listener notifications some 50 ms later.
-        // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+        // SAFETY: the tests load only the repository's fixtures and Apple's own units.
         let mut plugin = unsafe { Plugin::new("6175667864656C796170706C") }.unwrap();
-        plugin.take_parameter_events();
+        let _ = plugin.take_parameter_events();
         plugin.set_parameter(0, 0.3).unwrap();
         crate::au::wait::run_loop_for(std::time::Duration::from_millis(200));
         assert_eq!(plugin.take_parameter_events().events, []);

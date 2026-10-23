@@ -25,6 +25,7 @@ pub struct ScanPolicy {
 
 impl ScanPolicy {
     /// Sets the action for identities without a more specific rule.
+    #[must_use]
     pub fn new(default: ScanAction) -> Self {
         Self {
             default,
@@ -34,12 +35,14 @@ impl ScanPolicy {
 
     /// Sets a rule for one bundle, including explicit retries. Allow does not clear failures or
     /// bypass automatic exclusion; retry is the explicit way to recheck an excluded bundle.
+    #[must_use]
     pub fn bundle(mut self, path: impl Into<PathBuf>, action: ScanAction) -> Self {
         self.bundles.insert(path.into(), action);
         self
     }
 
     /// Sets a rule for one Audio Unit class ID. Registry enumeration never instantiates it.
+    #[must_use]
     pub fn audio_unit(mut self, class_id: impl Into<String>, action: ScanAction) -> Self {
         self.audio_units
             .insert(class_id.into().to_ascii_uppercase(), action);

@@ -27,6 +27,6 @@ fn timeouts_too_long_for_a_deadline_wait_without_one() {
     );
     prepare(&mut chain);
     block(&mut chain, 64, 0.5);
-    chain.take_changes().unwrap();
+    let _ = chain.take_changes().unwrap();
     chain.save_state(0, StatePurpose::Project).unwrap();
 }

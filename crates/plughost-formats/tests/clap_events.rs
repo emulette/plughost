@@ -65,8 +65,8 @@ fn block(plugin: &Plugin, events: &Events) -> Result<Events, Error> {
 #[ignore = "needs routing CLAP fixture"]
 fn events_whose_header_gives_another_size_than_their_type_are_not_read() {
     let mut plugin = prepared();
-    plugin.take_diagnostics();
-    plugin.take_parameter_events();
+    let _ = plugin.take_diagnostics();
+    let _ = plugin.take_parameter_events();
     let produced = block(&plugin, &Events::from_iter([Event::sysex(0, &MALFORMED)])).unwrap();
     assert_eq!(produced, []);
     assert_eq!(plugin.take_parameter_events().events, []);

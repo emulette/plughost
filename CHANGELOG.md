@@ -168,6 +168,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   `clap::preset_providers` and `clap::discover_presets` take a `clap::Entry` instead of a bundle
   path, `clap::classes(bundle)` is `Entry::classes`, and `clap::classes_once_loaded` is removed:
   load the `Entry`, then read its classes.
+- Public constructors and builders that return their value (`new`, `with_*`, the `Event`,
+  `PluginRef` and `Scanner` builders, `Event::at` and `on_port`), `RenderSession`,
+  `DiagnosticBatch`, `ParameterEventBatch`, `ChangeBatch` and `HostedPlugin::take_editor_request`
+  are `#[must_use]`: discarding one, as a `take_*` drain does, is a warning, so write `let _ =`
+  where a drain is intended.
 - `HostedPlugin`, `BlockProcessor` and `Sample` are sealed: the format plugins and processors
   and `f32` and `f64` implement them, and other crates cannot. `render::Process` and
   `AudioThread` remain for applications to implement. With `Sample` sealed, processing no longer

@@ -88,7 +88,7 @@ fn the_helper_calls_each_clap_function_on_its_thread() {
     block(&mut chain, &[]);
     chain.reprepare().unwrap();
     block(&mut chain, &[]);
-    chain.take_changes().unwrap();
+    let _ = chain.take_changes().unwrap();
     assert_eq!(wrong_threads(&mut chain), Vec::<String>::new());
 }
 

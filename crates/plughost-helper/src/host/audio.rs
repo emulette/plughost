@@ -244,7 +244,8 @@ impl Host {
         for (slot, plugin) in next.iter_mut().enumerate() {
             let _call = calls.enter(Caller::Main, slot);
             parameters.push(parameter_infos(&mut **plugin));
-            plugin.take_parameter_events();
+            // Preparation's reports give way to the resynchronization published once it succeeds.
+            let _ = plugin.take_parameter_events();
             match plugin.event_ports() {
                 Ok(ports) => event_ports.push(ports),
                 Err(error) => return failed(slot, &error),

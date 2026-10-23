@@ -15,6 +15,7 @@ pub struct HostIdentity {
 
 impl HostIdentity {
     /// The host name, vendor and version plugins are told; validated when it is used.
+    #[must_use]
     pub fn new(
         name: impl Into<String>,
         vendor: impl Into<String>,

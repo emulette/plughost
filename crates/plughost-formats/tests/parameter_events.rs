@@ -98,7 +98,7 @@ fn clap_process_events_preserve_order_and_bound_overflow() {
     )
     .unwrap();
     plugin.prepare(&config()).unwrap();
-    plugin.take_parameter_events();
+    let _ = plugin.take_parameter_events();
     let input = [0.0f32; 4];
     let (mut left, mut right) = ([0.0; 4], [0.0; 4]);
     for _ in 0..100 {
@@ -146,7 +146,7 @@ fn vst3_callbacks_and_processor_output_reach_the_consumer() {
     )
     .unwrap();
     plugin.prepare(&config()).unwrap();
-    plugin.take_parameter_events();
+    let _ = plugin.take_parameter_events();
     plugin.set_parameter(7, 1.0).unwrap();
     let batch = plugin.take_parameter_events();
     assert_eq!(

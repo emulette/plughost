@@ -39,6 +39,7 @@ pub enum ParameterEvent {
 /// Overflow loses ordering continuity: cancel open gestures and requery metadata and values.
 #[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]
+#[must_use]
 pub struct ParameterEventBatch {
     /// Notifications retained in observed order.
     pub events: Vec<ParameterEvent>,

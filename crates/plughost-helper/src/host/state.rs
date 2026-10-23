@@ -193,7 +193,7 @@ impl Host {
         let parameters = parameter_infos(candidate.as_mut());
         // Initialization and staging callbacks may describe intermediate values. Replacement
         // publishes one resynchronization boundary after the final candidate has been installed.
-        candidate.take_parameter_events();
+        let _ = candidate.take_parameter_events();
         // All fallible native state/setup/timing work has completed. Editor failure after a
         // successful replacement is diagnosed separately and does not undo the restored state.
         let reopen = self.editors[slot].is_some();

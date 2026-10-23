@@ -8,7 +8,7 @@ use support::{block, prepared_delay as chain};
 #[ignore = "needs helper and test plugins"]
 fn native_edit_notifications_survive_helper_transport_and_overflow() {
     let mut clap = chain(PluginFormat::Clap);
-    clap.take_parameter_events(0).unwrap();
+    let _ = clap.take_parameter_events(0).unwrap();
     for _ in 0..100 {
         clap.set_parameter(0, 0, 0.5).unwrap();
         block(&mut clap, 4, 1.0);
@@ -44,7 +44,7 @@ fn native_edit_notifications_survive_helper_transport_and_overflow() {
 #[ignore = "needs helper and test plugins"]
 fn dynamic_flags_refresh_process_validation_without_consuming_app_events() {
     let mut vst3 = chain(PluginFormat::Vst3);
-    vst3.take_parameter_events(0).unwrap();
+    let _ = vst3.take_parameter_events(0).unwrap();
     assert!(!vst3.parameter_details(0, 0).unwrap().info.flags.read_only);
     vst3.set_parameter(0, 7, 1.0).unwrap();
     let input = [0.0f32; 4];
@@ -146,7 +146,7 @@ fn replacing_slot_state_invalidates_the_consumer_parameter_view() {
     let state = chain
         .save_state(0, plughost::StatePurpose::Project)
         .unwrap();
-    chain.take_parameter_events(0).unwrap();
+    let _ = chain.take_parameter_events(0).unwrap();
     chain
         .restore_state(0, &state, plughost::StatePurpose::Project)
         .unwrap();

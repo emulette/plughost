@@ -26,6 +26,7 @@ pub struct Preset {
 
 impl Preset {
     /// Copies native state into a container with no XML annotations.
+    #[must_use]
     pub fn from_state(state: &PluginState) -> Self {
         Self {
             class_id: state.id().class_id().to_string(),

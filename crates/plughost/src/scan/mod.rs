@@ -232,6 +232,7 @@ impl ScanMode {
 impl Scanner {
     /// Scans the platform's standard folders with `helper`, keeping native results in `cache`.
     /// Native inspection is serial unless [`Self::jobs`] is explicitly set.
+    #[must_use]
     pub fn new(helper: &Path, cache: &Path) -> Scanner {
         Scanner {
             helper: helper.to_path_buf(),
@@ -250,12 +251,14 @@ impl Scanner {
     /// CLAP inspection reads descriptors without a host. Cached native results are reused
     /// whichever identity inspected them. An invalid identity fails [`Self::scan`] and
     /// [`Self::retry`] with [`Error::Input`] before any helper starts.
+    #[must_use]
     pub fn host(mut self, host: HostIdentity) -> Scanner {
         self.host = host;
         self
     }
 
     /// Folders to scan, highest priority first.
+    #[must_use]
     pub fn directories(mut self, directories: Vec<PathBuf>) -> Scanner {
         self.directories = directories;
         self
@@ -264,6 +267,7 @@ impl Scanner {
     /// Selects bundles and registered Audio Units. Blocked bundles remain visible with
     /// [`ScanOutcome::Blocked`]; blocked Audio Units are omitted from registry results.
     /// Rules apply to discovery, native scanning and retry, independently of failure exclusion.
+    #[must_use]
     pub fn policy(mut self, policy: ScanPolicy) -> Scanner {
         self.policy = policy;
         self
@@ -273,6 +277,7 @@ impl Scanner {
     /// The Audio Unit registry uses one of these slots and overlaps bundle inspection when
     /// this limit exceeds one.
     /// Parallel inspection can open multiple plugin dialogs concurrently.
+    #[must_use]
     pub fn jobs(mut self, jobs: usize) -> Scanner {
         self.jobs = jobs.max(1);
         self
@@ -280,6 +285,7 @@ impl Scanner {
 
     /// How long a helper may go without progress (module loaded, each class) before it is
     /// terminated.
+    #[must_use]
     pub fn stall_timeout(mut self, timeout: Duration) -> Scanner {
         self.stall_timeout = timeout;
         self

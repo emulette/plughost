@@ -66,6 +66,7 @@ pub struct ChainSlot {
 
 impl ChainSlot {
     /// `plugin` with its initial state and bypass.
+    #[must_use]
     pub fn new(plugin: PluginRef) -> ChainSlot {
         ChainSlot {
             plugin,
@@ -75,12 +76,14 @@ impl ChainSlot {
     }
 
     /// Restores `state` into the loaded instance.
+    #[must_use]
     pub fn with_state(mut self, state: PluginState) -> ChainSlot {
         self.state = Some(state);
         self
     }
 
     /// Sets the native bypass after the state.
+    #[must_use]
     pub fn with_bypass(mut self, enabled: bool) -> ChainSlot {
         self.bypass = Some(enabled);
         self
@@ -107,6 +110,7 @@ pub struct SpawnOptions {
 
 impl SpawnOptions {
     /// Starts chains that present `host` to plugins, with `timeouts`.
+    #[must_use]
     pub fn new(host: HostIdentity, timeouts: Timeouts) -> SpawnOptions {
         SpawnOptions { host, timeouts }
     }

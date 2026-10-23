@@ -318,7 +318,7 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
     let mut chain = chain(PluginFormat::Clap, 512);
     let input = [0.0; 32];
     let (mut left, mut right) = ([0.0; 32], [0.0; 32]);
-    chain.take_changes().unwrap();
+    let _ = chain.take_changes().unwrap();
     // More changes than queue capacity, without consuming. They coalesce into this slot's
     // latest timing; none of these requests can be blocked by an event consumer.
     for index in 0..130 {

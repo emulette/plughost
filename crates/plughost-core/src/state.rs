@@ -31,6 +31,7 @@ impl PluginState {
     /// `controller` state only for VST3 and a payload of at most [`MAX_STATE_BYTES`]. Internal to
     /// the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(info: &PluginInfo, component: Vec<u8>, controller: Option<Vec<u8>>) -> PluginState {
         PluginState {
             id: info.id.clone(),
@@ -147,6 +148,7 @@ pub struct PresetInfo {
 
 impl PresetInfo {
     /// Constructs decoded preset identity and native metadata.
+    #[must_use]
     pub fn new(class_id: impl Into<String>, metadata: PresetMetadata) -> PresetInfo {
         PresetInfo {
             class_id: class_id.into(),

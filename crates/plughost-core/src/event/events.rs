@@ -41,12 +41,14 @@ enum RecordData {
 
 impl Events {
     /// Events of any number, which grow as they are pushed: the input or output of a render.
+    #[must_use]
     pub fn new() -> Events {
         Events::default()
     }
 
     /// Room for one block's events and system exclusive bytes, reserved now: pushing within it
     /// never allocates, and beyond it fails.
+    #[must_use]
     pub fn for_block() -> Events {
         Events {
             records: Vec::with_capacity(MAX_BLOCK_EVENTS),

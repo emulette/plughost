@@ -45,6 +45,7 @@ pub struct RealtimeConfig {
 
 impl RealtimeConfig {
     /// Quanta of `quantum` frames with one quantum of added latency and a silent fallback.
+    #[must_use]
     pub const fn new(quantum: usize) -> RealtimeConfig {
         RealtimeConfig {
             quantum,
@@ -54,12 +55,14 @@ impl RealtimeConfig {
     }
 
     /// Sets the added latency in quanta.
+    #[must_use]
     pub const fn with_latency(mut self, latency: usize) -> RealtimeConfig {
         self.latency = latency;
         self
     }
 
     /// Sets the fallback.
+    #[must_use]
     pub const fn with_fallback(mut self, fallback: Fallback) -> RealtimeConfig {
         self.fallback = fallback;
         self

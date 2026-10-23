@@ -70,6 +70,7 @@ impl Default for RenderOptions {
 
 impl RenderOptions {
     /// Constructs explicit tail options, validated when rendering starts.
+    #[must_use]
     pub const fn new(tail: TailPolicy, max_tail_seconds: f64) -> RenderOptions {
         RenderOptions {
             tail,
@@ -273,6 +274,7 @@ pub struct RenderInput<'a, S> {
 
 impl<'a, S> RenderInput<'a, S> {
     /// `frames` of `audio` with `events`, without a schedule; see [`Self::with_schedule`].
+    #[must_use]
     pub fn new(audio: &'a [&'a [S]], frames: usize, events: &'a Events) -> RenderInput<'a, S> {
         RenderInput {
             audio,
@@ -283,6 +285,7 @@ impl<'a, S> RenderInput<'a, S> {
     }
 
     /// Adds transport changes and automation.
+    #[must_use]
     pub fn with_schedule(mut self, schedule: RenderSchedule<'a>) -> RenderInput<'a, S> {
         self.schedule = schedule;
         self

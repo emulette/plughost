@@ -166,6 +166,7 @@ impl ExpressionKind {
 
 impl Note {
     /// Constructs a note without an independent ID; input validation occurs at processing.
+    #[must_use]
     pub fn new(channel: u8, key: u8, velocity: f64) -> Note {
         Note {
             id: None,
@@ -176,6 +177,7 @@ impl Note {
     }
 
     /// The same note with an ID.
+    #[must_use]
     pub fn with_id(self, id: u32) -> Note {
         Note {
             id: Some(id),
@@ -192,6 +194,7 @@ impl Note {
 
 impl NoteExpression {
     /// Constructs an expression addressing notes by channel and key, without an ID.
+    #[must_use]
     pub fn new(channel: u8, key: u8, kind: ExpressionKind, value: f64) -> NoteExpression {
         NoteExpression {
             id: None,
@@ -203,6 +206,7 @@ impl NoteExpression {
     }
 
     /// The same expression for the note with this ID.
+    #[must_use]
     pub fn with_id(self, id: u32) -> NoteExpression {
         NoteExpression {
             id: Some(id),
@@ -325,6 +329,7 @@ pub enum Message {
 
 impl<'a> Event<'a> {
     /// An event on port 0.
+    #[must_use]
     pub fn new(offset: usize, data: EventData<'a>) -> Event<'a> {
         Event {
             offset,
@@ -334,11 +339,13 @@ impl<'a> Event<'a> {
     }
 
     /// A MIDI 1.0 channel message on port 0.
+    #[must_use]
     pub fn midi(offset: usize, data: [u8; 3]) -> Event<'a> {
         Self::new(offset, EventData::Midi(data))
     }
 
     /// A MIDI 1.0 note on.
+    #[must_use]
     pub fn note_on(offset: usize, channel: u8, key: u8, velocity: u8) -> Event<'a> {
         Self::midi(
             offset,
@@ -347,6 +354,7 @@ impl<'a> Event<'a> {
     }
 
     /// A MIDI 1.0 note off.
+    #[must_use]
     pub fn note_off(offset: usize, channel: u8, key: u8, velocity: u8) -> Event<'a> {
         Self::midi(
             offset,
@@ -355,6 +363,7 @@ impl<'a> Event<'a> {
     }
 
     /// Constructs a MIDI controller event on port 0, masking channel and data to MIDI widths.
+    #[must_use]
     pub fn control_change(offset: usize, channel: u8, controller: u8, value: u8) -> Event<'a> {
         Self::midi(
             offset,
@@ -363,16 +372,19 @@ impl<'a> Event<'a> {
     }
 
     /// A system exclusive message on port 0; `bytes` include the F0 and the F7.
+    #[must_use]
     pub fn sysex(offset: usize, bytes: &'a [u8]) -> Event<'a> {
         Self::new(offset, EventData::SysEx(bytes))
     }
 
     /// The same event on `port`.
+    #[must_use]
     pub fn on_port(self, port: usize) -> Event<'a> {
         Event { port, ..self }
     }
 
     /// The same event at `offset`.
+    #[must_use]
     pub fn at(self, offset: usize) -> Event<'a> {
         Event { offset, ..self }
     }

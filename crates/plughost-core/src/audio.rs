@@ -60,6 +60,7 @@ pub struct AudioBusInfo {
 
 impl AudioBusInfo {
     /// A bus with an unknown layout, activation and precision support.
+    #[must_use]
     pub fn new(
         id: u64,
         index: u32,
@@ -100,6 +101,7 @@ pub struct AudioConfiguration {
 impl AudioConfiguration {
     /// Each field as given. Internal to the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(
         id: u64,
         name: String,
@@ -129,6 +131,7 @@ pub struct AudioBusConfig {
 
 impl AudioBusConfig {
     /// A request for native bus `id` with `layout`, active or not.
+    #[must_use]
     pub const fn new(id: u64, layout: Layout, active: bool) -> AudioBusConfig {
         AudioBusConfig { id, layout, active }
     }
@@ -170,6 +173,7 @@ pub struct BypassState {
 impl BypassState {
     /// Each field as given. Internal to the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(support: Support, enabled: Option<bool>) -> BypassState {
         BypassState { support, enabled }
     }
@@ -219,6 +223,7 @@ pub struct AudioInputRoute {
 
 impl AudioInputRoute {
     /// Input `bus` fed from `source`, with an exact layout match; see [`Self::with_adaptation`].
+    #[must_use]
     pub const fn new(bus: AudioBusConfig, source: AudioSource) -> AudioInputRoute {
         AudioInputRoute {
             bus,
@@ -228,6 +233,7 @@ impl AudioInputRoute {
     }
 
     /// Converts the source's channels to the bus layout with `adaptation`.
+    #[must_use]
     pub const fn with_adaptation(mut self, adaptation: ChannelAdaptation) -> AudioInputRoute {
         self.adaptation = adaptation;
         self
@@ -251,6 +257,7 @@ pub struct SlotAudioConfig {
 impl SlotAudioConfig {
     /// A slot's input routes and output buses, keeping its current named configuration and
     /// leaving its event ports inactive.
+    #[must_use]
     pub fn new(inputs: Vec<AudioInputRoute>, outputs: Vec<AudioBusConfig>) -> SlotAudioConfig {
         SlotAudioConfig {
             configuration: None,
@@ -261,12 +268,14 @@ impl SlotAudioConfig {
     }
 
     /// Selects the native named configuration `configuration` first.
+    #[must_use]
     pub fn with_configuration(mut self, configuration: u64) -> SlotAudioConfig {
         self.configuration = Some(configuration);
         self
     }
 
     /// Activates and routes the slot's event ports as `events` says.
+    #[must_use]
     pub fn with_events(mut self, events: crate::SlotEventConfig) -> SlotAudioConfig {
         self.events = events;
         self
@@ -299,6 +308,7 @@ pub struct RoutedChainConfig {
 impl AudioConfig {
     /// One plugin's `inputs` and `outputs` offline, keeping its current named configuration and
     /// leaving its event ports inactive.
+    #[must_use]
     pub fn new(
         sample_rate: f64,
         max_block_size: usize,
@@ -319,18 +329,21 @@ impl AudioConfig {
     }
 
     /// Reports `mode` to the plugin.
+    #[must_use]
     pub fn with_mode(mut self, mode: ProcessMode) -> AudioConfig {
         self.mode = mode;
         self
     }
 
     /// Selects the native named configuration `configuration` first.
+    #[must_use]
     pub fn with_configuration(mut self, configuration: u64) -> AudioConfig {
         self.configuration = Some(configuration);
         self
     }
 
     /// Activates the native event ports `events` names.
+    #[must_use]
     pub fn with_events(mut self, events: crate::EventConfig) -> AudioConfig {
         self.events = events;
         self
@@ -357,6 +370,7 @@ impl AudioConfig {
 impl RoutedChainConfig {
     /// A chain processing `inputs` through `slots` offline, without external event inputs; see
     /// [`Self::with_mode`] and [`Self::with_event_inputs`].
+    #[must_use]
     pub fn new(
         sample_rate: f64,
         max_block_size: usize,
@@ -376,12 +390,14 @@ impl RoutedChainConfig {
     }
 
     /// Reports `mode` to the plugins.
+    #[must_use]
     pub fn with_mode(mut self, mode: ProcessMode) -> RoutedChainConfig {
         self.mode = mode;
         self
     }
 
     /// Gives the chain `event_inputs` external event inputs.
+    #[must_use]
     pub fn with_event_inputs(mut self, event_inputs: usize) -> RoutedChainConfig {
         self.event_inputs = event_inputs;
         self

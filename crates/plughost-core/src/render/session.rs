@@ -21,6 +21,7 @@ pub enum SessionState {
 /// One continuous DSP render: push any number of input segments, then flush latency/tail once.
 /// Construction does not reset the processor. Use a fresh/reset processor for an independent
 /// render. After cancellation or a native failure, drop the session and reset before reuse.
+#[must_use = "a session renders nothing until segments are pushed and it is finished"]
 pub struct RenderSession<'a, S: Sample, P: Process<S>> {
     processor: &'a mut P,
     latency: u32,

@@ -21,6 +21,7 @@ pub struct PluginTiming {
 
 impl PluginTiming {
     /// The timing of a plugin with no restart or latency change pending.
+    #[must_use]
     pub fn new(latency: u32, tail: Tail) -> PluginTiming {
         PluginTiming {
             latency,
@@ -45,6 +46,7 @@ pub struct SlotChange {
 /// are not an audit trail. On overflow use `snapshot` to replace the entire consumer view.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[must_use]
 pub struct ChangeBatch {
     /// Coalesced slot changes in last-observed order.
     pub changes: Vec<SlotChange>,

@@ -61,6 +61,7 @@ pub struct PluginId {
 
 impl PluginId {
     /// The class `class_id` of `format`, with the ID in its canonical form (see [`ClassId`]).
+    #[must_use]
     pub fn new(format: PluginFormat, class_id: impl Into<String>) -> PluginId {
         PluginId {
             format,
@@ -137,6 +138,7 @@ pub struct PluginRef {
 impl PluginRef {
     /// The VST3 class `class_id` in the `.vst3` bundle (or, on Windows, single-file module) at
     /// `bundle`.
+    #[must_use]
     pub fn vst3(bundle: impl Into<PathBuf>, class_id: impl Into<String>) -> PluginRef {
         PluginRef {
             id: PluginId::new(PluginFormat::Vst3, class_id),
@@ -145,6 +147,7 @@ impl PluginRef {
     }
 
     /// The CLAP plugin `class_id` in the `.clap` bundle at `bundle`.
+    #[must_use]
     pub fn clap(bundle: impl Into<PathBuf>, class_id: impl Into<String>) -> PluginRef {
         PluginRef {
             id: PluginId::new(PluginFormat::Clap, class_id),
@@ -153,6 +156,7 @@ impl PluginRef {
     }
 
     /// The registered Audio Unit `class_id`.
+    #[must_use]
     pub fn audio_unit(class_id: impl Into<String>) -> PluginRef {
         PluginRef {
             id: PluginId::new(PluginFormat::AudioUnit, class_id),
@@ -203,6 +207,7 @@ pub struct PluginInfo {
 
 impl PluginInfo {
     /// A class with no vendor, version, SDK version or categories yet.
+    #[must_use]
     pub fn new(id: PluginId, name: impl Into<String>, kind: PluginKind) -> PluginInfo {
         PluginInfo {
             id,

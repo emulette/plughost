@@ -26,6 +26,7 @@ pub struct PresetDirectory {
 
 impl PresetDirectory {
     /// A directory of `format` presets.
+    #[must_use]
     pub fn new(format: PluginFormat, path: impl Into<PathBuf>) -> PresetDirectory {
         PresetDirectory {
             format,
@@ -47,6 +48,7 @@ pub struct PresetFile {
 
 impl PresetFile {
     /// A `format` preset file.
+    #[must_use]
     pub fn new(format: PluginFormat, path: impl Into<PathBuf>) -> PresetFile {
         PresetFile {
             format,

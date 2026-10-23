@@ -59,6 +59,7 @@ pub struct CapabilityReport {
 
 impl CapabilityReport {
     /// Combines independent plugin evidence and host implementation support.
+    #[must_use]
     pub fn new(plugin: Capabilities, host: Capabilities) -> CapabilityReport {
         CapabilityReport { plugin, host }
     }

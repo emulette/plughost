@@ -45,6 +45,7 @@ pub struct PresetDiscoveryTarget {
 
 impl PresetDiscoveryTarget {
     /// `location` searched with the provider `provider_id`.
+    #[must_use]
     pub fn new(provider_id: impl Into<String>, location: PresetLocation) -> PresetDiscoveryTarget {
         PresetDiscoveryTarget {
             provider_id: provider_id.into(),
@@ -86,6 +87,7 @@ pub struct PresetFileType {
 impl PresetFileType {
     /// Each field as given. Internal to the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(
         name: String,
         description: Option<String>,
@@ -113,6 +115,7 @@ pub struct PresetLocationInfo {
 impl PresetLocationInfo {
     /// Each field as given. Internal to the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(name: String, flags: PresetFlags, location: PresetLocation) -> PresetLocationInfo {
         PresetLocationInfo {
             name,
@@ -147,6 +150,7 @@ impl PresetSoundpack {
     /// A soundpack with no optional metadata yet, which the fields then take. Internal to the
     /// plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(id: String, name: String, flags: PresetFlags) -> PresetSoundpack {
         PresetSoundpack {
             id,
@@ -181,6 +185,7 @@ pub struct PresetProviderInfo {
 impl PresetProviderInfo {
     /// Each field as given. Internal to the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(
         id: String,
         name: String,
@@ -212,6 +217,7 @@ pub struct PresetPluginId {
 impl PresetPluginId {
     /// Each field as given. Internal to the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(abi: String, id: String) -> PresetPluginId {
         PresetPluginId { abi, id }
     }
@@ -248,6 +254,7 @@ pub struct DiscoveredPreset {
 
 impl DiscoveredPreset {
     /// A preset at `location` with no metadata yet; the fields take what the provider reports.
+    #[must_use]
     pub fn new(location: PresetLocation) -> DiscoveredPreset {
         DiscoveredPreset {
             location,
@@ -280,6 +287,7 @@ pub struct PresetDiscovery {
 impl PresetDiscovery {
     /// Each field as given. Internal to the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(
         presets: Vec<DiscoveredPreset>,
         failed_files: Vec<PresetFileFailure>,
@@ -304,6 +312,7 @@ pub struct PresetFileFailure {
 impl PresetFileFailure {
     /// Each field as given. Internal to the plughost crates; exempt from semver.
     #[doc(hidden)]
+    #[must_use]
     pub fn new(path: PathBuf, failure: crate::Failure) -> PresetFileFailure {
         PresetFileFailure { path, failure }
     }

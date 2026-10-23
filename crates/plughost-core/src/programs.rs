@@ -35,6 +35,7 @@ pub struct FactoryPreset {
 
 impl FactoryPreset {
     /// A program outside any group.
+    #[must_use]
     pub fn new(id: FactoryPresetId, name: impl Into<String>) -> FactoryPreset {
         FactoryPreset {
             id,

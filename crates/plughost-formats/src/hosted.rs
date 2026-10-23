@@ -186,6 +186,7 @@ pub trait HostedPlugin: sealed::Sealed {
     /// Tells the open editor that its window was shown or hidden.
     fn set_editor_visible(&mut self, _visible: bool) {}
     /// The plugin's latest editor request since the last call.
+    #[must_use]
     fn take_editor_request(&mut self) -> Option<EditorRequest> {
         None
     }

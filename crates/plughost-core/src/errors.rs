@@ -54,6 +54,7 @@ pub struct Failure {
 
 impl Failure {
     /// Constructs a category and diagnostic report.
+    #[must_use]
     pub fn new(kind: FailureKind, message: impl Into<String>) -> Self {
         Self {
             kind,

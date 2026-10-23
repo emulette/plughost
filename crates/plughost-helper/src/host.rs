@@ -366,7 +366,8 @@ impl Host {
     }
 
     fn invalidate_parameters(&self, slot: usize) {
-        self.parameter_events[slot].take();
+        // The resynchronization below replaces whatever was pending.
+        let _ = self.parameter_events[slot].take();
         self.parameter_events[slot].append(plughost_core::ParameterEventBatch::new(
             vec![
                 plughost_core::ParameterEvent::MetadataChanged,
@@ -510,7 +511,8 @@ impl Host {
                 return self.failed_reset(slot, &error);
             }
             let parameters = parameter_infos(plugin.as_mut());
-            plugin.take_parameter_events();
+            // What the plugin reported while resetting gives way to the resynchronization below.
+            let _ = plugin.take_parameter_events();
             self.processing
                 .request(Command::Parameters(slot, parameters));
             self.invalidate_parameters(slot);

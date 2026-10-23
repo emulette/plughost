@@ -134,6 +134,7 @@ pub struct ProcessConfig {
 
 impl ProcessConfig {
     /// Offline processing of `input` to `output`; see [`Self::with_mode`].
+    #[must_use]
     pub const fn new(
         sample_rate: f64,
         max_block_size: usize,
@@ -152,6 +153,7 @@ impl ProcessConfig {
     }
 
     /// Reports `mode` to the plugin.
+    #[must_use]
     pub const fn with_mode(mut self, mode: ProcessMode) -> ProcessConfig {
         self.mode = mode;
         self

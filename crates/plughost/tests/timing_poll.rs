@@ -17,7 +17,7 @@ fn timing_poll_benchmark() {
         };
         let mut chain = support::spawn(&vec![reference; 8]);
         support::prepare(&mut chain);
-        chain.take_changes().unwrap();
+        let _ = chain.take_changes().unwrap();
         let reads = |chain: &mut plughost::Chain| -> f64 {
             if format == PluginFormat::Clap {
                 chain
