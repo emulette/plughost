@@ -300,14 +300,10 @@ fn a_restart_request_waits_while_the_endpoint_runs() {
     let mut chain = spawn(&[delay(PluginFormat::Clap)]);
     prepare(&mut chain);
     let mut endpoint = started(&mut chain, &RealtimeConfig::new(QUANTUM));
-    let automation = [AutomationEvent {
-        slot: 0,
-        change: ParameterChange {
-            id: RESTART_MODE,
-            offset: 0,
-            value: 0.5,
-        },
-    }];
+    let automation = [AutomationEvent::new(
+        0,
+        ParameterChange::new(RESTART_MODE, 0, 0.5),
+    )];
     thread::sleep(PACE);
     automate(&mut endpoint, &sine(0), &automation);
     // The plugin goes on with its current activation, and the request is reported.

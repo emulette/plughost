@@ -41,14 +41,7 @@ fn unprepared_render_reports_not_prepared_for_both_precisions() {
             Err(Error::NotPrepared)
         ));
         // Direct preflight calls check preparation and precision as render does.
-        let automation = [AutomationEvent {
-            slot: 0,
-            change: ParameterChange {
-                id: 0,
-                offset: 0,
-                value: 0.5,
-            },
-        }];
+        let automation = [AutomationEvent::new(0, ParameterChange::new(0, 0, 0.5))];
         assert!(matches!(
             Process::<f32>::validate_automation(&mut chain, &automation),
             Err(Error::NotPrepared)
@@ -93,12 +86,7 @@ fn late_invalid_event_port_leaves_dsp_untouched_in_render_and_session() {
             invalid_port(
                 session
                     .push(
-                        RenderInput {
-                            audio: &audio,
-                            frames: 32,
-                            events: &events,
-                            schedule: RenderSchedule::default(),
-                        },
+                        RenderInput::new(&audio, 32, &events),
                         |_| panic!("invalid input must not deliver audio"),
                         || false,
                     )

@@ -7,7 +7,7 @@
 use plughost_core::PluginRef;
 use plughost_core::{
     BlockContext, Event, Events, HostIdentity, Layout, MAX_BLOCK_EVENTS, ParameterChange,
-    PluginFormat, ProcessConfig, ProcessMode, SampleFormat,
+    PluginFormat, ProcessConfig, SampleFormat,
 };
 #[cfg(feature = "clap")]
 use plughost_formats::HostedPlugin;
@@ -17,14 +17,13 @@ use std::path::Path;
 fn check(reference: PluginRef) {
     let mut plugin = plughost_formats::load(&reference, &HostIdentity::default()).unwrap();
     plugin
-        .prepare(&ProcessConfig {
-            sample_rate: 48_000.0,
-            max_block_size: 8,
-            sample_format: SampleFormat::F32,
-            input: Layout::Stereo,
-            output: Layout::Stereo,
-            mode: ProcessMode::Offline,
-        })
+        .prepare(&ProcessConfig::new(
+            48_000.0,
+            8,
+            SampleFormat::F32,
+            Layout::Stereo,
+            Layout::Stereo,
+        ))
         .unwrap();
     let dry = if reference.id().format() == PluginFormat::AudioUnit {
         0.0
@@ -33,11 +32,7 @@ fn check(reference: PluginRef) {
     };
     plugin.set_parameter(0, dry).unwrap();
     let processor = plugin.processor();
-    let point = ParameterChange {
-        id: 0,
-        offset: 0,
-        value: dry,
-    };
+    let point = ParameterChange::new(0, 0, dry);
     let automation = vec![point; MAX_BLOCK_EVENTS + 1];
     let notes = vec![Event::note_off(0, 0, 60, 0); MAX_BLOCK_EVENTS + 1];
     let (mut left, mut right) = ([99.0f32; 8], [99.0f32; 8]);
@@ -129,14 +124,13 @@ fn clap_pending_edits_are_bounded_and_survive_a_rejected_audio_block() {
     )
     .unwrap();
     plugin
-        .prepare(&ProcessConfig {
-            sample_rate: 48_000.0,
-            max_block_size: 8,
-            sample_format: SampleFormat::F32,
-            input: Layout::Stereo,
-            output: Layout::Stereo,
-            mode: ProcessMode::Offline,
-        })
+        .prepare(&ProcessConfig::new(
+            48_000.0,
+            8,
+            SampleFormat::F32,
+            Layout::Stereo,
+            Layout::Stereo,
+        ))
         .unwrap();
     for _ in 0..MAX_BLOCK_EVENTS {
         plugin.set_parameter(0, 0.25).unwrap();
@@ -204,14 +198,13 @@ fn clap_pending_edits_survive_a_block_the_plugin_fails() {
     )
     .unwrap();
     plugin
-        .prepare(&ProcessConfig {
-            sample_rate: 48_000.0,
-            max_block_size: 8,
-            sample_format: SampleFormat::F32,
-            input: Layout::Stereo,
-            output: Layout::Stereo,
-            mode: ProcessMode::Offline,
-        })
+        .prepare(&ProcessConfig::new(
+            48_000.0,
+            8,
+            SampleFormat::F32,
+            Layout::Stereo,
+            Layout::Stereo,
+        ))
         .unwrap();
     plugin.set_parameter(0, 0.25).unwrap();
     let processor = plugin.processor();

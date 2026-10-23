@@ -1,5 +1,6 @@
 /// Evidence from a native query, not a guarantee that an operation will succeed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Support {
     /// The format has no safe query, or the query did not determine support.
     #[default]

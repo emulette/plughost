@@ -38,6 +38,7 @@ pub enum ParameterEvent {
 
 /// Overflow loses ordering continuity: cancel open gestures and requery metadata and values.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub struct ParameterEventBatch {
     /// Notifications retained in observed order.
     pub events: Vec<ParameterEvent>,
@@ -45,6 +46,22 @@ pub struct ParameterEventBatch {
     pub resync_required: bool,
     /// Number of lost records since the previous drain, including upstream loss.
     pub dropped: u64,
+}
+
+impl ParameterEventBatch {
+    /// Each field as given. Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
+    pub fn new(
+        events: Vec<ParameterEvent>,
+        resync_required: bool,
+        dropped: u64,
+    ) -> ParameterEventBatch {
+        ParameterEventBatch {
+            events,
+            resync_required,
+            dropped,
+        }
+    }
 }
 
 struct Pending {

@@ -5,14 +5,7 @@ use plughost_core::render::Process;
 mod support;
 
 fn point(slot: usize, id: u64, offset: usize) -> AutomationEvent {
-    AutomationEvent {
-        slot,
-        change: ParameterChange {
-            id,
-            offset,
-            value: 0.25,
-        },
-    }
+    AutomationEvent::new(slot, ParameterChange::new(id, offset, 0.25))
 }
 
 #[test]
@@ -36,10 +29,7 @@ fn late_invalid_render_targets_leave_earlier_plugin_state_untouched() {
                 input.len(),
                 &Events::new(),
                 &RenderOptions::new(TailPolicy::Reported, 0.0),
-                &RenderSchedule {
-                    automation: &automation,
-                    ..Default::default()
-                },
+                &RenderSchedule::default().with_automation(&automation),
             );
             assert!(
                 matches!(result, Err(Error::Input { slot: Some(s), error })
@@ -87,10 +77,7 @@ fn writable_nonautomatable_parameters_reject_block_and_render_automation() {
         96,
         &Events::new(),
         &RenderOptions::new(TailPolicy::Reported, 0.0),
-        &RenderSchedule {
-            automation: &edits,
-            ..Default::default()
-        },
+        &RenderSchedule::default().with_automation(&edits),
     )
     .unwrap_err();
     let rejected = |error| {

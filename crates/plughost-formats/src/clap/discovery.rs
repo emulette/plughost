@@ -54,14 +54,14 @@ fn providers(bundle: &Path, identity: &HostIdentity) -> Result<Vec<PresetProvide
         let mut provider = Provider::instantiate(Indexer::new(), &entry, id, &host)
             .map_err(|_| ClapError::PresetDiscovery)?;
         let declarations = provider.indexer_mut().take()?;
-        result.push(PresetProviderInfo {
-            id: id_text,
+        result.push(PresetProviderInfo::new(
+            id_text,
             name,
             vendor,
-            file_types: declarations.file_types,
-            locations: declarations.locations,
-            soundpacks: declarations.soundpacks,
-        });
+            declarations.file_types,
+            declarations.locations,
+            declarations.soundpacks,
+        ));
     }
     Ok(result)
 }
@@ -102,18 +102,18 @@ fn discover(
                 let location = PresetLocation::File { path: path.clone() };
                 match metadata(&mut provider, &location) {
                     Ok(presets) => discovery.presets.extend(presets),
-                    Err(error) => discovery.failed_files.push(PresetFileFailure {
+                    Err(error) => discovery.failed_files.push(PresetFileFailure::new(
                         path,
-                        failure: crate::Error::from(error).failure(),
-                    }),
+                        crate::Error::from(error).failure(),
+                    )),
                 }
             }
             Ok(discovery)
         }
-        location => Ok(PresetDiscovery {
-            presets: metadata(&mut provider, location)?,
-            failed_files: Vec::new(),
-        }),
+        location => Ok(PresetDiscovery::new(
+            metadata(&mut provider, location)?,
+            Vec::new(),
+        )),
     }
 }
 
@@ -182,6 +182,7 @@ pub(crate) fn location_path(location: &PresetLocation) -> Result<Option<CString>
             }
             input_string(path.to_str().ok_or(ClapError::PresetInput)?).map(Some)
         }
+        _ => Err(ClapError::PresetInput),
     }
 }
 pub(crate) fn native_location(path: &Option<CString>) -> Location<'_> {

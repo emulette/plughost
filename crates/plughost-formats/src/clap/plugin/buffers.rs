@@ -19,6 +19,11 @@ impl AudioBuffers {
         Ok(match format {
             SampleFormat::F32 => Self::F32(Buffers::new(buses, frames)?),
             SampleFormat::F64 => Self::F64(Buffers::new(buses, frames)?),
+            _ => {
+                return Err(ClapError::Input(
+                    plughost_core::InputError::AudioSampleFormat,
+                ));
+            }
         })
     }
     pub fn typed<S: Sample>(&mut self) -> Result<&mut Buffers<S>, ClapError> {

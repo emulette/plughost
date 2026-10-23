@@ -88,11 +88,9 @@ fn run(
     events: &Events,
     expected: [u64; 3],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let schedule = RenderSchedule {
-        ramps,
-        automation: points,
-        transport: &[],
-    };
+    let schedule = RenderSchedule::default()
+        .with_ramps(ramps)
+        .with_automation(points);
     let mut probe = Probe {
         frames: 0,
         calls: 0,
@@ -106,12 +104,7 @@ fn run(
     let start = Instant::now();
     render_stream(
         &mut probe,
-        RenderInput {
-            audio: &[],
-            frames,
-            events,
-            schedule,
-        },
+        RenderInput::new(&[], frames, events).with_schedule(schedule),
         &RenderOptions::new(TailPolicy::Reported, 0.0),
         |delivery| {
             for &sample in delivery.audio[0] {
@@ -145,14 +138,7 @@ fn run(
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ramps: Vec<_> = (0..5000)
-        .map(|index| AutomationRamp {
-            slot: 0,
-            id: 0,
-            start: index * 576,
-            end: index * 576 + 575,
-            from: 0.0,
-            to: 1.0,
-        })
+        .map(|index| AutomationRamp::new(0, 0, index * 576, index * 576 + 575, 0.0, 1.0))
         .collect();
     run(
         "successive",
@@ -165,13 +151,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ramps: Vec<_> = (0..5000)
         .rev()
-        .map(|index| AutomationRamp {
-            slot: 0,
-            id: index as u64 % 500,
-            start: index / 500 * 64,
-            end: index / 500 * 64 + 31,
-            from: 1.0,
-            to: 0.0,
+        .map(|index| {
+            AutomationRamp::new(
+                0,
+                index as u64 % 500,
+                index / 500 * 64,
+                index / 500 * 64 + 31,
+                1.0,
+                0.0,
+            )
         })
         .collect();
     run(
@@ -185,24 +173,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ramps: Vec<_> = (0..2048)
         .rev()
-        .map(|index| AutomationRamp {
-            slot: index % 4,
-            id: index as u64 % 16,
-            start: index * 512,
-            end: index * 512 + 256,
-            from: 0.0,
-            to: 1.0,
+        .map(|index| {
+            AutomationRamp::new(
+                index % 4,
+                index as u64 % 16,
+                index * 512,
+                index * 512 + 256,
+                0.0,
+                1.0,
+            )
         })
         .collect();
     let points: Vec<_> = (0..2048)
         .flat_map(|index| {
-            [0.25, 0.75].map(move |value| AutomationEvent {
-                slot: 0,
-                change: ParameterChange {
-                    id: 64,
-                    offset: index * 512 + 100,
-                    value,
-                },
+            [0.25, 0.75].map(move |value| {
+                AutomationEvent::new(0, ParameterChange::new(64, index * 512 + 100, value))
             })
         })
         .collect();

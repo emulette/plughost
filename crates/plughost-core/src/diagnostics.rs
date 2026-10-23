@@ -34,6 +34,7 @@ pub enum DiagnosticSeverity {
 
 /// One bounded diagnostic record with optional plugin and slot context.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Diagnostic {
     /// Severity reported by the producer.
     pub severity: DiagnosticSeverity,
@@ -49,8 +50,31 @@ pub struct Diagnostic {
     pub truncated: bool,
 }
 
+impl Diagnostic {
+    /// Each field as given. Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
+    pub fn new(
+        severity: DiagnosticSeverity,
+        message: String,
+        plugin: Option<PluginId>,
+        slot: Option<usize>,
+        failure_kind: Option<FailureKind>,
+        truncated: bool,
+    ) -> Diagnostic {
+        Diagnostic {
+            severity,
+            message,
+            plugin,
+            slot,
+            failure_kind,
+            truncated,
+        }
+    }
+}
+
 /// Records drained since the last snapshot. Loss is explicit; this is not an audit log.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DiagnosticBatch {
     /// Retained diagnostics in observed order.
     pub records: Vec<Diagnostic>,
@@ -59,6 +83,12 @@ pub struct DiagnosticBatch {
 }
 
 impl DiagnosticBatch {
+    /// Each field as given. Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
+    pub fn new(records: Vec<Diagnostic>, dropped: u64) -> DiagnosticBatch {
+        DiagnosticBatch { records, dropped }
+    }
+
     /// Merges a snapshot while keeping the aggregate bounded, preserving earlier records.
     pub fn append(&mut self, mut other: Self) {
         let available = DIAGNOSTIC_CAPACITY.saturating_sub(self.records.len());

@@ -13,6 +13,7 @@ use crate::sample::Sample;
 
 /// The tail length a processor reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Tail {
     /// Finite tail duration in frames.
     Samples(u32),
@@ -258,6 +259,7 @@ pub fn render_with_schedule<S: Sample, P: Process<S>>(
 
 /// Borrowed planar audio, events, and automation for a render or session segment.
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub struct RenderInput<'a, S> {
     /// Planar input channels, each containing exactly `frames` samples.
     pub audio: &'a [&'a [S]],
@@ -267,6 +269,24 @@ pub struct RenderInput<'a, S> {
     pub events: &'a Events,
     /// Transport and automation offsets relative to this input segment.
     pub schedule: RenderSchedule<'a>,
+}
+
+impl<'a, S> RenderInput<'a, S> {
+    /// `frames` of `audio` with `events`, without a schedule; see [`Self::with_schedule`].
+    pub fn new(audio: &'a [&'a [S]], frames: usize, events: &'a Events) -> RenderInput<'a, S> {
+        RenderInput {
+            audio,
+            frames,
+            events,
+            schedule: RenderSchedule::default(),
+        }
+    }
+
+    /// Adds transport changes and automation.
+    pub fn with_schedule(mut self, schedule: RenderSchedule<'a>) -> RenderInput<'a, S> {
+        self.schedule = schedule;
+        self
+    }
 }
 
 /// Whether rendering completed, stopped at a caller cancellation boundary, or ended a tail at its

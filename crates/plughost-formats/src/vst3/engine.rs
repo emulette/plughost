@@ -166,6 +166,9 @@ impl Engine {
         let instance = self.instance()?;
         instance.handler.take_restart_flags();
         let processor = &instance.processor;
+        if process_mode(config.mode).is_none() {
+            return Err(Vst3Error::ProcessModeUnsupported(config.mode));
+        }
         let sample_size = symbolic_sample_size(config.sample_format);
         if unsafe { processor.canProcessSampleSize(sample_size) } != kResultOk {
             return Err(Vst3Error::SampleFormatUnsupported(config.sample_format));
@@ -186,7 +189,7 @@ impl Engine {
         let queued = scratch(2 * limit)?;
         let inputs = scratch(limit)?;
         let mut setup = ProcessSetup {
-            processMode: process_mode(config.mode),
+            processMode: process_mode(config.mode).unwrap_or_default(),
             symbolicSampleSize: sample_size,
             maxSamplesPerBlock: config.max_block_size as i32,
             sampleRate: config.sample_rate,
@@ -208,14 +211,14 @@ impl Engine {
         // itself; kept, they would ask for the same preparation again forever.
         instance.handler.take_restart_flags();
         self.prepared = Some(Prepared {
-            config: ProcessConfig {
-                sample_rate: config.sample_rate,
-                max_block_size: config.max_block_size,
-                sample_format: config.sample_format,
-                mode: config.mode,
-                input: main_layout(&audio_buses, AudioDirection::Input),
-                output: main_layout(&audio_buses, AudioDirection::Output),
-            },
+            config: ProcessConfig::new(
+                config.sample_rate,
+                config.max_block_size,
+                config.sample_format,
+                main_layout(&audio_buses, AudioDirection::Input),
+                main_layout(&audio_buses, AudioDirection::Output),
+            )
+            .with_mode(config.mode),
             audio_config: config.clone(),
             audio_buses: audio_buses.clone(),
             context_requirements: {
@@ -326,6 +329,7 @@ impl Engine {
         let native_type = match S::FORMAT {
             SampleFormat::F32 => std::any::TypeId::of::<S>() == std::any::TypeId::of::<f32>(),
             SampleFormat::F64 => std::any::TypeId::of::<S>() == std::any::TypeId::of::<f64>(),
+            _ => false,
         };
         if !native_type || S::FORMAT != prepared.config.sample_format {
             return Err(Vst3Error::Input(
@@ -996,7 +1000,7 @@ impl Prepared {
             Some(Message::ProgramChange { channel, program }) => {
                 (channel, kCtrlProgramChange as u8, u16::from(program))
             }
-            None => return None,
+            Some(_) | None => return None,
         };
         self.midi_assignments
             .get(&(event.port as u8, channel, controller))
@@ -1018,10 +1022,12 @@ fn note_event(offset: i32, bus: i32, kind: EventTypes, body: Event__type0) -> Ev
     }
 }
 
-fn process_mode(mode: ProcessMode) -> i32 {
+/// The VST3 processing mode, or `None` for a mode VST3 does not have.
+fn process_mode(mode: ProcessMode) -> Option<i32> {
     match mode {
-        ProcessMode::Offline => ProcessModes_::kOffline as i32,
-        ProcessMode::Realtime => ProcessModes_::kRealtime as i32,
+        ProcessMode::Offline => Some(ProcessModes_::kOffline as i32),
+        ProcessMode::Realtime => Some(ProcessModes_::kRealtime as i32),
+        _ => None,
     }
 }
 
@@ -1029,6 +1035,9 @@ fn symbolic_sample_size(format: SampleFormat) -> i32 {
     match format {
         SampleFormat::F32 => SymbolicSampleSizes_::kSample32 as i32,
         SampleFormat::F64 => SymbolicSampleSizes_::kSample64 as i32,
+        // No VST3 sample size; preparing fails with it, in `canProcessSampleSize` or in
+        // `AudioBuffers::new`.
+        _ => -1,
     }
 }
 
@@ -1090,7 +1099,8 @@ fn call_process(
         prepared.buffers.raw()
     };
     let mut data = ProcessData {
-        processMode: process_mode(config.mode),
+        // Preparing refused modes VST3 does not have.
+        processMode: process_mode(config.mode).unwrap_or_default(),
         symbolicSampleSize: symbolic_sample_size(config.sample_format),
         numSamples: block.frames as i32,
         numInputs: inputs.len() as i32,

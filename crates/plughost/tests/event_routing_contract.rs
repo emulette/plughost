@@ -66,10 +66,7 @@ fn merged_native_inputs_order_by_offset_then_route_then_source() {
         let port = config.slots[0].events.inputs[0].port;
         config.event_inputs = 2;
         config.slots[0].events.inputs = [1, 0]
-            .map(|source| EventInputRoute {
-                port,
-                source: EventSource::External { port: source },
-            })
+            .map(|source| EventInputRoute::new(port, EventSource::External { port: source }))
             .into();
         chain.prepare_audio(&config).unwrap();
         let events = Events::from_iter([

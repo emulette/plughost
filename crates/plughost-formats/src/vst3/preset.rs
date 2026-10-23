@@ -11,6 +11,7 @@ const INFO_ID: &[u8; 4] = b"Info";
 
 /// A `.vstpreset` container with independent processor, controller, and XML metadata chunks.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Preset {
     /// Target VST3 class ID as 32 hexadecimal digits.
     pub class_id: String,

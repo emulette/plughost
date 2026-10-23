@@ -156,6 +156,7 @@ impl Alignment {
         let (delays32, delays64) = match config.sample_format {
             plughost_core::SampleFormat::F32 => (Some(DelayBank::new(config, &timing)?), None),
             plughost_core::SampleFormat::F64 => (None, Some(DelayBank::new(config, &timing)?)),
+            _ => return Err(crate::errors::sample_format()),
         };
         Ok(Self {
             timing,

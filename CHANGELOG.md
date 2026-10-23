@@ -15,6 +15,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   `"vst3"`, `"audio-unit"` and `"clap"`, for storing with the work that uses the plugin.
   `Catalog::resolve(&id)` finds the installed class as a `PluginRef`, from the highest priority
   directory, and `BundleScan::plugins()` gives the references of one scanned bundle.
+- Constructors for the routing, processing, render and preset types an application builds, which
+  are now `#[non_exhaustive]`: `RoutedChainConfig::new`, `SlotAudioConfig::new`,
+  `AudioConfig::new`, `AudioBusConfig::new`, `AudioInputRoute::new`, `SlotEventConfig::new`,
+  `EventInputRoute::new`, `EventConfig::new`, `ProcessConfig::new`, `HostIdentity::new`,
+  `ParameterChange::new`, `AutomationEvent::new`, `RenderInput::new`, `AutomationRamp::new`,
+  `TransportChange::new`, `TimeSignature::new`, `LoopRegion::new`, `BarPosition::new`,
+  `PresetDirectory::new`, `PresetFile::new`, `PresetDiscoveryTarget::new` and
+  `DiscoveredPreset::new`, with `with_*` methods for their optional parts (mode, named
+  configuration, events, event inputs, channel adaptation, render schedule) and
+  `RenderSchedule::with_transport`, `with_automation` and `with_ramps`.
+- `PresetFlags` names the CLAP preset discovery flags.
 - `PluginState::to_bytes` and `PluginState::from_bytes` store a state in plughost's own
   versioned format, which later versions keep reading and which does not depend on the helper
   protocol; 0.1 states, which had only a serde form, cannot be read and are saved again. It is
@@ -124,6 +135,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   buffer error (or, for a VST3 value, `InputError::ParameterValue`).
 - `plughost_formats::preset::supports(format)` is `supported(format)`, which returns the
   unsupported error instead of `false`.
+- The types an application builds are `#[non_exhaustive]`, so later versions can add fields:
+  build `RoutedChainConfig`, `SlotAudioConfig`, `AudioBusConfig`, `AudioInputRoute`,
+  `SlotEventConfig`, `EventInputRoute`, `AudioConfig`, `EventConfig`, `HostIdentity`,
+  `ParameterChange`, `AutomationEvent`, `ProcessConfig`, `RenderInput`, `RenderSchedule`,
+  `AutomationRamp`, `TransportChange`, `TimeSignature`, `LoopRegion`, `BarPosition`,
+  `PresetDirectory`, `PresetFile`, `PresetDiscoveryTarget` and `DiscoveredPreset` with their
+  constructors, or start from `main_bus_config` or `default()`, and set public fields instead of
+  writing struct literals. The output-only types `ChangeBatch`, `SlotChange`, `Catalog`,
+  `BundleScan`, `Failure`, `Diagnostic`, `DiagnosticBatch`, `ParameterGroup`, `ParameterChoice`,
+  `ParameterChoicePage`, `ParameterEventBatch`, `AudioConfiguration`, `BypassState`,
+  `DecodedPreset`, `vst3::Preset` and the preset discovery results are `#[non_exhaustive]` too,
+  as are the enums `Message`, `AudioBusRole`, `AudioDirection`, `AudioSource`, `EventSource`,
+  `ChannelAdaptation`, `Support`, `SampleFormat`, `ProcessMode`, `Tail`, `SessionState`,
+  `PresetLocation`, `EditorRequest` and `EditorView`, which need a wildcard arm in a `match`.
+- CLAP preset discovery flags are a `PresetFlags` instead of a `u32`
+  (`PresetLocationInfo::flags`, `PresetSoundpack::flags`, `DiscoveredPreset::flags`); read the
+  bits with `bits()`.
 - `Chain::parameters` and `HostedPlugin::parameters` give each value as an `Option<f64>`, and
   `vst3::Plugin::parameter_value` returns one: a value the plugin does not give, that is not
   finite, or whose range is not, is `None` where it read as 0, and so is a VST3 ID the plugin

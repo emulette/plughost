@@ -80,6 +80,7 @@ pub enum Source {
 
 /// One discovered bundle and its outcome, provenance, and automatic exclusion status.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BundleScan {
     /// The discovered bundle path, preserving search-directory priority.
     pub path: PathBuf,
@@ -95,6 +96,7 @@ pub struct BundleScan {
 
 /// Ordered discovery results for native bundles and the Audio Unit registry.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Catalog {
     /// Every VST3 and CLAP bundle found, in directory priority order.
     pub bundles: Vec<BundleScan>,

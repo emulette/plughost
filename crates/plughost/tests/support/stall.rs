@@ -35,9 +35,10 @@ impl Stall {
     }
 
     pub fn identity(&self) -> plughost::HostIdentity {
-        plughost::HostIdentity {
-            name: self.address.to_string(),
-            ..Default::default()
+        {
+            let mut value = plughost::HostIdentity::default();
+            value.name = self.address.to_string();
+            value
         }
     }
 

@@ -236,20 +236,22 @@ impl Plugin {
     /// Reports MIDI output messages that have no MIDI 1.0 event form, which are not delivered.
     pub(crate) fn take_diagnostics(&self) -> plughost_core::DiagnosticBatch {
         let unconvertible = self.unconvertible.swap(0, Ordering::Relaxed);
-        plughost_core::DiagnosticBatch {
-            records: (unconvertible > 0)
-                .then(|| plughost_core::Diagnostic {
-                    severity: plughost_core::DiagnosticSeverity::Warning,
-                    message: super::errors::unconvertible_output_events(unconvertible),
-                    plugin: None,
-                    slot: None,
-                    failure_kind: None,
-                    truncated: false,
+        plughost_core::DiagnosticBatch::new(
+            (unconvertible > 0)
+                .then(|| {
+                    plughost_core::Diagnostic::new(
+                        plughost_core::DiagnosticSeverity::Warning,
+                        super::errors::unconvertible_output_events(unconvertible),
+                        None,
+                        None,
+                        None,
+                        false,
+                    )
                 })
                 .into_iter()
                 .collect(),
-            dropped: 0,
-        }
+            0,
+        )
     }
 
     /// The unit, for the queries an Audio Unit answers on the owning thread while it renders,

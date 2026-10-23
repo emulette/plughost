@@ -94,11 +94,9 @@ where
     let input = case.input();
     let slices: Vec<_> = input.iter().map(Vec::as_slice).collect();
     let (points, ramps) = case.schedule();
-    let schedule = RenderSchedule {
-        transport: &[],
-        automation: &points,
-        ramps: &ramps,
-    };
+    let schedule = RenderSchedule::default()
+        .with_automation(&points)
+        .with_ramps(&ramps);
     let options = RenderOptions::new(TailPolicy::Reported, 0.0);
     let mut counted = Counted {
         processor,

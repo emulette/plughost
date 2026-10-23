@@ -2,8 +2,7 @@ use std::path::{Path, PathBuf};
 
 use plughost_core::PluginRef;
 use plughost_core::{
-    HostIdentity, InputError, Layout, MAX_STATE_BYTES, PluginFormat, ProcessConfig, ProcessMode,
-    SampleFormat,
+    HostIdentity, InputError, Layout, MAX_STATE_BYTES, PluginFormat, ProcessConfig, SampleFormat,
 };
 
 fn target() -> PathBuf {
@@ -32,14 +31,13 @@ fn oversized_direct_restore_is_rejected_before_discarding_pending_edits() {
         };
         let mut plugin = plughost_formats::load(&reference, &HostIdentity::default()).unwrap();
         plugin
-            .prepare(&ProcessConfig {
-                sample_rate: 48_000.0,
-                max_block_size: 512,
-                sample_format: SampleFormat::F32,
-                input: Layout::Stereo,
-                output: Layout::Stereo,
-                mode: ProcessMode::Offline,
-            })
+            .prepare(&ProcessConfig::new(
+                48_000.0,
+                512,
+                SampleFormat::F32,
+                Layout::Stereo,
+                Layout::Stereo,
+            ))
             .unwrap();
         let saved = plugin
             .save_state(plughost_core::StatePurpose::Project)

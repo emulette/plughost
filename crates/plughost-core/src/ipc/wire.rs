@@ -635,7 +635,8 @@ pub(super) struct DiscoveredPresetDef {
     #[serde_as(as = "Vec<PresetPluginIdDef>")]
     plugin_ids: Vec<PresetPluginId>,
     soundpack_id: Option<String>,
-    flags: Option<u32>,
+    #[serde_as(as = "Option<PresetFlagsDef>")]
+    flags: Option<PresetFlags>,
     creators: Vec<String>,
     description: Option<String>,
     creation_time: Option<u64>,
@@ -700,11 +701,25 @@ remote!(PresetLocationDef, crate::PresetLocation);
 #[serde(remote = "crate::PresetLocationInfo")]
 pub(super) struct PresetLocationInfoDef {
     name: String,
-    flags: u32,
+    #[serde_as(as = "PresetFlagsDef")]
+    flags: PresetFlags,
     #[serde_as(as = "PresetLocationDef")]
     location: PresetLocation,
 }
 remote!(PresetLocationInfoDef, crate::PresetLocationInfo);
+
+/// Preset flags as their bits, those CLAP defines later included.
+pub(super) struct PresetFlagsDef;
+impl SerializeAs<PresetFlags> for PresetFlagsDef {
+    fn serialize_as<S: Serializer>(flags: &PresetFlags, serializer: S) -> Result<S::Ok, S::Error> {
+        flags.bits().serialize(serializer)
+    }
+}
+impl<'de> DeserializeAs<'de, PresetFlags> for PresetFlagsDef {
+    fn deserialize_as<D: Deserializer<'de>>(deserializer: D) -> Result<PresetFlags, D::Error> {
+        u32::deserialize(deserializer).map(PresetFlags::from_bits_retain)
+    }
+}
 
 #[serde_as]
 #[derive(Serialize, Deserialize)]
@@ -737,7 +752,8 @@ remote!(PresetProviderInfoDef, crate::PresetProviderInfo);
 pub(super) struct PresetSoundpackDef {
     id: String,
     name: String,
-    flags: u32,
+    #[serde_as(as = "PresetFlagsDef")]
+    flags: PresetFlags,
     description: Option<String>,
     homepage_url: Option<String>,
     vendor: Option<String>,

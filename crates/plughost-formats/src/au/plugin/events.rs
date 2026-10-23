@@ -199,11 +199,8 @@ impl Plugin {
             .as_ref()
             .map(Observation::take)
             .unwrap_or_default();
-        let mut batch = ParameterEventBatch {
-            events: Vec::new(),
-            resync_required: changed || pending.dropped != 0,
-            dropped: pending.dropped,
-        };
+        let mut batch =
+            ParameterEventBatch::new(Vec::new(), changed || pending.dropped != 0, pending.dropped);
         if changed {
             batch.events.push(ParameterEvent::MetadataChanged);
         }

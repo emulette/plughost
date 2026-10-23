@@ -3,8 +3,7 @@
 use std::path::Path;
 
 use plughost_core::{
-    BlockContext, Events, FailureKind, HostIdentity, Layout, ProcessConfig, ProcessMode,
-    SampleFormat, Support,
+    BlockContext, Events, FailureKind, HostIdentity, Layout, ProcessConfig, SampleFormat, Support,
 };
 use plughost_formats::clap::Plugin;
 use plughost_formats::{Error, HostedPlugin};
@@ -23,14 +22,13 @@ fn plugin(variant: &str, suffix: u32) -> Plugin {
 
 fn prepare(plugin: &mut Plugin) {
     plugin
-        .prepare(&ProcessConfig {
-            sample_rate: 48_000.0,
-            max_block_size: 512,
-            sample_format: SampleFormat::F32,
-            mode: ProcessMode::Offline,
-            input: Layout::Stereo,
-            output: Layout::Stereo,
-        })
+        .prepare(&ProcessConfig::new(
+            48_000.0,
+            512,
+            SampleFormat::F32,
+            Layout::Stereo,
+            Layout::Stereo,
+        ))
         .unwrap();
 }
 

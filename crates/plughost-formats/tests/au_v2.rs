@@ -44,7 +44,7 @@ use objc2_core_audio_types::{
 use objc2_core_foundation::{CFArray, CFRetained, CFString};
 use plughost_core::{
     AudioBusConfig, AudioConfig, AudioDirection, Event, EventConfig, Events, Layout,
-    ParameterEvent, ProcessMode, SampleFormat,
+    ParameterEvent, SampleFormat,
 };
 use plughost_formats::HostedPlugin;
 use plughost_formats::au::{self, Plugin};
@@ -682,23 +682,16 @@ fn prepared() -> Plugin {
         .find(|bus| bus.direction == AudioDirection::Output)
         .unwrap();
     plugin
-        .prepare_audio(&AudioConfig {
-            sample_rate: 48_000.0,
-            max_block_size: 512,
-            sample_format: SampleFormat::F32,
-            mode: ProcessMode::Offline,
-            configuration: None,
-            inputs: Vec::new(),
-            outputs: vec![AudioBusConfig {
-                id: output.id,
-                layout: Layout::Stereo,
-                active: true,
-            }],
-            events: EventConfig {
-                inputs: vec![0],
-                outputs: vec![0],
-            },
-        })
+        .prepare_audio(
+            &AudioConfig::new(
+                48_000.0,
+                512,
+                SampleFormat::F32,
+                Vec::new(),
+                vec![AudioBusConfig::new(output.id, Layout::Stereo, true)],
+            )
+            .with_events(EventConfig::new(vec![0], vec![0])),
+        )
         .unwrap();
     plugin
 }
@@ -770,11 +763,11 @@ fn index_values_reach_the_unit_whole_and_scheduled_at_their_offsets() {
             &plughost_core::BlockContext::new(512),
             &[],
             &mut outputs,
-            &[plughost_core::ParameterChange {
-                id: u64::from(STEPS),
-                offset: 256,
-                value: thirteen,
-            }],
+            &[plughost_core::ParameterChange::new(
+                u64::from(STEPS),
+                256,
+                thirteen,
+            )],
             &Events::new(),
             &mut Events::for_block(),
         )
@@ -841,16 +834,8 @@ fn non_realtime_parameters_allow_edits_but_reject_block_automation() {
         &[],
         &mut channels,
         &[
-            plughost_core::ParameterChange {
-                id: u64::from(STEPS),
-                offset: 5,
-                value: 13.0 / 22.0,
-            },
-            plughost_core::ParameterChange {
-                id: u64::from(MODE),
-                offset: 10,
-                value: 0.0,
-            },
+            plughost_core::ParameterChange::new(u64::from(STEPS), 5, 13.0 / 22.0),
+            plughost_core::ParameterChange::new(u64::from(MODE), 10, 0.0),
         ],
         &Events::new(),
         &mut Events::for_block(),

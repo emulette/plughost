@@ -192,11 +192,11 @@ impl Host {
         for (slot, report) in reports.iter().enumerate() {
             // Flattening uses native indices, not caller vector order or numeric bus IDs.
             let request = &mut config.slots[slot];
-            for direction in [AudioDirection::Input, AudioDirection::Output] {
-                let requested: Vec<_> = match direction {
-                    AudioDirection::Input => request.inputs.iter().map(|r| r.bus).collect(),
-                    AudioDirection::Output => request.outputs.clone(),
-                };
+            let inputs = request.inputs.iter().map(|r| r.bus).collect();
+            for (direction, requested) in [
+                (AudioDirection::Input, inputs),
+                (AudioDirection::Output, request.outputs.clone()),
+            ] {
                 let negotiated = requested.iter().filter(|bus| bus.active).all(|bus| {
                     report.iter().any(|info| {
                         info.direction == direction
@@ -267,7 +267,15 @@ impl Host {
             Err((slot, failure)) => return Response::Failed { slot, failure },
         };
         let latency = plan.latency();
-        let storage = process::prepared::Prepared::new(&config, &timings);
+        let storage = match process::prepared::Prepared::new(&config, &timings) {
+            Ok(storage) => storage,
+            Err(failure) => {
+                return Response::Failed {
+                    slot: None,
+                    failure,
+                };
+            }
+        };
         let alignment = match audio_timing::Alignment::new(&config, plan.clone()) {
             Ok(alignment) => alignment,
             Err(failure) => {
@@ -292,15 +300,18 @@ impl Host {
         self.audio_slots = config
             .slots
             .iter()
-            .map(|slot| AudioConfig {
-                sample_rate: config.sample_rate,
-                max_block_size: config.max_block_size,
-                sample_format: config.sample_format,
-                mode: config.mode,
-                configuration: slot.configuration,
-                inputs: slot.inputs.iter().map(|route| route.bus).collect(),
-                outputs: slot.outputs.clone(),
-                events: slot.events.native(),
+            .map(|slot| {
+                let mut audio = AudioConfig::new(
+                    config.sample_rate,
+                    config.max_block_size,
+                    config.sample_format,
+                    slot.inputs.iter().map(|route| route.bus).collect(),
+                    slot.outputs.clone(),
+                )
+                .with_mode(config.mode)
+                .with_events(slot.events.native());
+                audio.configuration = slot.configuration;
+                audio
             })
             .collect();
         self.routes = reports

@@ -10,10 +10,7 @@ fn bundle() -> PathBuf {
         .join("../../target/test-plugins/plughost-test-presets.clap")
 }
 fn target(location: PresetLocation) -> PresetDiscoveryTarget {
-    PresetDiscoveryTarget {
-        provider_id: PROVIDER.into(),
-        location,
-    }
+    PresetDiscoveryTarget::new(PROVIDER, location)
 }
 #[test]
 #[ignore = "needs scripts/build-test-plugins.ps1 (or .sh)"]
@@ -80,7 +77,7 @@ fn directories_are_crawled_for_declared_file_types_and_refused_files_are_listed(
         .iter()
         .map(|preset| match &preset.location {
             PresetLocation::File { path } => (path.clone(), preset.load_key.as_deref()),
-            PresetLocation::Plugin => panic!("a crawled preset belongs to its file"),
+            _ => panic!("a crawled preset belongs to its file"),
         })
         .collect();
     assert_eq!(
@@ -169,10 +166,7 @@ fn invalid_discovery_input_is_rejected_before_loading_a_module() {
         .kind(),
         FailureKind::InvalidInput
     );
-    let target = PresetDiscoveryTarget {
-        provider_id: "bad\0id".into(),
-        location: PresetLocation::Plugin,
-    };
+    let target = PresetDiscoveryTarget::new("bad\0id", PresetLocation::Plugin);
     assert_eq!(
         clap::discover_presets(bundle, &HostIdentity::default(), &target)
             .unwrap_err()

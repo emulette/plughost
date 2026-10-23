@@ -41,11 +41,11 @@ impl Plugin {
                     }
                     return Err(Vst3Error::ParameterGroups);
                 };
-                path.push(plughost_core::ParameterGroup {
-                    id: unit.id.to_string(),
-                    name: wide_string(&unit.name),
-                    program_list_id: (unit.programListId != -1).then_some(unit.programListId),
-                });
+                path.push(plughost_core::ParameterGroup::new(
+                    unit.id.to_string(),
+                    wide_string(&unit.name),
+                    (unit.programListId != -1).then_some(unit.programListId),
+                ));
                 current = unit.parentUnitId;
             }
             path.reverse();

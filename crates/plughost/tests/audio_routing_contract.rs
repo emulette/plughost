@@ -1,6 +1,6 @@
 use plughost::{
     AudioBusConfig, AudioInputRoute, AudioSource, BlockContext, ChannelAdaptation, Error, Events,
-    FailureKind, InputError, Layout, PluginFormat, ProcessMode, RoutedChainConfig, SampleFormat,
+    FailureKind, InputError, Layout, PluginFormat, RoutedChainConfig, SampleFormat,
     SlotAudioConfig,
 };
 
@@ -9,19 +9,11 @@ mod support;
 use support::{delay, delay_variant, routing, spawn};
 
 fn bus(id: u64, layout: Layout) -> AudioBusConfig {
-    AudioBusConfig {
-        id,
-        layout,
-        active: true,
-    }
+    AudioBusConfig::new(id, layout, true)
 }
 
 fn route(id: u64, layout: Layout, source: AudioSource) -> AudioInputRoute {
-    AudioInputRoute {
-        bus: bus(id, layout),
-        source,
-        adaptation: ChannelAdaptation::Exact,
-    }
+    AudioInputRoute::new(bus(id, layout), source)
 }
 
 fn ids(format: PluginFormat) -> (u64, u64, u64, u64) {
@@ -37,15 +29,7 @@ fn config(
     slots: Vec<SlotAudioConfig>,
     sample_format: SampleFormat,
 ) -> RoutedChainConfig {
-    RoutedChainConfig {
-        event_inputs: 0,
-        sample_rate: 48_000.0,
-        max_block_size: 512,
-        sample_format,
-        mode: ProcessMode::Offline,
-        inputs,
-        slots,
-    }
+    RoutedChainConfig::new(48_000.0, 512, sample_format, inputs, slots)
 }
 
 #[test]
@@ -54,16 +38,15 @@ fn reversed_bus_requests_route_previous_auxiliary_by_id_in_native_channel_order(
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let (aux_in, main_in, aux_out, main_out) = ids(format);
         let mut chain = spawn(&[routing(format), routing(format)]);
-        let mut first = SlotAudioConfig {
-            events: Default::default(),
-            configuration: (format == PluginFormat::Clap).then_some(101),
+        let mut first = SlotAudioConfig::new(
             // Deliberately opposite native bus index order.
-            inputs: vec![
+            vec![
                 route(main_in, Layout::Stereo, AudioSource::External { bus: 0 }),
                 route(aux_in, Layout::Mono, AudioSource::External { bus: 1 }),
             ],
-            outputs: vec![bus(main_out, Layout::Stereo), bus(aux_out, Layout::Stereo)],
-        };
+            vec![bus(main_out, Layout::Stereo), bus(aux_out, Layout::Stereo)],
+        );
+        first.configuration = (format == PluginFormat::Clap).then_some(101);
         let mut second = first.clone();
         second.inputs[0].source = AudioSource::Previous { bus: main_out };
         second.inputs[1].source = AudioSource::Previous { bus: aux_out };
@@ -129,14 +112,17 @@ fn disabled_auxiliary_routes_are_ignored_and_surround_channel_order_is_exact() {
             chain
                 .prepare_audio(&config(
                     vec![layout],
-                    vec![SlotAudioConfig {
-                        events: Default::default(),
-                        configuration: (format == PluginFormat::Clap).then_some(configuration),
-                        inputs: vec![
-                            route(main_in, layout, AudioSource::External { bus: 0 }),
-                            inactive,
-                        ],
-                        outputs: vec![bus(main_out, layout), discarded],
+                    vec![{
+                        let mut value = SlotAudioConfig::new(
+                            vec![
+                                route(main_in, layout, AudioSource::External { bus: 0 }),
+                                inactive,
+                            ],
+                            vec![bus(main_out, layout), discarded],
+                        );
+                        value.configuration =
+                            (format == PluginFormat::Clap).then_some(configuration);
+                        value
                     }],
                     SampleFormat::F64,
                 ))
@@ -175,20 +161,20 @@ fn late_native_reprepare_failure_preserves_every_old_slot_and_pending_audio() {
         let valid = config(
             vec![Layout::Stereo],
             vec![
-                SlotAudioConfig {
-                    events: Default::default(),
-                    configuration: None,
-                    inputs: vec![route(0, Layout::Stereo, AudioSource::External { bus: 0 })],
-                    outputs: vec![bus(0, Layout::Stereo)],
-                },
-                SlotAudioConfig {
-                    events: Default::default(),
-                    configuration: (format == PluginFormat::Clap).then_some(101),
-                    inputs: vec![
-                        route(main_in, Layout::Stereo, AudioSource::Previous { bus: 0 }),
-                        unused,
-                    ],
-                    outputs: vec![bus(main_out, Layout::Stereo), discarded],
+                SlotAudioConfig::new(
+                    vec![route(0, Layout::Stereo, AudioSource::External { bus: 0 })],
+                    vec![bus(0, Layout::Stereo)],
+                ),
+                {
+                    let mut value = SlotAudioConfig::new(
+                        vec![
+                            route(main_in, Layout::Stereo, AudioSource::Previous { bus: 0 }),
+                            unused,
+                        ],
+                        vec![bus(main_out, Layout::Stereo), discarded],
+                    );
+                    value.configuration = (format == PluginFormat::Clap).then_some(101);
+                    value
                 },
             ],
             SampleFormat::F32,
@@ -269,20 +255,20 @@ fn unused_upstream_delay_is_not_trimmed_from_an_external_main_path() {
             .prepare_audio(&config(
                 vec![Layout::Stereo],
                 vec![
-                    SlotAudioConfig {
-                        events: Default::default(),
-                        configuration: None,
-                        inputs: vec![route(0, Layout::Stereo, AudioSource::External { bus: 0 })],
-                        outputs: vec![bus(0, Layout::Stereo)],
-                    },
-                    SlotAudioConfig {
-                        events: Default::default(),
-                        configuration: (format == PluginFormat::Clap).then_some(101),
-                        inputs: vec![
-                            route(main_in, Layout::Stereo, AudioSource::External { bus: 0 }),
-                            route(aux_in, Layout::Mono, AudioSource::Silence),
-                        ],
-                        outputs: vec![bus(main_out, Layout::Stereo)],
+                    SlotAudioConfig::new(
+                        vec![route(0, Layout::Stereo, AudioSource::External { bus: 0 })],
+                        vec![bus(0, Layout::Stereo)],
+                    ),
+                    {
+                        let mut value = SlotAudioConfig::new(
+                            vec![
+                                route(main_in, Layout::Stereo, AudioSource::External { bus: 0 }),
+                                route(aux_in, Layout::Mono, AudioSource::Silence),
+                            ],
+                            vec![bus(main_out, Layout::Stereo)],
+                        );
+                        value.configuration = (format == PluginFormat::Clap).then_some(101);
+                        value
                     },
                 ],
                 SampleFormat::F32,
@@ -314,20 +300,20 @@ fn external_sidechain_is_delayed_to_the_main_paths_arrival_across_blocks() {
             .prepare_audio(&config(
                 vec![Layout::Stereo, Layout::Mono],
                 vec![
-                    SlotAudioConfig {
-                        events: Default::default(),
-                        configuration: None,
-                        inputs: vec![route(0, Layout::Stereo, AudioSource::External { bus: 0 })],
-                        outputs: vec![bus(0, Layout::Stereo)],
-                    },
-                    SlotAudioConfig {
-                        events: Default::default(),
-                        configuration: (format == PluginFormat::Clap).then_some(101),
-                        inputs: vec![
-                            route(main_in, Layout::Stereo, AudioSource::Previous { bus: 0 }),
-                            route(aux_in, Layout::Mono, AudioSource::External { bus: 1 }),
-                        ],
-                        outputs: vec![bus(main_out, Layout::Stereo)],
+                    SlotAudioConfig::new(
+                        vec![route(0, Layout::Stereo, AudioSource::External { bus: 0 })],
+                        vec![bus(0, Layout::Stereo)],
+                    ),
+                    {
+                        let mut value = SlotAudioConfig::new(
+                            vec![
+                                route(main_in, Layout::Stereo, AudioSource::Previous { bus: 0 }),
+                                route(aux_in, Layout::Mono, AudioSource::External { bus: 1 }),
+                            ],
+                            vec![bus(main_out, Layout::Stereo)],
+                        );
+                        value.configuration = (format == PluginFormat::Clap).then_some(101);
+                        value
                     },
                 ],
                 SampleFormat::F32,
@@ -384,20 +370,20 @@ fn check_restored_alignment(replaced: usize) {
             .prepare_audio(&config(
                 vec![Layout::Stereo, Layout::Mono],
                 vec![
-                    SlotAudioConfig {
-                        events: Default::default(),
-                        configuration: None,
-                        inputs: vec![route(0, Layout::Stereo, AudioSource::External { bus: 0 })],
-                        outputs: vec![bus(0, Layout::Stereo)],
-                    },
-                    SlotAudioConfig {
-                        events: Default::default(),
-                        configuration: (format == PluginFormat::Clap).then_some(101),
-                        inputs: vec![
-                            route(main_in, Layout::Stereo, AudioSource::Previous { bus: 0 }),
-                            route(aux_in, Layout::Mono, AudioSource::External { bus: 1 }),
-                        ],
-                        outputs: vec![bus(main_out, Layout::Stereo), bus(aux_out, Layout::Stereo)],
+                    SlotAudioConfig::new(
+                        vec![route(0, Layout::Stereo, AudioSource::External { bus: 0 })],
+                        vec![bus(0, Layout::Stereo)],
+                    ),
+                    {
+                        let mut value = SlotAudioConfig::new(
+                            vec![
+                                route(main_in, Layout::Stereo, AudioSource::Previous { bus: 0 }),
+                                route(aux_in, Layout::Mono, AudioSource::External { bus: 1 }),
+                            ],
+                            vec![bus(main_out, Layout::Stereo), bus(aux_out, Layout::Stereo)],
+                        );
+                        value.configuration = (format == PluginFormat::Clap).then_some(101);
+                        value
                     },
                 ],
                 SampleFormat::F32,
@@ -458,21 +444,17 @@ fn excessive_alignment_is_rejected_before_replacing_a_working_chain() {
     let original = config(
         vec![Layout::Stereo, Layout::Mono],
         vec![
-            SlotAudioConfig {
-                events: Default::default(),
-                configuration: None,
-                inputs: vec![route(0, Layout::Stereo, AudioSource::External { bus: 0 })],
-                outputs: vec![bus(0, Layout::Stereo)],
-            },
-            SlotAudioConfig {
-                events: Default::default(),
-                configuration: None,
-                inputs: vec![
+            SlotAudioConfig::new(
+                vec![route(0, Layout::Stereo, AudioSource::External { bus: 0 })],
+                vec![bus(0, Layout::Stereo)],
+            ),
+            SlotAudioConfig::new(
+                vec![
                     route(1, Layout::Stereo, AudioSource::External { bus: 0 }),
                     route(0, Layout::Mono, AudioSource::External { bus: 1 }),
                 ],
-                outputs: vec![bus(1, Layout::Stereo)],
-            },
+                vec![bus(1, Layout::Stereo)],
+            ),
         ],
         SampleFormat::F64,
     );
@@ -521,17 +503,11 @@ fn event_budget_rejection_preserves_pending_native_audio() {
                 &mut Events::for_block(),
             )
             .unwrap();
-        let automation = vec![
-            plughost::AutomationEvent {
-                slot: 0,
-                change: plughost::ParameterChange {
-                    id: 0,
-                    offset: 0,
-                    value: 0.25
-                },
-            };
-            plughost::MAX_BLOCK_EVENTS + 1
-        ];
+        let automation =
+            vec![
+                plughost::AutomationEvent::new(0, plughost::ParameterChange::new(0, 0, 0.25));
+                plughost::MAX_BLOCK_EVENTS + 1
+            ];
         let (mut rejected_left, mut rejected_right) = ([99.0; 8], [99.0; 8]);
         let error = chain
             .process_audio_f32(

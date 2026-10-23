@@ -1,8 +1,8 @@
 use super::*;
 use plughost_core::ipc::shared::{Descriptor, SharedAudio, SlotConfig};
 use plughost_core::{
-    AudioBusConfig, AudioInputRoute, AudioSource, ChannelAdaptation, Layout, ProcessMode,
-    RoutedChainConfig, SampleFormat, SlotAudioConfig,
+    AudioBusConfig, AudioInputRoute, AudioSource, Layout, RoutedChainConfig, SampleFormat,
+    SlotAudioConfig,
 };
 
 #[test]
@@ -28,29 +28,17 @@ fn transferring_to_an_exited_helper_reports_its_exit() {
 
 /// Stereo through the main buses of one VST3 slot, whose bus IDs are their indices.
 fn stereo() -> RoutedChainConfig {
-    let bus = AudioBusConfig {
-        id: 0,
-        layout: Layout::Stereo,
-        active: true,
-    };
-    RoutedChainConfig {
-        event_inputs: 0,
-        sample_rate: 48_000.0,
-        max_block_size: 512,
-        sample_format: SampleFormat::F32,
-        mode: ProcessMode::Offline,
-        inputs: vec![Layout::Stereo],
-        slots: vec![SlotAudioConfig {
-            events: Default::default(),
-            configuration: None,
-            inputs: vec![AudioInputRoute {
-                bus,
-                source: AudioSource::External { bus: 0 },
-                adaptation: ChannelAdaptation::Exact,
-            }],
-            outputs: vec![bus],
-        }],
-    }
+    let bus = AudioBusConfig::new(0, Layout::Stereo, true);
+    RoutedChainConfig::new(
+        48_000.0,
+        512,
+        SampleFormat::F32,
+        vec![Layout::Stereo],
+        vec![SlotAudioConfig::new(
+            vec![AudioInputRoute::new(bus, AudioSource::External { bus: 0 })],
+            vec![bus],
+        )],
+    )
 }
 
 fn memory(generation: u64) -> SharedAudio {

@@ -13,11 +13,7 @@ use support::{bundle, delay, helper, prepare, spawn_with};
 fn check_lifecycle(format: PluginFormat, first_parameter: u64) {
     // The second name exactly fills VST3's 127 UTF-16 units, including surrogate pairs.
     for name in ["검증 🎛 Host".to_owned(), format!("{}x", "🎛".repeat(63))] {
-        let expected = HostIdentity {
-            name,
-            vendor: "테스트 Vendor".to_owned(),
-            version: "2.3.4-beta".to_owned(),
-        };
+        let expected = HostIdentity::new(name, "테스트 Vendor".to_owned(), "2.3.4-beta".to_owned());
         let mut supplied = expected.clone();
         let mut chain = spawn_with(&[delay(format)], &supplied, Timeouts::default());
         supplied.name = "changed after spawn".to_owned();
@@ -72,9 +68,10 @@ fn clap_receives_host_identity_after_reset_and_recovery() {
 #[ignore = "needs scripts/build-helper.ps1 and scripts/build-test-plugins.ps1 (or .sh)"]
 fn vst3_scans_present_the_scanner_host_identity() {
     let directory = tempfile::tempdir().unwrap();
-    let identity = HostIdentity {
-        name: "검증 🎛 Scan Host".to_owned(),
-        ..HostIdentity::default()
+    let identity = {
+        let mut value = HostIdentity::default();
+        value.name = "검증 🎛 Scan Host".to_owned();
+        value
     };
     let scan = Scanner::new(&helper(), &directory.path().join("cache.json"))
         .host(identity.clone())
@@ -89,29 +86,35 @@ fn vst3_scans_present_the_scanner_host_identity() {
 #[test]
 fn invalid_host_identity_is_rejected_before_starting_a_helper() {
     let invalid = [
-        HostIdentity {
-            name: String::new(),
-            ..HostIdentity::default()
+        {
+            let mut value = HostIdentity::default();
+            value.name = String::new();
+            value
         },
-        HostIdentity {
-            name: "x".repeat(128),
-            ..HostIdentity::default()
+        {
+            let mut value = HostIdentity::default();
+            value.name = "x".repeat(128);
+            value
         },
-        HostIdentity {
-            name: "🎛".repeat(64),
-            ..HostIdentity::default()
+        {
+            let mut value = HostIdentity::default();
+            value.name = "🎛".repeat(64);
+            value
         },
-        HostIdentity {
-            name: "host\0other".to_owned(),
-            ..HostIdentity::default()
+        {
+            let mut value = HostIdentity::default();
+            value.name = "host\0other".to_owned();
+            value
         },
-        HostIdentity {
-            vendor: "vendor\0other".to_owned(),
-            ..HostIdentity::default()
+        {
+            let mut value = HostIdentity::default();
+            value.vendor = "vendor\0other".to_owned();
+            value
         },
-        HostIdentity {
-            version: "1\0other".to_owned(),
-            ..HostIdentity::default()
+        {
+            let mut value = HostIdentity::default();
+            value.version = "1\0other".to_owned();
+            value
         },
     ];
     for host in invalid {

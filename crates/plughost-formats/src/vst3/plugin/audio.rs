@@ -51,17 +51,14 @@ impl Plugin {
     }
     pub(crate) fn bypass(&self) -> Result<BypassState, Vst3Error> {
         let Some(id) = self.bypass_parameter() else {
-            return Ok(BypassState {
-                support: Support::Unsupported,
-                enabled: None,
-            });
+            return Ok(BypassState::new(Support::Unsupported, None));
         };
         self.sync_controller();
         // A value that is not finite leaves the state unknown.
-        Ok(BypassState {
-            support: Support::Supported,
-            enabled: self.controller_value(id).map(|value| value >= 0.5),
-        })
+        Ok(BypassState::new(
+            Support::Supported,
+            self.controller_value(id).map(|value| value >= 0.5),
+        ))
     }
     /// Uses the plugin's native bypass parameter; no host dry path is substituted.
     pub(crate) fn set_bypass(&mut self, enabled: bool) -> Result<(), Vst3Error> {

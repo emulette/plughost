@@ -114,6 +114,7 @@ fn shared_audio_child() {
                     .write_output_f64(submission, &[&audio64[0], &audio64[1]], &Events::new())
                     .unwrap();
             }
+            _ => unreachable!(),
         });
         // The public event types have no serde form; their Debug form shows what arrived.
         write.write(&format!("{:?}", (&edits, &notes))).unwrap();
@@ -181,14 +182,7 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
             } else {
                 [0.25, 0.75]
                     .into_iter()
-                    .map(|value| AutomationEvent {
-                        slot: 2,
-                        change: ParameterChange {
-                            id: 123,
-                            offset: 0,
-                            value,
-                        },
-                    })
+                    .map(|value| AutomationEvent::new(2, ParameterChange::new(123, 0, value)))
                     .collect()
             };
             let notes = if frames == 0 {
@@ -213,6 +207,7 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
                     &edits,
                     &notes,
                 ),
+                _ => unreachable!(),
             })
             .unwrap();
             write.write(&Some(submission)).unwrap();
@@ -261,6 +256,7 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
                             == vec![-0.5 * (1.0 + f64::EPSILON); frames])
                     );
                 }
+                _ => unreachable!(),
             }
             final_submission = Some(submission);
         }

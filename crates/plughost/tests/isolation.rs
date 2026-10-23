@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 
 use plughost::{
     Chain, Error, Event, Events, FailureKind, HostIdentity, InputError, Layout, PluginFormat,
-    PluginRef, RenderOptions, RoutedChainConfig, ScanAction, ScanOutcome, ScanPolicy, Scanner,
-    Source, TailPolicy, Timeouts, render,
+    PluginRef, RenderOptions, ScanAction, ScanOutcome, ScanPolicy, Scanner, Source, TailPolicy,
+    Timeouts, render,
 };
 
 mod support;
@@ -724,9 +724,10 @@ fn invalid_prepares_preserve_the_prepared_chain() {
     let mut chain = spawn(&[again()]);
     prepare(&mut chain);
     for sample_rate in [f64::NAN, f64::INFINITY, 0.0, -48_000.0] {
-        let invalid = RoutedChainConfig {
-            sample_rate,
-            ..support::stereo_config(&mut chain)
+        let invalid = {
+            let mut value = support::stereo_config(&mut chain);
+            value.sample_rate = sample_rate;
+            value
         };
         assert!(matches!(
             chain.prepare_audio(&invalid),
@@ -739,9 +740,10 @@ fn invalid_prepares_preserve_the_prepared_chain() {
         assert!(max_difference(&process_block(&mut chain, &input), &input, 1.0) < 1e-6);
     }
     for max_block_size in [0, i32::MAX as usize + 1] {
-        let invalid = RoutedChainConfig {
-            max_block_size,
-            ..support::stereo_config(&mut chain)
+        let invalid = {
+            let mut value = support::stereo_config(&mut chain);
+            value.max_block_size = max_block_size;
+            value
         };
         assert!(matches!(
             chain.prepare_audio(&invalid),

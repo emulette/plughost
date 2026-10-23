@@ -32,11 +32,11 @@ impl Plugin {
                     path.push('/');
                 }
                 path.push_str(name);
-                groups.push(plughost_core::ParameterGroup {
-                    id: path.clone(),
-                    name: name.to_owned(),
-                    program_list_id: None,
-                });
+                groups.push(plughost_core::ParameterGroup::new(
+                    path.clone(),
+                    name.to_owned(),
+                    None,
+                ));
             }
         }
         Ok({
@@ -65,18 +65,16 @@ impl Plugin {
             } else {
                 index as f64 / f64::from(details.info.step_count)
             };
-            choices.push(plughost_core::ParameterChoice {
+            choices.push(plughost_core::ParameterChoice::new(
                 index,
                 normalized,
                 plain,
-                text: self.plain_text(native, plain)?,
-            });
+                self.plain_text(native, plain)?,
+            ));
         }
-        Ok(plughost_core::ParameterChoicePage {
-            total,
-            start,
-            choices,
-        })
+        Ok(plughost_core::ParameterChoicePage::new(
+            total, start, choices,
+        ))
     }
 
     fn parameter_range(&mut self, id: u64) -> Result<(u32, f64, f64), ClapError> {

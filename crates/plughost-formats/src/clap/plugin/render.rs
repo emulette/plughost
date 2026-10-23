@@ -91,6 +91,7 @@ fn channel_count(plugin: &Plugin, direction: AudioDirection) -> usize {
         match direction {
             AudioDirection::Input => prepared.main_input.map_or(0, |i| prepared.inputs[i]),
             AudioDirection::Output => prepared.main_output.map_or(0, |i| prepared.outputs[i]),
+            _ => 0,
         }
     }
 }

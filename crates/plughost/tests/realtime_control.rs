@@ -427,14 +427,8 @@ fn notes_the_application_received_end_after_a_resync() {
     };
     config.event_inputs = 2;
     config.slots[0].events.inputs = vec![
-        EventInputRoute {
-            port: input(0),
-            source: EventSource::External { port: 0 },
-        },
-        EventInputRoute {
-            port: input(2),
-            source: EventSource::External { port: 1 },
-        },
+        EventInputRoute::new(input(0), EventSource::External { port: 0 }),
+        EventInputRoute::new(input(2), EventSource::External { port: 1 }),
     ];
     chain.prepare_audio(&config).unwrap();
     let mut endpoint = started(&mut chain, &RealtimeConfig::new(QUANTUM));
@@ -485,14 +479,10 @@ fn notes_the_application_received_end_after_a_resync() {
 fn a_slot_prepared_again_drops_its_restart_request() {
     /// The CLAP delay fixture's parameter whose change makes it request a restart.
     const RESTART_MODE: u64 = 10;
-    let restart = [AutomationEvent {
-        slot: 0,
-        change: ParameterChange {
-            id: RESTART_MODE,
-            offset: 0,
-            value: 0.5,
-        },
-    }];
+    let restart = [AutomationEvent::new(
+        0,
+        ParameterChange::new(RESTART_MODE, 0, 0.5),
+    )];
     let restart_required = |chain: &mut Chain| {
         chain.take_changes().unwrap().snapshot[0]
             .unwrap()

@@ -45,11 +45,39 @@ fn channels<S: Sample>(count: usize, block: usize) -> Vec<Vec<S>> {
 
 impl Prepared {
     /// Config has already been validated and ordered by negotiated native bus indices.
-    pub fn new(config: &RoutedChainConfig, timings: &[PluginTiming]) -> Self {
-        match config.sample_format {
+    pub fn new(
+        config: &RoutedChainConfig,
+        timings: &[PluginTiming],
+    ) -> Result<Self, plughost_core::Failure> {
+        // What processing reads of each route, so that it never meets one it cannot follow.
+        let supported = config
+            .slots
+            .iter()
+            .flat_map(|slot| &slot.inputs)
+            .all(|route| {
+                matches!(
+                    route.source,
+                    AudioSource::External { .. }
+                        | AudioSource::Previous { .. }
+                        | AudioSource::Silence
+                ) && matches!(
+                    route.adaptation,
+                    ChannelAdaptation::Exact
+                        | ChannelAdaptation::MonoToStereo
+                        | ChannelAdaptation::StereoToMono
+                )
+            });
+        if !supported {
+            return Err(plughost_core::Failure::new(
+                plughost_core::FailureKind::Configuration,
+                crate::errors::ROUTING_UNSUPPORTED,
+            ));
+        }
+        Ok(match config.sample_format {
             SampleFormat::F32 => Self::F32(Routed::new(config, timings)),
             SampleFormat::F64 => Self::F64(Routed::new(config, timings)),
-        }
+            _ => return Err(crate::errors::sample_format()),
+        })
     }
 }
 impl<S: Sample> Routed<S> {
@@ -90,6 +118,8 @@ impl<S: Sample> Routed<S> {
                             Source::Previous(start..start + channels)
                         }
                         AudioSource::Silence => Source::Silence,
+                        // Refused by `Prepared::new`.
+                        _ => unreachable!(),
                     };
                     let end = input_count + route.bus.layout.channels();
                     routes.push(Route {
@@ -191,7 +221,8 @@ impl<S: Sample + Add<Output = S> + Mul<Output = S> + From<f32>> Slot<S> {
                         *out = *left * S::from(0.5) + *right * S::from(0.5);
                     }
                 }
-                (None, _) => {
+                // No source; `Prepared::new` refuses other adaptations.
+                _ => {
                     for out in target.iter_mut() {
                         out.fill(S::default());
                     }

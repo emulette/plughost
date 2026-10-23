@@ -5,9 +5,9 @@ use std::time::{Duration, Instant};
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::{GenericNamespaced, Stream};
 use plughost::{
-    AudioBusConfig, AudioInputRoute, AudioSource, BlockContext, Chain, ChannelAdaptation, Events,
-    FailureKind, HostIdentity, Layout, PluginFormat, PluginRef, ProcessMode, RoutedChainConfig,
-    SampleFormat, SlotAudioConfig, Timeouts,
+    AudioBusConfig, AudioInputRoute, AudioSource, BlockContext, Chain, Events, FailureKind,
+    HostIdentity, Layout, PluginFormat, PluginRef, RoutedChainConfig, SampleFormat,
+    SlotAudioConfig, Timeouts,
 };
 use plughost_core::ipc::shared::{SharedAudio, transfer};
 use plughost_core::ipc::{
@@ -276,32 +276,23 @@ fn caller(fault: &str) {
         return;
     }
     let mut chain = result.unwrap();
-    let stereo = AudioBusConfig {
-        id: 0,
-        layout: Layout::Stereo,
-        active: true,
-    };
-    let config = RoutedChainConfig {
-        event_inputs: 0,
-        sample_rate: 48_000.0,
-        max_block_size: 32,
-        sample_format: SampleFormat::F32,
-        mode: ProcessMode::Offline,
-        inputs: vec![Layout::Stereo],
-        slots: vec![SlotAudioConfig {
-            events: plughost::SlotEventConfig {
-                inputs: vec![],
-                outputs: vec![0],
-            },
-            configuration: None,
-            inputs: vec![AudioInputRoute {
-                bus: stereo,
-                source: AudioSource::External { bus: 0 },
-                adaptation: ChannelAdaptation::Exact,
-            }],
-            outputs: vec![stereo],
-        }],
-    };
+    let stereo = AudioBusConfig::new(0, Layout::Stereo, true);
+    let config = RoutedChainConfig::new(
+        48_000.0,
+        32,
+        SampleFormat::F32,
+        vec![Layout::Stereo],
+        vec![
+            SlotAudioConfig::new(
+                vec![AudioInputRoute::new(
+                    stereo,
+                    AudioSource::External { bus: 0 },
+                )],
+                vec![stereo],
+            )
+            .with_events(plughost::SlotEventConfig::new(vec![], vec![0])),
+        ],
+    );
     let pid: u32 = chain.plugins()[0].sdk_version.parse().unwrap();
     if fault == "prepare" {
         assert_eq!(
@@ -312,14 +303,7 @@ fn caller(fault: &str) {
         chain.prepare_audio(&config).unwrap();
         if fault == "render-targets" {
             let points = [(0, 0), (0, 1), (1, 32), (0, 64), (77, 95)].map(|(id, offset)| {
-                plughost::AutomationEvent {
-                    slot: 0,
-                    change: plughost::ParameterChange {
-                        id,
-                        offset,
-                        value: 0.5,
-                    },
-                }
+                plughost::AutomationEvent::new(0, plughost::ParameterChange::new(id, offset, 0.5))
             });
             let input = [1.0f32; 96];
             let error = plughost::render_with_schedule(
@@ -328,10 +312,7 @@ fn caller(fault: &str) {
                 input.len(),
                 &Events::new(),
                 &plughost::RenderOptions::new(plughost::TailPolicy::Reported, 0.0),
-                &plughost::RenderSchedule {
-                    automation: &points,
-                    ..Default::default()
-                },
+                &plughost::RenderSchedule::default().with_automation(&points),
             )
             .unwrap_err();
             assert!(

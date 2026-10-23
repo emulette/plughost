@@ -1,5 +1,5 @@
 //! Minimal fixture-specific chain adapter; it is not a second general routing engine.
-use plughost::{Events, HostIdentity, Layout, PluginRef, ProcessMode, SampleFormat};
+use plughost::{Events, HostIdentity, Layout, PluginRef, SampleFormat};
 use plughost_core::render::{Process, Tail};
 use plughost_core::{AutomationEvent, BlockContext, ParameterChange, ProcessConfig};
 use plughost_formats::{BlockProcessor, HostedPlugin};
@@ -33,14 +33,13 @@ pub fn prepare(case: Case, plugin: &PluginRef) -> Result<Prepared> {
             if case.multiple() {
                 plugin.prepare_audio(&case.native_config())?;
             } else {
-                plugin.prepare(&ProcessConfig {
-                    sample_rate: case.sample_rate.into(),
-                    max_block_size: case.max_block_size,
-                    sample_format: SampleFormat::F32,
-                    input: Layout::Stereo,
-                    output: Layout::Stereo,
-                    mode: ProcessMode::Offline,
-                })?;
+                plugin.prepare(&ProcessConfig::new(
+                    case.sample_rate.into(),
+                    case.max_block_size,
+                    SampleFormat::F32,
+                    Layout::Stereo,
+                    Layout::Stereo,
+                ))?;
             }
             let timing = plugin.timing()?;
             if timing.latency != 0 || timing.tail != Tail::Samples(0) {

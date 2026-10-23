@@ -4,9 +4,9 @@ use super::*;
 use plughost_core::render::Process;
 use plughost_core::{
     AudioBusConfig, AudioBusInfo, AudioBusRole, AudioConfiguration, AudioDirection,
-    AudioInputRoute, AudioSource, AutomationEvent, BlockContext, BypassState, ChannelAdaptation,
-    EventInputRoute, EventPortInfo, EventSource, InputError, Layout, ProcessMode,
-    RoutedChainConfig, Sample, SampleFormat, SlotAudioConfig, SlotEventConfig,
+    AudioInputRoute, AudioSource, AutomationEvent, BlockContext, BypassState, EventInputRoute,
+    EventPortInfo, EventSource, InputError, Layout, RoutedChainConfig, Sample, SampleFormat,
+    SlotAudioConfig, SlotEventConfig,
 };
 
 impl Chain {
@@ -39,9 +39,9 @@ impl Chain {
         }
     }
 
-    /// A serial chain through each slot's main buses, in f32 and [`ProcessMode::Offline`]: the
-    /// chain input feeds the first slot's main input, each slot's main output feeds the next
-    /// slot's main input, and `outputs` holds each slot's main output layout. `Layout::None`
+    /// A serial chain through each slot's main buses, in f32 and
+    /// [`ProcessMode::Offline`](plughost_core::ProcessMode::Offline): the chain input feeds the
+    /// first slot's main input, each slot's main output feeds the next slot's main input, and `outputs` holds each slot's main output layout. `Layout::None`
     /// leaves a main bus inactive, as are all auxiliary buses. Events follow the same path: the
     /// chain's one event input reaches the first slot's first event input, each slot's first
     /// event output reaches the next slot's first event input, and the last slot's first event
@@ -75,14 +75,14 @@ impl Chain {
             };
             let event_input = first(AudioDirection::Input);
             let event_output = first(AudioDirection::Output);
-            let events = SlotEventConfig {
-                inputs: event_input
+            let events = SlotEventConfig::new(
+                event_input
                     .zip(event_source)
-                    .map(|(port, source)| EventInputRoute { port, source })
+                    .map(|(port, source)| EventInputRoute::new(port, source))
                     .into_iter()
                     .collect(),
-                outputs: event_output.into_iter().collect(),
-            };
+                event_output.into_iter().collect(),
+            );
             event_source = event_output.map(|port| EventSource::Previous { port });
             let main = |direction, layout: Layout| -> Result<Vec<AudioBusConfig>, Error> {
                 if layout == Layout::None {
@@ -95,20 +95,12 @@ impl Chain {
                         slot: Some(slot),
                         error: InputError::MainBus,
                     })?;
-                Ok(vec![AudioBusConfig {
-                    id: bus.id,
-                    layout,
-                    active: true,
-                }])
+                Ok(vec![AudioBusConfig::new(bus.id, layout, true)])
             };
             let (layout, from) = source;
             let inputs = main(AudioDirection::Input, layout)?
                 .into_iter()
-                .map(|bus| AudioInputRoute {
-                    bus,
-                    source: from,
-                    adaptation: ChannelAdaptation::Exact,
-                })
+                .map(|bus| AudioInputRoute::new(bus, from))
                 .collect();
             let outputs = main(AudioDirection::Output, output)?;
             source = (
@@ -117,26 +109,20 @@ impl Chain {
                     bus: outputs.first().map_or(0, |bus| bus.id),
                 },
             );
-            slots.push(SlotAudioConfig {
-                configuration: None,
-                inputs,
-                outputs,
-                events,
-            });
+            slots.push(SlotAudioConfig::new(inputs, outputs).with_events(events));
         }
-        Ok(RoutedChainConfig {
+        Ok(RoutedChainConfig::new(
             sample_rate,
             max_block_size,
-            sample_format: SampleFormat::F32,
-            mode: ProcessMode::Offline,
-            inputs: if input == Layout::None {
+            SampleFormat::F32,
+            if input == Layout::None {
                 Vec::new()
             } else {
                 vec![input]
             },
-            event_inputs: 1,
             slots,
-        })
+        )
+        .with_event_inputs(1))
     }
 
     /// Queries native bypass support and its current value for one slot.

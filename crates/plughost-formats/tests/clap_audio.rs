@@ -16,23 +16,17 @@ fn bundle(name: &str) -> Plugin {
     .unwrap()
 }
 fn bus(id: u64, layout: Layout) -> AudioBusConfig {
-    AudioBusConfig {
-        id,
-        layout,
-        active: true,
-    }
+    AudioBusConfig::new(id, layout, true)
 }
 fn config(format: SampleFormat, layout: Layout, id: u64) -> AudioConfig {
-    AudioConfig {
-        events: Default::default(),
-        sample_rate: 48000.0,
-        max_block_size: 32,
-        sample_format: format,
-        mode: ProcessMode::Offline,
-        configuration: Some(id),
-        inputs: vec![bus(20, Layout::Mono), bus(21, layout)],
-        outputs: vec![bus(30, Layout::Stereo), bus(31, layout)],
-    }
+    AudioConfig::new(
+        48000.0,
+        32,
+        format,
+        vec![bus(20, Layout::Mono), bus(21, layout)],
+        vec![bus(30, Layout::Stereo), bus(31, layout)],
+    )
+    .with_configuration(id)
 }
 #[test]
 #[ignore = "needs native routing fixture"]
@@ -109,10 +103,7 @@ fn multibus_f64_preserves_precision_sidechain_auxiliary_and_native_bypass() {
     assert_ne!(output[2][0], f64::from(exact as f32));
     assert_eq!(
         plugin.bypass().unwrap(),
-        BypassState {
-            support: Support::Supported,
-            enabled: Some(false)
-        }
+        BypassState::new(Support::Supported, Some(false))
     );
     plugin.set_bypass(true).unwrap();
     assert_eq!(plugin.bypass().unwrap().enabled, Some(true));
@@ -160,14 +151,13 @@ fn inactive_ports_keep_native_indices_and_reset_retains_routing() {
         assert_eq!(output, [left.clone(), right.clone()]);
     }
     plugin
-        .prepare(&ProcessConfig {
-            sample_rate: 48000.0,
-            max_block_size: 32,
-            sample_format: SampleFormat::F32,
-            input: Layout::Stereo,
-            output: Layout::Stereo,
-            mode: ProcessMode::Offline,
-        })
+        .prepare(&ProcessConfig::new(
+            48000.0,
+            32,
+            SampleFormat::F32,
+            Layout::Stereo,
+            Layout::Stereo,
+        ))
         .unwrap();
     assert!(
         plugin
@@ -202,14 +192,13 @@ fn main_bus_preparation_follows_ports_left_out_without_port_activation() {
     request.outputs.remove(0);
     plugin.prepare_audio(&request).unwrap();
     plugin
-        .prepare(&ProcessConfig {
-            sample_rate: 48000.0,
-            max_block_size: 32,
-            sample_format: SampleFormat::F32,
-            input: Layout::Stereo,
-            output: Layout::Stereo,
-            mode: ProcessMode::Offline,
-        })
+        .prepare(&ProcessConfig::new(
+            48000.0,
+            32,
+            SampleFormat::F32,
+            Layout::Stereo,
+            Layout::Stereo,
+        ))
         .unwrap();
     let (mut left, mut right) = (vec![0.0f32; 32], vec![0.0f32; 32]);
     plugin
@@ -290,9 +279,10 @@ fn configurable_ports_take_every_layout_clap_expresses() {
         .into_iter()
         .filter(|&layout| layout != Layout::None && layout != Layout::Surround916)
     {
-        let request = AudioConfig {
-            configuration: None,
-            ..config(SampleFormat::F64, layout, 0)
+        let request = {
+            let mut value = config(SampleFormat::F64, layout, 0);
+            value.configuration = None;
+            value
         };
         let buses = plugin
             .prepare_audio(&request)
@@ -322,9 +312,10 @@ fn configurable_ports_take_every_layout_clap_expresses() {
     }
     assert_eq!(
         plugin
-            .prepare_audio(&AudioConfig {
-                configuration: None,
-                ..config(SampleFormat::F64, Layout::Surround916, 0)
+            .prepare_audio(&{
+                let mut value = config(SampleFormat::F64, Layout::Surround916, 0);
+                value.configuration = None;
+                value
             })
             .unwrap_err()
             .kind(),
@@ -336,9 +327,10 @@ fn configurable_ports_take_every_layout_clap_expresses() {
 #[ignore = "needs native routing fixture"]
 fn a_preparation_that_must_fail_leaves_the_ports_unconfigured() {
     let mut plugin = plugin();
-    let stereo = AudioConfig {
-        configuration: None,
-        ..config(SampleFormat::F64, Layout::Stereo, 0)
+    let stereo = {
+        let mut value = config(SampleFormat::F64, Layout::Stereo, 0);
+        value.configuration = None;
+        value
     };
     plugin.prepare_audio(&stereo).unwrap();
     // The main output asks for 9.1.6, which CLAP cannot express, so 7.1.4 is not asked either.

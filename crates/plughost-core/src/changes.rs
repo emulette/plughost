@@ -33,6 +33,7 @@ impl PluginTiming {
 
 /// Latest timing observation for one plugin in a chain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SlotChange {
     /// Zero-based plugin slot.
     pub slot: usize,
@@ -43,6 +44,7 @@ pub struct SlotChange {
 /// Timing notifications coalesce by slot, retaining last-observed order. Intermediate values
 /// are not an audit trail. On overflow use `snapshot` to replace the entire consumer view.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChangeBatch {
     /// Coalesced slot changes in last-observed order.
     pub changes: Vec<SlotChange>,

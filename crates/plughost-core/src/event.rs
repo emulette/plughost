@@ -259,6 +259,7 @@ impl EventData<'_> {
 /// A decoded channel message. Channels are 0..=15; data values are 7-bit except the 14-bit pitch
 /// bend (8192 is the center).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Message {
     /// Ends a MIDI note; velocity is release velocity.
     NoteOff {

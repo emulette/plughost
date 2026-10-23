@@ -2,7 +2,7 @@
 
 #![cfg(target_os = "macos")]
 
-use plughost_core::{Event, Events, Layout, PluginKind, ProcessConfig, ProcessMode, SampleFormat};
+use plughost_core::{Event, Events, Layout, PluginKind, ProcessConfig, SampleFormat};
 use plughost_formats::HostedPlugin;
 use plughost_formats::au::{self, Plugin};
 
@@ -15,14 +15,7 @@ const WET_DRY_MIX: u64 = 0;
 const DELAY_TIME: u64 = 1;
 
 fn config(input: Layout) -> ProcessConfig {
-    ProcessConfig {
-        sample_rate: 48_000.0,
-        max_block_size: 512,
-        sample_format: SampleFormat::F32,
-        input,
-        output: Layout::Stereo,
-        mode: ProcessMode::Offline,
-    }
+    ProcessConfig::new(48_000.0, 512, SampleFormat::F32, input, Layout::Stereo)
 }
 
 fn signal(frames: usize) -> Vec<Vec<f32>> {
@@ -220,10 +213,11 @@ fn surround_layouts_pass_each_channel_through() {
     {
         let mut plugin = Plugin::new(AU_DELAY).unwrap();
         plugin
-            .prepare(&ProcessConfig {
-                input: layout,
-                output: layout,
-                ..config(layout)
+            .prepare(&{
+                let mut value = config(layout);
+                value.input = layout;
+                value.output = layout;
+                value
             })
             .unwrap_or_else(|error| panic!("{layout:?}: {error}"));
         plugin.set_parameter(WET_DRY_MIX, 0.0).unwrap();
@@ -257,21 +251,8 @@ fn surround_layouts_pass_each_channel_through() {
 }
 
 fn audio_config(layout: Layout) -> plughost_core::AudioConfig {
-    let bus = plughost_core::AudioBusConfig {
-        id: 0,
-        layout,
-        active: true,
-    };
-    plughost_core::AudioConfig {
-        events: Default::default(),
-        sample_rate: 48_000.0,
-        max_block_size: 512,
-        sample_format: SampleFormat::F32,
-        mode: ProcessMode::Offline,
-        configuration: None,
-        inputs: vec![bus],
-        outputs: vec![bus],
-    }
+    let bus = plughost_core::AudioBusConfig::new(0, layout, true);
+    plughost_core::AudioConfig::new(48_000.0, 512, SampleFormat::F32, vec![bus], vec![bus])
 }
 
 #[test]
@@ -299,9 +280,10 @@ fn explicit_bus_api_preserves_speaker_order_and_rejects_f64_without_unpreparing(
         plugin.set_parameter(WET_DRY_MIX, 0.0).unwrap();
         assert!(
             plugin
-                .prepare_audio(&plughost_core::AudioConfig {
-                    sample_format: SampleFormat::F64,
-                    ..config
+                .prepare_audio(&{
+                    let mut value = config;
+                    value.sample_format = SampleFormat::F64;
+                    value
                 })
                 .is_err()
         );

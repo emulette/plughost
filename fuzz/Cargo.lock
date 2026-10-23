@@ -673,6 +673,7 @@ dependencies = [
 name = "plughost-core"
 version = "0.1.6"
 dependencies = [
+ "bitflags 2.13.2",
  "postcard",
  "rustix",
  "serde",

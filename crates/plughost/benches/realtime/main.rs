@@ -261,9 +261,10 @@ fn micros(ticks: u64) -> f64 {
 
 /// The CLAP stall-in-process fixture, which finds its barrier's address in the host name.
 fn stall_fixture(assets: &Path, address: String) -> (PluginRef, HostIdentity) {
-    let identity = HostIdentity {
-        name: address,
-        ..HostIdentity::default()
+    let identity = {
+        let mut value = HostIdentity::default();
+        value.name = address;
+        value
     };
     let plugin = PluginRef::clap(
         assets.join("plughost-test-stall-in-process.clap"),

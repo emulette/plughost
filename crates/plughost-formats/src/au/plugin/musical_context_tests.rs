@@ -54,14 +54,8 @@ fn a_full_transport_fills_every_value() {
         let mut transport = transport();
         transport.tempo = Some(120.0);
         transport.beat_position = Some(4.5);
-        transport.bar_position = Some(BarPosition {
-            start: 4.0,
-            number: 1,
-        });
-        transport.time_signature = Some(TimeSignature {
-            numerator: 3,
-            denominator: 4,
-        });
+        transport.bar_position = Some(BarPosition::new(4.0, 1));
+        transport.time_signature = Some(TimeSignature::new(3, 4));
         transport
     };
     let (mut tempo, mut numerator, mut denominator) = (0.0, 0.0, 0);

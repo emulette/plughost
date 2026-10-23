@@ -2,38 +2,19 @@ use super::*;
 use plughost_core::{AudioBusConfig, AudioBusRole, AudioConfig, AudioDirection, Events, Support};
 
 fn buses(sample_format: SampleFormat, main: Layout) -> AudioConfig {
-    AudioConfig {
-        events: Default::default(),
-        sample_rate: 48_000.0,
-        max_block_size: 512,
+    AudioConfig::new(
+        48_000.0,
+        512,
         sample_format,
-        mode: ProcessMode::Offline,
-        configuration: None,
-        inputs: vec![
-            AudioBusConfig {
-                id: 0,
-                layout: Layout::Mono,
-                active: true,
-            },
-            AudioBusConfig {
-                id: 1,
-                layout: main,
-                active: true,
-            },
+        vec![
+            AudioBusConfig::new(0, Layout::Mono, true),
+            AudioBusConfig::new(1, main, true),
         ],
-        outputs: vec![
-            AudioBusConfig {
-                id: 0,
-                layout: Layout::Stereo,
-                active: true,
-            },
-            AudioBusConfig {
-                id: 1,
-                layout: main,
-                active: true,
-            },
+        vec![
+            AudioBusConfig::new(0, Layout::Stereo, true),
+            AudioBusConfig::new(1, main, true),
         ],
-    }
+    )
 }
 
 #[test]
@@ -108,11 +89,7 @@ fn sidechain_auxiliary_outputs_and_point_automation_follow_native_bus_order() {
             &plughost_core::BlockContext::new(4),
             &[&key, &left, &right],
             &mut slices,
-            &[plughost_core::ParameterChange {
-                id: 0,
-                offset: 2,
-                value: 0.25,
-            }],
+            &[plughost_core::ParameterChange::new(0, 2, 0.25)],
             &Events::new(),
             &mut Events::for_block(),
         )
@@ -227,11 +204,7 @@ fn preparing_again_holds_the_value_automation_left() {
                 &plughost_core::BlockContext::new(4),
                 &[&key, &left, &right],
                 &mut slices,
-                &[plughost_core::ParameterChange {
-                    id: 0,
-                    offset,
-                    value,
-                }],
+                &[plughost_core::ParameterChange::new(0, offset, value)],
                 &Events::new(),
                 &mut Events::for_block(),
             )
@@ -462,11 +435,7 @@ fn automate_gain(plugin: &mut Plugin, offset: usize) {
             &plughost_core::BlockContext::new(4),
             &[&input, &input, &input],
             &mut slices,
-            &[plughost_core::ParameterChange {
-                id: 0,
-                offset,
-                value: 0.25,
-            }],
+            &[plughost_core::ParameterChange::new(0, offset, 0.25)],
             &Events::new(),
             &mut Events::for_block(),
         )

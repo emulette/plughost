@@ -3,6 +3,7 @@ use crate::errors::{Error, Repr};
 use plughost_core::{InputError, MAX_PRESET_BYTES, PluginFormat, PluginState, PresetInfo};
 
 /// Validated native preset identity and opaque processor/controller payloads.
+#[non_exhaustive]
 pub struct DecodedPreset {
     /// Plugin class identity and format-specific container metadata.
     pub info: PresetInfo,

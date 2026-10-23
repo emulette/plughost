@@ -122,11 +122,11 @@ fn group_path(
         {
             path.insert(
                 0,
-                plughost_core::ParameterGroup {
-                    id: super::text(&*unsafe { child.keyPath() }),
-                    name: super::text(&*unsafe { child.displayName() }),
-                    program_list_id: None,
-                },
+                plughost_core::ParameterGroup::new(
+                    super::text(&*unsafe { child.keyPath() }),
+                    super::text(&*unsafe { child.displayName() }),
+                    None,
+                ),
             );
             return Some(path);
         }

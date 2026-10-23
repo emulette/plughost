@@ -7,8 +7,7 @@ mod support;
 use std::path::Path;
 
 use plughost_core::{
-    AudioBusConfig, AudioConfig, BlockContext, Events, HostIdentity, Layout, ProcessMode,
-    SampleFormat,
+    AudioBusConfig, AudioConfig, BlockContext, Events, HostIdentity, Layout, SampleFormat,
 };
 use plughost_formats::clap::Plugin;
 use plughost_formats::{BlockProcessor, HostedPlugin};
@@ -32,29 +31,30 @@ fn prepared_native_audio_reuses_storage_across_blocks_and_reconfiguration() {
         (SampleFormat::F32, true),
         (SampleFormat::F64, false),
     ] {
-        let bus = |id, layout, active| AudioBusConfig { id, layout, active };
+        let bus = |id, layout, active| AudioBusConfig::new(id, layout, active);
         plugin
-            .prepare_audio(&AudioConfig {
-                events: Default::default(),
-                sample_rate: 48_000.0,
-                max_block_size: 512,
-                sample_format: format,
-                mode: ProcessMode::Offline,
-                configuration: Some(101),
-                inputs: vec![
-                    bus(20, Layout::Mono, multiple),
-                    bus(21, Layout::Stereo, true),
-                ],
-                outputs: vec![
-                    bus(30, Layout::Stereo, multiple),
-                    bus(31, Layout::Stereo, true),
-                ],
-            })
+            .prepare_audio(
+                &AudioConfig::new(
+                    48_000.0,
+                    512,
+                    format,
+                    vec![
+                        bus(20, Layout::Mono, multiple),
+                        bus(21, Layout::Stereo, true),
+                    ],
+                    vec![
+                        bus(30, Layout::Stereo, multiple),
+                        bus(31, Layout::Stereo, true),
+                    ],
+                )
+                .with_configuration(101),
+            )
             .unwrap();
         let processor = plugin.processor();
         std::thread::spawn(move || match format {
             SampleFormat::F32 => blocks(processor.as_ref(), multiple, 1.0f32),
             SampleFormat::F64 => blocks(processor.as_ref(), multiple, 1.0 + f64::EPSILON),
+            _ => unreachable!(),
         })
         .join()
         .unwrap();
@@ -74,11 +74,7 @@ fn blocks<S: ProcessSample>(processor: &dyn BlockProcessor, multiple: bool, valu
         let mut output = vec![vec![S::default(); frames]; if multiple { 4 } else { 2 }];
         let mut outputs: Vec<_> = output.iter_mut().map(Vec::as_mut_slice).collect();
         let changes = vec![
-            plughost_core::ParameterChange {
-                id: 0,
-                offset: frames.saturating_sub(1),
-                value: 1.0,
-            };
+            plughost_core::ParameterChange::new(0, frames.saturating_sub(1), 1.0);
             if frames == 0 {
                 0
             } else {

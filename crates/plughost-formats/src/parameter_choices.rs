@@ -18,18 +18,14 @@ pub(crate) fn read<P: HostedPlugin + ?Sized>(
         } else {
             index as f64 / f64::from(steps)
         };
-        choices.push(ParameterChoice {
+        choices.push(ParameterChoice::new(
             index,
             normalized,
-            plain: plugin.parameter_to_plain(id, normalized)?,
-            text: plugin.parameter_text(id, normalized)?,
-        });
+            plugin.parameter_to_plain(id, normalized)?,
+            plugin.parameter_text(id, normalized)?,
+        ));
     }
-    Ok(ParameterChoicePage {
-        total,
-        start,
-        choices,
-    })
+    Ok(ParameterChoicePage::new(total, start, choices))
 }
 
 pub(crate) fn indices(

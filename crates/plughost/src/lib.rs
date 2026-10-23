@@ -81,7 +81,7 @@ pub use plughost_core::{
     ParameterDetails, ParameterEvent, ParameterEventBatch, ParameterFlags, ParameterGroup,
     ParameterInfo, PluginFormat, PluginId, PluginInfo, PluginKind, PluginRef, PluginState,
     PluginTiming, PresetDiscovery, PresetDiscoveryTarget, PresetFileFailure, PresetFileType,
-    PresetInfo, PresetLocation, PresetLocationInfo, PresetMetadata, PresetPluginId,
+    PresetFlags, PresetInfo, PresetLocation, PresetLocationInfo, PresetMetadata, PresetPluginId,
     PresetProviderInfo, PresetSoundpack, ProcessMode, RenderError, RoutedChainConfig, Sample,
     SampleFormat, SlotAudioConfig, SlotChange, SlotEventConfig, StatePurpose, Support,
     TimeSignature, Transport,

@@ -29,14 +29,13 @@ impl Native {
     fn new(format: PluginFormat, block: usize) -> Self {
         let mut plugin =
             plughost_formats::load(&reference(format), &HostIdentity::default()).unwrap();
-        let config = ProcessConfig {
-            sample_rate: 48_000.0,
-            max_block_size: block,
-            sample_format: SampleFormat::F32,
-            input: Layout::Stereo,
-            output: Layout::Stereo,
-            mode: ProcessMode::Offline,
-        };
+        let config = ProcessConfig::new(
+            48_000.0,
+            block,
+            SampleFormat::F32,
+            Layout::Stereo,
+            Layout::Stereo,
+        );
         plugin.prepare(&config).unwrap();
         Self { plugin, config }
     }
@@ -97,15 +96,12 @@ fn time(sample: i64, beat: f64, tempo: f64, playing: bool) -> Transport {
     {
         let mut transport = Transport::new(sample, playing);
         transport.beat_position = Some(beat);
-        transport.bar_position = Some(BarPosition {
-            start: (beat / 4.0).floor() * 4.0,
-            number: (beat / 4.0).floor() as i32,
-        });
+        transport.bar_position = Some(BarPosition::new(
+            (beat / 4.0).floor() * 4.0,
+            (beat / 4.0).floor() as i32,
+        ));
         transport.tempo = Some(tempo);
-        transport.time_signature = Some(TimeSignature {
-            numerator: 4,
-            denominator: 4,
-        });
+        transport.time_signature = Some(TimeSignature::new(4, 4));
         transport
     }
 }
@@ -126,56 +122,21 @@ fn native_and_helper_transport_automation_and_audio_less_clock_match() {
         let probe = if format == PluginFormat::Vst3 { 4 } else { 7 };
         let clock = if format == PluginFormat::Vst3 { 5 } else { 8 };
         let mut stopped = time(317, 2.103, 18_000.0, false);
-        stopped.time_signature = Some(TimeSignature {
-            numerator: 3,
-            denominator: 4,
-        });
+        stopped.time_signature = Some(TimeSignature::new(3, 4));
         let mut looped = time(-137, 1.103, 9_000.0, true);
-        looped.loop_region = Some(LoopRegion {
-            start: 1.103,
-            end: 2.103,
-            sample_start: -137,
-            sample_end: 183,
-        });
+        looped.loop_region = Some(LoopRegion::new(1.103, 2.103, -137, 183));
         let timeline = [
-            TransportChange {
-                offset: 0,
-                transport: Some(time(0, 0.103, 18_000.0, true)),
-            },
-            TransportChange {
-                offset: 317,
-                transport: Some(stopped),
-            },
-            TransportChange {
-                offset: 733,
-                transport: Some(looped),
-            },
-            TransportChange {
-                offset: 1053,
-                transport: Some(looped),
-            },
+            TransportChange::new(0, Some(time(0, 0.103, 18_000.0, true))),
+            TransportChange::new(317, Some(stopped)),
+            TransportChange::new(733, Some(looped)),
+            TransportChange::new(1053, Some(looped)),
         ];
-        let points = [AutomationEvent {
-            slot: 0,
-            change: ParameterChange {
-                id: 0,
-                offset: 813,
-                value: 0.5,
-            },
-        }];
-        let ramps = [AutomationRamp {
-            slot: 0,
-            id: 0,
-            start: 997,
-            end: 1013,
-            from: 0.5,
-            to: 1.0,
-        }];
-        let schedule = RenderSchedule {
-            transport: &timeline,
-            automation: &points,
-            ramps: &ramps,
-        };
+        let points = [AutomationEvent::new(0, ParameterChange::new(0, 813, 0.5))];
+        let ramps = [AutomationRamp::new(0, 0, 997, 1013, 0.5, 1.0)];
+        let schedule = RenderSchedule::default()
+            .with_transport(&timeline)
+            .with_automation(&points)
+            .with_ramps(&ramps);
         let input = vec![0.0; 1300];
         let mut previous: Option<Vec<Vec<f32>>> = None;
         for block in [127, 512] {
@@ -269,12 +230,7 @@ fn segmented_latency_alignment_and_cancel_recovery_match_whole_render() {
         for segment in source.chunks(113) {
             session
                 .push(
-                    RenderInput {
-                        audio: &[segment, segment],
-                        frames: segment.len(),
-                        events: &Events::new(),
-                        schedule: RenderSchedule::default(),
-                    },
+                    RenderInput::new(&[segment, segment], segment.len(), &Events::new()),
                     &mut consume,
                     || false,
                 )
@@ -287,12 +243,7 @@ fn segmented_latency_alignment_and_cancel_recovery_match_whole_render() {
         let blocks = std::cell::Cell::new(0);
         let result = render_stream(
             &mut segmented,
-            RenderInput {
-                audio: &[&source, &source],
-                frames: source.len(),
-                events: &Events::new(),
-                schedule: RenderSchedule::default(),
-            },
+            RenderInput::new(&[&source, &source], source.len(), &Events::new()),
             &options(),
             |_| blocks.set(blocks.get() + 1),
             || blocks.get() == 2,
@@ -324,14 +275,7 @@ fn slot_automation_rejection_does_not_advance_earlier_plugins() {
     chain.prepare_audio(&config).unwrap();
     let source = [1.0; 512];
     let (mut left, mut right) = ([0.0; 512], [0.0; 512]);
-    let invalid = [AutomationEvent {
-        slot: 1,
-        change: ParameterChange {
-            id: 100,
-            offset: 0,
-            value: 0.5,
-        },
-    }];
+    let invalid = [AutomationEvent::new(1, ParameterChange::new(100, 0, 0.5))];
     let error = chain
         .process_audio_f32(
             &BlockContext::new(512),
@@ -353,14 +297,7 @@ fn slot_automation_rejection_does_not_advance_earlier_plugins() {
             .1,
         Some(0.0)
     );
-    let points = [AutomationEvent {
-        slot: 1,
-        change: ParameterChange {
-            id: 0,
-            offset: 1000,
-            value: 0.5,
-        },
-    }];
+    let points = [AutomationEvent::new(1, ParameterChange::new(0, 1000, 0.5))];
     let source = vec![1.0f32; 1200];
     let rendered = render_with_schedule(
         &mut chain,
@@ -368,10 +305,7 @@ fn slot_automation_rejection_does_not_advance_earlier_plugins() {
         source.len(),
         &Events::new(),
         &options(),
-        &RenderSchedule {
-            automation: &points,
-            ..Default::default()
-        },
+        &RenderSchedule::default().with_automation(&points),
     )
     .unwrap();
     assert_eq!(rendered.latency, 960);
@@ -389,14 +323,10 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
     // More changes than queue capacity, without consuming. They coalesce into this slot's
     // latest timing; none of these requests can be blocked by an event consumer.
     for index in 0..130 {
-        let automation = [AutomationEvent {
-            slot: 0,
-            change: ParameterChange {
-                id: 9,
-                offset: 0,
-                value: (index % 33) as f64 / 32.0,
-            },
-        }];
+        let automation = [AutomationEvent::new(
+            0,
+            ParameterChange::new(9, 0, (index % 33) as f64 / 32.0),
+        )];
         chain
             .process_audio_f32(
                 &BlockContext::new(32),
@@ -413,14 +343,7 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
     assert!(!changes.resync_required);
     assert_eq!(changes.snapshot[0].unwrap().tail, Tail::Samples(30));
     assert_eq!(chain.tail(), Tail::Samples(30));
-    let automation = [AutomationEvent {
-        slot: 0,
-        change: ParameterChange {
-            id: 9,
-            offset: 0,
-            value: 0.5,
-        },
-    }];
+    let automation = [AutomationEvent::new(0, ParameterChange::new(9, 0, 0.5))];
     // The reported tail sets this render's length when it starts; a tail the plugin reports
     // during the render does not change it.
     let rendered = render_with_schedule(
@@ -433,10 +356,7 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
             render_options.max_tail_seconds = 1.0;
             render_options
         },
-        &RenderSchedule {
-            automation: &automation,
-            ..Default::default()
-        },
+        &RenderSchedule::default().with_automation(&automation),
     )
     .unwrap();
     assert_eq!(rendered.tail, 30);
@@ -447,14 +367,7 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
     assert_eq!(chain.tail(), Tail::Samples(16));
     chain.set_parameter(0, 0, 0.375).unwrap();
     for mode in [0.5, 1.0] {
-        let automation = [AutomationEvent {
-            slot: 0,
-            change: ParameterChange {
-                id: 10,
-                offset: 0,
-                value: mode,
-            },
-        }];
+        let automation = [AutomationEvent::new(0, ParameterChange::new(10, 0, mode))];
         assert_eq!(
             chain
                 .process_audio_f32(
@@ -548,14 +461,7 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
 fn absent_time_stays_absent_and_discrete_automation_is_quantized() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let input = [1.0; 512];
-        let point = AutomationEvent {
-            slot: 0,
-            change: ParameterChange {
-                id: 0,
-                offset: 490,
-                value: 0.5,
-            },
-        };
+        let point = AutomationEvent::new(0, ParameterChange::new(0, 490, 0.5));
         let mut native = Native::new(format, 512);
         let mut block_chain = chain(format, 512);
         let mut direct = vec![vec![0.0; 512]; 2];
@@ -590,24 +496,17 @@ fn absent_time_stays_absent_and_discrete_automation_is_quantized() {
         let probe = if format == PluginFormat::Vst3 { 4 } else { 7 };
         let mut chain = chain(format, 512);
         let source = vec![0.25f32; 600];
-        let automation = [AutomationEvent {
-            slot: 0,
-            change: ParameterChange {
-                id: probe,
-                offset: 0,
-                value: 0.51,
-            },
-        }];
+        let automation = [AutomationEvent::new(
+            0,
+            ParameterChange::new(probe, 0, 0.51),
+        )];
         let output = render_with_schedule(
             &mut chain,
             &[&source, &source],
             source.len(),
             &Events::new(),
             &options(),
-            &RenderSchedule {
-                automation: &automation,
-                ..Default::default()
-            },
+            &RenderSchedule::default().with_automation(&automation),
         )
         .unwrap();
         // Without a transport, VST3 still gets a process context, one without musical time.
@@ -634,24 +533,17 @@ fn absent_time_stays_absent_and_discrete_automation_is_quantized() {
             Some(1.0)
         );
         // Quantized back to zero, the ordinary delay reads the actual audio input again.
-        let automation = [AutomationEvent {
-            slot: 0,
-            change: ParameterChange {
-                id: probe,
-                offset: 0,
-                value: 0.49,
-            },
-        }];
+        let automation = [AutomationEvent::new(
+            0,
+            ParameterChange::new(probe, 0, 0.49),
+        )];
         let output = render_with_schedule(
             &mut chain,
             &[&source, &source],
             source.len(),
             &Events::new(),
             &options(),
-            &RenderSchedule {
-                automation: &automation,
-                ..Default::default()
-            },
+            &RenderSchedule::default().with_automation(&automation),
         )
         .unwrap();
         assert!(
@@ -689,14 +581,10 @@ fn edits_and_resets_apply_while_a_restart_is_pending() {
         )
     };
     // The plugin asks to be prepared again from the block that sets its restart mode.
-    let automation = [AutomationEvent {
-        slot: 0,
-        change: ParameterChange {
-            id: RESTART_MODE,
-            offset: 0,
-            value: 0.5,
-        },
-    }];
+    let automation = [AutomationEvent::new(
+        0,
+        ParameterChange::new(RESTART_MODE, 0, 0.5),
+    )];
     assert!(restart_required(process(&mut chain, &automation)));
     chain.set_parameter(0, 0, 0.375).unwrap();
     let text = chain.parameter_text(0, 0, 0.25).unwrap();

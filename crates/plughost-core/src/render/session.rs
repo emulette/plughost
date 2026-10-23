@@ -6,6 +6,7 @@ use crate::{AutomationEvent, BlockContext, Events, RenderError, Sample, Transpor
 
 /// Lifecycle of a continuous render session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SessionState {
     /// Accepts more input segments or a final latency/tail flush.
     Active,

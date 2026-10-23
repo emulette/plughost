@@ -94,6 +94,7 @@ impl Layout {
 
 /// Floating-point precision of the prepared audio buffers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SampleFormat {
     /// IEEE 754 single-precision samples.
     F32,
@@ -104,6 +105,7 @@ pub enum SampleFormat {
 /// The processing mode reported to the plugin. Offline rendering is not paced to wall-clock time;
 /// `Realtime` only changes what the plugin is told, for plugins that misbehave in offline mode.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ProcessMode {
     /// Tell the plugin it may use its offline rendering mode. This is the default.
     #[default]
@@ -114,6 +116,7 @@ pub enum ProcessMode {
 
 /// Processing configuration for a plugin’s main input and output buses.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ProcessConfig {
     /// Samples per second; must be finite and greater than zero.
     pub sample_rate: f64,
@@ -130,6 +133,30 @@ pub struct ProcessConfig {
 }
 
 impl ProcessConfig {
+    /// Offline processing of `input` to `output`; see [`Self::with_mode`].
+    pub const fn new(
+        sample_rate: f64,
+        max_block_size: usize,
+        sample_format: SampleFormat,
+        input: Layout,
+        output: Layout,
+    ) -> ProcessConfig {
+        ProcessConfig {
+            sample_rate,
+            max_block_size,
+            sample_format,
+            input,
+            output,
+            mode: ProcessMode::Offline,
+        }
+    }
+
+    /// Reports `mode` to the plugin.
+    pub const fn with_mode(mut self, mode: ProcessMode) -> ProcessConfig {
+        self.mode = mode;
+        self
+    }
+
     /// Validates scalar values before a format changes the current processing setup.
     /// Layout and sample-format support are negotiated with the plugin afterwards.
     pub fn validate(&self) -> Result<(), InputError> {

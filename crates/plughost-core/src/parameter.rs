@@ -80,6 +80,7 @@ impl ParameterInfo {
 
 /// A normalized parameter value that takes effect at a sample offset within a block.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ParameterChange {
     /// Native parameter ID or Audio Unit address.
     pub id: u64,
@@ -89,14 +90,29 @@ pub struct ParameterChange {
     pub value: f64,
 }
 
+impl ParameterChange {
+    /// Native parameter `id` taking normalized `value` from sample `offset`.
+    pub const fn new(id: u64, offset: usize, value: f64) -> ParameterChange {
+        ParameterChange { id, offset, value }
+    }
+}
+
 /// A point on one slot's automation lane. Offsets are relative to the supplied block/render.
 /// Points hold their value until the next point; simultaneous points preserve input order.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct AutomationEvent {
     /// Zero-based index of the plugin slot receiving the change.
     pub slot: usize,
     /// Parameter ID, sample offset, and normalized value.
     pub change: ParameterChange,
+}
+
+impl AutomationEvent {
+    /// `change` for the plugin in `slot`.
+    pub const fn new(slot: usize, change: ParameterChange) -> AutomationEvent {
+        AutomationEvent { slot, change }
+    }
 }
 
 /// Checks nondecreasing offsets strictly below `frames` and finite normalized values.
@@ -133,6 +149,7 @@ pub fn validate_normalized(value: f64) -> Result<(), crate::InputError> {
 
 /// One native unit or group in a parameter’s root-to-leaf hierarchy.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ParameterGroup {
     /// VST3 unit ID, CLAP module path, or AU group key path.
     pub id: String,
@@ -140,6 +157,18 @@ pub struct ParameterGroup {
     pub name: String,
     /// Native VST3 program-list association, when supplied by the unit.
     pub program_list_id: Option<i32>,
+}
+
+impl ParameterGroup {
+    /// Each field as given. Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
+    pub fn new(id: String, name: String, program_list_id: Option<i32>) -> ParameterGroup {
+        ParameterGroup {
+            id,
+            name,
+            program_list_id,
+        }
+    }
 }
 
 /// A fresh query. Endpoints describe the normalized mapping, not a linear scale.
@@ -176,6 +205,7 @@ pub const PARAMETER_CHOICE_PAGE_SIZE: u32 = 256;
 
 /// One discrete parameter choice and its native display conversion.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ParameterChoice {
     /// Zero-based discrete choice index.
     pub index: u64,
@@ -187,8 +217,22 @@ pub struct ParameterChoice {
     pub text: String,
 }
 
+impl ParameterChoice {
+    /// Each field as given. Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
+    pub fn new(index: u64, normalized: f64, plain: f64, text: String) -> ParameterChoice {
+        ParameterChoice {
+            index,
+            normalized,
+            plain,
+            text,
+        }
+    }
+}
+
 /// A bounded slice of a discrete parameter’s native choices.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ParameterChoicePage {
     /// Total number of discrete choices, including both endpoints.
     pub total: u64,
@@ -196,6 +240,18 @@ pub struct ParameterChoicePage {
     pub start: u64,
     /// Choices in ascending index order; the final page may be shorter than requested.
     pub choices: Vec<ParameterChoice>,
+}
+
+impl ParameterChoicePage {
+    /// Each field as given. Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
+    pub fn new(total: u64, start: u64, choices: Vec<ParameterChoice>) -> ParameterChoicePage {
+        ParameterChoicePage {
+            total,
+            start,
+            choices,
+        }
+    }
 }
 
 /// Checks the page-size limit and the representable discrete-choice index range.

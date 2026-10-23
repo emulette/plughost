@@ -20,6 +20,11 @@ impl AudioBuffers {
         Ok(match format {
             SampleFormat::F32 => Self::F32(Buffers::new(buses, frames)?),
             SampleFormat::F64 => Self::F64(Buffers::new(buses, frames)?),
+            _ => {
+                return Err(Vst3Error::Input(
+                    plughost_core::InputError::AudioSampleFormat,
+                ));
+            }
         })
     }
     /// The engine validates the type, channel counts, and block length before binding.
@@ -186,12 +191,13 @@ fn bus_buffers<S: Sample>(count: usize, pointers: *mut *mut S, silent: bool) -> 
     AudioBusBuffers {
         numChannels: count as i32,
         silenceFlags: if silent { u64::MAX } else { 0 },
+        // Only f32 and f64 are samples; preparing refuses other formats.
         __field0: match S::FORMAT {
-            SampleFormat::F32 => AudioBusBuffers__type0 {
-                channelBuffers32: pointers.cast(),
-            },
             SampleFormat::F64 => AudioBusBuffers__type0 {
                 channelBuffers64: pointers.cast(),
+            },
+            _ => AudioBusBuffers__type0 {
+                channelBuffers32: pointers.cast(),
             },
         },
     }

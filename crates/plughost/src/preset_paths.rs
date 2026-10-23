@@ -16,6 +16,7 @@ use walkdir::WalkDir;
 
 /// One standard or caller-selected search root. The directory need not exist yet.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PresetDirectory {
     /// Format whose native preset extension is used for discovery.
     pub format: PluginFormat,
@@ -23,14 +24,35 @@ pub struct PresetDirectory {
     pub path: PathBuf,
 }
 
+impl PresetDirectory {
+    /// A directory of `format` presets.
+    pub fn new(format: PluginFormat, path: impl Into<PathBuf>) -> PresetDirectory {
+        PresetDirectory {
+            format,
+            path: path.into(),
+        }
+    }
+}
+
 /// A candidate with the format's file extension, not yet parsed or class-validated.
 /// Paths retain the caller's root (relative roots produce relative paths).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PresetFile {
     /// Format whose native preset extension is used for discovery.
     pub format: PluginFormat,
     /// Filesystem path, preserving the caller's relative or absolute spelling.
     pub path: PathBuf,
+}
+
+impl PresetFile {
+    /// A `format` preset file.
+    pub fn new(format: PluginFormat, path: impl Into<PathBuf>) -> PresetFile {
+        PresetFile {
+            format,
+            path: path.into(),
+        }
+    }
 }
 
 /// Standard roots in format/priority order. No filesystem scan or directory creation occurs.

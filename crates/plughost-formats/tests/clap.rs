@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use plughost_core::{
-    Event, Events, FailureKind, InputError, Layout, PluginKind, ProcessConfig, ProcessMode,
-    SampleFormat, StatePurpose,
+    Event, Events, FailureKind, InputError, Layout, PluginKind, ProcessConfig, SampleFormat,
+    StatePurpose,
 };
 use plughost_formats::clap::{self, Plugin};
 use plughost_formats::{BlockProcessor, HostedPlugin};
@@ -151,9 +151,10 @@ fn synth() -> Plugin {
     )
     .unwrap();
     synth
-        .prepare(&ProcessConfig {
-            input: Layout::None,
-            ..config(48_000.0)
+        .prepare(&{
+            let mut value = config(48_000.0);
+            value.input = Layout::None;
+            value
         })
         .unwrap();
     synth
@@ -178,14 +179,13 @@ fn play(synth: &mut Plugin, events: &Events) -> Vec<f32> {
 }
 
 fn config(sample_rate: f64) -> ProcessConfig {
-    ProcessConfig {
+    ProcessConfig::new(
         sample_rate,
-        max_block_size: BLOCK,
-        sample_format: SampleFormat::F32,
-        input: Layout::Stereo,
-        output: Layout::Stereo,
-        mode: ProcessMode::Offline,
-    }
+        BLOCK,
+        SampleFormat::F32,
+        Layout::Stereo,
+        Layout::Stereo,
+    )
 }
 
 #[test]
@@ -481,10 +481,11 @@ fn a_plugin_without_state_contexts_saves_project_state_and_refuses_the_others() 
 #[ignore = "needs scripts/build-test-plugins.sh"]
 fn layouts_the_plugin_refuses_are_errors() {
     let _serial = serial();
-    let mono = ProcessConfig {
-        input: Layout::Mono,
-        output: Layout::Mono,
-        ..config(48_000.0)
+    let mono = {
+        let mut value = config(48_000.0);
+        value.input = Layout::Mono;
+        value.output = Layout::Mono;
+        value
     };
     assert_eq!(
         plugin().prepare(&mono).unwrap_err().kind(),
@@ -589,11 +590,7 @@ fn a_restart_requested_while_processing_keeps_the_block_and_fails_the_next() {
             .map(|()| left)
     };
     // The plugin asks for a restart from the block that sets its restart mode.
-    let automation = [plughost_core::ParameterChange {
-        id: RESTART_MODE,
-        offset: 0,
-        value: 0.5,
-    }];
+    let automation = [plughost_core::ParameterChange::new(RESTART_MODE, 0, 0.5)];
     assert!(process(&automation).is_ok());
     assert!(plugin.processor().restart_required());
     assert_eq!(
@@ -605,9 +602,10 @@ fn a_restart_requested_while_processing_keeps_the_block_and_fails_the_next() {
     assert!(!plugin.processor().restart_required());
     assert!(process(&[]).is_ok());
     // In its last mode the plugin asks again while it activates; that request stands.
-    let automation = [plughost_core::ParameterChange {
-        value: 1.0,
-        ..automation[0]
+    let automation = [{
+        let mut value = automation[0];
+        value.value = 1.0;
+        value
     }];
     assert!(process(&automation).is_ok());
     assert_eq!(

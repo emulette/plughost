@@ -33,11 +33,10 @@ impl Plugin {
     pub(crate) fn bypass(&self) -> Result<BypassState, AuError> {
         let unit = self.shared_unit()?;
         let support = support(&unit, self.info.kind);
-        Ok(BypassState {
+        Ok(BypassState::new(
             support,
-            enabled: (support != Support::Unsupported)
-                .then(|| unsafe { unit.shouldBypassEffect() }),
-        })
+            (support != Support::Unsupported).then(|| unsafe { unit.shouldBypassEffect() }),
+        ))
     }
 
     /// Sets native bypass without replacing state or overriding native latency/tail reports.

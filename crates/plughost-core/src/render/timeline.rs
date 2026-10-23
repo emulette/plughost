@@ -4,6 +4,7 @@ use crate::{AutomationEvent, InputError, Transport};
 
 /// Replaces the transport at this render-relative sample. `None` withdraws time information.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct TransportChange {
     /// Zero-based sample offset relative to the render or session segment.
     pub offset: usize,
@@ -11,8 +12,16 @@ pub struct TransportChange {
     pub transport: Option<Transport>,
 }
 
+impl TransportChange {
+    /// `transport` from `offset` on; `None` removes it.
+    pub const fn new(offset: usize, transport: Option<Transport>) -> TransportChange {
+        TransportChange { offset, transport }
+    }
+}
+
 /// Borrowed render-relative transport and automation lanes. The default has no changes.
 #[derive(Clone, Copy, Debug, Default)]
+#[non_exhaustive]
 pub struct RenderSchedule<'a> {
     /// Transport changes in strictly increasing offset order, up to the input end.
     pub transport: &'a [TransportChange],
@@ -22,9 +31,33 @@ pub struct RenderSchedule<'a> {
     pub ramps: &'a [AutomationRamp],
 }
 
+impl<'a> RenderSchedule<'a> {
+    /// Transport changes, in offset order.
+    pub const fn with_transport(mut self, transport: &'a [TransportChange]) -> RenderSchedule<'a> {
+        self.transport = transport;
+        self
+    }
+
+    /// Automation points, in offset order.
+    pub const fn with_automation(
+        mut self,
+        automation: &'a [AutomationEvent],
+    ) -> RenderSchedule<'a> {
+        self.automation = automation;
+        self
+    }
+
+    /// Automation ramps.
+    pub const fn with_ramps(mut self, ramps: &'a [AutomationRamp]) -> RenderSchedule<'a> {
+        self.ramps = ramps;
+        self
+    }
+}
+
 /// Linear in normalized value, inclusive endpoints. Expanded into exact sample points for one
 /// bounded block at a time. Native parameter metadata quantizes discrete parameters.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct AutomationRamp {
     /// Zero-based plugin slot receiving the ramp.
     pub slot: usize,
@@ -38,6 +71,28 @@ pub struct AutomationRamp {
     pub from: f64,
     /// Finite normalized value at `end`, in `0..=1`.
     pub to: f64,
+}
+
+impl AutomationRamp {
+    /// Parameter `id` of the plugin in `slot` going linearly from `from` at `start` to `to` at
+    /// `end`, both inclusive.
+    pub const fn new(
+        slot: usize,
+        id: u64,
+        start: usize,
+        end: usize,
+        from: f64,
+        to: f64,
+    ) -> AutomationRamp {
+        AutomationRamp {
+            slot,
+            id,
+            start,
+            end,
+            from,
+            to,
+        }
+    }
 }
 
 impl RenderSchedule<'_> {

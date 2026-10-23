@@ -366,14 +366,14 @@ impl Host {
 
     fn invalidate_parameters(&self, slot: usize) {
         self.parameter_events[slot].take();
-        self.parameter_events[slot].append(plughost_core::ParameterEventBatch {
-            events: vec![
+        self.parameter_events[slot].append(plughost_core::ParameterEventBatch::new(
+            vec![
                 plughost_core::ParameterEvent::MetadataChanged,
                 plughost_core::ParameterEvent::ValuesChanged,
             ],
-            resync_required: true,
-            dropped: 0,
-        });
+            true,
+            0,
+        ));
     }
 
     fn with_slot(

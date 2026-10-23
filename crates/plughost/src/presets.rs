@@ -67,6 +67,7 @@ pub(crate) fn encodable(location: &PresetLocation) -> bool {
     match location {
         PresetLocation::File { path } => path.to_str().is_some(),
         PresetLocation::Plugin => true,
+        _ => false,
     }
 }
 

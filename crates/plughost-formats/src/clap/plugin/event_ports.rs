@@ -80,10 +80,7 @@ impl Plugin {
                 .into_iter()
                 .collect())
         };
-        Ok(EventConfig {
-            inputs: first(true)?,
-            outputs: first(false)?,
-        })
+        Ok(EventConfig::new(first(true)?, first(false)?))
     }
 
     /// Per input port index, the dialects of a requested port and `None` for the others.

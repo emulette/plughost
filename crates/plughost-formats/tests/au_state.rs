@@ -20,9 +20,7 @@ use objc2_avf_audio::AVAudioFormat;
 use objc2_core_audio_types::AudioBufferList;
 use objc2_foundation::{NSArray, NSDictionary, NSError, NSInteger, NSNumber, NSString};
 use plughost_core::render::Tail;
-use plughost_core::{
-    FactoryPresetId, Layout, ProcessConfig, ProcessMode, SampleFormat, StatePurpose,
-};
+use plughost_core::{FactoryPresetId, Layout, ProcessConfig, SampleFormat, StatePurpose};
 use plughost_formats::HostedPlugin;
 use plughost_formats::au::{self, Plugin};
 
@@ -243,14 +241,13 @@ fn plugin() -> Plugin {
 }
 
 fn config() -> ProcessConfig {
-    ProcessConfig {
-        sample_rate: 48_000.0,
-        max_block_size: 512,
-        sample_format: SampleFormat::F32,
-        input: Layout::Stereo,
-        output: Layout::Stereo,
-        mode: ProcessMode::Offline,
-    }
+    ProcessConfig::new(
+        48_000.0,
+        512,
+        SampleFormat::F32,
+        Layout::Stereo,
+        Layout::Stereo,
+    )
 }
 
 fn values(plugin: &mut Plugin) -> Vec<Option<f64>> {

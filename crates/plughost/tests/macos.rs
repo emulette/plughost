@@ -62,29 +62,17 @@ fn discrete_surround_routing_survives_reconfiguration_and_preset_restore() {
         .into_iter()
         .filter(|layout| layout.channels() > 2)
     {
-        let bus = AudioBusConfig {
-            id: 0,
-            layout,
-            active: true,
-        };
-        let config = RoutedChainConfig {
-            event_inputs: 0,
-            sample_rate: 48_000.0,
-            max_block_size: 512,
-            sample_format: SampleFormat::F32,
-            mode: ProcessMode::Offline,
-            inputs: vec![layout],
-            slots: vec![SlotAudioConfig {
-                events: Default::default(),
-                configuration: None,
-                inputs: vec![AudioInputRoute {
-                    bus,
-                    source: AudioSource::External { bus: 0 },
-                    adaptation: ChannelAdaptation::Exact,
-                }],
-                outputs: vec![bus],
-            }],
-        };
+        let bus = AudioBusConfig::new(0, layout, true);
+        let config = RoutedChainConfig::new(
+            48_000.0,
+            512,
+            SampleFormat::F32,
+            vec![layout],
+            vec![SlotAudioConfig::new(
+                vec![AudioInputRoute::new(bus, AudioSource::External { bus: 0 })],
+                vec![bus],
+            )],
+        );
         let negotiated = chain.prepare_audio(&config).unwrap();
         assert_eq!(chain.audio_buses(0).unwrap(), negotiated[0]);
         assert!(negotiated[0].iter().all(|bus| bus.layout == Some(layout)));
@@ -98,9 +86,10 @@ fn discrete_surround_routing_survives_reconfiguration_and_preset_restore() {
         render_markers(&mut chain, layout);
         assert!(
             chain
-                .prepare_audio(&RoutedChainConfig {
-                    sample_format: SampleFormat::F64,
-                    ..config
+                .prepare_audio(&{
+                    let mut value = config;
+                    value.sample_format = SampleFormat::F64;
+                    value
                 })
                 .is_err()
         );

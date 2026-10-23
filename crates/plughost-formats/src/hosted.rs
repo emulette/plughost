@@ -25,6 +25,7 @@ pub type ResizeRequest = Box<dyn Fn(u32, u32) -> bool>;
 
 /// Where an opened editor draws.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EditorView {
     /// In the host's parent view, at this size.
     Embedded {
@@ -39,6 +40,7 @@ pub enum EditorView {
 
 /// What a plugin asked of its editor window. A later request replaces one not yet served.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EditorRequest {
     /// Open the editor, or bring it to the front when it is open.
     Open,

@@ -14,6 +14,18 @@ pub const EDITOR_WINDOW: &str = "could not create or resize the editor window";
 #[cfg(target_os = "windows")]
 pub const COM_INIT: &str = "could not initialize the helper's COM apartment";
 
+/// A routing with an audio source or channel adaptation this helper cannot process.
+pub const ROUTING_UNSUPPORTED: &str =
+    "the routing uses an audio source or channel adaptation this helper cannot process";
+
+/// A sample format this helper cannot process, which preparation reports.
+pub fn sample_format() -> plughost_core::Failure {
+    plughost_core::Failure::new(
+        plughost_core::FailureKind::InvalidInput,
+        plughost_core::InputError::AudioSampleFormat.to_string(),
+    )
+}
+
 /// Reports a startup failure. The helper has no connection to report it over, and standard error
 /// is the one place a developer running it by hand will look.
 pub fn report(message: &str) {

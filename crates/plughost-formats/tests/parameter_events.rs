@@ -2,8 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use plughost_core::{
-    BlockContext, Events, HostIdentity, Layout, ParameterEvent, ProcessConfig, ProcessMode,
-    SampleFormat,
+    BlockContext, Events, HostIdentity, Layout, ParameterEvent, ProcessConfig, SampleFormat,
 };
 use plughost_formats::HostedPlugin;
 
@@ -19,14 +18,13 @@ fn bundle(extension: &str) -> PathBuf {
 }
 
 fn config() -> ProcessConfig {
-    ProcessConfig {
-        sample_rate: 48_000.0,
-        max_block_size: 512,
-        sample_format: SampleFormat::F32,
-        input: Layout::Stereo,
-        output: Layout::Stereo,
-        mode: ProcessMode::Offline,
-    }
+    ProcessConfig::new(
+        48_000.0,
+        512,
+        SampleFormat::F32,
+        Layout::Stereo,
+        Layout::Stereo,
+    )
 }
 
 #[cfg(feature = "clap")]

@@ -77,7 +77,7 @@ impl Plugin {
             event_port_info.note_expression = Support::Unsupported;
             event_port_info.mpe = match direction {
                 AudioDirection::Input => mpe,
-                AudioDirection::Output => Support::Unknown,
+                _ => Support::Unknown,
             };
             event_port_info
         };
@@ -226,6 +226,7 @@ pub(super) fn buses(
                         let requested = match direction {
                             AudioDirection::Input => &config.inputs,
                             AudioDirection::Output => &config.outputs,
+                            _ => return None,
                         };
                         requested
                             .iter()
@@ -258,14 +259,16 @@ pub(super) fn main_bus_config(
         buses
             .iter()
             .filter(|bus| bus.direction == direction)
-            .map(|bus| AudioBusConfig {
-                id: bus.id,
-                layout: if bus.index == 0 {
-                    requested
-                } else {
-                    Layout::None
-                },
-                active: bus.index == 0 && requested != Layout::None,
+            .map(|bus| {
+                AudioBusConfig::new(
+                    bus.id,
+                    if bus.index == 0 {
+                        requested
+                    } else {
+                        Layout::None
+                    },
+                    bus.index == 0 && requested != Layout::None,
+                )
             })
             .collect()
     };
@@ -283,22 +286,21 @@ pub(super) fn main_bus_config(
     {
         return Err(AuError::NoBus(config.output));
     }
-    Ok(AudioConfig {
-        sample_rate: config.sample_rate,
-        max_block_size: config.max_block_size,
-        sample_format: config.sample_format,
-        mode: config.mode,
-        configuration: None,
-        inputs: configs(AudioDirection::Input, config.input),
-        outputs: configs(AudioDirection::Output, config.output),
-        events: plughost_core::EventConfig {
-            inputs: midi_input.then_some(0).into_iter().collect(),
-            outputs: (!midi_output_names(unit).is_empty())
-                .then_some(0)
-                .into_iter()
-                .collect(),
-        },
-    })
+    Ok(AudioConfig::new(
+        config.sample_rate,
+        config.max_block_size,
+        config.sample_format,
+        configs(AudioDirection::Input, config.input),
+        configs(AudioDirection::Output, config.output),
+    )
+    .with_mode(config.mode)
+    .with_events(plughost_core::EventConfig::new(
+        midi_input.then_some(0).into_iter().collect(),
+        (!midi_output_names(unit).is_empty())
+            .then_some(0)
+            .into_iter()
+            .collect(),
+    )))
 }
 
 fn tag(layout: Layout) -> Result<u32, AuError> {

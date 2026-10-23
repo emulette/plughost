@@ -37,6 +37,7 @@ const NO_CONTROLLER_CLASS: &str = "the component names no edit controller class"
 const CREATE_CONTROLLER: &str = "the factory could not create the edit controller";
 const INITIALIZE_CONTROLLER: &str = "the edit controller failed to initialize";
 const SAMPLE_FORMAT_UNSUPPORTED: &str = "the plugin cannot process samples of format";
+const PROCESS_MODE_UNSUPPORTED: &str = "VST3 has no processing mode for";
 const LAYOUT_REFUSED: &str = "the plugin refused the requested layout";
 const SETUP_REJECTED: &str =
     "the plugin rejected the processing setup (sample rate, block size, sample format, or mode)";
@@ -122,6 +123,8 @@ pub(crate) enum Vst3Error {
     InitializeController(i32),
     /// The plugin cannot process samples in the supplied format.
     SampleFormatUnsupported(SampleFormat),
+    /// VST3 has no processing mode for the requested one.
+    ProcessModeUnsupported(plughost_core::ProcessMode),
     /// No main audio bus can provide the requested layout.
     NoBus(Layout),
     /// The plugin refused the requested channel layout.
@@ -212,6 +215,9 @@ impl fmt::Display for Vst3Error {
             Vst3Error::SampleFormatUnsupported(format) => {
                 write!(f, "{SAMPLE_FORMAT_UNSUPPORTED} {format:?}")
             }
+            Vst3Error::ProcessModeUnsupported(mode) => {
+                write!(f, "{PROCESS_MODE_UNSUPPORTED} {mode:?}")
+            }
             Vst3Error::NoBus(layout) => write!(f, "{MAIN_BUS} ({layout:?})"),
             Vst3Error::LayoutRefused {
                 requested,
@@ -293,9 +299,10 @@ impl Vst3Error {
             Self::ParameterResult => FailureKind::Host,
             Self::Input(_) | Self::Preset => FailureKind::InvalidInput,
             Self::ClassNotFound(_) => FailureKind::NotFound,
-            Self::SampleFormatUnsupported(_) | Self::NoEditor | Self::NoAudioProcessor => {
-                FailureKind::Unsupported
-            }
+            Self::SampleFormatUnsupported(_)
+            | Self::ProcessModeUnsupported(_)
+            | Self::NoEditor
+            | Self::NoAudioProcessor => FailureKind::Unsupported,
             #[cfg(target_os = "macos")]
             Self::BundleOpen => FailureKind::Load,
             Self::BundleLoad(_)

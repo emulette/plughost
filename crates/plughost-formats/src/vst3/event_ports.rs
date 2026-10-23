@@ -72,7 +72,7 @@ impl Instance {
                     event_port_info.sysex = Support::Unknown;
                     event_port_info.note_expression = match dir {
                         AudioDirection::Input => self.note_expressions(index),
-                        AudioDirection::Output => Support::Unknown,
+                        _ => Support::Unknown,
                     };
                     event_port_info
                 });
@@ -84,10 +84,10 @@ impl Instance {
     /// The first event input and output, which main-bus preparation activates.
     pub fn main_event_config(&self) -> EventConfig {
         let first = |available: bool| available.then_some(0).into_iter().collect();
-        EventConfig {
-            inputs: first(self.event_count(AudioDirection::Input) > 0 || self.controllers_only()),
-            outputs: first(self.event_count(AudioDirection::Output) > 0),
-        }
+        EventConfig::new(
+            first(self.event_count(AudioDirection::Input) > 0 || self.controllers_only()),
+            first(self.event_count(AudioDirection::Output) > 0),
+        )
     }
 
     /// Activates exactly the requested event buses and returns, per input bus, whether it is

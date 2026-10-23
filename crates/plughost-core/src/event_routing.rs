@@ -51,6 +51,7 @@ impl EventPortInfo {
 
 /// Where a slot's event input port takes events from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EventSource {
     /// One of the chain's external event inputs, by index.
     External {
@@ -68,6 +69,7 @@ pub enum EventSource {
 /// One source delivered to a native event input port. Several routes to one port merge in offset
 /// order; at equal offsets, events keep the order of the routes, then their source order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EventInputRoute {
     /// Native input port ID receiving this route.
     pub port: u64,
@@ -75,9 +77,17 @@ pub struct EventInputRoute {
     pub source: EventSource,
 }
 
+impl EventInputRoute {
+    /// Native event input `port` fed from `source`.
+    pub const fn new(port: u64, source: EventSource) -> EventInputRoute {
+        EventInputRoute { port, source }
+    }
+}
+
 /// A slot's event routing. Native event ports not named here are left inactive where the format
 /// allows. The last slot's collected outputs, in this order, are the chain's event outputs.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SlotEventConfig {
     /// Routes merged by offset; equal-offset events retain route and source order.
     pub inputs: Vec<EventInputRoute>,
@@ -87,6 +97,7 @@ pub struct SlotEventConfig {
 
 /// The event ports a slot's native preparation activates.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EventConfig {
     /// Native input port IDs to activate.
     pub inputs: Vec<u64>,
@@ -94,7 +105,19 @@ pub struct EventConfig {
     pub outputs: Vec<u64>,
 }
 
+impl EventConfig {
+    /// The native event inputs and outputs to activate.
+    pub fn new(inputs: Vec<u64>, outputs: Vec<u64>) -> EventConfig {
+        EventConfig { inputs, outputs }
+    }
+}
+
 impl SlotEventConfig {
+    /// A slot's routed event inputs and its active event outputs.
+    pub fn new(inputs: Vec<EventInputRoute>, outputs: Vec<u64>) -> SlotEventConfig {
+        SlotEventConfig { inputs, outputs }
+    }
+
     /// The native input ports routes deliver to, each once, in route order.
     pub fn native(&self) -> EventConfig {
         let mut inputs: Vec<u64> = Vec::new();

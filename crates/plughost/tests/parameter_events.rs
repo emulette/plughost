@@ -49,14 +49,7 @@ fn dynamic_flags_refresh_process_validation_without_consuming_app_events() {
     vst3.set_parameter(0, 7, 1.0).unwrap();
     let input = [0.0f32; 4];
     let (mut left, mut right) = ([0.0; 4], [0.0; 4]);
-    let automation = [AutomationEvent {
-        slot: 0,
-        change: ParameterChange {
-            id: 0,
-            offset: 0,
-            value: 0.75,
-        },
-    }];
+    let automation = [AutomationEvent::new(0, ParameterChange::new(0, 0, 0.75))];
     assert!(matches!(
         <Chain as plughost_core::render::Process<f32>>::validate_automation(&mut vst3, &automation),
         Err(Error::Input {

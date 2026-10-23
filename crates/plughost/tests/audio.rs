@@ -15,11 +15,7 @@ fn ids(format: PluginFormat) -> (u64, u64, u64, u64) {
     }
 }
 fn bus(id: u64, layout: Layout) -> AudioBusConfig {
-    AudioBusConfig {
-        id,
-        layout,
-        active: true,
-    }
+    AudioBusConfig::new(id, layout, true)
 }
 fn route(
     id: u64,
@@ -27,41 +23,37 @@ fn route(
     source: AudioSource,
     adaptation: ChannelAdaptation,
 ) -> AudioInputRoute {
-    AudioInputRoute {
-        bus: bus(id, layout),
-        source,
-        adaptation,
-    }
+    AudioInputRoute::new(bus(id, layout), source).with_adaptation(adaptation)
 }
 fn config(format: PluginFormat, precision: SampleFormat) -> RoutedChainConfig {
     let (key, main, auxiliary, out) = ids(format);
-    RoutedChainConfig {
-        event_inputs: 0,
-        sample_rate: 48_000.0,
-        max_block_size: 16,
-        sample_format: precision,
-        mode: ProcessMode::Offline,
-        inputs: vec![Layout::Mono, Layout::Stereo],
-        slots: vec![SlotAudioConfig {
-            events: Default::default(),
-            configuration: (format == PluginFormat::Clap).then_some(101),
-            inputs: vec![
-                route(
-                    key,
-                    Layout::Mono,
-                    AudioSource::External { bus: 0 },
-                    ChannelAdaptation::Exact,
-                ),
-                route(
-                    main,
-                    Layout::Stereo,
-                    AudioSource::External { bus: 1 },
-                    ChannelAdaptation::Exact,
-                ),
-            ],
-            outputs: vec![bus(auxiliary, Layout::Stereo), bus(out, Layout::Stereo)],
+    RoutedChainConfig::new(
+        48_000.0,
+        16,
+        precision,
+        vec![Layout::Mono, Layout::Stereo],
+        vec![{
+            let mut value = SlotAudioConfig::new(
+                vec![
+                    route(
+                        key,
+                        Layout::Mono,
+                        AudioSource::External { bus: 0 },
+                        ChannelAdaptation::Exact,
+                    ),
+                    route(
+                        main,
+                        Layout::Stereo,
+                        AudioSource::External { bus: 1 },
+                        ChannelAdaptation::Exact,
+                    ),
+                ],
+                vec![bus(auxiliary, Layout::Stereo), bus(out, Layout::Stereo)],
+            );
+            value.configuration = (format == PluginFormat::Clap).then_some(101);
+            value
         }],
-    }
+    )
 }
 fn options() -> RenderOptions {
     RenderOptions::new(TailPolicy::Reported, 0.0)
@@ -273,46 +265,48 @@ fn serial_previous_bus_and_explicit_mono_stereo_adaptation() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let mut chain = chain(format, 2);
         let (key, main, _, out) = ids(format);
-        let routed = RoutedChainConfig {
-            event_inputs: 0,
-            sample_rate: 48_000.0,
-            max_block_size: 16,
-            sample_format: SampleFormat::F64,
-            mode: ProcessMode::Offline,
-            inputs: vec![Layout::Mono, Layout::Stereo],
-            slots: vec![
-                SlotAudioConfig {
-                    events: Default::default(),
-                    configuration: (format == PluginFormat::Clap).then_some(100),
-                    inputs: vec![route(
-                        main,
-                        Layout::Mono,
-                        AudioSource::External { bus: 0 },
-                        ChannelAdaptation::Exact,
-                    )],
-                    outputs: vec![bus(out, Layout::Mono)],
-                },
-                SlotAudioConfig {
-                    events: Default::default(),
-                    configuration: (format == PluginFormat::Clap).then_some(101),
-                    inputs: vec![
-                        route(
-                            key,
-                            Layout::Mono,
-                            AudioSource::External { bus: 1 },
-                            ChannelAdaptation::StereoToMono,
-                        ),
-                        route(
+        let routed = RoutedChainConfig::new(
+            48_000.0,
+            16,
+            SampleFormat::F64,
+            vec![Layout::Mono, Layout::Stereo],
+            vec![
+                {
+                    let mut value = SlotAudioConfig::new(
+                        vec![route(
                             main,
-                            Layout::Stereo,
-                            AudioSource::Previous { bus: out },
-                            ChannelAdaptation::MonoToStereo,
-                        ),
-                    ],
-                    outputs: vec![bus(out, Layout::Stereo)],
+                            Layout::Mono,
+                            AudioSource::External { bus: 0 },
+                            ChannelAdaptation::Exact,
+                        )],
+                        vec![bus(out, Layout::Mono)],
+                    );
+                    value.configuration = (format == PluginFormat::Clap).then_some(100);
+                    value
+                },
+                {
+                    let mut value = SlotAudioConfig::new(
+                        vec![
+                            route(
+                                key,
+                                Layout::Mono,
+                                AudioSource::External { bus: 1 },
+                                ChannelAdaptation::StereoToMono,
+                            ),
+                            route(
+                                main,
+                                Layout::Stereo,
+                                AudioSource::Previous { bus: out },
+                                ChannelAdaptation::MonoToStereo,
+                            ),
+                        ],
+                        vec![bus(out, Layout::Stereo)],
+                    );
+                    value.configuration = (format == PluginFormat::Clap).then_some(101);
+                    value
                 },
             ],
-        };
+        );
         chain.prepare_audio(&routed).unwrap();
         let audio = vec![vec![0.123456789123; 33], vec![0.25; 33], vec![0.5; 33]];
         assert_audio(format, &run(&mut chain, &audio), &[audio[0][0] * 0.625; 2]);

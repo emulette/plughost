@@ -135,12 +135,12 @@ impl Plugin {
                 }
                 Ok(result)
             };
-            result.push(AudioConfiguration {
-                id: u64::from(config.id.get()),
-                name: String::from_utf8_lossy(config.name).into_owned(),
-                inputs: buses(true, config.input_port_count)?,
-                outputs: buses(false, config.output_port_count)?,
-            });
+            result.push(AudioConfiguration::new(
+                u64::from(config.id.get()),
+                String::from_utf8_lossy(config.name).into_owned(),
+                buses(true, config.input_port_count)?,
+                buses(false, config.output_port_count)?,
+            ));
         }
         Ok(result)
     }
@@ -157,6 +157,7 @@ impl Plugin {
                 let layout = match bus.direction {
                     AudioDirection::Input => config.input,
                     AudioDirection::Output => config.output,
+                    _ => Layout::None,
                 };
                 (bus.direction, bus.id, layout)
             })
@@ -177,6 +178,11 @@ impl Plugin {
                     let size = match config.sample_format {
                         SampleFormat::F32 => SampleSize::Float32,
                         SampleFormat::F64 => SampleSize::Float64,
+                        _ => {
+                            return Err(ClapError::Input(
+                                plughost_core::InputError::AudioSampleFormat,
+                            ));
+                        }
                     };
                     if !activation.set_active_audio_inactive(
                         &mut handle,
@@ -270,6 +276,11 @@ impl Plugin {
                         match config.sample_format {
                             SampleFormat::F32 => SampleSize::Float32,
                             SampleFormat::F64 => SampleSize::Float64,
+                            _ => {
+                                return Err(ClapError::Input(
+                                    plughost_core::InputError::AudioSampleFormat,
+                                ));
+                            }
                         }
                     };
                     if !activation.set_active_audio_inactive(
@@ -302,14 +313,14 @@ impl Plugin {
                 .and_then(|b| b.layout)
                 .unwrap_or(Layout::None)
         };
-        let scalar = ProcessConfig {
-            sample_rate: config.sample_rate,
-            max_block_size: config.max_block_size,
-            sample_format: config.sample_format,
-            mode: config.mode,
-            input: main_layout(AudioDirection::Input),
-            output: main_layout(AudioDirection::Output),
-        };
+        let scalar = ProcessConfig::new(
+            config.sample_rate,
+            config.max_block_size,
+            config.sample_format,
+            main_layout(AudioDirection::Input),
+            main_layout(AudioDirection::Output),
+        )
+        .with_mode(config.mode);
         self.activate_audio(
             scalar,
             buses.clone(),
@@ -416,6 +427,7 @@ impl Plugin {
             let mode = match config.mode {
                 ProcessMode::Offline => RenderMode::Offline,
                 ProcessMode::Realtime => RenderMode::Realtime,
+                _ => return Err(ClapError::AudioConfiguration),
             };
             if render.set(&handle, mode).is_err() {
                 return Err(ClapError::AudioConfiguration);
@@ -493,10 +505,7 @@ impl Plugin {
     pub(crate) fn bypass(&mut self) -> Result<BypassState, ClapError> {
         self.flush();
         let Some(id) = self.bypass_parameter()? else {
-            return Ok(BypassState {
-                support: Support::Unsupported,
-                enabled: None,
-            });
+            return Ok(BypassState::new(Support::Unsupported, None));
         };
         let (_, value) = self
             .parameters()
@@ -504,10 +513,10 @@ impl Plugin {
             .find(|(info, _)| info.id == id)
             .ok_or(ClapError::AudioMetadata)?;
         // A value the plugin does not give leaves the state unknown.
-        Ok(BypassState {
-            support: Support::Supported,
-            enabled: value.map(|value| value >= 0.5),
-        })
+        Ok(BypassState::new(
+            Support::Supported,
+            value.map(|value| value >= 0.5),
+        ))
     }
     pub(crate) fn set_bypass(&mut self, enabled: bool) -> Result<(), ClapError> {
         let id = self

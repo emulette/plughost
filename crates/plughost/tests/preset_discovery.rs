@@ -14,10 +14,7 @@ fn bundle() -> PathBuf {
     plugins().join("plughost-test-presets.clap")
 }
 fn query(location: PresetLocation) -> PresetDiscoveryTarget {
-    PresetDiscoveryTarget {
-        provider_id: "com.studio.plughost.presets".into(),
-        location,
-    }
+    PresetDiscoveryTarget::new("com.studio.plughost.presets", location)
 }
 fn make_chain() -> Chain {
     let mut chain = spawn_with(

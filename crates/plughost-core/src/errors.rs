@@ -44,6 +44,7 @@ pub enum FailureKind {
 
 /// A portable category with the original diagnostic message, including native codes when provided.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Failure {
     /// Portable category for programmatic handling.
     pub kind: FailureKind,

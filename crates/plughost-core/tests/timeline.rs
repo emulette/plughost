@@ -101,44 +101,17 @@ fn transport(beat: f64, tempo: f64, playing: bool) -> Transport {
 #[test]
 fn tempo_stop_seek_points_and_ramps_are_block_size_independent() {
     let timeline = [
-        TransportChange {
-            offset: 0,
-            transport: Some(transport(0.0, 60.0, true)),
-        },
-        TransportChange {
-            offset: 5,
-            transport: Some(transport(0.05, 120.0, true)),
-        },
-        TransportChange {
-            offset: 12,
-            transport: Some(transport(0.19, 120.0, false)),
-        },
-        TransportChange {
-            offset: 17,
-            transport: Some(transport(-2.0, 60.0, true)),
-        },
+        TransportChange::new(0, Some(transport(0.0, 60.0, true))),
+        TransportChange::new(5, Some(transport(0.05, 120.0, true))),
+        TransportChange::new(12, Some(transport(0.19, 120.0, false))),
+        TransportChange::new(17, Some(transport(-2.0, 60.0, true))),
     ];
-    let points = [AutomationEvent {
-        slot: 0,
-        change: ParameterChange {
-            id: 0,
-            offset: 8,
-            value: 0.5,
-        },
-    }];
-    let ramps = [AutomationRamp {
-        slot: 0,
-        id: 0,
-        start: 19,
-        end: 23,
-        from: 0.5,
-        to: 1.0,
-    }];
-    let schedule = RenderSchedule {
-        transport: &timeline,
-        automation: &points,
-        ramps: &ramps,
-    };
+    let points = [AutomationEvent::new(0, ParameterChange::new(0, 8, 0.5))];
+    let ramps = [AutomationRamp::new(0, 0, 19, 23, 0.5, 1.0)];
+    let schedule = RenderSchedule::default()
+        .with_transport(&timeline)
+        .with_automation(&points)
+        .with_ramps(&ramps);
     let mut reference: Option<Vec<f32>> = None;
     for block in [1, 7, 16, 64] {
         let mut processor = Instrument::new(block);
@@ -172,18 +145,8 @@ fn tempo_stop_seek_points_and_ramps_are_block_size_independent() {
 #[test]
 fn malformed_schedule_is_rejected_before_processing() {
     let mut processor = Instrument::new(16);
-    let automation = [AutomationEvent {
-        slot: 1,
-        change: ParameterChange {
-            id: 0,
-            offset: 29,
-            value: 1.0,
-        },
-    }];
-    let schedule = RenderSchedule {
-        automation: &automation,
-        ..Default::default()
-    };
+    let automation = [AutomationEvent::new(1, ParameterChange::new(0, 29, 1.0))];
+    let schedule = RenderSchedule::default().with_automation(&automation);
     assert!(
         render_with_schedule(
             &mut processor,
@@ -196,10 +159,10 @@ fn malformed_schedule_is_rejected_before_processing() {
         .is_err()
     );
     assert_eq!(processor.processed, 0);
-    let timeline = [TransportChange {
-        offset: 0,
-        transport: Some(transport(0.0, f64::NAN, true)),
-    }];
+    let timeline = [TransportChange::new(
+        0,
+        Some(transport(0.0, f64::NAN, true)),
+    )];
     assert!(
         render_with_schedule(
             &mut processor,
@@ -207,10 +170,7 @@ fn malformed_schedule_is_rejected_before_processing() {
             30,
             &Events::new(),
             &options(),
-            &RenderSchedule {
-                transport: &timeline,
-                ..Default::default()
-            }
+            &RenderSchedule::default().with_transport(&timeline)
         )
         .is_err()
     );
@@ -224,12 +184,7 @@ fn streaming_is_bounded_and_cancellation_stops_at_a_block_boundary() {
     let mut largest = 0;
     let result = render_stream(
         &mut processor,
-        RenderInput {
-            audio: &[],
-            frames: 100_000,
-            events: &Events::new(),
-            schedule: RenderSchedule::default(),
-        },
+        RenderInput::new(&[], 100_000, &Events::new()),
         &options(),
         |block| {
             largest = largest.max(block.audio[0].len());
@@ -244,12 +199,7 @@ fn streaming_is_bounded_and_cancellation_stops_at_a_block_boundary() {
     let blocks = Cell::new(0);
     let result = render_stream(
         &mut processor,
-        RenderInput {
-            audio: &[],
-            frames: 10_000,
-            events: &Events::new(),
-            schedule: RenderSchedule::default(),
-        },
+        RenderInput::new(&[], 10_000, &Events::new()),
         &options(),
         |_| blocks.set(blocks.get() + 1),
         || blocks.get() == 5,
@@ -261,26 +211,12 @@ fn streaming_is_bounded_and_cancellation_stops_at_a_block_boundary() {
 
     // A ramp is submitted block by block too, so cancelling stops before the next block.
     let mut processor = Instrument::new(64);
-    let ramps = [AutomationRamp {
-        slot: 0,
-        id: 0,
-        start: 0,
-        end: 1023,
-        from: 0.0,
-        to: 1.0,
-    }];
+    let ramps = [AutomationRamp::new(0, 0, 0, 1023, 0.0, 1.0)];
     let delivered = Cell::new(0);
     let result = render_stream(
         &mut processor,
-        RenderInput {
-            audio: &[],
-            frames: 1024,
-            events: &Events::new(),
-            schedule: RenderSchedule {
-                ramps: &ramps,
-                ..Default::default()
-            },
-        },
+        RenderInput::new(&[], 1024, &Events::new())
+            .with_schedule(RenderSchedule::default().with_ramps(&ramps)),
         &options(),
         |block| delivered.set(delivered.get() + block.audio[0].len()),
         || delivered.get() > 0,
@@ -295,23 +231,18 @@ fn streaming_is_bounded_and_cancellation_stops_at_a_block_boundary() {
 fn session_continues_transport_and_rejects_calls_after_finish_or_cancel() {
     let mut processor = Instrument::new(7);
     let mut session = RenderSession::new(&mut processor).unwrap();
-    let timeline = [TransportChange {
-        offset: 0,
-        transport: Some(transport(0.0, 60.0, true)),
-    }];
+    let timeline = [TransportChange::new(0, Some(transport(0.0, 60.0, true)))];
     let mut output = vec![];
     for index in 0..3 {
         session
             .push(
-                RenderInput {
-                    audio: &[],
-                    frames: 10,
-                    events: &Events::new(),
-                    schedule: RenderSchedule {
-                        transport: if index == 0 { &timeline } else { &[] },
-                        ..Default::default()
-                    },
-                },
+                RenderInput::new(&[], 10, &Events::new()).with_schedule(
+                    RenderSchedule::default().with_transport(if index == 0 {
+                        &timeline
+                    } else {
+                        &[]
+                    }),
+                ),
                 |block| output.extend_from_slice(block.audio[0]),
                 || false,
             )
@@ -330,12 +261,7 @@ fn session_continues_transport_and_rejects_calls_after_finish_or_cancel() {
     let mut session = RenderSession::new(&mut processor).unwrap();
     session
         .push(
-            RenderInput {
-                audio: &[],
-                frames: 10,
-                events: &Events::new(),
-                schedule: RenderSchedule::default(),
-            },
+            RenderInput::new(&[], 10, &Events::new()),
             |_| panic!("cancel before first block"),
             || true,
         )
@@ -348,14 +274,7 @@ fn session_continues_transport_and_rejects_calls_after_finish_or_cancel() {
 #[test]
 fn long_ramp_and_midi_are_batched_without_splitting_same_sample_events() {
     let mut processor = Instrument::new(8192);
-    let ramps = [AutomationRamp {
-        slot: 0,
-        id: 0,
-        start: 0,
-        end: 8191,
-        from: 0.0,
-        to: 1.0,
-    }];
+    let ramps = [AutomationRamp::new(0, 0, 0, 8191, 0.0, 1.0)];
     let midi = Events::from_iter([
         Event::note_on(4095, 0, 60, 100),
         Event::note_off(4095, 0, 60, 0),
@@ -366,10 +285,7 @@ fn long_ramp_and_midi_are_batched_without_splitting_same_sample_events() {
         8192,
         &midi,
         &options(),
-        &RenderSchedule {
-            ramps: &ramps,
-            ..Default::default()
-        },
+        &RenderSchedule::default().with_ramps(&ramps),
     )
     .unwrap();
     assert_eq!(
@@ -391,14 +307,7 @@ fn points_hold_values_and_preserve_duplicate_order_inside_one_block() {
     let mut processor = Instrument::new(16);
     let points: Vec<_> = [(3, 0.25), (3, 0.75), (5, 0.5)]
         .into_iter()
-        .map(|(offset, value)| AutomationEvent {
-            slot: 0,
-            change: ParameterChange {
-                id: 0,
-                offset,
-                value,
-            },
-        })
+        .map(|(offset, value)| AutomationEvent::new(0, ParameterChange::new(0, offset, value)))
         .collect();
     let output = render_with_schedule(
         &mut processor,
@@ -406,10 +315,7 @@ fn points_hold_values_and_preserve_duplicate_order_inside_one_block() {
         8,
         &Events::new(),
         &options(),
-        &RenderSchedule {
-            automation: &points,
-            ..Default::default()
-        },
+        &RenderSchedule::default().with_automation(&points),
     )
     .unwrap();
     assert_eq!(
@@ -422,14 +328,7 @@ fn points_hold_values_and_preserve_duplicate_order_inside_one_block() {
 #[test]
 fn excessive_same_sample_events_are_rejected_before_any_audio_advances() {
     let mut processor = Instrument::new(8);
-    let ramps = [AutomationRamp {
-        slot: 0,
-        id: 0,
-        start: 10,
-        end: 20,
-        from: 0.0,
-        to: 1.0,
-    }];
+    let ramps = [AutomationRamp::new(0, 0, 10, 20, 0.0, 1.0)];
     let midi = Events::from_iter([Event::note_off(12, 0, 60, 0); plughost_core::MAX_BLOCK_EVENTS]);
     let error = render_with_schedule(
         &mut processor,
@@ -437,10 +336,7 @@ fn excessive_same_sample_events_are_rejected_before_any_audio_advances() {
         24,
         &midi,
         &options(),
-        &RenderSchedule {
-            ramps: &ramps,
-            ..Default::default()
-        },
+        &RenderSchedule::default().with_ramps(&ramps),
     )
     .unwrap_err();
     assert_eq!(error, RenderError::Input(InputError::EventCapacity));
@@ -452,24 +348,14 @@ fn ramps_reach_exact_endpoints_without_leaving_the_normalized_range() {
     for (from, to, end) in [(0.08, 1.0, 10), (0.01, 0.0, 57), (1.0, 0.08, 10)] {
         for block in [1, 7, 64] {
             let mut processor = Instrument::new(block);
-            let ramps = [AutomationRamp {
-                slot: 0,
-                id: 0,
-                start: 0,
-                end,
-                from,
-                to,
-            }];
+            let ramps = [AutomationRamp::new(0, 0, 0, end, from, to)];
             let result = render_with_schedule(
                 &mut processor,
                 &[],
                 end + 1,
                 &Events::new(),
                 &options(),
-                &RenderSchedule {
-                    ramps: &ramps,
-                    ..Default::default()
-                },
+                &RenderSchedule::default().with_ramps(&ramps),
             )
             .unwrap();
             assert_eq!(result.channels[0].len(), end + 1);

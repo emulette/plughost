@@ -74,20 +74,13 @@ fn play(chain: &mut Chain, blocks: usize, frames: usize, rate: f64, automated: u
             let mut transport = Transport::new(position, true);
             transport.beat_position = Some(position as f64 / rate * 2.0);
             transport.tempo = Some(120.0);
-            transport.time_signature = Some(TimeSignature {
-                numerator: 4,
-                denominator: 4,
-            });
+            transport.time_signature = Some(TimeSignature::new(4, 4));
             transport
         });
-        let automation = [AutomationEvent {
-            slot: 0,
-            change: ParameterChange {
-                id: automated,
-                offset: frames / 2,
-                value: (block % 10) as f64 / 10.0,
-            },
-        }];
+        let automation = [AutomationEvent::new(
+            0,
+            ParameterChange::new(automated, frames / 2, (block % 10) as f64 / 10.0),
+        )];
         let notes = if block % 8 == 0 {
             Events::from_iter([
                 Event::note_on(0, 0, 60, 100),

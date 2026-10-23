@@ -3,7 +3,7 @@
 
 use plughost_core::{
     BlockContext, Events, FailureKind, HostIdentity, Layout, ParameterChange, PluginFormat,
-    PluginRef, ProcessConfig, ProcessMode, SampleFormat,
+    PluginRef, ProcessConfig, SampleFormat,
 };
 use plughost_formats::HostedPlugin;
 use std::path::Path;
@@ -29,20 +29,19 @@ fn routing(format: PluginFormat) -> PluginRef {
 fn prepared(reference: &PluginRef) -> Box<dyn HostedPlugin> {
     let mut plugin = plughost_formats::load(reference, &HostIdentity::default()).unwrap();
     plugin
-        .prepare(&ProcessConfig {
-            sample_rate: 48_000.0,
-            max_block_size: 512,
-            sample_format: SampleFormat::F32,
-            input: Layout::Stereo,
-            output: Layout::Stereo,
-            mode: ProcessMode::Offline,
-        })
+        .prepare(&ProcessConfig::new(
+            48_000.0,
+            512,
+            SampleFormat::F32,
+            Layout::Stereo,
+            Layout::Stereo,
+        ))
         .unwrap();
     plugin
 }
 
 fn point(id: u64, offset: usize, value: f64) -> ParameterChange {
-    ParameterChange { id, offset, value }
+    ParameterChange::new(id, offset, value)
 }
 
 #[test]

@@ -70,11 +70,7 @@ pub fn matrix(seconds: f64, blocks: &[usize]) -> Vec<Case> {
 }
 
 fn bus(id: u64, layout: Layout) -> AudioBusConfig {
-    AudioBusConfig {
-        id,
-        layout,
-        active: true,
-    }
+    AudioBusConfig::new(id, layout, true)
 }
 
 impl Case {
@@ -90,50 +86,43 @@ impl Case {
     }
 
     pub fn native_config(self) -> AudioConfig {
-        AudioConfig {
-            events: Default::default(),
-            sample_rate: self.sample_rate.into(),
-            max_block_size: self.max_block_size,
-            sample_format: SampleFormat::F32,
-            mode: ProcessMode::Offline,
-            configuration: None,
-            inputs: vec![bus(0, Layout::Mono), bus(1, Layout::Stereo)],
-            outputs: vec![bus(0, Layout::Stereo), bus(1, Layout::Stereo)],
-        }
+        AudioConfig::new(
+            self.sample_rate.into(),
+            self.max_block_size,
+            SampleFormat::F32,
+            vec![bus(0, Layout::Mono), bus(1, Layout::Stereo)],
+            vec![bus(0, Layout::Stereo), bus(1, Layout::Stereo)],
+        )
     }
 
     pub fn routed_config(self) -> RoutedChainConfig {
-        RoutedChainConfig {
-            event_inputs: 0,
-            sample_rate: self.sample_rate.into(),
-            max_block_size: self.max_block_size,
-            sample_format: SampleFormat::F32,
-            mode: ProcessMode::Offline,
-            inputs: vec![Layout::Mono, Layout::Stereo],
-            slots: (0..self.plugins)
-                .map(|slot| SlotAudioConfig {
-                    events: Default::default(),
-                    configuration: None,
-                    inputs: vec![
-                        AudioInputRoute {
-                            bus: bus(0, Layout::Mono),
-                            source: AudioSource::External { bus: 0 },
-                            adaptation: ChannelAdaptation::Exact,
-                        },
-                        AudioInputRoute {
-                            bus: bus(1, Layout::Stereo),
-                            source: if slot == 0 {
-                                AudioSource::External { bus: 1 }
-                            } else {
-                                AudioSource::Previous { bus: 1 }
-                            },
-                            adaptation: ChannelAdaptation::Exact,
-                        },
-                    ],
-                    outputs: vec![bus(0, Layout::Stereo), bus(1, Layout::Stereo)],
+        RoutedChainConfig::new(
+            self.sample_rate.into(),
+            self.max_block_size,
+            SampleFormat::F32,
+            vec![Layout::Mono, Layout::Stereo],
+            (0..self.plugins)
+                .map(|slot| {
+                    SlotAudioConfig::new(
+                        vec![
+                            AudioInputRoute::new(
+                                bus(0, Layout::Mono),
+                                AudioSource::External { bus: 0 },
+                            ),
+                            AudioInputRoute::new(
+                                bus(1, Layout::Stereo),
+                                if slot == 0 {
+                                    AudioSource::External { bus: 1 }
+                                } else {
+                                    AudioSource::Previous { bus: 1 }
+                                },
+                            ),
+                        ],
+                        vec![bus(0, Layout::Stereo), bus(1, Layout::Stereo)],
+                    )
                 })
                 .collect(),
-        }
+        )
     }
 
     pub fn input(self) -> Vec<Vec<f32>> {
@@ -160,27 +149,29 @@ impl Case {
             Automation::None => (Vec::new(), Vec::new()),
             Automation::Points => (
                 (0..8)
-                    .map(|i| AutomationEvent {
-                        slot: self.plugins - 1,
-                        change: ParameterChange {
-                            id: 0,
-                            offset: i * self.frames / 8,
-                            value: if i % 2 == 0 { 0.25 } else { 0.75 },
-                        },
+                    .map(|i| {
+                        AutomationEvent::new(
+                            self.plugins - 1,
+                            ParameterChange::new(
+                                0,
+                                i * self.frames / 8,
+                                if i % 2 == 0 { 0.25 } else { 0.75 },
+                            ),
+                        )
                     })
                     .collect(),
                 Vec::new(),
             ),
             Automation::Ramp => (
                 Vec::new(),
-                vec![AutomationRamp {
-                    slot: self.plugins - 1,
-                    id: 0,
-                    start: 0,
-                    end: self.frames - 1,
-                    from: 0.25,
-                    to: 0.75,
-                }],
+                vec![AutomationRamp::new(
+                    self.plugins - 1,
+                    0,
+                    0,
+                    self.frames - 1,
+                    0.25,
+                    0.75,
+                )],
             ),
         }
     }

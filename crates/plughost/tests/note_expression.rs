@@ -132,13 +132,13 @@ fn routing_slot(chain: &mut Chain, slot: usize) -> (SlotEventConfig, u64) {
             .id
     };
     let output = id(AudioDirection::Output, 0);
-    let events = SlotEventConfig {
-        inputs: vec![EventInputRoute {
-            port: id(AudioDirection::Input, 2),
-            source: EventSource::External { port: 0 },
-        }],
-        outputs: vec![output],
-    };
+    let events = SlotEventConfig::new(
+        vec![EventInputRoute::new(
+            id(AudioDirection::Input, 2),
+            EventSource::External { port: 0 },
+        )],
+        vec![output],
+    );
     (events, output)
 }
 

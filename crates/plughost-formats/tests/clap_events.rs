@@ -28,14 +28,13 @@ fn faults() -> Plugin {
 fn prepared() -> Plugin {
     let mut plugin = faults();
     plugin
-        .prepare(&ProcessConfig {
-            sample_rate: 48_000.0,
-            max_block_size: FRAMES,
-            sample_format: SampleFormat::F32,
-            input: Layout::Stereo,
-            output: Layout::Stereo,
-            mode: ProcessMode::Offline,
-        })
+        .prepare(&ProcessConfig::new(
+            48_000.0,
+            FRAMES,
+            SampleFormat::F32,
+            Layout::Stereo,
+            Layout::Stereo,
+        ))
         .unwrap();
     plugin
 }

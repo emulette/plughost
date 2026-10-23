@@ -56,9 +56,7 @@ impl Drop for Observation {
 mod tests {
     use super::super::{Plugin, lock};
     use super::*;
-    use plughost_core::{
-        BlockContext, Events, FailureKind, Layout, ProcessConfig, ProcessMode, SampleFormat,
-    };
+    use plughost_core::{BlockContext, Events, FailureKind, Layout, ProcessConfig, SampleFormat};
 
     fn unit(plugin: &Plugin) -> Retained<AUAudioUnit> {
         lock(&plugin.engine).unit.as_ref().unwrap().clone()
@@ -76,14 +74,13 @@ mod tests {
     fn plugin() -> Plugin {
         let mut plugin = Plugin::new("6175667864656C796170706C").unwrap();
         plugin
-            .prepare(&ProcessConfig {
-                sample_rate: 48_000.0,
-                max_block_size: 64,
-                sample_format: SampleFormat::F32,
-                input: Layout::Stereo,
-                output: Layout::Stereo,
-                mode: ProcessMode::Offline,
-            })
+            .prepare(&ProcessConfig::new(
+                48_000.0,
+                64,
+                SampleFormat::F32,
+                Layout::Stereo,
+                Layout::Stereo,
+            ))
             .unwrap();
         plugin
     }

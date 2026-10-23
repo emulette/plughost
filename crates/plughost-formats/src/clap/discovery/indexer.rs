@@ -43,11 +43,11 @@ impl Indexer {
 impl IndexerImpl for Indexer {
     fn declare_filetype(&mut self, value: FileType) -> Result<(), HostError> {
         self.receive(|s| {
-            let v = PresetFileType {
-                name: text(value.name)?,
-                description: optional(value.description)?,
-                extension: optional(value.file_extension)?,
-            };
+            let v = PresetFileType::new(
+                text(value.name)?,
+                optional(value.description)?,
+                optional(value.file_extension)?,
+            );
             s.file_types.push(v);
             Ok(())
         })
@@ -61,27 +61,21 @@ impl IndexerImpl for Indexer {
                 },
             };
             location_path(&location).map_err(|_| ClapError::PresetMetadata)?;
-            let v = PresetLocationInfo {
-                name: text(value.name)?,
-                flags: value.flags.bits(),
-                location,
-            };
+            let flags = PresetFlags::from_bits_retain(value.flags.bits());
+            let v = PresetLocationInfo::new(text(value.name)?, flags, location);
             s.locations.push(v);
             Ok(())
         })
     }
     fn declare_soundpack(&mut self, value: Soundpack) -> Result<(), HostError> {
         self.receive(|s| {
-            let v = PresetSoundpack {
-                id: text(value.id)?,
-                name: text(value.name)?,
-                flags: value.flags.bits(),
-                description: optional(value.description)?,
-                homepage_url: optional(value.homepage_url)?,
-                vendor: optional(value.vendor)?,
-                image_path: optional(value.image_path)?,
-                release_timestamp: value.release_timestamp.map(|v| v.seconds_since_epoch()),
-            };
+            let flags = PresetFlags::from_bits_retain(value.flags.bits());
+            let mut v = PresetSoundpack::new(text(value.id)?, text(value.name)?, flags);
+            v.description = optional(value.description)?;
+            v.homepage_url = optional(value.homepage_url)?;
+            v.vendor = optional(value.vendor)?;
+            v.image_path = optional(value.image_path)?;
+            v.release_timestamp = value.release_timestamp.map(|v| v.seconds_since_epoch());
             s.soundpacks.push(v);
             Ok(())
         })

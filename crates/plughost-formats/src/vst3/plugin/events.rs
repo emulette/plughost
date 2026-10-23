@@ -19,19 +19,21 @@ impl Plugin {
     /// delivered.
     pub(crate) fn take_diagnostics(&self) -> DiagnosticBatch {
         let unconvertible = self.handler.take_unconvertible_output_events();
-        DiagnosticBatch {
-            records: (unconvertible > 0)
-                .then(|| Diagnostic {
-                    severity: DiagnosticSeverity::Warning,
-                    message: super::super::errors::unconvertible_output_events(unconvertible),
-                    plugin: None,
-                    slot: None,
-                    failure_kind: None,
-                    truncated: false,
+        DiagnosticBatch::new(
+            (unconvertible > 0)
+                .then(|| {
+                    Diagnostic::new(
+                        DiagnosticSeverity::Warning,
+                        super::super::errors::unconvertible_output_events(unconvertible),
+                        None,
+                        None,
+                        None,
+                        false,
+                    )
                 })
                 .into_iter()
                 .collect(),
-            dropped: 0,
-        }
+            0,
+        )
     }
 }

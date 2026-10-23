@@ -13,6 +13,7 @@ pub const MAX_ALIGNMENT_BYTES: usize = 256 * 1024 * 1024;
 
 /// Direction of an audio or event port relative to its plugin.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum AudioDirection {
     /// Data delivered to the plugin.
     Input,
@@ -22,6 +23,7 @@ pub enum AudioDirection {
 
 /// Native distinction between a main bus and an additional bus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AudioBusRole {
     /// Primary audio signal.
     Main,
@@ -83,6 +85,7 @@ impl AudioBusInfo {
 
 /// A named native bus configuration, such as a CLAP audio-port configuration.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AudioConfiguration {
     /// Native configuration ID; not a position in the returned list.
     pub id: u64,
@@ -94,8 +97,27 @@ pub struct AudioConfiguration {
     pub outputs: Vec<AudioBusInfo>,
 }
 
+impl AudioConfiguration {
+    /// Each field as given. Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
+    pub fn new(
+        id: u64,
+        name: String,
+        inputs: Vec<AudioBusInfo>,
+        outputs: Vec<AudioBusInfo>,
+    ) -> AudioConfiguration {
+        AudioConfiguration {
+            id,
+            name,
+            inputs,
+            outputs,
+        }
+    }
+}
+
 /// Requested layout and activation for one native audio bus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AudioBusConfig {
     /// Native bus ID, scoped to its direction; not a position in the returned list.
     pub id: u64,
@@ -105,9 +127,17 @@ pub struct AudioBusConfig {
     pub active: bool,
 }
 
+impl AudioBusConfig {
+    /// A request for native bus `id` with `layout`, active or not.
+    pub const fn new(id: u64, layout: Layout, active: bool) -> AudioBusConfig {
+        AudioBusConfig { id, layout, active }
+    }
+}
+
 /// Requested native buses. Buses omitted from a direction are inactive. Native layout/precision
 /// negotiation follows validation; successful preparation returns the complete negotiated map.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct AudioConfig {
     /// Samples per second; must be finite and greater than zero.
     pub sample_rate: f64,
@@ -129,6 +159,7 @@ pub struct AudioConfig {
 
 /// Native bypass support and its last queried state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BypassState {
     /// Whether the plugin exposes writable native bypass.
     pub support: Support,
@@ -136,8 +167,17 @@ pub struct BypassState {
     pub enabled: Option<bool>,
 }
 
+impl BypassState {
+    /// Each field as given. Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
+    pub fn new(support: Support, enabled: Option<bool>) -> BypassState {
+        BypassState { support, enabled }
+    }
+}
+
 /// Explicit channel adaptation. Surround layouts are never inferred, reordered or downmixed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ChannelAdaptation {
     /// Require identical source and destination layouts.
     Exact,
@@ -149,6 +189,7 @@ pub enum ChannelAdaptation {
 
 /// Source of one slot’s input bus in a serial chain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AudioSource {
     /// Read an external bus supplied by the caller.
     External {
@@ -166,6 +207,7 @@ pub enum AudioSource {
 
 /// An input bus request together with its source and explicit channel conversion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AudioInputRoute {
     /// Destination native input bus and requested layout.
     pub bus: AudioBusConfig,
@@ -175,8 +217,26 @@ pub struct AudioInputRoute {
     pub adaptation: ChannelAdaptation,
 }
 
+impl AudioInputRoute {
+    /// Input `bus` fed from `source`, with an exact layout match; see [`Self::with_adaptation`].
+    pub const fn new(bus: AudioBusConfig, source: AudioSource) -> AudioInputRoute {
+        AudioInputRoute {
+            bus,
+            source,
+            adaptation: ChannelAdaptation::Exact,
+        }
+    }
+
+    /// Converts the source's channels to the bus layout with `adaptation`.
+    pub const fn with_adaptation(mut self, adaptation: ChannelAdaptation) -> AudioInputRoute {
+        self.adaptation = adaptation;
+        self
+    }
+}
+
 /// Audio and event routing for a single plugin slot.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SlotAudioConfig {
     /// Native named configuration to select, or `None` to retain the current selection.
     pub configuration: Option<u64>,
@@ -188,11 +248,37 @@ pub struct SlotAudioConfig {
     pub events: crate::SlotEventConfig,
 }
 
+impl SlotAudioConfig {
+    /// A slot's input routes and output buses, keeping its current named configuration and
+    /// leaving its event ports inactive.
+    pub fn new(inputs: Vec<AudioInputRoute>, outputs: Vec<AudioBusConfig>) -> SlotAudioConfig {
+        SlotAudioConfig {
+            configuration: None,
+            inputs,
+            outputs,
+            events: crate::SlotEventConfig::default(),
+        }
+    }
+
+    /// Selects the native named configuration `configuration` first.
+    pub fn with_configuration(mut self, configuration: u64) -> SlotAudioConfig {
+        self.configuration = Some(configuration);
+        self
+    }
+
+    /// Activates and routes the slot's event ports as `events` says.
+    pub fn with_events(mut self, events: crate::SlotEventConfig) -> SlotAudioConfig {
+        self.events = events;
+        self
+    }
+}
+
 /// Explicit serial-chain configuration, validated before native preparation.
 ///
 /// Each direction permits at most 64 audio buses and 512 active channels. External inputs
 /// are flattened in caller order; a slot’s native bus IDs do not imply buffer positions.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct RoutedChainConfig {
     /// Samples per second; must be finite and greater than zero.
     pub sample_rate: f64,
@@ -211,6 +297,45 @@ pub struct RoutedChainConfig {
 }
 
 impl AudioConfig {
+    /// One plugin's `inputs` and `outputs` offline, keeping its current named configuration and
+    /// leaving its event ports inactive.
+    pub fn new(
+        sample_rate: f64,
+        max_block_size: usize,
+        sample_format: SampleFormat,
+        inputs: Vec<AudioBusConfig>,
+        outputs: Vec<AudioBusConfig>,
+    ) -> AudioConfig {
+        AudioConfig {
+            sample_rate,
+            max_block_size,
+            sample_format,
+            mode: ProcessMode::Offline,
+            configuration: None,
+            inputs,
+            outputs,
+            events: crate::EventConfig::default(),
+        }
+    }
+
+    /// Reports `mode` to the plugin.
+    pub fn with_mode(mut self, mode: ProcessMode) -> AudioConfig {
+        self.mode = mode;
+        self
+    }
+
+    /// Selects the native named configuration `configuration` first.
+    pub fn with_configuration(mut self, configuration: u64) -> AudioConfig {
+        self.configuration = Some(configuration);
+        self
+    }
+
+    /// Activates the native event ports `events` names.
+    pub fn with_events(mut self, events: crate::EventConfig) -> AudioConfig {
+        self.events = events;
+        self
+    }
+
     /// Checks scalar processing values, unique bus IDs, layouts, and audio capacity limits.
     pub fn validate(&self) -> Result<(), InputError> {
         crate::config::validate_processing(self.sample_rate, self.max_block_size)?;
@@ -230,6 +355,38 @@ impl AudioConfig {
 }
 
 impl RoutedChainConfig {
+    /// A chain processing `inputs` through `slots` offline, without external event inputs; see
+    /// [`Self::with_mode`] and [`Self::with_event_inputs`].
+    pub fn new(
+        sample_rate: f64,
+        max_block_size: usize,
+        sample_format: SampleFormat,
+        inputs: Vec<Layout>,
+        slots: Vec<SlotAudioConfig>,
+    ) -> RoutedChainConfig {
+        RoutedChainConfig {
+            sample_rate,
+            max_block_size,
+            sample_format,
+            mode: ProcessMode::Offline,
+            inputs,
+            event_inputs: 0,
+            slots,
+        }
+    }
+
+    /// Reports `mode` to the plugins.
+    pub fn with_mode(mut self, mode: ProcessMode) -> RoutedChainConfig {
+        self.mode = mode;
+        self
+    }
+
+    /// Gives the chain `event_inputs` external event inputs.
+    pub fn with_event_inputs(mut self, event_inputs: usize) -> RoutedChainConfig {
+        self.event_inputs = event_inputs;
+        self
+    }
+
     /// Validates routing without querying or mutating any plugin. Native bus IDs/layouts are
     /// checked when each slot negotiates its requested configuration.
     pub fn validate(&self, slots: usize) -> Result<(), InputError> {

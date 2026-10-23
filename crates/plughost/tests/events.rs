@@ -3,10 +3,9 @@
 
 use plughost::{
     AudioBusConfig, AudioDirection, AudioInputRoute, AudioSource, AutomationEvent, BlockContext,
-    Chain, ChannelAdaptation, Error, Event, EventData, EventInputRoute, EventPortInfo, EventSource,
-    Events, FailureKind, Layout, ParameterChange, PluginFormat, PluginRef, ProcessMode,
-    RenderOptions, RoutedChainConfig, SampleFormat, SlotAudioConfig, SlotEventConfig, Support,
-    TailPolicy, render,
+    Chain, Error, Event, EventData, EventInputRoute, EventPortInfo, EventSource, Events,
+    FailureKind, Layout, ParameterChange, PluginFormat, PluginRef, RenderOptions,
+    RoutedChainConfig, SampleFormat, SlotAudioConfig, SlotEventConfig, Support, TailPolicy, render,
 };
 
 mod support;
@@ -17,11 +16,7 @@ const KEY_CONTROLLER: u8 = 20;
 const FLOOD: [u8; 4] = [0xF0, 0x7D, 0x7F, 0xF7];
 
 fn stereo(id: u64) -> AudioBusConfig {
-    AudioBusConfig {
-        id,
-        layout: Layout::Stereo,
-        active: true,
-    }
+    AudioBusConfig::new(id, Layout::Stereo, true)
 }
 
 fn ports(chain: &mut Chain, slot: usize, direction: AudioDirection) -> Vec<u64> {
@@ -41,10 +36,7 @@ fn two_inputs(chain: &mut Chain, config: &mut RoutedChainConfig, slot: usize) {
         .into_iter()
         .take(2)
         .enumerate()
-        .map(|(port, id)| EventInputRoute {
-            port: id,
-            source: EventSource::External { port },
-        })
+        .map(|(port, id)| EventInputRoute::new(id, EventSource::External { port }))
         .collect();
 }
 
@@ -216,53 +208,41 @@ fn midi_effect_output_plays_an_instrument_before_an_audio_effect() {
             delay(PluginFormat::Vst3),
         ]);
         let effect_output = ports(&mut chain, 0, AudioDirection::Output)[0];
-        let config = RoutedChainConfig {
-            sample_rate: 48_000.0,
-            max_block_size: 512,
-            sample_format: SampleFormat::F32,
-            mode: ProcessMode::Offline,
-            inputs: Vec::new(),
-            event_inputs: 1,
-            slots: vec![
+        let config = RoutedChainConfig::new(
+            48_000.0,
+            512,
+            SampleFormat::F32,
+            Vec::new(),
+            vec![
                 // The MIDI effect's audio buses stay inactive.
-                SlotAudioConfig {
-                    configuration: None,
-                    inputs: Vec::new(),
-                    outputs: Vec::new(),
-                    events: SlotEventConfig {
-                        inputs: vec![EventInputRoute {
-                            port: ports(&mut chain, 0, AudioDirection::Input)[0],
-                            source: EventSource::External { port: 0 },
-                        }],
-                        outputs: vec![effect_output],
-                    },
-                },
-                SlotAudioConfig {
-                    configuration: None,
-                    inputs: Vec::new(),
-                    outputs: vec![stereo(0)],
-                    events: SlotEventConfig {
-                        inputs: vec![EventInputRoute {
-                            port: 0,
-                            source: EventSource::Previous {
+                SlotAudioConfig::new(Vec::new(), Vec::new()).with_events(SlotEventConfig::new(
+                    vec![EventInputRoute::new(
+                        ports(&mut chain, 0, AudioDirection::Input)[0],
+                        EventSource::External { port: 0 },
+                    )],
+                    vec![effect_output],
+                )),
+                SlotAudioConfig::new(Vec::new(), vec![stereo(0)]).with_events(
+                    SlotEventConfig::new(
+                        vec![EventInputRoute::new(
+                            0,
+                            EventSource::Previous {
                                 port: effect_output,
                             },
-                        }],
-                        outputs: Vec::new(),
-                    },
-                },
-                SlotAudioConfig {
-                    configuration: None,
-                    inputs: vec![AudioInputRoute {
-                        bus: stereo(0),
-                        source: AudioSource::Previous { bus: 0 },
-                        adaptation: ChannelAdaptation::Exact,
-                    }],
-                    outputs: vec![stereo(0)],
-                    events: SlotEventConfig::default(),
-                },
+                        )],
+                        Vec::new(),
+                    ),
+                ),
+                SlotAudioConfig::new(
+                    vec![AudioInputRoute::new(
+                        stereo(0),
+                        AudioSource::Previous { bus: 0 },
+                    )],
+                    vec![stereo(0)],
+                ),
             ],
-        };
+        )
+        .with_event_inputs(1);
         chain.prepare_audio(&config).unwrap();
         // The effect moves key 57 up an octave, so the instrument plays A4 from frame 1000.
         let events = Events::from_iter([
@@ -526,17 +506,17 @@ fn events_from_the_previous_slot_and_its_automation_share_one_budget() {
             .unwrap();
         let output = ports(&mut chain, 0, AudioDirection::Output)[0];
         config.event_inputs = 1;
-        config.slots[0].events = SlotEventConfig {
-            inputs: vec![EventInputRoute {
-                port: ports(&mut chain, 0, AudioDirection::Input)[0],
-                source: EventSource::External { port: 0 },
-            }],
-            outputs: vec![output],
-        };
-        config.slots[1].events.inputs = vec![EventInputRoute {
-            port: ports(&mut chain, 1, AudioDirection::Input)[0],
-            source: EventSource::Previous { port: output },
-        }];
+        config.slots[0].events = SlotEventConfig::new(
+            vec![EventInputRoute::new(
+                ports(&mut chain, 0, AudioDirection::Input)[0],
+                EventSource::External { port: 0 },
+            )],
+            vec![output],
+        );
+        config.slots[1].events.inputs = vec![EventInputRoute::new(
+            ports(&mut chain, 1, AudioDirection::Input)[0],
+            EventSource::Previous { port: output },
+        )];
         chain.prepare_audio(&config).unwrap();
         let parameter = chain
             .parameters(1)
@@ -552,14 +532,7 @@ fn events_from_the_previous_slot_and_its_automation_share_one_budget() {
             .map(|index| Event::note_on(index * 512 / 2000, 0, 60, 100))
             .collect();
         let automation: Vec<AutomationEvent> = (0..100)
-            .map(|offset| AutomationEvent {
-                slot: 1,
-                change: ParameterChange {
-                    id: parameter,
-                    offset,
-                    value: 0.5,
-                },
-            })
+            .map(|offset| AutomationEvent::new(1, ParameterChange::new(parameter, offset, 0.5)))
             .collect();
         let input = [0.0f32; 512];
         let (mut left, mut right) = ([0.0f32; 512], [0.0f32; 512]);

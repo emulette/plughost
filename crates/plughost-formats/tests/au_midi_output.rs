@@ -22,7 +22,7 @@ use objc2_core_audio_types::AudioBufferList;
 use objc2_foundation::{NSArray, NSError, NSInteger, NSString};
 use plughost_core::{
     AudioBusConfig, AudioConfig, AudioDirection, Event, EventConfig, Events, Layout,
-    MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES, ProcessMode, SampleFormat,
+    MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES, SampleFormat,
 };
 use plughost_formats::au::{self, Plugin};
 use plughost_formats::{Error, HostedPlugin};
@@ -271,23 +271,14 @@ fn config(plugin: &mut Plugin, outputs: Vec<u64>) -> AudioConfig {
         .into_iter()
         .find(|bus| bus.direction == AudioDirection::Output)
         .unwrap();
-    AudioConfig {
-        sample_rate: 48_000.0,
-        max_block_size: 512,
-        sample_format: SampleFormat::F32,
-        mode: ProcessMode::Offline,
-        configuration: None,
-        inputs: Vec::new(),
-        outputs: vec![AudioBusConfig {
-            id: output.id,
-            layout: Layout::Stereo,
-            active: true,
-        }],
-        events: EventConfig {
-            inputs: vec![0],
-            outputs,
-        },
-    }
+    AudioConfig::new(
+        48_000.0,
+        512,
+        SampleFormat::F32,
+        Vec::new(),
+        vec![AudioBusConfig::new(output.id, Layout::Stereo, true)],
+    )
+    .with_events(EventConfig::new(vec![0], outputs))
 }
 
 fn prepared(outputs: Vec<u64>) -> Plugin {
@@ -462,14 +453,13 @@ fn clocks_do_not_hide_system_exclusive_byte_overflow() {
 fn the_main_configuration_prepares_the_first_output() {
     let mut plugin = Plugin::new(&class_id()).unwrap();
     plugin
-        .prepare(&plughost_core::ProcessConfig {
-            sample_rate: 48_000.0,
-            max_block_size: 512,
-            sample_format: SampleFormat::F32,
-            input: Layout::None,
-            output: Layout::Stereo,
-            mode: ProcessMode::Offline,
-        })
+        .prepare(&plughost_core::ProcessConfig::new(
+            48_000.0,
+            512,
+            SampleFormat::F32,
+            Layout::None,
+            Layout::Stereo,
+        ))
         .unwrap();
     let produced = block(
         &mut plugin,

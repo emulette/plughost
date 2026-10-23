@@ -17,6 +17,8 @@ pub(crate) fn direction(value: AudioDirection) -> i32 {
     match value {
         AudioDirection::Input => BusDirections_::kInput as i32,
         AudioDirection::Output => BusDirections_::kOutput as i32,
+        // A direction VST3 does not have, which has no buses.
+        _ => -1,
     }
 }
 /// VST3 orders a bus's channels by speaker bit, which is the portable order of every layout.
@@ -130,22 +132,21 @@ impl Instance {
                     Err(Vst3Error::NoBus(requested))
                 };
             };
-            Ok(vec![AudioBusConfig {
-                id: bus.id,
-                layout: requested,
-                active: requested != Layout::None,
-            }])
+            Ok(vec![AudioBusConfig::new(
+                bus.id,
+                requested,
+                requested != Layout::None,
+            )])
         };
-        Ok(AudioConfig {
-            sample_rate: config.sample_rate,
-            max_block_size: config.max_block_size,
-            sample_format: config.sample_format,
-            mode: config.mode,
-            configuration: None,
-            inputs: main(AudioDirection::Input, config.input)?,
-            outputs: main(AudioDirection::Output, config.output)?,
-            events: self.main_event_config(),
-        })
+        Ok(AudioConfig::new(
+            config.sample_rate,
+            config.max_block_size,
+            config.sample_format,
+            main(AudioDirection::Input, config.input)?,
+            main(AudioDirection::Output, config.output)?,
+        )
+        .with_mode(config.mode)
+        .with_events(self.main_event_config()))
     }
 
     pub fn negotiate_audio(&self, config: &AudioConfig) -> Result<Vec<AudioBusInfo>, Vst3Error> {

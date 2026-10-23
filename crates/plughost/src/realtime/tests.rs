@@ -32,24 +32,18 @@ fn ring(first: u64) -> Ring {
 
 /// A stereo effect's configuration.
 fn chain() -> RoutedChainConfig {
-    RoutedChainConfig {
-        sample_rate: 48_000.0,
-        max_block_size: QUANTUM,
-        sample_format: SampleFormat::F32,
-        mode: ProcessMode::Realtime,
-        inputs: vec![Layout::Stereo],
-        event_inputs: 1,
-        slots: vec![SlotAudioConfig {
-            configuration: None,
-            inputs: Vec::new(),
-            outputs: vec![AudioBusConfig {
-                id: 0,
-                layout: Layout::Stereo,
-                active: true,
-            }],
-            events: Default::default(),
-        }],
-    }
+    RoutedChainConfig::new(
+        48_000.0,
+        QUANTUM,
+        SampleFormat::F32,
+        vec![Layout::Stereo],
+        vec![SlotAudioConfig::new(
+            Vec::new(),
+            vec![AudioBusConfig::new(0, Layout::Stereo, true)],
+        )],
+    )
+    .with_mode(ProcessMode::Realtime)
+    .with_event_inputs(1)
 }
 
 fn call(endpoint: &mut RealtimeEndpoint) -> RealtimeOutput {

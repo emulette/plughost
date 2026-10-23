@@ -65,14 +65,10 @@ fn the_helper_calls_each_clap_function_on_its_thread() {
     chain.set_parameter(0, GAIN, 0.5).unwrap();
     chain.parameters(0).unwrap();
     prepare(&mut chain);
-    let automation = [AutomationEvent {
-        slot: 0,
-        change: ParameterChange {
-            id: GAIN,
-            offset: 10,
-            value: 0.75,
-        },
-    }];
+    let automation = [AutomationEvent::new(
+        0,
+        ParameterChange::new(GAIN, 10, 0.75),
+    )];
     block(&mut chain, &automation);
     assert_eq!(wrong_threads(&mut chain), Vec::<String>::new());
     // Edits between blocks reach the active plugin with a flush on its audio thread, before

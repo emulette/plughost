@@ -5,32 +5,15 @@ mod support;
 use support::{routing as reference, spawn};
 
 fn point(slot: usize, id: u64, offset: usize, value: f64) -> AutomationEvent {
-    AutomationEvent {
-        slot,
-        change: ParameterChange { id, offset, value },
-    }
+    AutomationEvent::new(slot, ParameterChange::new(id, offset, value))
 }
 
 #[test]
 #[ignore = "needs helper and routing VST3/CLAP fixtures"]
 fn overlapping_slot_ramps_discrete_points_and_duplicate_edits_preserve_samples() {
     let ramps = [
-        AutomationRamp {
-            slot: 0,
-            id: 0,
-            start: 0,
-            end: 8191,
-            from: 0.0,
-            to: 1.0,
-        },
-        AutomationRamp {
-            slot: 1,
-            id: 0,
-            start: 0,
-            end: 8191,
-            from: 1.0,
-            to: 0.0,
-        },
+        AutomationRamp::new(0, 0, 0, 8191, 0.0, 1.0),
+        AutomationRamp::new(1, 0, 0, 8191, 1.0, 0.0),
     ];
     let points = [
         point(1, 1, 3000, 0.51),
@@ -54,11 +37,9 @@ fn overlapping_slot_ramps_discrete_points_and_duplicate_edits_preserve_samples()
                 input.len(),
                 &Events::new(),
                 &RenderOptions::new(TailPolicy::Reported, 0.0),
-                &RenderSchedule {
-                    automation: &points,
-                    ramps: &ramps,
-                    ..Default::default()
-                },
+                &RenderSchedule::default()
+                    .with_automation(&points)
+                    .with_ramps(&ramps),
             )
             .unwrap();
             assert_eq!(result.channels.len(), 2);
@@ -107,27 +88,19 @@ fn overlapping_slot_ramps_discrete_points_and_duplicate_edits_preserve_samples()
 #[ignore = "needs the helper and Apple AUDelay"]
 fn apple_ramp_matches_independent_control_edits() {
     let reference = PluginRef::audio_unit("6175667864656C796170706C");
-    let ramp = [AutomationRamp {
-        slot: 0,
-        id: 0,
-        start: 0,
-        end: 256,
-        from: 0.25,
-        to: 0.75,
-    }];
+    let ramp = [AutomationRamp::new(0, 0, 0, 256, 0.25, 0.75)];
     let input = vec![0.25f32; 257];
     // An independent oracle: explicit native control edits, one sample at a time. This path
     // never constructs a ramp, submits block automation, or calls the render scheduler.
     let mut control = plughost_formats::load(&reference, &HostIdentity::default()).unwrap();
     control
-        .prepare(&plughost_core::ProcessConfig {
-            sample_rate: 48_000.0,
-            max_block_size: 1,
-            sample_format: plughost::SampleFormat::F32,
-            input: Layout::Stereo,
-            output: Layout::Stereo,
-            mode: plughost::ProcessMode::Offline,
-        })
+        .prepare(&plughost_core::ProcessConfig::new(
+            48_000.0,
+            1,
+            plughost::SampleFormat::F32,
+            Layout::Stereo,
+            Layout::Stereo,
+        ))
         .unwrap();
     control.set_parameter(1, 0.5).unwrap();
     let processor = control.processor();
@@ -179,10 +152,7 @@ fn apple_ramp_matches_independent_control_edits() {
             input.len(),
             &Events::new(),
             &RenderOptions::new(TailPolicy::Reported, 0.0),
-            &RenderSchedule {
-                ramps: &ramp,
-                ..Default::default()
-            },
+            &RenderSchedule::default().with_ramps(&ramp),
         )
         .unwrap();
         assert_eq!(result.channels.len(), 2);

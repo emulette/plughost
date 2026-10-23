@@ -3,7 +3,7 @@
 
 use plughost_core::{
     BlockContext, Events, HostIdentity, Layout, ParameterChange, PluginRef, ProcessConfig,
-    ProcessMode, SampleFormat, StatePurpose,
+    SampleFormat, StatePurpose,
 };
 use plughost_formats::HostedPlugin;
 use std::path::Path;
@@ -31,14 +31,13 @@ fn component_state_and_connection_messages_reach_a_separate_controller() {
     assert_eq!(value(&mut *plugin, 0), 1.0);
     assert_eq!(value(&mut *plugin, 1), 0.0);
     plugin
-        .prepare(&ProcessConfig {
-            sample_rate: 48_000.0,
-            max_block_size: 512,
-            sample_format: SampleFormat::F32,
-            input: Layout::Stereo,
-            output: Layout::Stereo,
-            mode: ProcessMode::Offline,
-        })
+        .prepare(&ProcessConfig::new(
+            48_000.0,
+            512,
+            SampleFormat::F32,
+            Layout::Stereo,
+            Layout::Stereo,
+        ))
         .unwrap();
     let processor = plugin.processor();
     let input = [1.0f32; 8];
@@ -59,11 +58,7 @@ fn component_state_and_connection_messages_reach_a_separate_controller() {
     };
     plugin.set_parameter(0, 0.25).unwrap();
     assert_eq!(
-        block(&[ParameterChange {
-            id: 0,
-            offset: 3,
-            value: 0.75
-        }]),
+        block(&[ParameterChange::new(0, 3, 0.75)]),
         [0.25, 0.25, 0.25, 0.75, 0.75, 0.75, 0.75, 0.75]
     );
     // The block contains the initial anchor, pending edit, and explicit point.

@@ -98,14 +98,7 @@ fn the_realtime_callback_allocates_nothing() {
     let mut endpoint = chain.realtime_endpoint(&config).unwrap();
     call(&mut endpoint, 2, QUANTUM, &[], &Events::new());
     chain.start_realtime().unwrap();
-    let automation = [AutomationEvent {
-        slot: 0,
-        change: ParameterChange {
-            id: 0,
-            offset: 32,
-            value: 0.5,
-        },
-    }];
+    let automation = [AutomationEvent::new(0, ParameterChange::new(0, 32, 0.5))];
     assert_eq!(
         call(&mut endpoint, 2, QUANTUM, &automation, &Events::new()),
         fallback(FallbackReason::Priming)

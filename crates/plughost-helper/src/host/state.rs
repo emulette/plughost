@@ -179,6 +179,7 @@ impl Host {
                                 .map_err(|failure| (slot, failure))?,
                         ),
                     ),
+                    _ => return Err((slot, crate::errors::sample_format())),
                 };
                 Ok((delays32, delays64, plan, tail))
             });

@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use plughost::{
-    Chain, Events, HostIdentity, Layout, PluginFormat, PluginRef, ProcessMode, RenderOptions,
-    SampleFormat, ScanOutcome, Scanner, SpawnOptions, StatePurpose, TailPolicy, Timeouts, render,
+    Chain, Events, HostIdentity, Layout, PluginFormat, PluginRef, RenderOptions, SampleFormat,
+    ScanOutcome, Scanner, SpawnOptions, StatePurpose, TailPolicy, Timeouts, render,
 };
 use plughost_core::render::{Process, Tail};
 use plughost_core::{AutomationEvent, BlockContext, ProcessConfig};
@@ -191,14 +191,13 @@ fn direct_render(
     block: usize,
     trials: usize,
 ) -> Result<f64> {
-    plugin.prepare(&ProcessConfig {
-        sample_rate: RATE,
-        max_block_size: block,
-        sample_format: SampleFormat::F32,
-        input: Layout::Stereo,
-        output: Layout::Stereo,
-        mode: ProcessMode::Offline,
-    })?;
+    plugin.prepare(&ProcessConfig::new(
+        RATE,
+        block,
+        SampleFormat::F32,
+        Layout::Stereo,
+        Layout::Stereo,
+    ))?;
     let mut times = Vec::new();
     for trial in 0..=trials {
         plugin.reset()?;

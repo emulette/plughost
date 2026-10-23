@@ -1,47 +1,24 @@
 use super::*;
-use plughost_core::{
-    AudioBusConfig, AudioInputRoute, ChannelAdaptation, Layout, ProcessMode, SampleFormat,
-    SlotAudioConfig,
-};
+use plughost_core::{AudioBusConfig, AudioInputRoute, Layout, SampleFormat, SlotAudioConfig};
 
 fn config(previous: bool) -> RoutedChainConfig {
-    let bus = AudioBusConfig {
-        id: 0,
-        layout: Layout::Mono,
-        active: true,
-    };
-    let route = AudioInputRoute {
-        bus,
-        source: AudioSource::External { bus: 0 },
-        adaptation: ChannelAdaptation::Exact,
-    };
+    let bus = AudioBusConfig::new(0, Layout::Mono, true);
+    let route = AudioInputRoute::new(bus, AudioSource::External { bus: 0 });
     let mut second = route;
     second.bus.id = 1;
     if previous {
         second.source = AudioSource::Previous { bus: 0 };
     }
-    RoutedChainConfig {
-        event_inputs: 0,
-        sample_rate: 48_000.0,
-        max_block_size: 512,
-        sample_format: SampleFormat::F64,
-        mode: ProcessMode::Offline,
-        inputs: vec![Layout::Mono],
-        slots: vec![
-            SlotAudioConfig {
-                events: Default::default(),
-                configuration: None,
-                inputs: vec![route],
-                outputs: vec![bus],
-            },
-            SlotAudioConfig {
-                events: Default::default(),
-                configuration: None,
-                inputs: vec![route, second],
-                outputs: vec![bus],
-            },
+    RoutedChainConfig::new(
+        48_000.0,
+        512,
+        SampleFormat::F64,
+        vec![Layout::Mono],
+        vec![
+            SlotAudioConfig::new(vec![route], vec![bus]),
+            SlotAudioConfig::new(vec![route, second], vec![bus]),
         ],
-    }
+    )
 }
 
 fn native(latency: u32, tail: u32) -> PluginTiming {

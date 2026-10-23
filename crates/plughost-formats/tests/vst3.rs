@@ -11,8 +11,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use plughost_core::render::{RenderOptions, TailPolicy, render};
 use plughost_core::{
-    Event, Events, FailureKind, InputError, Layout, PluginKind, ProcessConfig, ProcessMode, Sample,
-    SampleFormat,
+    Event, Events, FailureKind, InputError, Layout, PluginKind, ProcessConfig, Sample, SampleFormat,
 };
 use plughost_formats::HostedPlugin;
 use plughost_formats::vst3::{Module, Plugin, Preset};
@@ -100,9 +99,10 @@ fn hosted_factory_uses_the_callers_identity() {
     let _serial = serial();
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/test-plugins/plughost-test-routing.vst3");
-    let identity = plughost_core::HostIdentity {
-        name: "Factory identity fixture".into(),
-        ..plughost_core::HostIdentity::default()
+    let identity = {
+        let mut value = plughost_core::HostIdentity::default();
+        value.name = "Factory identity fixture".into();
+        value
     };
     let plugin = plughost_formats::load(
         &plughost_core::PluginRef::vst3(path, "706C7567686F7374526F7574696E6701"),
@@ -158,14 +158,13 @@ fn render_preflight_rejects_unprepared_and_late_invalid_ports() {
 }
 
 fn config(sample_rate: f64, sample_format: SampleFormat) -> ProcessConfig {
-    ProcessConfig {
+    ProcessConfig::new(
         sample_rate,
-        max_block_size: 512,
+        512,
         sample_format,
-        input: Layout::Stereo,
-        output: Layout::Stereo,
-        mode: ProcessMode::Offline,
-    }
+        Layout::Stereo,
+        Layout::Stereo,
+    )
 }
 
 #[test]
@@ -180,9 +179,10 @@ fn invalid_prepare_keeps_the_existing_processor_usable() {
         .save_state(plughost_core::StatePurpose::Project)
         .unwrap();
     for size in [0, i32::MAX as usize + 1, usize::MAX] {
-        let invalid = ProcessConfig {
-            max_block_size: size,
-            ..valid
+        let invalid = {
+            let mut value = valid;
+            value.max_block_size = size;
+            value
         };
         assert_eq!(
             plugin.prepare(&invalid).unwrap_err().input_error(),
@@ -191,9 +191,10 @@ fn invalid_prepare_keeps_the_existing_processor_usable() {
         assert_eq!(plugin.config(), Some(valid));
     }
     for rate in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-        let invalid = ProcessConfig {
-            sample_rate: rate,
-            ..valid
+        let invalid = {
+            let mut value = valid;
+            value.sample_rate = rate;
+            value
         };
         assert_eq!(
             plugin.prepare(&invalid).unwrap_err().input_error(),
@@ -286,11 +287,7 @@ fn malformed_parameter_changes_do_not_touch_audio_or_pending_edits() {
     let input = [1.0f32; 64];
     let mut output = [42.0f32; 64];
     let mut right = [42.0f32; 64];
-    let change = |offset, value| ParameterChange {
-        id: AGAIN_GAIN,
-        offset,
-        value,
-    };
+    let change = |offset, value| ParameterChange::new(AGAIN_GAIN, offset, value);
     for changes in [
         vec![change(0, f64::NAN)],
         vec![change(0, f64::INFINITY)],
@@ -510,10 +507,11 @@ fn vstpreset_files_restore_the_state() {
 fn layouts_the_plugin_refuses_are_errors() {
     let _serial = serial();
     let mut plugin = plugin("plughost-test-delay");
-    let mono = ProcessConfig {
-        input: Layout::Mono,
-        output: Layout::Mono,
-        ..config(48_000.0, SampleFormat::F32)
+    let mono = {
+        let mut value = config(48_000.0, SampleFormat::F32);
+        value.input = Layout::Mono;
+        value.output = Layout::Mono;
+        value
     };
     assert_eq!(
         plugin.prepare(&mono).unwrap_err().kind(),
@@ -526,10 +524,11 @@ fn layouts_the_plugin_refuses_are_errors() {
 fn other_speakers_with_the_same_channel_count_are_refused() {
     let _serial = serial();
     // The test delay answers a 5.1 proposal with 6.0.
-    let surround = ProcessConfig {
-        input: Layout::Surround51,
-        output: Layout::Surround51,
-        ..config(48_000.0, SampleFormat::F32)
+    let surround = {
+        let mut value = config(48_000.0, SampleFormat::F32);
+        value.input = Layout::Surround51;
+        value.output = Layout::Surround51;
+        value
     };
     assert_eq!(
         plugin("plughost-test-delay")
@@ -547,9 +546,10 @@ fn a_main_input_the_caller_does_not_use_gets_silence() {
     // The test delay keeps its stereo input, as instruments that also process audio do.
     let mut plugin = plugin("plughost-test-delay");
     plugin
-        .prepare(&ProcessConfig {
-            input: Layout::None,
-            ..config(48_000.0, SampleFormat::F32)
+        .prepare(&{
+            let mut value = config(48_000.0, SampleFormat::F32);
+            value.input = Layout::None;
+            value
         })
         .unwrap();
     let mut output = vec![vec![1.0f32; 512]; 2];
@@ -676,11 +676,7 @@ fn automation_reaches_the_controller_on_the_owning_thread_only() {
                     &plughost_core::BlockContext::new(64),
                     &[&input, &input],
                     &mut [&mut left, &mut right],
-                    &[ParameterChange {
-                        id: 0,
-                        offset: 0,
-                        value,
-                    }],
+                    &[ParameterChange::new(0, 0, value)],
                     &Events::new(),
                     &mut Events::for_block(),
                 )
@@ -835,9 +831,10 @@ fn instruments_start_notes_at_their_sample_offsets() {
     )
     .unwrap();
     plugin
-        .prepare(&ProcessConfig {
-            input: Layout::None,
-            ..config(48_000.0, SampleFormat::F32)
+        .prepare(&{
+            let mut value = config(48_000.0, SampleFormat::F32);
+            value.input = Layout::None;
+            value
         })
         .unwrap();
     let mut output = vec![vec![1.0f32; 512]; 2];
@@ -1021,9 +1018,10 @@ fn note_events_without_an_id_that_overflow_the_event_list_refuse_the_block() {
     let _serial = serial();
     let mut plugin = plugin("plughost-test-synth");
     plugin
-        .prepare(&ProcessConfig {
-            input: Layout::None,
-            ..config(48_000.0, SampleFormat::F32)
+        .prepare(&{
+            let mut value = config(48_000.0, SampleFormat::F32);
+            value.input = Layout::None;
+            value
         })
         .unwrap();
     let mut block = |events: &Events| {

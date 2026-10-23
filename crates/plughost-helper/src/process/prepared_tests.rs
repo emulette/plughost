@@ -1,40 +1,25 @@
 use super::super::audio_timing::{AudioTiming, DelayBank};
 use super::*;
-use plughost_core::{AudioBusConfig, AudioInputRoute, Layout, ProcessMode, SlotAudioConfig};
+use plughost_core::{AudioBusConfig, AudioInputRoute, Layout, SlotAudioConfig};
 
 fn bus(id: u64, layout: Layout) -> AudioBusConfig {
-    AudioBusConfig {
-        id,
-        layout,
-        active: true,
-    }
+    AudioBusConfig::new(id, layout, true)
 }
 fn config() -> RoutedChainConfig {
-    RoutedChainConfig {
-        event_inputs: 0,
-        sample_rate: 48_000.0,
-        max_block_size: 8,
-        sample_format: SampleFormat::F64,
-        mode: ProcessMode::Offline,
-        inputs: vec![Layout::Mono],
-        slots: vec![SlotAudioConfig {
-            events: Default::default(),
-            configuration: None,
-            inputs: vec![
-                AudioInputRoute {
-                    bus: bus(7, Layout::Stereo),
-                    source: AudioSource::External { bus: 0 },
-                    adaptation: ChannelAdaptation::MonoToStereo,
-                },
-                AudioInputRoute {
-                    bus: bus(19, Layout::Mono),
-                    source: AudioSource::Silence,
-                    adaptation: ChannelAdaptation::Exact,
-                },
+    RoutedChainConfig::new(
+        48_000.0,
+        8,
+        SampleFormat::F64,
+        vec![Layout::Mono],
+        vec![SlotAudioConfig::new(
+            vec![
+                AudioInputRoute::new(bus(7, Layout::Stereo), AudioSource::External { bus: 0 })
+                    .with_adaptation(ChannelAdaptation::MonoToStereo),
+                AudioInputRoute::new(bus(19, Layout::Mono), AudioSource::Silence),
             ],
-            outputs: vec![bus(4, Layout::Stereo)],
-        }],
-    }
+            vec![bus(4, Layout::Stereo)],
+        )],
+    )
 }
 fn timing() -> PluginTiming {
     PluginTiming::new(0, plughost_core::render::Tail::Samples(0))
@@ -104,31 +89,24 @@ fn prepared_audio_storage_and_channel_views_need_no_processing_allocations() {
 #[test]
 fn undelayed_exact_routes_pass_their_source_and_delayed_routes_are_aligned() {
     let mono = |id| bus(id, Layout::Mono);
-    let route = |id, source| AudioInputRoute {
-        bus: mono(id),
-        source,
-        adaptation: ChannelAdaptation::Exact,
-    };
-    let config = RoutedChainConfig {
-        inputs: vec![Layout::Mono],
-        slots: vec![
-            SlotAudioConfig {
-                events: Default::default(),
-                configuration: None,
-                inputs: vec![route(0, AudioSource::External { bus: 0 })],
-                outputs: vec![mono(4)],
-            },
-            SlotAudioConfig {
-                events: Default::default(),
-                configuration: None,
-                inputs: vec![
+    let route = |id, source| AudioInputRoute::new(mono(id), source);
+    let config = {
+        let mut value = config();
+        value.inputs = vec![Layout::Mono];
+        value.slots = vec![
+            SlotAudioConfig::new(
+                vec![route(0, AudioSource::External { bus: 0 })],
+                vec![mono(4)],
+            ),
+            SlotAudioConfig::new(
+                vec![
                     route(7, AudioSource::Previous { bus: 4 }),
                     route(19, AudioSource::External { bus: 0 }),
                 ],
-                outputs: vec![mono(4)],
-            },
-        ],
-        ..config()
+                vec![mono(4)],
+            ),
+        ];
+        value
     };
     config.validate(2).unwrap();
     let mut upstream = timing();
@@ -163,13 +141,11 @@ fn dense_automation_keeps_duplicate_order_without_initial_growth() {
     let mut prepared = Routed::<f64>::new(&config(), &[timing()]);
     let slots = &mut prepared.slots;
     let dense: Vec<_> = (0..plughost_core::MAX_BLOCK_EVENTS)
-        .map(|index| AutomationEvent {
-            slot: 0,
-            change: ParameterChange {
-                id: 7,
-                offset: 0,
-                value: index as f64 / plughost_core::MAX_BLOCK_EVENTS as f64,
-            },
+        .map(|index| {
+            AutomationEvent::new(
+                0,
+                ParameterChange::new(7, 0, index as f64 / plughost_core::MAX_BLOCK_EVENTS as f64),
+            )
         })
         .collect();
     let counts = allocation::measure(|| {

@@ -3,6 +3,7 @@ use crate::InputError;
 /// Identity of the application hosting the plugins. VST3 receives the name; CLAP receives all
 /// three fields. Audio Units have no equivalent identity callback in the current host API.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct HostIdentity {
     /// Non-empty, at most 127 UTF-16 code units (the VST3 String128 limit).
     pub name: String,
@@ -13,6 +14,19 @@ pub struct HostIdentity {
 }
 
 impl HostIdentity {
+    /// The host name, vendor and version plugins are told; validated when it is used.
+    pub fn new(
+        name: impl Into<String>,
+        vendor: impl Into<String>,
+        version: impl Into<String>,
+    ) -> HostIdentity {
+        HostIdentity {
+            name: name.into(),
+            vendor: vendor.into(),
+            version: version.into(),
+        }
+    }
+
     /// Validates the common identity without truncating strings at a format boundary.
     pub fn validate(&self) -> Result<(), InputError> {
         if self.name.is_empty()

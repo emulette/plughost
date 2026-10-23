@@ -1,7 +1,7 @@
 use super::{ClapError, text};
 use clap_sys::factory::preset_discovery::clap_preset_discovery_metadata_receiver as Raw;
 use clap_sys::universal_plugin_id::clap_universal_plugin_id;
-use plughost_core::{DiscoveredPreset, PresetLocation, PresetPluginId};
+use plughost_core::{DiscoveredPreset, PresetFlags, PresetLocation, PresetPluginId};
 use std::collections::HashSet;
 use std::ffi::{CStr, c_char};
 pub(super) struct Receiver {
@@ -117,20 +117,10 @@ unsafe extern "C" fn begin_preset(
                 }
                 None => r.unkeyed = true,
             }
-            r.presets.push(DiscoveredPreset {
-                location: r.location.clone(),
-                name,
-                load_key,
-                plugin_ids: Vec::new(),
-                soundpack_id: None,
-                flags: None,
-                creators: Vec::new(),
-                description: None,
-                creation_time: None,
-                modification_time: None,
-                features: Vec::new(),
-                extra_info: Vec::new(),
-            });
+            let mut preset = DiscoveredPreset::new(r.location.clone());
+            preset.name = name;
+            preset.load_key = load_key;
+            r.presets.push(preset);
             Ok(())
         })
     }
@@ -148,7 +138,7 @@ unsafe extern "C" fn add_plugin_id(raw: *const Raw, id: *const clap_universal_pl
             if abi.is_empty() || id.is_empty() {
                 return Err(ClapError::PresetMetadata);
             }
-            r.current()?.plugin_ids.push(PresetPluginId { abi, id });
+            r.current()?.plugin_ids.push(PresetPluginId::new(abi, id));
             Ok(())
         });
     }
@@ -171,7 +161,7 @@ unsafe extern "C" fn set_flags(raw: *const Raw, flags: u32) {
     // SAFETY: receiver is borrowed for this callback.
     unsafe {
         receive(raw, |r| {
-            r.current()?.flags = Some(flags);
+            r.current()?.flags = Some(PresetFlags::from_bits_retain(flags));
             Ok(())
         });
     }

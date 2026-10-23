@@ -4,6 +4,7 @@ use crate::InputError;
 
 /// Musical meter; numerator must be nonzero and denominator a power of two.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TimeSignature {
     /// Number of denominator note units in a bar.
     pub numerator: u16,
@@ -11,8 +12,19 @@ pub struct TimeSignature {
     pub denominator: u16,
 }
 
+impl TimeSignature {
+    /// `numerator` beats of `denominator` note values per bar.
+    pub const fn new(numerator: u16, denominator: u16) -> TimeSignature {
+        TimeSignature {
+            numerator,
+            denominator,
+        }
+    }
+}
+
 /// Musical positions are quarter notes, including for compound meters.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct LoopRegion {
     /// Start position in quarter notes.
     pub start: f64,
@@ -24,13 +36,34 @@ pub struct LoopRegion {
     pub sample_end: i64,
 }
 
+impl LoopRegion {
+    /// A loop from `start` to `end` in quarter notes, which are samples `sample_start` to
+    /// `sample_end`.
+    pub const fn new(start: f64, end: f64, sample_start: i64, sample_end: i64) -> LoopRegion {
+        LoopRegion {
+            start,
+            end,
+            sample_start,
+            sample_end,
+        }
+    }
+}
+
 /// Caller-supplied start and numbering of the current musical bar.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct BarPosition {
     /// Start position in quarter notes.
     pub start: f64,
     /// Caller-supplied bar number; advancement increments it at bar boundaries.
     pub number: i32,
+}
+
+impl BarPosition {
+    /// Bar `number`, which starts at `start` quarter notes.
+    pub const fn new(start: f64, number: i32) -> BarPosition {
+        BarPosition { start, number }
+    }
 }
 
 /// A snapshot at the first sample of a block. `None` fields are unavailable, never synthesized.

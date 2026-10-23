@@ -107,13 +107,15 @@ fn noise(frames: usize) -> Vec<Vec<f32>> {
 /// `points` points on the gain of slot 0 across a quantum.
 fn automation(quantum: usize, points: usize) -> Vec<AutomationEvent> {
     (0..points)
-        .map(|point| AutomationEvent {
-            slot: 0,
-            change: ParameterChange {
-                id: GAIN,
-                offset: point * quantum / points,
-                value: if point % 2 == 0 { 0.25 } else { 0.75 },
-            },
+        .map(|point| {
+            AutomationEvent::new(
+                0,
+                ParameterChange::new(
+                    GAIN,
+                    point * quantum / points,
+                    if point % 2 == 0 { 0.25 } else { 0.75 },
+                ),
+            )
         })
         .collect()
 }

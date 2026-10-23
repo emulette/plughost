@@ -946,6 +946,7 @@ dependencies = [
 name = "plughost-core"
 version = "0.1.6"
 dependencies = [
+ "bitflags 2.13.2",
  "interprocess",
  "postcard",
  "rtsan-standalone",

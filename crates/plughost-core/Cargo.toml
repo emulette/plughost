@@ -25,6 +25,7 @@ workspace = true
 realtime-audit = ["dep:rtsan-standalone"]
 
 [dependencies]
+bitflags.workspace = true
 postcard.workspace = true
 rtsan-standalone = { workspace = true, optional = true }
 serde.workspace = true

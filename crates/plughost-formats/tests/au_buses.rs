@@ -19,7 +19,7 @@ use objc2_audio_toolbox::{
 use objc2_avf_audio::AVAudioFormat;
 use objc2_core_audio_types::AudioBufferList;
 use objc2_foundation::{NSArray, NSError, NSInteger, NSNumber, NSString};
-use plughost_core::{Layout, ProcessConfig, ProcessMode, SampleFormat};
+use plughost_core::{Layout, ProcessConfig, SampleFormat};
 use plughost_formats::HostedPlugin;
 use plughost_formats::au::{self, Plugin};
 
@@ -169,14 +169,13 @@ fn class_id(kind: u32) -> String {
 fn prepare(kind: u32, input: Layout) -> Result<(), plughost_formats::Error> {
     Plugin::new(&class_id(kind))
         .unwrap()
-        .prepare(&ProcessConfig {
-            sample_rate: 48_000.0,
-            max_block_size: 512,
-            sample_format: SampleFormat::F32,
+        .prepare(&ProcessConfig::new(
+            48_000.0,
+            512,
+            SampleFormat::F32,
             input,
-            output: Layout::Stereo,
-            mode: ProcessMode::Offline,
-        })
+            Layout::Stereo,
+        ))
 }
 
 #[test]

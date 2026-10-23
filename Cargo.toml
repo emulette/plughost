@@ -21,6 +21,7 @@ readme = "README.md"
 repository = "https://github.com/emulette/plughost"
 
 [workspace.dependencies]
+bitflags = "2.13.2"
 block2 = "0.6.2"
 clack-extensions = "0.2.0"
 clack-host = "0.2.0"

@@ -217,20 +217,43 @@ timeout for the next, so the timeout bounds each plugin rather than the whole ch
 timeouts are configured separately on `Scanner`; they do not use `Timeouts`.
 
 Types that later versions extend are `#[non_exhaustive]`: the enums `Layout`, `PluginFormat`,
-`PluginKind`, `EventData`, `ExpressionKind`, `TailPolicy`, `RenderStatus`, `StatePurpose`,
+`PluginKind`, `EventData`, `ExpressionKind`, `TailPolicy`, `Tail`, `RenderStatus`, `StatePurpose`,
 `PresetMetadata`, `FactoryPresetId`, `ParameterEvent`, `DiagnosticSeverity`, `FailureKind`,
 `InputError`, `RenderError`, `PresetSearchError`, `Error`, `ScanOutcome`, `Source`, `ScanTarget`,
-`ScanStage`, `ScanEvent`, `Fallback`, `FallbackReason` and `RealtimeOutput` need a wildcard arm in
-a `match`. `ScanAction` is exhaustive.
+`ScanStage`, `ScanEvent`, `Fallback`, `FallbackReason`, `RealtimeOutput`, `Message`,
+`AudioBusRole`, `AudioDirection`, `AudioSource`, `EventSource`, `ChannelAdaptation`, `Support`,
+`SampleFormat`, `ProcessMode`, `SessionState`, `PresetLocation`, `EditorRequest` and the formats
+crate's `EditorView` need a wildcard arm in a `match`. `ScanAction` is exhaustive.
 The structs `Event`, `Note`, `NoteExpression`, `RenderOptions`, `Transport`, `BlockContext`,
 `Timeouts`,
 `PluginInfo`, `EventPortInfo`, `AudioBusInfo`, `Capabilities`, `CapabilityReport`,
 `PluginTiming`, `ParameterInfo`, `ParameterFlags`, `ParameterDetails`, `FactoryPreset`,
 `PresetInfo` and `RealtimeConfig` are built with their `new` or `default` constructors and then
-their public fields, not struct literals. `Rendered`, `RenderProgress`, `Delivery`,
-`ChainSnapshot`, `RealtimeStatus` and `RealtimeFailure` are non-exhaustive output-only structs
-supplied by rendering, `Chain::snapshot` or the realtime endpoint; callers read their fields
-rather than construct them.
+their public fields, not struct literals. So are the inputs an application writes:
+`RoutedChainConfig::new(sample_rate, max_block_size, sample_format, inputs, slots)` with
+`with_mode` and `with_event_inputs`, `SlotAudioConfig::new(inputs, outputs)` with
+`with_configuration` and `with_events`, `AudioConfig::new(sample_rate, max_block_size,
+sample_format, inputs, outputs)` likewise, `AudioBusConfig::new(id, layout, active)`,
+`AudioInputRoute::new(bus, source)` with `with_adaptation`, `SlotEventConfig::new`,
+`EventInputRoute::new`, `EventConfig::new`, `ProcessConfig::new(sample_rate, max_block_size,
+sample_format, input, output)` with `with_mode`, `HostIdentity::new(name, vendor, version)`,
+`ParameterChange::new(id, offset, value)`, `AutomationEvent::new(slot, change)`,
+`RenderInput::new(audio, frames, events)` with `with_schedule`, `RenderSchedule::default()` with
+`with_transport`, `with_automation` and `with_ramps`, `AutomationRamp::new`,
+`TransportChange::new`, `TimeSignature::new`, `LoopRegion::new`, `BarPosition::new`,
+`PresetDirectory::new`, `PresetFile::new`, `PresetDiscoveryTarget::new` and
+`DiscoveredPreset::new(location)`. Modes default to `ProcessMode::Offline`, a slot keeps its
+named configuration and leaves its event ports inactive, and a route matches layouts exactly.
+`Rendered`, `RenderProgress`, `Delivery`,
+`ChainSnapshot`, `RealtimeStatus`, `RealtimeFailure`, `ChangeBatch`, `SlotChange`, `Catalog`,
+`BundleScan`, `Failure`, `Diagnostic`, `DiagnosticBatch`, `ParameterGroup`, `ParameterChoice`,
+`ParameterChoicePage`, `ParameterEventBatch`, `AudioConfiguration`, `BypassState`,
+`DecodedPreset`, `vst3::Preset` and the preset discovery results (`PresetFileType`,
+`PresetLocationInfo`, `PresetSoundpack`, `PresetProviderInfo`, `PresetPluginId`,
+`PresetDiscovery`, `PresetFileFailure`) are non-exhaustive output-only structs supplied by the
+library; callers read their fields rather than construct them. CLAP preset discovery reports its
+flags as `PresetFlags` (`FACTORY_CONTENT`, `USER_CONTENT`, `DEMO_CONTENT`, `FAVORITE`), keeping
+bits later CLAP versions define.
 
 `chain.plugins()` returns loaded plugin metadata. `chain.capabilities(slot)` returns a
 `CapabilityReport` with native plugin evidence and isolated-host implementation support.
@@ -329,8 +352,9 @@ playing)` starts one; its optional timing fields remain unavailable when `None`,
 does not invent them. Beat positions use quarter notes.
 The caller owns seeks and loop wrapping. Moving transport does not implicitly reset DSP.
 
-`AutomationEvent { slot, change }` addresses a parameter independently of note routing.
-`ParameterChange` contains native parameter ID, sample offset, and normalized value.
+`AutomationEvent::new(slot, change)` addresses a parameter independently of note routing.
+`ParameterChange::new(id, offset, value)` holds the native parameter ID, sample offset, and
+normalized value.
 Values must be finite and in `0..=1`. Events are ordered by offset and lie inside the block.
 Read-only or non-automatable targets are rejected when appropriate.
 

@@ -17,9 +17,10 @@ fn input_event_staging_benchmark() {
         } else {
             "plughost-test-routing"
         });
-        let config = ProcessConfig {
-            max_block_size: 1,
-            ..config(48_000.0, SampleFormat::F32)
+        let config = {
+            let mut value = config(48_000.0, SampleFormat::F32);
+            value.max_block_size = 1;
+            value
         };
         plugin.prepare(&config).unwrap();
         let notes: Vec<_> = (0..MAX_BLOCK_EVENTS)

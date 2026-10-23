@@ -65,12 +65,12 @@ fn paged_native_choice_labels_do_not_edit_parameters() {
             assert_eq!(page.total, 2);
             assert_eq!(
                 page.choices,
-                vec![ParameterChoice {
-                    index: start,
-                    normalized: start as f64,
-                    plain: start as f64,
-                    text: names[start as usize].into()
-                }]
+                vec![ParameterChoice::new(
+                    start,
+                    start as f64,
+                    start as f64,
+                    names[start as usize].into()
+                )]
             );
         }
         assert!(
@@ -131,12 +131,7 @@ fn constant_discrete_and_large_choice_lists_are_bounded_without_losing_values() 
     assert_eq!(page.total, 1);
     assert_eq!(
         page.choices,
-        vec![ParameterChoice {
-            index: 0,
-            normalized: 0.0,
-            plain: 5.0,
-            text: "5.000".into()
-        }]
+        vec![ParameterChoice::new(0, 0.0, 5.0, "5.000".into())]
     );
     let mut collected = Vec::new();
     for start in [0, 256, 512, 768] {

@@ -58,6 +58,7 @@ impl EventPlan {
                             EventSource::Previous { port } => {
                                 Source::Previous(index(slot - 1, AudioDirection::Output, port)?)
                             }
+                            _ => return Err(format!("{EVENT_PORT_PLAN} (slot {slot})")),
                         };
                         Ok((index(slot, AudioDirection::Input, route.port)?, source))
                     })

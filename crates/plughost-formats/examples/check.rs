@@ -21,7 +21,7 @@ use plughost_core::PluginRef;
 use plughost_core::render::{Process, RenderOptions, Tail, TailPolicy, render};
 use plughost_core::{
     AudioBusRole, AudioDirection, Event, Events, Layout, ParameterInfo, PluginFormat, PluginInfo,
-    PluginKind, ProcessConfig, ProcessMode, SampleFormat,
+    PluginKind, ProcessConfig, SampleFormat,
 };
 use plughost_formats::{BlockProcessor, Error, HostedPlugin};
 
@@ -232,14 +232,7 @@ impl Process<f32> for Driver {
 type Buses = (Layout, Layout);
 
 fn config(sample_rate: f64, input: Layout, output: Layout) -> ProcessConfig {
-    ProcessConfig {
-        sample_rate,
-        max_block_size: BLOCK,
-        sample_format: SampleFormat::F32,
-        input,
-        output,
-        mode: ProcessMode::Offline,
-    }
+    ProcessConfig::new(sample_rate, BLOCK, SampleFormat::F32, input, output)
 }
 
 /// The layouts of the plugin's main buses, as it declares them before preparation.

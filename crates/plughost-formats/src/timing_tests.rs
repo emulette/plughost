@@ -1,17 +1,16 @@
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
-use plughost_core::{Layout, PluginTiming, ProcessConfig, ProcessMode, SampleFormat};
+use plughost_core::{Layout, PluginTiming, ProcessConfig, SampleFormat};
 
 pub(crate) fn config() -> ProcessConfig {
-    ProcessConfig {
-        sample_rate: 48_000.0,
-        max_block_size: 512,
-        sample_format: SampleFormat::F32,
-        input: Layout::Stereo,
-        output: Layout::Stereo,
-        mode: ProcessMode::Offline,
-    }
+    ProcessConfig::new(
+        48_000.0,
+        512,
+        SampleFormat::F32,
+        Layout::Stereo,
+        Layout::Stereo,
+    )
 }
 
 pub(crate) fn while_busy<T: Send + 'static>(
