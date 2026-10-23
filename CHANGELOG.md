@@ -5,7 +5,31 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-10-24
+
+0.2.0 settles the public API: types later versions extend are non-exhaustive, states and plugin
+identities have stable forms of their own, and events carry system exclusive data without an
+allocation per message. Upgrading from 0.1:
+
+- Rebuild and ship the helper with the application; the helper protocol is 34. Scan caches
+  written by 0.1 are read as empty and their bundles scanned again.
+- Store plugins as `PluginId` and states as `PluginState::to_bytes()`; the public types have no
+  serde form, and 0.1 states, which had only that form, are saved again. Build references with
+  `PluginRef::vst3`, `PluginRef::clap` or `PluginRef::audio_unit`, and read `PluginInfo::id`.
+- Spawn chains with `Chain::spawn(helper, &[plugin.into()], &SpawnOptions::default())`, and
+  recover them from `ChainSnapshot::slots`.
+- Pass events as `&Events` and produce them into a reused `Events::for_block()`;
+  `Event::sysex` takes a slice.
+- Build routing, processing, render and preset types with their constructors instead of struct
+  literals, and add a wildcard arm to matches on the enums that are now non-exhaustive.
+- Read parameter values as `Option<f64>`; `None` is a value the plugin does not give.
+- Expect `RenderError::NonFiniteOutput` instead of `non_finite_samples`, and
+  `RenderStatus::TailLimit` for a tail that reached its maximum.
+- Match `plughost_formats::Error` by `kind()` and `input_error()`, and buffer mismatches as
+  `InputError::AudioBuffers`.
+- Wrap the plughost-formats loaders in `unsafe` with the reason the plugin is trusted, and load a
+  CLAP module as a `clap::Entry`.
+- Write `let _ =` where a `take_*` drain discards its batch.
 
 ### Added
 
@@ -837,7 +861,7 @@ Windows x64, and of Audio Units on macOS, with each chain isolated in a helper p
 - Failures: typed errors with the failing slot, helper exit monitoring, diagnostics, and chain
   recovery in a new helper from saved states.
 
-[Unreleased]: https://github.com/emulette/plughost/compare/v0.1.6...HEAD
+[0.2.0]: https://github.com/emulette/plughost/releases/tag/v0.2.0
 [0.1.6]: https://github.com/emulette/plughost/releases/tag/v0.1.6
 [0.1.5]: https://github.com/emulette/plughost/releases/tag/v0.1.5
 [0.1.4]: https://github.com/emulette/plughost/releases/tag/v0.1.4
