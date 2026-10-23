@@ -1,7 +1,5 @@
-use serde::{Deserialize, Serialize};
-
 /// Evidence from a native query, not a guarantee that an operation will succeed.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Support {
     /// The format has no safe query, or the query did not determine support.
     #[default]
@@ -24,7 +22,7 @@ impl From<bool> for Support {
 
 /// A snapshot for the current platform and plugin configuration. Static scan metadata does not
 /// establish these capabilities. Unknown is distinct from explicitly unsupported.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Capabilities {
     /// A native editor embedded in the helper's parent window (not a floating-only editor).
@@ -49,7 +47,7 @@ pub struct Capabilities {
 
 /// Native plugin evidence and the isolated Chain API's implementation for the queried slot.
 /// A feature needs both sides to support it. This does not describe the in-process API's limits.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CapabilityReport {
     /// Features reported by the native plugin.

@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-
 use crate::plugin::{PluginId, PluginInfo};
 
 mod encoding;
@@ -106,7 +104,7 @@ impl PluginState {
 }
 
 /// Why a state is being saved or applied. Unsupported native contexts are explicit errors.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum StatePurpose {
     /// Save or restore persistent project state. This is the default.
@@ -122,7 +120,7 @@ pub enum StatePurpose {
 pub const MAX_PRESET_BYTES: usize = 64 << 20;
 
 /// Native file metadata, kept separate from a plugin's opaque state.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PresetMetadata {
     /// The VST3 Info chunk is opaque XML bytes, preserved without interpreting vendor attributes.
@@ -138,7 +136,7 @@ pub enum PresetMetadata {
 }
 
 /// Plugin identity and metadata read from a native preset container.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PresetInfo {
     /// Native class ID identifying the plugin that may restore this state.

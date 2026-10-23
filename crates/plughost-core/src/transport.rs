@@ -1,11 +1,9 @@
 //! Caller-owned timeline positions. Processing elapsed time belongs to the native processor.
 
-use serde::{Deserialize, Serialize};
-
 use crate::InputError;
 
 /// Musical meter; numerator must be nonzero and denominator a power of two.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TimeSignature {
     /// Number of denominator note units in a bar.
     pub numerator: u16,
@@ -14,7 +12,7 @@ pub struct TimeSignature {
 }
 
 /// Musical positions are quarter notes, including for compound meters.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LoopRegion {
     /// Start position in quarter notes.
     pub start: f64,
@@ -27,7 +25,7 @@ pub struct LoopRegion {
 }
 
 /// Caller-supplied start and numbering of the current musical bar.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BarPosition {
     /// Start position in quarter notes.
     pub start: f64,
@@ -37,7 +35,7 @@ pub struct BarPosition {
 
 /// A snapshot at the first sample of a block. `None` fields are unavailable, never synthesized.
 /// A seek is a discontinuity between consecutive snapshots. Loop wrapping is caller-owned.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct Transport {
     /// Signed absolute sample position of the block’s first frame.
@@ -159,7 +157,7 @@ impl Transport {
 }
 
 /// Explicit block duration, independent of the presence of audio channels.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct BlockContext {
     /// Frames to process, independent of audio channel count; may be zero.

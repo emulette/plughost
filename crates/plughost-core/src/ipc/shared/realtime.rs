@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 
 use super::doorbell::Doorbell;
 use super::errors::{BLOCK, CONFIGURATION, EVENTS, GENERATION, invalid};
@@ -112,11 +113,19 @@ pub enum Outcome {
 }
 
 /// What the worker reports with an output.
+#[serde_as]
 #[derive(Serialize, Deserialize)]
 enum Report {
-    Done(Tail),
-    Failed(FailureKind),
+    Done(#[serde_as(as = "super::super::wire::TailDef")] Tail),
+    Failed(#[serde_as(as = "super::super::wire::FailureKindDef")] FailureKind),
 }
+
+/// A quantum's transport, in its header.
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+struct TransportPayload(
+    #[serde_as(as = "Option<super::super::wire::TransportDef>")] Option<Transport>,
+);
 
 /// A received quantum, ready for processing.
 pub struct Quantum {
@@ -386,7 +395,7 @@ impl Ring {
         let header = self.control.header(lane, false);
         self.lanes[lane].write_input(sequence, context.frames, input, automation, events)?;
         let control = &self.control;
-        control.write_payload(header, &context.transport)?;
+        control.write_payload(header, &TransportPayload(context.transport))?;
         control
             .word(header + HEADER_GENERATION)
             .store(generation, Ordering::Relaxed);
@@ -440,7 +449,7 @@ impl Ring {
             automation: count(AUTOMATION_COUNT)?,
             events: count(EVENT_COUNT)?,
         };
-        let transport: Option<Transport> = control.read_payload(header)?;
+        let TransportPayload(transport) = control.read_payload(header)?;
         let submitted_at = control.word(header + STAMP).load(Ordering::Relaxed);
         self.lanes[lane].read_input(submission, scratch, automation, events)?;
         let mut context = BlockContext::new(submission.frames);

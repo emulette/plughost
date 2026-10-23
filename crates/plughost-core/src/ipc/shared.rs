@@ -23,6 +23,7 @@ use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 
 use crate::{
     AutomationEvent, Event, EventData, ExpressionKind, MAX_AUDIO_CHANNELS, MAX_BLOCK_EVENTS,
@@ -46,8 +47,10 @@ const NOTE_OFF_KIND: u64 = 3;
 const EXPRESSION_KIND: u64 = 4;
 
 /// The shape is fixed at prepare time and never inferred from the shared mapping.
+#[serde_as]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlotConfig {
+    #[serde_as(as = "super::wire::SampleFormatDef")]
     pub sample_format: SampleFormat,
     pub max_frames: usize,
     pub input_channels: usize,

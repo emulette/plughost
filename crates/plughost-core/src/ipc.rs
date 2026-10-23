@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 
 use crate::errors::InputError;
 use crate::parameter::ParameterInfo;
@@ -33,6 +34,7 @@ pub struct Hello {
 
 /// Outgoing state and preset payloads can borrow caller storage until serialization. Decoding
 /// always owns these payloads, so queued helper requests remain independent of receive buffers.
+#[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Request<'a> {
     Changes,
@@ -53,6 +55,7 @@ pub enum Request<'a> {
         enabled: bool,
     },
     PrepareAudio {
+        #[serde_as(as = "wire::RoutedChainConfigDef")]
         config: crate::RoutedChainConfig,
         memory: shared::Descriptor,
         handle: u64,
@@ -65,20 +68,25 @@ pub enum Request<'a> {
     },
     SelectFactoryPreset {
         slot: usize,
+        #[serde_as(as = "wire::FactoryPresetIdDef")]
         preset: crate::FactoryPresetId,
     },
     LoadDiscoveredPreset {
         slot: usize,
+        #[serde_as(as = "wire::PresetLocationDef")]
         location: crate::PresetLocation,
         load_key: Option<String>,
     },
     PresetProviders {
         bundle: PathBuf,
+        #[serde_as(as = "wire::HostIdentityDef")]
         host: HostIdentity,
     },
     DiscoverPresets {
         bundle: PathBuf,
+        #[serde_as(as = "wire::HostIdentityDef")]
         host: HostIdentity,
+        #[serde_as(as = "wire::PresetDiscoveryTargetDef")]
         target: crate::PresetDiscoveryTarget,
     },
     /// Drains bounded plugin and host diagnostic queues. Logs never push unsolicited traffic.
@@ -87,6 +95,7 @@ pub enum Request<'a> {
     /// to the front first, so the user can answer a dialog the plugin shows while loading.
     Scan {
         bundle: PathBuf,
+        #[serde_as(as = "wire::HostIdentityDef")]
         host: HostIdentity,
         interactive: bool,
     },
@@ -99,7 +108,9 @@ pub enum Request<'a> {
     /// Host mode: load the chain. `activity` is the transfer token of the application's
     /// [`shared::Activity`], through which the helper announces the slot each of its threads calls.
     Load {
+        #[serde_as(as = "wire::HostIdentityDef")]
         host: HostIdentity,
+        #[serde_as(as = "Vec<wire::PluginRefDef>")]
         plugins: Vec<PluginRef>,
         activity: u64,
     },
@@ -116,6 +127,7 @@ pub enum Request<'a> {
     },
     /// One block through the chain, with events on the chain's external event inputs.
     Process {
+        #[serde_as(as = "wire::BlockContextDef")]
         context: crate::BlockContext,
         submission: shared::Submission,
     },
@@ -167,6 +179,7 @@ pub enum Request<'a> {
     },
     SaveState {
         slot: usize,
+        #[serde_as(as = "wire::StatePurposeDef")]
         purpose: StatePurpose,
     },
     RestoreState {
@@ -176,6 +189,7 @@ pub enum Request<'a> {
             deserialize_with = "state::deserialize_cow"
         )]
         state: Cow<'a, PluginState>,
+        #[serde_as(as = "wire::StatePurposeDef")]
         purpose: StatePurpose,
     },
     InspectPreset {
@@ -261,29 +275,36 @@ impl Request<'_> {
     }
 }
 
+#[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Response {
-    Changes(crate::ChangeBatch),
-    AudioBuses(Vec<crate::AudioBusInfo>),
-    EventPorts(Vec<crate::EventPortInfo>),
-    AudioConfigurations(Vec<crate::AudioConfiguration>),
-    Bypass(crate::BypassState),
+    Changes(#[serde_as(as = "wire::ChangeBatchDef")] crate::ChangeBatch),
+    AudioBuses(#[serde_as(as = "Vec<wire::AudioBusInfoDef>")] Vec<crate::AudioBusInfo>),
+    EventPorts(#[serde_as(as = "Vec<wire::EventPortInfoDef>")] Vec<crate::EventPortInfo>),
+    AudioConfigurations(
+        #[serde_as(as = "Vec<wire::AudioConfigurationDef>")] Vec<crate::AudioConfiguration>,
+    ),
+    Bypass(#[serde_as(as = "wire::BypassStateDef")] crate::BypassState),
     AudioPrepared {
         generation: u64,
+        #[serde_as(as = "Vec<Vec<wire::AudioBusInfoDef>>")]
         buses: Vec<Vec<crate::AudioBusInfo>>,
         latency: u32,
+        #[serde_as(as = "wire::TailDef")]
         tail: Tail,
     },
-    ParameterEvents(crate::ParameterEventBatch),
-    FactoryPresets(Vec<crate::FactoryPreset>),
-    PresetProviders(Vec<crate::PresetProviderInfo>),
-    DiscoveredPresets(crate::PresetDiscovery),
-    Diagnostics(DiagnosticBatch),
+    ParameterEvents(#[serde_as(as = "wire::ParameterEventBatchDef")] crate::ParameterEventBatch),
+    FactoryPresets(#[serde_as(as = "Vec<wire::FactoryPresetDef>")] Vec<crate::FactoryPreset>),
+    PresetProviders(
+        #[serde_as(as = "Vec<wire::PresetProviderInfoDef>")] Vec<crate::PresetProviderInfo>,
+    ),
+    DiscoveredPresets(#[serde_as(as = "wire::PresetDiscoveryDef")] crate::PresetDiscovery),
+    Diagnostics(#[serde_as(as = "wire::DiagnosticBatchDef")] DiagnosticBatch),
     /// Scan progress: the module loaded.
     ModuleLoaded,
     /// Scan progress: one audio module class.
-    Class(PluginInfo),
-    Loaded(Vec<PluginInfo>),
+    Class(#[serde_as(as = "wire::PluginInfoDef")] PluginInfo),
+    Loaded(#[serde_as(as = "Vec<wire::PluginInfoDef>")] Vec<PluginInfo>),
     Done,
     /// Host progress: a request that loads or prepares the slots one at a time finished one,
     /// which renews the application's deadline for the rest.
@@ -294,25 +315,28 @@ pub enum Response {
         /// Output events written to the shared output event slots.
         events: usize,
         latency: u32,
+        #[serde_as(as = "wire::TailDef")]
         tail: Tail,
     },
     /// Each parameter with its current normalized value.
-    Parameters(Vec<(ParameterInfo, f64)>),
-    Capabilities(CapabilityReport),
-    ParameterDetails(crate::ParameterDetails),
-    ParameterChoices(crate::ParameterChoicePage),
+    Parameters(#[serde_as(as = "Vec<(wire::ParameterInfoDef, _)>")] Vec<(ParameterInfo, f64)>),
+    Capabilities(#[serde_as(as = "wire::CapabilityReportDef")] CapabilityReport),
+    ParameterDetails(#[serde_as(as = "wire::ParameterDetailsDef")] crate::ParameterDetails),
+    ParameterChoices(#[serde_as(as = "wire::ParameterChoicePageDef")] crate::ParameterChoicePage),
     ParameterText(String),
     ParameterValue(f64),
     State(#[serde(with = "state")] PluginState),
-    PresetInfo(PresetInfo),
+    PresetInfo(#[serde_as(as = "wire::PresetInfoDef")] PresetInfo),
     Preset(Vec<u8>),
     StateRestored {
+        #[serde_as(as = "Option<(_, wire::TailDef)>")]
         timing: Option<(u32, Tail)>,
     },
     /// Latency and tail of the whole chain, and whether a plugin announced a latency that is
     /// not applied yet.
     Timing {
         latency: u32,
+        #[serde_as(as = "wire::TailDef")]
         tail: Tail,
         latency_changed: bool,
     },
@@ -320,10 +344,12 @@ pub enum Response {
     /// Invalid caller input; the helper remains usable and no mutation was attempted.
     Rejected {
         slot: Option<usize>,
+        #[serde_as(as = "wire::InputErrorDef")]
         error: InputError,
     },
     Failed {
         slot: Option<usize>,
+        #[serde_as(as = "wire::FailureDef")]
         failure: Failure,
     },
 }
@@ -337,6 +363,7 @@ pub enum AudioSamples {
 
 mod framing;
 mod state;
+mod wire;
 pub use framing::{FrameDecoder, MessageReader, MessageWriter, encode_message, write_message};
 
 pub mod shared;

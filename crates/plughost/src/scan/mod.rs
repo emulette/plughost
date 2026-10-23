@@ -24,13 +24,12 @@ use std::time::Duration;
 use plughost_core::ipc::Request;
 use plughost_core::{Failure, PluginFormat, PluginId, PluginInfo};
 use plughost_core::{HostIdentity, PluginRef};
-use serde::{Deserialize, Serialize};
 
 use self::bundle::Inspection;
 use crate::errors::Error;
 
 /// The result of scanning one bundle.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ScanOutcome {
     /// Metadata for the classes found, without a guarantee that every class can be instantiated.

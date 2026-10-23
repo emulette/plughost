@@ -10,13 +10,50 @@ const READY: &str = "cache serializer paused";
 fn entry(name: &str) -> Entry {
     Entry {
         fingerprint: Vec::new(),
-        outcome: ScanOutcome::Found(vec![plughost_core::PluginInfo::new(
-            plughost_core::PluginId::new(plughost_core::PluginFormat::Clap, "test-cache"),
-            name,
-            plughost_core::PluginKind::Effect,
-        )]),
+        outcome: ScanOutcome::Found(vec![entry_info(name)]),
         failures: 0,
     }
+}
+
+#[test]
+fn outcomes_read_back_from_the_cache_form() {
+    let mut instrument = plughost_core::PluginInfo::new(
+        plughost_core::PluginId::new(
+            plughost_core::PluginFormat::Vst3,
+            "0123456789abcdef0123456789abcdef",
+        ),
+        "Synth",
+        plughost_core::PluginKind::Instrument,
+    );
+    instrument.vendor = "Vendor".into();
+    instrument.version = "1.2.3".into();
+    instrument.sdk_version = "VST 3.7".into();
+    instrument.categories = vec!["Instrument".into(), "Synth".into()];
+    for outcome in [
+        ScanOutcome::Found(vec![instrument, entry_info("effect")]),
+        ScanOutcome::Failed(plughost_core::Failure::new(
+            plughost_core::FailureKind::TimedOut,
+            "stalled",
+        )),
+        ScanOutcome::Crashed("exit code 3".into()),
+        ScanOutcome::UnsupportedArchitecture,
+    ] {
+        let entry = Entry {
+            fingerprint: Vec::new(),
+            outcome,
+            failures: 1,
+        };
+        let json = serde_json::to_vec(&entry).unwrap();
+        assert!(serde_json::from_slice::<Entry>(&json).unwrap() == entry);
+    }
+}
+
+fn entry_info(name: &str) -> plughost_core::PluginInfo {
+    plughost_core::PluginInfo::new(
+        plughost_core::PluginId::new(plughost_core::PluginFormat::Clap, "test-cache"),
+        name,
+        plughost_core::PluginKind::Effect,
+    )
 }
 
 /// The real cache model serializes into the real temporary file before this external

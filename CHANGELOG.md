@@ -26,6 +26,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- The public types no longer implement serde's `Serialize` and `Deserialize`, apart from
+  `PluginId`: persist states with `PluginState::to_bytes` and plugins by `PluginId`, and keep
+  routing, configurations and other settings in the application's own model. Their serde form
+  was the helper protocol's, which changes with every protocol version; the protocol now uses
+  definitions of its own.
 - `Chain::spawn(helper, slots, &options)` takes a `ChainSlot` per plugin, a `PluginRef` with an
   optional project state and native bypass, and a `SpawnOptions` with the host identity and the
   timeouts: write `Chain::spawn(helper, &[plugin.into()], &SpawnOptions::default())`, or

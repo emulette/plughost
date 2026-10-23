@@ -1,7 +1,5 @@
-use serde::{Deserialize, Serialize};
-
 /// Native parameter properties. All flags default to false.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct ParameterFlags {
     /// The parameter has discrete values; `step_count` describes the intervals.
@@ -21,7 +19,7 @@ pub struct ParameterFlags {
 }
 
 /// Native parameter identity, labels, normalized default, and edit capabilities.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct ParameterInfo {
     /// VST3 or CLAP parameter ID, or Audio Unit parameter address.
@@ -81,7 +79,7 @@ impl ParameterInfo {
 }
 
 /// A normalized parameter value that takes effect at a sample offset within a block.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ParameterChange {
     /// Native parameter ID or Audio Unit address.
     pub id: u64,
@@ -93,7 +91,7 @@ pub struct ParameterChange {
 
 /// A point on one slot's automation lane. Offsets are relative to the supplied block/render.
 /// Points hold their value until the next point; simultaneous points preserve input order.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AutomationEvent {
     /// Zero-based index of the plugin slot receiving the change.
     pub slot: usize,
@@ -134,7 +132,7 @@ pub fn validate_normalized(value: f64) -> Result<(), crate::InputError> {
 }
 
 /// One native unit or group in a parameter’s root-to-leaf hierarchy.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParameterGroup {
     /// VST3 unit ID, CLAP module path, or AU group key path.
     pub id: String,
@@ -145,7 +143,7 @@ pub struct ParameterGroup {
 }
 
 /// A fresh query. Endpoints describe the normalized mapping, not a linear scale.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct ParameterDetails {
     /// Current parameter metadata, including flags.
@@ -177,7 +175,7 @@ impl ParameterDetails {
 pub const PARAMETER_CHOICE_PAGE_SIZE: u32 = 256;
 
 /// One discrete parameter choice and its native display conversion.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ParameterChoice {
     /// Zero-based discrete choice index.
     pub index: u64,
@@ -190,7 +188,7 @@ pub struct ParameterChoice {
 }
 
 /// A bounded slice of a discrete parameter’s native choices.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ParameterChoicePage {
     /// Total number of discrete choices, including both endpoints.
     pub total: u64,

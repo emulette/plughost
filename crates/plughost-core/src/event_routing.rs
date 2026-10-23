@@ -1,8 +1,6 @@
 //! A plugin's event ports, and the routes that carry events from a chain's event inputs through
 //! its slots to its event outputs.
 
-use serde::{Deserialize, Serialize};
-
 use crate::{AudioDirection, InputError, Support};
 
 /// Maximum external event inputs of a chain, and event routes or collected outputs of one slot.
@@ -10,7 +8,7 @@ pub const MAX_EVENT_PORTS: usize = 16;
 
 /// A native event port. IDs are scoped to a direction; `index` is the native position that
 /// directly hosted plugins use as a [`Event::port`](crate::Event::port).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct EventPortInfo {
     /// Native event port ID, scoped to its direction.
@@ -52,7 +50,7 @@ impl EventPortInfo {
 }
 
 /// Where a slot's event input port takes events from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EventSource {
     /// One of the chain's external event inputs, by index.
     External {
@@ -69,7 +67,7 @@ pub enum EventSource {
 
 /// One source delivered to a native event input port. Several routes to one port merge in offset
 /// order; at equal offsets, events keep the order of the routes, then their source order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EventInputRoute {
     /// Native input port ID receiving this route.
     pub port: u64,
@@ -79,7 +77,7 @@ pub struct EventInputRoute {
 
 /// A slot's event routing. Native event ports not named here are left inactive where the format
 /// allows. The last slot's collected outputs, in this order, are the chain's event outputs.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SlotEventConfig {
     /// Routes merged by offset; equal-offset events retain route and source order.
     pub inputs: Vec<EventInputRoute>,
@@ -88,7 +86,7 @@ pub struct SlotEventConfig {
 }
 
 /// The event ports a slot's native preparation activates.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EventConfig {
     /// Native input port IDs to activate.
     pub inputs: Vec<u64>,

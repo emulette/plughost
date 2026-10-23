@@ -1,10 +1,8 @@
-use serde::{Deserialize, Serialize};
-
 use crate::InputError;
 
 /// Identity of the application hosting the plugins. VST3 receives the name; CLAP receives all
 /// three fields. Audio Units have no equivalent identity callback in the current host API.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostIdentity {
     /// Non-empty, at most 127 UTF-16 code units (the VST3 String128 limit).
     pub name: String,

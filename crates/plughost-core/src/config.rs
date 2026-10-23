@@ -1,6 +1,4 @@
 use crate::errors::InputError;
-use serde::{Deserialize, Serialize};
-
 /// Channel layout of an audio bus. Each layout has one channel order, listed on its variant.
 /// Formats whose native order differs are mapped explicitly; a layout a format cannot express
 /// is refused rather than approximated.
@@ -9,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// surrounds (Lss, Rss) list Ls and Rs as the rear surrounds before them. Height channels are
 /// top front (Ltf, Rtf), top middle (Ltm, Rtm) and top rear (Ltr, Rtr); Lw and Rw are the wides.
 /// A new variant also belongs in [`Layout::ALL`], which formats search to recognize layouts.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Layout {
     /// No bus, for example the input of an instrument.
@@ -95,7 +93,7 @@ impl Layout {
 }
 
 /// Floating-point precision of the prepared audio buffers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SampleFormat {
     /// IEEE 754 single-precision samples.
     F32,
@@ -105,7 +103,7 @@ pub enum SampleFormat {
 
 /// The processing mode reported to the plugin. Offline rendering is not paced to wall-clock time;
 /// `Realtime` only changes what the plugin is told, for plugins that misbehave in offline mode.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ProcessMode {
     /// Tell the plugin it may use its offline rendering mode. This is the default.
     #[default]
@@ -115,7 +113,7 @@ pub enum ProcessMode {
 }
 
 /// Processing configuration for a plugin’s main input and output buses.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ProcessConfig {
     /// Samples per second; must be finite and greater than zero.
     pub sample_rate: f64,

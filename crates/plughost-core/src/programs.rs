@@ -1,10 +1,8 @@
-use serde::{Deserialize, Serialize};
-
 /// Maximum native factory program catalog returned by one plugin instance.
 pub const MAX_FACTORY_PRESETS: usize = 4096;
 
 /// Native factory program identity, scoped to one plugin class.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FactoryPresetId {
     /// A program belonging to a VST3 unit and program list.
@@ -24,7 +22,7 @@ pub enum FactoryPresetId {
 }
 
 /// A named native factory preset or program.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FactoryPreset {
     /// Format-specific selection token, scoped to the plugin class.

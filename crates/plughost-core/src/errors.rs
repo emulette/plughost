@@ -1,8 +1,7 @@
-use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Format-independent error categories. These describe the failure, not an automatic retry policy.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FailureKind {
     /// Caller input violated a host contract.
@@ -44,7 +43,7 @@ pub enum FailureKind {
 }
 
 /// A portable category with the original diagnostic message, including native codes when provided.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
     /// Portable category for programmatic handling.
     pub kind: FailureKind,
@@ -132,7 +131,7 @@ pub const STATE_MISMATCH: &str = "the state belongs to a different plugin class"
 pub const CHAIN_NOT_PREPARED: &str = "the chain is not prepared";
 
 /// A request rejected before changing the plugin or its processing configuration.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InputError {
     /// Routing entries do not match the number of loaded plugin slots.

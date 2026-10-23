@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Native plugin ABI used for discovery and loading.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum PluginFormat {
     /// Steinberg VST 3.
@@ -128,10 +128,10 @@ impl<'de> Deserialize<'de> for PluginId {
 /// A plugin class to load: its identity and where it is installed. VST3 and CLAP classes live in
 /// a bundle; Audio Units have none, the system registry finds them. Build it with the format's
 /// constructor, or take it from the scanner's catalog.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginRef {
-    id: PluginId,
-    bundle: Option<PathBuf>,
+    pub(crate) id: PluginId,
+    pub(crate) bundle: Option<PathBuf>,
 }
 
 impl PluginRef {
@@ -172,7 +172,7 @@ impl PluginRef {
 }
 
 /// Broad native classification used in discovery results.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum PluginKind {
     /// An audio or MIDI effect.
@@ -182,7 +182,7 @@ pub enum PluginKind {
 }
 
 /// A plugin class as its format describes it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PluginInfo {
     /// The class's format and identifier.

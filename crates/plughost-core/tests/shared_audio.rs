@@ -113,7 +113,8 @@ fn shared_audio_child() {
                     .unwrap();
             }
         });
-        write.write(&(edits.clone(), notes.clone())).unwrap();
+        // The public event types have no serde form; their Debug form shows what arrived.
+        write.write(&format!("{:?}", (&edits, &notes))).unwrap();
     }
 }
 
@@ -213,8 +214,8 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
             })
             .unwrap();
             write.write(&Some(submission)).unwrap();
-            let received: (Vec<AutomationEvent>, Vec<Event>) = read.read().unwrap();
-            assert_eq!(received, (edits, notes));
+            let received: String = read.read().unwrap();
+            assert_eq!(received, format!("{:?}", (&edits, &notes)));
             if index == 3 {
                 // Terminate without Drop/Shutdown in the peer. The owner's map remains readable.
                 child.0.kill().unwrap();

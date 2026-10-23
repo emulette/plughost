@@ -54,5 +54,5 @@ fn warm_scan_benchmark() {
         assert_eq!(scan(), expected);
     }
     println!("30 warm scans: {:?}", start.elapsed());
-    println!("classes: {}", serde_json::to_string(&expected).unwrap());
+    println!("classes: {expected:?}");
 }

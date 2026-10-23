@@ -598,8 +598,9 @@ fails with `InputError::StateBytes` for bytes it cannot read, or `InputError::St
 payload over `MAX_STATE_BYTES`, before allocating it. These bytes are plughost's own versioned
 container of tagged sections (the identity, a VST3 component and controller kept apart, or the
 single blob of the other formats), independent of the helper protocol; `PluginState` has no
-serde form. `id()` names the class that may restore it, and `name()`, `vendor()` and `version()`
-the plugin that saved it, for display; they always come from the loaded plugin, also for an
+serde form, nor do the other public types except `PluginId`: an application stores routing,
+configurations and other settings in its own model. `id()` names the class that may restore it,
+and `name()`, `vendor()` and `version()` the plugin that saved it, for display; they always come from the loaded plugin, also for an
 imported preset. Restore only to the matching class with `restore_state(slot, &state,
 purpose)`: the restore checks the `PluginId` and not the plugin version, so a state saved by
 another version of the plugin restores and the plugin decides what to make of it.

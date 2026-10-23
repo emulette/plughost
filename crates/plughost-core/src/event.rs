@@ -4,8 +4,6 @@
 
 use std::ops::RangeInclusive;
 
-use serde::{Deserialize, Serialize};
-
 /// Maximum events one processing block takes, counting automation points too: each automation
 /// point and each event (a MIDI message, a system exclusive message, a note on or off, or a note
 /// expression) is one record. For a chain this is the aggregate across all slots, and overflow
@@ -41,7 +39,7 @@ pub fn validate_event_budget(automation: usize, events: &[Event]) -> Result<(), 
 /// An event on an event port at a sample offset: from the start of the block when processing
 /// blocks, and from the start of the input when rendering. Each format receives it in its own
 /// form; see [`EventData`].
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct Event {
     /// Zero-based sample offset in the block or render input.
@@ -63,7 +61,7 @@ pub struct Event {
 /// MIDI 1.0 form of [`EventData::to_midi`]; the note ID and the precision beyond 7 bits are lost
 /// there, and an expression other than pressure has no such form and is not delivered. Output
 /// notes and expressions in a format's note events become these variants; MIDI output stays MIDI.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum EventData {
     /// A MIDI 1.0 channel message. Program change and channel pressure use two bytes; the third
@@ -81,7 +79,7 @@ pub enum EventData {
 
 /// A note, or the notes a note off addresses. A note with an ID is told apart from other notes on
 /// the same key by it; without one, it addresses notes by port, channel and key, as MIDI does.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct Note {
     /// At most [`MAX_NOTE_ID`].
@@ -97,7 +95,7 @@ pub struct Note {
 /// A change of one expression of the notes it addresses, which applies from its offset until the
 /// next change of the same expression. With an ID it addresses that note; without one, every note
 /// on its port, channel and key.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct NoteExpression {
     /// At most [`MAX_NOTE_ID`].
@@ -114,7 +112,7 @@ pub struct NoteExpression {
 
 /// The expressions a single note has, with the value ranges CLAP defines for them. VST3 receives
 /// the first six as note expression values and pressure as poly pressure.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ExpressionKind {
     /// Linear gain, 0..=4; 1 leaves the note's level as it is.

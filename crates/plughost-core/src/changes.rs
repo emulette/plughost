@@ -1,13 +1,11 @@
 use crate::render::Tail;
-use serde::{Deserialize, Serialize};
-
 /// Maximum retained timing changes before consumers must resynchronize.
 pub const CHANGE_CAPACITY: usize = 128;
 
 /// A plugin's timing as its owning thread last read it. The latency is the one the plugin was
 /// activated with: it changes only when the plugin is prepared again or reset, so processing and
 /// rendering keep one alignment in between. The tail follows the plugin's reports.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PluginTiming {
     /// Applied processing latency in frames.
@@ -34,7 +32,7 @@ impl PluginTiming {
 }
 
 /// Latest timing observation for one plugin in a chain.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SlotChange {
     /// Zero-based plugin slot.
     pub slot: usize,
@@ -44,7 +42,7 @@ pub struct SlotChange {
 
 /// Timing notifications coalesce by slot, retaining last-observed order. Intermediate values
 /// are not an audit trail. On overflow use `snapshot` to replace the entire consumer view.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ChangeBatch {
     /// Coalesced slot changes in last-observed order.
     pub changes: Vec<SlotChange>,

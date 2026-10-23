@@ -4,8 +4,6 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
-
 use crate::FailureKind;
 use crate::plugin::PluginId;
 
@@ -15,7 +13,7 @@ pub const DIAGNOSTIC_CAPACITY: usize = 128;
 pub const DIAGNOSTIC_MESSAGE_BYTES: usize = 4096;
 
 /// Severity reported by the plugin or host, including CLAP's two misbehavior categories.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum DiagnosticSeverity {
     /// Low-level debugging information.
@@ -35,7 +33,7 @@ pub enum DiagnosticSeverity {
 }
 
 /// One bounded diagnostic record with optional plugin and slot context.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
     /// Severity reported by the producer.
     pub severity: DiagnosticSeverity,
@@ -52,7 +50,7 @@ pub struct Diagnostic {
 }
 
 /// Records drained since the last snapshot. Loss is explicit; this is not an audit log.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DiagnosticBatch {
     /// Retained diagnostics in observed order.
     pub records: Vec<Diagnostic>,

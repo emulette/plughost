@@ -46,6 +46,7 @@ rtsan-standalone = "0.3.0"
 rustix = { version = "1.1.5", features = ["net", "stdio"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+serde_with = "3.21.0"
 tempfile = "3.27.0"
 vst3 = "0.3.0"
 walkdir = "2.5.0"

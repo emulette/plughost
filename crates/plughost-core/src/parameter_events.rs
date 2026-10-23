@@ -1,13 +1,11 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
-
 /// Maximum queued parameter notifications before the oldest records are dropped.
 pub const PARAMETER_EVENT_CAPACITY: usize = 256;
 
 /// Notifications reported by the plugin, in observed order. Values are normalized to 0..=1.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum ParameterEvent {
     /// A parameter’s normalized value changed.
@@ -39,7 +37,7 @@ pub enum ParameterEvent {
 }
 
 /// Overflow loses ordering continuity: cancel open gestures and requery metadata and values.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ParameterEventBatch {
     /// Notifications retained in observed order.
     pub events: Vec<ParameterEvent>,

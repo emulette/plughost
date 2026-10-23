@@ -7,14 +7,12 @@ mod timeline;
 pub use session::{RenderSession, SessionState};
 pub use timeline::{AutomationRamp, RenderSchedule, TransportChange};
 
-use serde::{Deserialize, Serialize};
-
 use crate::errors::RenderError;
 use crate::event::{Event, events_fit};
 use crate::sample::Sample;
 
 /// The tail length a processor reports.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tail {
     /// Finite tail duration in frames.
     Samples(u32),
@@ -23,7 +21,7 @@ pub enum Tail {
 }
 
 /// Rule for determining how much post-input audio to deliver.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum TailPolicy {
     /// Render the tail length the processor reports when the render starts. An infinite tail
@@ -47,7 +45,7 @@ pub enum TailPolicy {
 ///
 /// The default detects one second of silence below a linear peak of `1.585e-5`
 /// (approximately −96 dBFS), with at most 30 seconds of tail.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct RenderOptions {
     /// How to determine the delivered tail length.

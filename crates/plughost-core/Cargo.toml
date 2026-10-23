@@ -28,6 +28,7 @@ realtime-audit = ["dep:rtsan-standalone"]
 postcard.workspace = true
 rtsan-standalone = { workspace = true, optional = true }
 serde.workspace = true
+serde_with.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true, features = ["mm", "shm"] }

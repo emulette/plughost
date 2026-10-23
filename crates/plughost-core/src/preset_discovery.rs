@@ -1,12 +1,11 @@
 //! CLAP provider discovery data. No common CLAP preset file encoding is implied.
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Maximum UTF-8 bytes accepted for one provider text field.
 pub const PRESET_DISCOVERY_TEXT_BYTES: usize = 16384;
 
 /// Native CLAP provider location used both for discovery and preset loading.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PresetLocation {
     /// Presets stored internally by the plugin rather than in a filesystem location.
     Plugin,
@@ -18,7 +17,7 @@ pub enum PresetLocation {
 }
 
 /// One provider and location to inspect without loading an audio instance.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresetDiscoveryTarget {
     /// Native provider ID within its CLAP module.
     pub provider_id: String,
@@ -27,7 +26,7 @@ pub struct PresetDiscoveryTarget {
 }
 
 /// File type advertised by a CLAP preset provider.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresetFileType {
     /// Native display name.
     pub name: String,
@@ -37,7 +36,7 @@ pub struct PresetFileType {
     pub extension: Option<String>,
 }
 /// Named discovery location advertised by a CLAP provider.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresetLocationInfo {
     /// Native display name.
     pub name: String,
@@ -47,7 +46,7 @@ pub struct PresetLocationInfo {
     pub location: PresetLocation,
 }
 /// Native metadata for a provider’s soundpack.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresetSoundpack {
     /// Native identifier, scoped to the owning provider or ABI.
     pub id: String,
@@ -67,7 +66,7 @@ pub struct PresetSoundpack {
     pub release_timestamp: Option<u64>,
 }
 /// A CLAP module’s preset provider and its advertised discovery metadata.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresetProviderInfo {
     /// Native identifier, scoped to the owning provider or ABI.
     pub id: String,
@@ -83,7 +82,7 @@ pub struct PresetProviderInfo {
     pub soundpacks: Vec<PresetSoundpack>,
 }
 /// Native plugin ABI and identity to which a discovered preset applies.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresetPluginId {
     /// Provider-supplied ABI name, such as `clap`.
     pub abi: String,
@@ -91,7 +90,7 @@ pub struct PresetPluginId {
     pub id: String,
 }
 /// One native preset discovered by a CLAP provider.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiscoveredPreset {
     /// The plugin location, or the file that holds this preset; load it with this location.
     pub location: PresetLocation,
@@ -121,7 +120,7 @@ pub struct DiscoveredPreset {
 
 /// Presets found at one provider location. A file in a crawled directory that the provider
 /// refused is listed with its failure instead of failing the other files.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PresetDiscovery {
     /// Successfully discovered presets, in observed order.
     pub presets: Vec<DiscoveredPreset>,
@@ -130,7 +129,7 @@ pub struct PresetDiscovery {
 }
 
 /// One preset file’s discovery failure, without failing the surrounding directory.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresetFileFailure {
     /// Preset file that could not be inspected.
     pub path: PathBuf,

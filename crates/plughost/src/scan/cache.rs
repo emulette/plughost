@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use super::ScanOutcome;
 use super::bundle::FileStamp;
 
+mod stored;
 #[cfg(test)]
 mod tests;
 
@@ -31,6 +32,7 @@ pub struct Cache {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub fingerprint: Vec<FileStamp>,
+    #[serde(with = "stored")]
     pub outcome: ScanOutcome,
     /// Consecutive failed scans of this unchanged bundle.
     pub failures: u32,

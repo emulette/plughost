@@ -241,10 +241,9 @@ fn compatible_cache_survives_library_upgrades() {
         serde_json::from_slice(&fs::read(&cache).unwrap()).unwrap();
     snapshot["library"] = "0.0.0".into();
     snapshot["bundles"][path.to_str().unwrap()]["failures"] = 2.into();
-    snapshot["bundles"][path.to_str().unwrap()]["outcome"] = serde_json::to_value(
-        ScanOutcome::Failed(Failure::new(FailureKind::Load, "fixture load failure")),
-    )
-    .unwrap();
+    snapshot["bundles"][path.to_str().unwrap()]["outcome"] = serde_json::json!({
+        "Failed": {"kind": "Load", "message": "fixture load failure"}
+    });
     fs::write(&cache, serde_json::to_vec(&snapshot).unwrap()).unwrap();
     let discovered = scanner.discover();
     assert_eq!(discovered.bundles.len(), 1);
@@ -280,10 +279,9 @@ fn helper_start_failures_preserve_bundle_history() {
         let mut snapshot: serde_json::Value =
             serde_json::from_slice(&fs::read(&cache).unwrap()).unwrap();
         snapshot["bundles"][prior.to_str().unwrap()]["failures"] = 1.into();
-        snapshot["bundles"][prior.to_str().unwrap()]["outcome"] = serde_json::to_value(
-            ScanOutcome::Failed(Failure::new(FailureKind::Load, "fixture load failure")),
-        )
-        .unwrap();
+        snapshot["bundles"][prior.to_str().unwrap()]["outcome"] = serde_json::json!({
+            "Failed": {"kind": "Load", "message": "fixture load failure"}
+        });
         fs::write(&cache, serde_json::to_vec(&snapshot).unwrap()).unwrap();
         bundle(root, "b");
         let scanner = if fault == "missing" {

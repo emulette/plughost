@@ -1,7 +1,5 @@
 //! Portable audio bus configuration and explicit, serial chain routing.
 
-use serde::{Deserialize, Serialize};
-
 use crate::{InputError, Layout, ProcessMode, SampleFormat, Support};
 
 /// Bus enumeration and configuration are bounded before allocation or native iteration.
@@ -14,7 +12,7 @@ pub const MAX_AUDIO_CHANNELS: usize = 512;
 pub const MAX_ALIGNMENT_BYTES: usize = 256 * 1024 * 1024;
 
 /// Direction of an audio or event port relative to its plugin.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AudioDirection {
     /// Data delivered to the plugin.
     Input,
@@ -23,7 +21,7 @@ pub enum AudioDirection {
 }
 
 /// Native distinction between a main bus and an additional bus.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AudioBusRole {
     /// Primary audio signal.
     Main,
@@ -33,7 +31,7 @@ pub enum AudioBusRole {
 
 /// A native bus snapshot. An unknown layout is not inferred from its channel count.
 /// IDs are scoped to a direction and the selected native configuration.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AudioBusInfo {
     /// Native bus ID, scoped to its direction; not a position in the returned list.
@@ -84,7 +82,7 @@ impl AudioBusInfo {
 }
 
 /// A named native bus configuration, such as a CLAP audio-port configuration.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AudioConfiguration {
     /// Native configuration ID; not a position in the returned list.
     pub id: u64,
@@ -97,7 +95,7 @@ pub struct AudioConfiguration {
 }
 
 /// Requested layout and activation for one native audio bus.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AudioBusConfig {
     /// Native bus ID, scoped to its direction; not a position in the returned list.
     pub id: u64,
@@ -109,7 +107,7 @@ pub struct AudioBusConfig {
 
 /// Requested native buses. Buses omitted from a direction are inactive. Native layout/precision
 /// negotiation follows validation; successful preparation returns the complete negotiated map.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AudioConfig {
     /// Samples per second; must be finite and greater than zero.
     pub sample_rate: f64,
@@ -130,7 +128,7 @@ pub struct AudioConfig {
 }
 
 /// Native bypass support and its last queried state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BypassState {
     /// Whether the plugin exposes writable native bypass.
     pub support: Support,
@@ -139,7 +137,7 @@ pub struct BypassState {
 }
 
 /// Explicit channel adaptation. Surround layouts are never inferred, reordered or downmixed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChannelAdaptation {
     /// Require identical source and destination layouts.
     Exact,
@@ -150,7 +148,7 @@ pub enum ChannelAdaptation {
 }
 
 /// Source of one slot’s input bus in a serial chain.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AudioSource {
     /// Read an external bus supplied by the caller.
     External {
@@ -167,7 +165,7 @@ pub enum AudioSource {
 }
 
 /// An input bus request together with its source and explicit channel conversion.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AudioInputRoute {
     /// Destination native input bus and requested layout.
     pub bus: AudioBusConfig,
@@ -178,7 +176,7 @@ pub struct AudioInputRoute {
 }
 
 /// Audio and event routing for a single plugin slot.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SlotAudioConfig {
     /// Native named configuration to select, or `None` to retain the current selection.
     pub configuration: Option<u64>,
@@ -194,7 +192,7 @@ pub struct SlotAudioConfig {
 ///
 /// Each direction permits at most 64 audio buses and 512 active channels. External inputs
 /// are flattened in caller order; a slot’s native bus IDs do not imply buffer positions.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RoutedChainConfig {
     /// Samples per second; must be finite and greater than zero.
     pub sample_rate: f64,
