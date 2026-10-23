@@ -202,15 +202,17 @@ Types that later versions extend are `#[non_exhaustive]`: the enums `Layout`, `P
 `PluginKind`, `EventData`, `ExpressionKind`, `TailPolicy`, `RenderStatus`, `StatePurpose`,
 `PresetMetadata`, `FactoryPresetId`, `ParameterEvent`, `DiagnosticSeverity`, `FailureKind`,
 `InputError`, `RenderError`, `PresetSearchError`, `Error`, `ScanOutcome`, `Source`, `ScanTarget`,
-`ScanStage` and `ScanEvent` need a wildcard arm in a `match`. `ScanAction` is exhaustive.
+`ScanStage`, `ScanEvent`, `Fallback`, `FallbackReason` and `RealtimeOutput` need a wildcard arm in
+a `match`. `ScanAction` is exhaustive.
 The structs `Event`, `Note`, `NoteExpression`, `RenderOptions`, `Transport`, `BlockContext`,
 `Timeouts`,
 `PluginInfo`, `EventPortInfo`, `AudioBusInfo`, `Capabilities`, `CapabilityReport`,
-`PluginTiming`, `ParameterInfo`, `ParameterFlags`, `ParameterDetails`, `FactoryPreset` and
-`PresetInfo` are built with their `new` or `default` constructors and then their public fields,
-not struct literals. `Rendered`, `RenderProgress`, `Delivery` and `ChainSnapshot` are
-non-exhaustive output-only structs supplied by rendering or `Chain::snapshot`; callers read
-their fields rather than construct them.
+`PluginTiming`, `ParameterInfo`, `ParameterFlags`, `ParameterDetails`, `FactoryPreset`,
+`PresetInfo` and `RealtimeConfig` are built with their `new` or `default` constructors and then
+their public fields, not struct literals. `Rendered`, `RenderProgress`, `Delivery`,
+`ChainSnapshot`, `RealtimeStatus` and `RealtimeFailure` are non-exhaustive output-only structs
+supplied by rendering, `Chain::snapshot` or the realtime endpoint; callers read their fields
+rather than construct them.
 
 `chain.plugins()` returns loaded plugin metadata. `chain.capabilities(slot)` returns a
 `CapabilityReport` with native plugin evidence and isolated-host implementation support.
