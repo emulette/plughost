@@ -95,6 +95,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   changed from that thread.
 - Host edits of a CLAP plugin's parameters stay queued until a block the plugin processes has
   delivered them. A block the plugin failed took them, so the plugin kept the old values.
+- A CLAP plugin's output notes with IDs end with the note choke or note end that names them, as
+  with a note off. They stayed among the 4,096 notes the host follows, and once those were taken,
+  a later note's expressions naming it by ID alone counted as events with no portable form.
 
 ## [0.1.5] - 2026-10-23
 

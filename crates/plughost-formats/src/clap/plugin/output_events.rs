@@ -15,8 +15,9 @@ use plughost_core::{
 };
 use std::collections::HashMap;
 
-/// Where the plugin's output notes with IDs play, by ID, from the note on it delivered to their
-/// note off: their port, channel and key. A note off or expression may name its note by ID alone.
+/// Where the plugin's output notes with IDs play, by ID, from the note on it delivered to the
+/// note off, choke or end that ends them: their port, channel and key. A note off or expression
+/// may name its note by ID alone.
 pub(super) type Sounding = HashMap<u32, (usize, u8, u8)>;
 
 /// Room for twice the notes it follows, so that it does not grow on the processing thread after
@@ -82,7 +83,7 @@ impl ProcessOutput<'_> {
         Some((port, note))
     }
 
-    /// Forgets the notes a note off names.
+    /// Forgets the notes a note off, choke or end names.
     fn end(&mut self, pckn: Pckn) {
         if let Some(id) = pckn.note_id.into_specific() {
             if let std::collections::hash_map::Entry::Occupied(entry) = self.sounding.entry(id) {
@@ -195,9 +196,12 @@ impl OutputEventBuffer for ProcessOutput<'_> {
     fn try_push(&mut self, event: &UnknownEvent) -> Result<(), TryPushError> {
         let _audit = plughost_core::audit::callback();
         let pushed = self.push(event);
-        // A note off ends the notes it names whether or not it is delivered.
-        if let Some(CoreEventSpace::NoteOff(off)) = events::core_event(event) {
-            self.end(off.pckn());
+        // A note off, choke or end ends the notes it names whether or not it is delivered.
+        match events::core_event(event) {
+            Some(CoreEventSpace::NoteOff(off)) => self.end(off.pckn()),
+            Some(CoreEventSpace::NoteChoke(choke)) => self.end(choke.pckn()),
+            Some(CoreEventSpace::NoteEnd(end)) => self.end(end.pckn()),
+            _ => {}
         }
         pushed
     }
@@ -207,7 +211,9 @@ impl OutputEventBuffer for ProcessOutput<'_> {
 mod tests {
     use super::*;
     use clack_host::events::Event as _;
-    use clack_host::events::event_types::{NoteExpressionEvent, NoteExpressionType};
+    use clack_host::events::event_types::{
+        NoteChokeEvent, NoteEndEvent, NoteExpressionEvent, NoteExpressionType,
+    };
     use plughost_core::ParameterEventBuffer;
 
     /// What the plugin's `events` become in one block, and how many had no portable form.
@@ -262,6 +268,37 @@ mod tests {
         // The note ended; its ID names no note any more.
         let (data, unconvertible) = block(&mut sounding, &[tuning.as_unknown()]);
         assert_eq!((data, unconvertible), (vec![], 1));
+    }
+
+    #[test]
+    fn notes_ended_by_a_choke_or_an_end_leave_room_to_follow_later_notes() {
+        let mut sounding = sounding().unwrap();
+        for id in 0..MAX_BLOCK_EVENTS as u32 {
+            let pckn = Pckn::new(0u16, 0u16, 60u16, id);
+            let on = NoteOnEvent::new(0, pckn, 0.5);
+            let (choke, end) = (NoteChokeEvent::new(1, pckn), NoteEndEvent::new(1, pckn));
+            let ending = if id % 2 == 0 {
+                choke.as_unknown()
+            } else {
+                end.as_unknown()
+            };
+            block(&mut sounding, &[on.as_unknown(), ending]);
+        }
+        let on = NoteOnEvent::new(0, Pckn::new(0u16, 0u16, 62u16, 9999u32), 0.5);
+        let by_id = Pckn::new(Match::All, Match::All, Match::All, 9999u32);
+        let tuning = NoteExpressionEvent::new(1, by_id, NoteExpressionType::Tuning, 12.0);
+        let (data, unconvertible) = block(&mut sounding, &[on.as_unknown(), tuning.as_unknown()]);
+        let expression = NoteExpression::new(0, 62, ExpressionKind::Tuning, 12.0).with_id(9999);
+        assert_eq!(
+            (data, unconvertible),
+            (
+                vec![
+                    EventData::NoteOn(Note::new(0, 62, 0.5).with_id(9999)),
+                    EventData::Expression(expression),
+                ],
+                0
+            )
+        );
     }
 
     #[test]
