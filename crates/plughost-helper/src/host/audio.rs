@@ -10,6 +10,25 @@ use plughost_core::AudioDirection;
 use plughost_core::ipc::shared::Descriptor;
 use plughost_formats::BlockProcessor;
 
+/// The native audio buses and event ports a slot was prepared with, which the processing
+/// thread routes by. Display names are left out: they do not route anything.
+#[derive(PartialEq)]
+pub(super) struct Routes {
+    buses: Vec<AudioBusInfo>,
+    ports: Vec<plughost_core::EventPortInfo>,
+}
+
+impl Routes {
+    pub(super) fn new(
+        mut buses: Vec<AudioBusInfo>,
+        mut ports: Vec<plughost_core::EventPortInfo>,
+    ) -> Self {
+        buses.iter_mut().for_each(|bus| bus.name.clear());
+        ports.iter_mut().for_each(|port| port.name.clear());
+        Self { buses, ports }
+    }
+}
+
 impl Host {
     pub(super) fn prepare_audio(
         &mut self,
@@ -273,6 +292,11 @@ impl Host {
                 events: slot.events.native(),
             })
             .collect();
+        self.routes = reports
+            .iter()
+            .zip(&event_ports)
+            .map(|(buses, ports)| Routes::new(buses.clone(), ports.clone()))
+            .collect();
         // An installed ring has the previous configuration's shape.
         self.remove_realtime();
         self.audio_config = Some(config.clone());
@@ -319,6 +343,7 @@ impl Host {
         self.remove_realtime();
         self.audio_config = None;
         self.audio_slots.clear();
+        self.routes.clear();
         self.timing = None;
         self.timing_polls.clear();
         drop(

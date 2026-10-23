@@ -5,11 +5,27 @@ use clack_plugin::events::{Match, Pckn};
 
 impl PluginNotePortsImpl for MainThread<'_> {
     fn count(&self, input: bool) -> u32 {
-        if input { crate::EVENT_INPUTS } else { 1 }
+        if input {
+            crate::EVENT_INPUTS
+        } else {
+            1 + u32::from(
+                self.shared
+                    .extra_port
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )
+        }
     }
     fn get(&self, index: u32, input: bool, writer: &mut NotePortInfoWriter) {
         let name: &[u8] = match (input, index) {
             (false, 0) => b"Notes out",
+            (false, 1)
+                if self
+                    .shared
+                    .extra_port
+                    .load(std::sync::atomic::Ordering::Relaxed) =>
+            {
+                b"More notes out"
+            }
             (true, 0) => b"Notes",
             (true, 1) => b"Octave notes",
             (true, 2) => b"Expressions",

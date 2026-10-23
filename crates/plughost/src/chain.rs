@@ -328,9 +328,11 @@ impl Chain {
 
     /// Clears every plugin's internal state (tails, delay lines), keeping its settings. Refused
     /// while the realtime endpoint runs; [`Chain::resync_realtime`] resets the plugins under it.
+    /// A reset that fails at one slot, after earlier slots were reset, leaves the chain to be
+    /// prepared again.
     pub fn reset(&mut self) -> Result<(), Error> {
         self.refuse_while_realtime()?;
-        self.request_timing(Request::Reset).map(|_| ())
+        self.request_refreshed(Request::Reset)
     }
 
     /// Opens the editor of the plugin in `slot` in a window of the helper. The chain keeps
@@ -388,7 +390,22 @@ impl Chain {
         if self.realtime_running() {
             return self.request_done(request, self.timeouts.control);
         }
-        self.request_timing(request).map(|_| ())
+        self.request_refreshed(request)
+    }
+
+    /// Sends a change after which the helper reads the timing again. A change that took effect
+    /// while a slot's timing could not be read is answered without the timing, keeping the
+    /// cached one; the helper's diagnostics name the slot.
+    fn request_refreshed(&mut self, request: Request<'_>) -> Result<(), Error> {
+        match self.request(request, self.timeouts.control)? {
+            Response::Timing { latency, tail, .. } => {
+                self.latency = latency;
+                self.tail = tail;
+                Ok(())
+            }
+            Response::Done => Ok(()),
+            _ => Err(self.protocol_error()),
+        }
     }
 
     fn request_timing(&mut self, request: Request<'_>) -> Result<bool, Error> {

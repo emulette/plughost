@@ -11,6 +11,8 @@ pub(super) fn run() {
     #[cfg(unix)]
     inaccessible_bundles_keep_their_cache_entries();
     removed_bundles_leave_the_cache();
+    bundles_under_a_missing_directory_keep_their_cache_entries();
+    removed_bundles_keep_their_failures();
     #[cfg(unix)]
     failed_save_aborts_active_helpers_without_losing_previous_results();
 }
@@ -279,6 +281,57 @@ fn removed_bundles_leave_the_cache() {
     let catalog = scanner.scan(&|_| {}).unwrap();
     assert!(catalog.bundles.is_empty());
     assert!(directory.read()["bundles"].as_object().unwrap().is_empty());
+}
+
+fn bundles_under_a_missing_directory_keep_their_cache_entries() {
+    let directory = Directory::new();
+    let volume = directory.path().join("volume");
+    fs::create_dir(&volume).unwrap();
+    let away = bundle(&volume, "away");
+    fs::write(volume.join("release"), []).unwrap();
+    let scanner = Scanner::new(
+        &std::env::current_exe().unwrap(),
+        &directory.path().join("cache.json"),
+    )
+    .directories(vec![volume.clone()]);
+    scanner.scan(&|_| {}).unwrap();
+    let before = directory.read()["bundles"][away.to_str().unwrap()].clone();
+    assert!(before.is_object());
+    // The volume is disconnected, and its directory with it.
+    let unmounted = directory.path().join("unmounted");
+    fs::rename(&volume, &unmounted).unwrap();
+    assert!(scanner.scan(&|_| {}).unwrap().bundles.is_empty());
+    assert_eq!(directory.read()["bundles"][away.to_str().unwrap()], before);
+    // Connected again, the bundle is a cache hit rather than loaded again.
+    fs::rename(&unmounted, &volume).unwrap();
+    fs::remove_file(volume.join("release")).unwrap();
+    let catalog = scanner.scan(&|_| {}).unwrap();
+    assert_eq!(catalog.bundles.len(), 1);
+    assert_eq!(catalog.bundles[0].source, plughost::Source::Cache);
+}
+
+fn removed_bundles_keep_their_failures() {
+    let directory = Directory::new();
+    let failed = directory.path().join("failed.clap");
+    let found = directory.path().join("found.clap");
+    let cache = serde_json::json!({
+        "schema": 2,
+        "architecture": std::env::consts::ARCH,
+        "bundles": {
+            failed.to_str().unwrap(): {"fingerprint": [], "outcome": "TimedOut", "failures": 2},
+            found.to_str().unwrap(): {"fingerprint": [], "outcome": {"Found": []}, "failures": 0},
+        },
+    });
+    fs::write(
+        directory.path().join("cache.json"),
+        serde_json::to_vec(&cache).unwrap(),
+    )
+    .unwrap();
+    // Neither bundle is on disk under the scanned directory, which exists.
+    directory.scanner().scan(&|_| {}).unwrap();
+    let saved = directory.read();
+    assert_eq!(saved["bundles"][failed.to_str().unwrap()]["failures"], 2);
+    assert!(saved["bundles"].get(found.to_str().unwrap()).is_none());
 }
 
 #[cfg(unix)]

@@ -2,6 +2,7 @@
 //! which replaces the active one only after the change, preparation and timing succeed. Native
 //! loaders can change an instance before reporting failure and cannot roll back, so this staging
 //! is what lets a failed change leave the active slot, its parameters and its DSP history intact.
+use super::audio::Routes;
 use super::*;
 use crate::process::audio_timing::DelayReplacement;
 use crate::process::{Replace, Retime};
@@ -102,16 +103,37 @@ impl Host {
             self.timing.clone(),
         );
         let prepare = |candidate: &mut dyn HostedPlugin| match &audio_config {
-            Some(config) => candidate.prepare_audio(config).map(|_| ()),
-            None => Ok(()),
+            Some(config) => candidate.prepare_audio(config).map(Some),
+            None => Ok(None),
         };
         let changed = if prepare_first {
-            prepare(candidate.as_mut()).and_then(|()| change(candidate.as_mut()))
+            prepare(candidate.as_mut())
+                .and_then(|report| change(candidate.as_mut()).map(|()| report))
         } else {
             change(candidate.as_mut()).and_then(|()| prepare(candidate.as_mut()))
         };
-        if let Err(error) = changed {
-            return self.reject_candidate(slot, candidate.as_ref(), slot, error.failure());
+        let report = match changed {
+            Ok(report) => report,
+            Err(error) => {
+                return self.reject_candidate(slot, candidate.as_ref(), slot, error.failure());
+            }
+        };
+        // The processing thread keeps routing by the native buses and ports the active instance
+        // was prepared with.
+        if let Some(buses) = report {
+            let routes = match candidate.event_ports() {
+                Ok(ports) => Routes::new(buses, ports),
+                Err(error) => {
+                    return self.reject_candidate(slot, candidate.as_ref(), slot, error.failure());
+                }
+            };
+            if self.routes.get(slot) != Some(&routes) {
+                let failure = Failure::new(
+                    FailureKind::Configuration,
+                    crate::errors::REPLACEMENT_ROUTING,
+                );
+                return self.reject_candidate(slot, candidate.as_ref(), slot, failure);
+            }
         }
         let processor = candidate.processor();
         let mut retimed = None;

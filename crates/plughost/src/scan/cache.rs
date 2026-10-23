@@ -93,25 +93,38 @@ impl Writer {
             .truncate(false)
             .open(lock_path)?;
         lock.try_lock().map_err(io::Error::from)?;
-        let mut bundles = read(path)?.bundles;
-        let cached = bundles.len();
-        // An inaccessible bundle may still exist; prune only confirmed removals.
-        bundles.retain(|bundle, _| !matches!(bundle.try_exists(), Ok(false)));
-        let mut writer = Self {
+        Ok(Self {
             path: path.to_path_buf(),
             parent: parent.to_path_buf(),
             cache: Cache {
                 schema: SCHEMA,
                 architecture: std::env::consts::ARCH.to_owned(),
-                bundles,
+                bundles: read(path)?.bundles,
             },
             unsynced: false,
             lock,
-        };
-        if writer.cache.bundles.len() != cached {
-            writer.publish()?;
+        })
+    }
+
+    /// Forgets the results of bundles removed from those of the scanned `roots` that exist. A
+    /// missing root, such as a disconnected volume, keeps the entries under it for when it
+    /// returns. An entry with failures keeps its count and exclusion, which only a retry clears.
+    /// An inaccessible bundle may still exist, so only confirmed removals are forgotten.
+    pub fn prune(&mut self, roots: &[PathBuf]) -> io::Result<()> {
+        let present: Vec<&PathBuf> = roots
+            .iter()
+            .filter(|root| matches!(root.try_exists(), Ok(true)))
+            .collect();
+        let cached = self.cache.bundles.len();
+        self.cache.bundles.retain(|bundle, entry| {
+            entry.failures > 0
+                || !present.iter().any(|root| bundle.starts_with(root))
+                || !matches!(bundle.try_exists(), Ok(false))
+        });
+        if self.cache.bundles.len() != cached {
+            self.publish()?;
         }
-        Ok(writer)
+        Ok(())
     }
 
     pub fn entry(&self, path: &Path) -> Option<&Entry> {

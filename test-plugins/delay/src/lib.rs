@@ -422,6 +422,10 @@ impl IComponentTrait for Delay {
 
     unsafe fn setActive(&self, state: TBool) -> tresult {
         self.check_float_mode();
+        // Once it processed audio, the `reset-failure` variant does not activate again.
+        if state != 0 && variant() == Variant::ResetFailure && lock(&self.values)[5] > 0.0 {
+            return kResultFalse;
+        }
         if state != 0 {
             let mut latency = lock(&self.latency);
             if variant() == Variant::LatencyChange && latency.1 >= LATENCY_CHANGE_AFTER {

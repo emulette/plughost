@@ -39,6 +39,8 @@ pub struct Shared {
     /// Replaces the selected configuration's main ports until another is selected.
     main: Mutex<Option<Main>>,
     active: Mutex<[[bool; 2]; 2]>,
+    /// A restored state added the second note output port.
+    extra_port: std::sync::atomic::AtomicBool,
 }
 impl Shared {
     fn apply(&self, input: &InputEvents) {
@@ -89,6 +91,7 @@ impl DefaultPluginFactory for Fixture {
             configuration: Mutex::new(101),
             main: Mutex::new(None),
             active: Mutex::new([[true; 2]; 2]),
+            extra_port: std::sync::atomic::AtomicBool::new(false),
         })
     }
     fn new_main_thread<'a>(
@@ -167,6 +170,10 @@ impl PluginStateImpl for MainThread<'_> {
             return Err(PluginError::Message(crate::errors::STATE));
         }
         *lock(&self.shared.values) = values;
+        self.shared.extra_port.store(
+            FAULTS.load(std::sync::atomic::Ordering::Relaxed) && values[0] == crate::PORTS_GAIN,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         if let Some(params) = self.host.get_extension::<HostParams>() {
             params.rescan(&self.host, ParamRescanFlags::VALUES);
         }

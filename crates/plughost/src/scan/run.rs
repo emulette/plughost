@@ -36,8 +36,10 @@ impl Scanner {
                 audio_units: self.list_audio_units(control, events, None),
             });
         }
+        let mut writer = cache::Writer::open(&self.cache).map_err(Error::Cache)?;
+        writer.prune(&self.directories).map_err(Error::Cache)?;
         let state = Mutex::new(State {
-            writer: cache::Writer::open(&self.cache).map_err(Error::Cache)?,
+            writer,
             results: vec![None; paths.len()],
             audio_units: None,
             error: None,

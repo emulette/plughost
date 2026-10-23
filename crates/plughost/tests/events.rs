@@ -124,6 +124,27 @@ fn routing_chain(format: PluginFormat, faults: bool) -> (Chain, RoutedChainConfi
 
 #[test]
 #[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
+fn a_prepared_chain_refuses_a_state_that_changes_the_event_ports() {
+    let (mut chain, config) = routing_chain(PluginFormat::Clap, true);
+    // The fixture adds an output port when it restores a state with this gain.
+    chain.set_parameter(0, 0, 0.125).unwrap();
+    let state = chain
+        .save_state(0, plughost::StatePurpose::Project)
+        .unwrap();
+    match chain.restore_state(0, &state, plughost::StatePurpose::Project) {
+        Err(Error::Operation {
+            slot: Some(0),
+            failure,
+        }) => assert_eq!(failure.kind, FailureKind::Configuration),
+        other => panic!("{other:?}"),
+    }
+    // The active instance stays, with the ports the chain routes by.
+    assert_eq!(ports(&mut chain, 0, AudioDirection::Output).len(), 1);
+    run(&mut chain, &config, 512, &[]).unwrap();
+}
+
+#[test]
+#[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
 fn event_ports_describe_native_buses_in_order() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let mut chain = spawn(&[routing(format)]);

@@ -38,6 +38,7 @@ pub struct Host {
     /// The prepared routing, each slot's part of it, and the alignment planned for it.
     audio_config: Option<RoutedChainConfig>,
     audio_slots: Vec<AudioConfig>,
+    routes: Vec<audio::Routes>,
     timing: Option<AudioTiming>,
     timing_polls: Vec<timing::Poll>,
     transfer: transfer::Receiver,
@@ -66,6 +67,7 @@ impl Host {
             processing,
             audio_config: None,
             audio_slots: Vec::new(),
+            routes: Vec::new(),
             timing: None,
             timing_polls: Vec::new(),
             transfer,
@@ -95,7 +97,15 @@ impl Host {
             // Timing delivers pending host edits. Collect the resulting native notifications
             // before replying, as the former separate Timing request did.
             self.collect_parameter_events();
-            timing
+            match timing {
+                // The edit or reset took effect; a slot whose timing cannot be read does not
+                // undo it. The application keeps its last timing.
+                Response::Failed { slot, failure } => {
+                    crate::record_failure(&self.diagnostics, slot, &failure);
+                    Response::Done
+                }
+                timing => timing,
+            }
         } else {
             response
         }
@@ -428,6 +438,7 @@ impl Host {
         }))));
         self.audio_config = None;
         self.audio_slots.clear();
+        self.routes.clear();
         self.timing = None;
         self.timing_polls.clear();
         self.parameter_events.clear();
@@ -496,7 +507,7 @@ impl Host {
             let _call = calls.enter(Caller::Main, slot);
             let plugin = &mut self.slots[slot];
             if let Err(error) = plugin.reset() {
-                return failed(slot, &error);
+                return self.failed_reset(slot, &error);
             }
             let parameters = parameter_infos(plugin.as_mut());
             plugin.take_parameter_events();
@@ -512,7 +523,7 @@ impl Host {
         // Native reset activates the plugins again, which applies a latency they changed.
         let timings = match audio_timing::chain_timings(&self.slots, &calls) {
             Ok(timings) => timings,
-            Err((slot, error)) => return failed(slot, &error),
+            Err((slot, error)) => return self.failed_reset(slot, &error),
         };
         // Native reset discarded DSP history, so the previous alignment is unusable.
         let planned = AudioTiming::new(config, &timings).and_then(|plan| {
@@ -537,6 +548,15 @@ impl Host {
         };
         drop(self.processing.request(Command::Reset(alignment)));
         response
+    }
+
+    /// Ends a reset that failed at `slot`. The slots before it were reset natively, so the
+    /// alignment history no longer matches them: the chain processes nothing until it is
+    /// prepared again, as when the reset timing cannot be planned.
+    fn failed_reset(&mut self, slot: usize, error: &Error) -> Response {
+        self.timing = None;
+        drop(self.processing.request(Command::Reset(None)));
+        failed(slot, error)
     }
 
     fn timing(&mut self) -> Response {

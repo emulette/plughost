@@ -35,6 +35,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 - A VST3 editor whose view reports a size with coordinates far apart no longer panics the
   helper when it computes the window size.
+- A scan no longer forgets the bundles of a scanned directory that is missing, such as one on a
+  disconnected volume, so they are cache hits again when it returns instead of loading again,
+  and a bundle that crashed stays excluded. Bundles removed from a directory that exists are
+  still forgotten, except that an entry with failures keeps its count and exclusion until a
+  retry. A retry no longer drops entries of removed bundles.
+- In a prepared chain, `restore_state`, presets, factory presets and `reprepare_slot` fail with
+  `FailureKind::Configuration` and keep the active slot when the fresh instance reports other
+  audio buses or event ports than the slot was prepared with. The slot was replaced before, and
+  processing went on routing by the replaced instance's native ports.
+- A `reset` that fails at one slot after earlier slots were reset leaves the chain to be prepared
+  again: blocks fail with `FailureKind::NotPrepared`. They went on with alignment delays that no
+  longer matched the reset slots.
+- A parameter edit or reset that took effect succeeds when another slot's timing cannot be read
+  afterwards; the chain keeps its last latency and tail, and the diagnostics name the slot. It
+  failed with that slot's error before, as if the edit had not been made.
 
 ## [0.1.5] - 2026-10-23
 

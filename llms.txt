@@ -151,8 +151,11 @@ Native scans/retries save each changed bundle result before its `BundleFinished`
 An interrupted scan retains completed results and existing entries for unprocessed paths.
 Cancelled/skipped items and unchanged cache hits do not rewrite the snapshot; if nothing has
 been saved, cancellation need not create a cache JSON file. Use `retry_controlled` for chosen
-paths after cancellation; it preserves other entries. A native scan or retry first drops the
-entries of bundles that are no longer on disk. ClassFound notifications are provisional
+paths after cancellation; it preserves other entries. A native scan first drops the entries of
+bundles that are no longer on disk under a scanned directory that exists. A directory that is
+missing, such as one on a disconnected volume, keeps its entries for when it returns, and an
+entry with failures keeps its count and exclusion until a retry; a retry drops nothing.
+ClassFound notifications are provisional
 until the bundle finishes. No failure or timeout is interpreted as a license diagnosis.
 
 The writer publishes each snapshot as compact JSON through a unique sibling temporary file and
@@ -544,7 +547,9 @@ still allocate or lock; late completions count what that costs.
 - `parameter_text`, `parameter_from_text`, `parameter_to_plain`, and
   `parameter_to_normalized` use the native conversion. Unsupported conversions return errors.
 - `set_parameter` and `set_parameter_text` edit through native APIs and refresh prepared
-  chain timing. `bypass` / `set_bypass` use native bypass without host dry/wet substitution.
+  chain timing. An edit, or a `reset()`, that took effect succeeds even when a slot's timing
+  cannot be read afterwards: the chain keeps its last latency and tail, and diagnostics name
+  the slot. `bypass` / `set_bypass` use native bypass without host dry/wet substitution.
 - `take_parameter_events` drains bounded value/gesture/metadata notifications. On overflow,
   cancel active gestures and requery metadata and values.
 
@@ -556,7 +561,10 @@ can reject unsupported purposes.
 
 `restore_state` stages a fresh instance, prepares it, and validates timing before replacing
 the slot. Returned native failures preserve the active slot. A crash/timeout can still end
-the helper. Successful restore clears that slot's DSP history. It succeeds on a slot with a
+the helper. In a prepared chain, a fresh instance whose audio buses or event ports differ from
+the ones the slot was prepared with, as a plugin whose ports depend on its state reports, fails
+with `FailureKind::Configuration` and leaves the active slot; prepare the chain again to route
+the new ones. Successful restore clears that slot's DSP history. It succeeds on a slot with a
 pending restart request, which the replacement drops with the replaced instance (0.1.3 failed it
 with `RestartRequired`); the same holds for the other replacements below. The slot keeps its native
 bypass unless the state sets it, as a VST3 or CLAP state holding a bypass parameter can; preset
@@ -633,7 +641,9 @@ editor or processing a block. That call, or the chain's next call if none is blo
 return `Error::Crashed` as after a timeout, until the application recovers the chain. A
 recovered chain has its own canceller; cancelling a helper that already ended does nothing.
 
-`reset()` clears DSP history while retaining settings. `recover(&states)` starts a separate
+`reset()` clears DSP history while retaining settings. A reset that fails at one slot, after
+earlier slots were reset, returns that slot's error and leaves the chain to be prepared again:
+blocks fail with `FailureKind::NotPrepared` until `reprepare()` or `prepare_audio`. `recover(&states)` starts a separate
 chain in a new helper with the same plugin list, host identity and timeouts, restores `states`
 (one `StatePurpose::Project` state per slot, or none for initial states) as each plugin loads,
 and prepares it with the saved audio configuration. The original chain is not modified, so the

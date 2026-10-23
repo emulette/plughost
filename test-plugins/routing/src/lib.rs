@@ -6,7 +6,8 @@
 //! key, system exclusive messages are echoed, and `FLOOD` makes the fixture exceed any block's
 //! event budget. A note off on `LATE_KEY` leaves at the block's length, past its last frame, and
 //! the CLAP side also reports the note's end. CLAP enables these two faults only in the
-//! `routing-faults` bundle; the `routing-fixed-ports` bundle has no CLAP audio port activation. Notes and their expressions on `EXPRESSION_PORT`
+//! `routing-faults` bundle, where restoring a state whose gain is `PORTS_GAIN` also adds a second
+//! note output port, as a plugin whose ports depend on its state does; the `routing-fixed-ports` bundle has no CLAP audio port activation. Notes and their expressions on `EXPRESSION_PORT`
 //! leave unchanged: CLAP note and note expression events, and VST3 notes, poly pressure and note
 //! expression values.
 //! The VST3 processor and controller are separate COM objects. Preparation requires a two-way
@@ -21,6 +22,7 @@ const FLOOD: [u8; 4] = [0xF0, 0x7D, 0x7F, 0xF7];
 const FLOOD_EVENTS: usize = 5000;
 const EVENT_INPUTS: u32 = 3;
 const EXPRESSION_PORT: usize = 2;
+const PORTS_GAIN: f64 = 0.125;
 
 fn transpose(port: usize, key: u8) -> u8 {
     (usize::from(key) + 12 * (port + 1)).min(127) as u8

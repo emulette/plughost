@@ -21,6 +21,41 @@ fn check(error: Error, expected: FailureKind, slot: usize) {
 
 #[test]
 #[ignore = "needs scripts/build-helper.ps1 and scripts/build-test-plugins.ps1 (or .sh)"]
+fn a_reset_that_fails_partway_leaves_the_chain_to_be_prepared_again() {
+    let failing = delay_variant(PluginFormat::Vst3, "reset-failure", 0x1C);
+    let mut chain = spawn(&[delay(PluginFormat::Vst3), failing]);
+    prepare(&mut chain);
+    support::block(&mut chain, 512, 0.25);
+    // The first slot is reset natively before the second fails to activate again.
+    check(chain.reset().unwrap_err(), FailureKind::Configuration, 1);
+    // Their alignment history no longer matches, so the chain processes nothing, rather than
+    // the first slot's reset output with the old delays.
+    let input = [0.25f32; 512];
+    let (mut left, mut right) = ([0.0f32; 512], [0.0f32; 512]);
+    let result = chain.process_audio_f32(
+        &plughost::BlockContext::new(512),
+        &[&input, &input],
+        &mut [&mut left, &mut right],
+        &[],
+        &[],
+        &mut Vec::new(),
+    );
+    match result {
+        Err(Error::Operation {
+            slot: None,
+            failure,
+        }) => assert_eq!(failure.kind, FailureKind::NotPrepared),
+        other => panic!("{other:?}"),
+    }
+    // An edit of the first slot takes effect even though the second one's timing cannot be read.
+    chain.set_parameter(0, 0, 0.5).unwrap();
+    assert_eq!(chain.parameters(0).unwrap()[0].1, 0.5);
+    chain.reprepare().unwrap();
+    support::block(&mut chain, 512, 0.25);
+}
+
+#[test]
+#[ignore = "needs scripts/build-helper.ps1 and scripts/build-test-plugins.ps1 (or .sh)"]
 fn overflowing_chain_latency_is_reported_without_losing_the_helper() {
     let plugin = delay_variant(PluginFormat::Vst3, "latency-overflow", 7);
     let mut chain = spawn(&[plugin.clone(), plugin]);

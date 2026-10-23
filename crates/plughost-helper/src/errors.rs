@@ -26,6 +26,7 @@ pub const AUDIO_LATENCY_CHANGED: &str =
     "native latency or audio topology changed; prepare the routed chain again before processing";
 
 pub const EVENT_PORT_PLAN: &str = "a prepared plugin does not list an event port its routing uses";
+pub const REPLACEMENT_ROUTING: &str = "the change gives the plugin other audio buses or event ports than the prepared chain routes; prepare the chain again to use them";
 pub const EVENT_RESYNC: &str = "processing stopped after events exceeded a block's budget; reset the chain before processing again";
 
 pub const ALIGNMENT_STORAGE: &str =
