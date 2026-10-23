@@ -99,9 +99,11 @@ impl std::fmt::Debug for ChainCanceller {
 }
 
 impl ChainCanceller {
-    /// Terminates the helper without waiting for the chain. The call it is blocked in, or else
-    /// its next call, returns [`Error::Cancelled`](crate::Error::Cancelled); later calls return
-    /// [`Error::Crashed`](crate::Error::Crashed) until the application recovers the chain.
+    /// Terminates the helper and waits for it to exit, without waiting for the call the chain is
+    /// blocked in; call it from application or control code, not from an audio callback. That
+    /// call, or else the chain's next call, returns [`Error::Cancelled`](crate::Error::Cancelled);
+    /// later calls return [`Error::Crashed`](crate::Error::Crashed) until the application recovers
+    /// the chain.
     pub fn cancel(&self) {
         if let Some(state) = self.state.upgrade() {
             let _ = state

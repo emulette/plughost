@@ -49,7 +49,8 @@ impl Default for Timeouts {
 }
 
 /// Plugins processed in order, isolated in their own helper process. If a plugin crashes or
-/// hangs, the chain's methods return [`Error::Crashed`] or [`Error::TimedOut`] and the application
+/// hangs, the chain's methods return [`Error::Crashed`] or [`Error::TimedOut`] (or
+/// [`Error::Cancelled`] after a [`Chain::canceller`] ended the hang), and the application
 /// decides whether to [`Chain::recover`], or [`Chain::recover_realtime`] for a chain with a
 /// realtime endpoint.
 pub struct Chain {
@@ -150,8 +151,10 @@ impl Chain {
     }
 
     /// Ends a call this chain is blocked in from another thread, such as a plugin that does not
-    /// return from loading, restoring state or opening its editor, by terminating this helper.
-    /// The handle stays attached to this helper after recovery or Chain drop.
+    /// return from restoring state, loading a preset, opening its editor, preparing again or
+    /// processing, by terminating this helper. Loading in [`Chain::spawn`] and recovery is bounded
+    /// by the load timeout instead: the chain and its canceller exist only once it is done. The
+    /// handle stays attached to this helper after recovery or Chain drop.
     pub fn canceller(&self) -> crate::ChainCanceller {
         self.helper.canceller()
     }

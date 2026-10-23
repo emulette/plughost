@@ -186,10 +186,16 @@ impl Helper {
                 error: plughost_core::InputError::Slot,
             });
         }
+        // Only the requests that go through the slots one at a time report progress.
+        let progresses = matches!(request, Request::Load { .. } | Request::PrepareAudio { .. });
         self.send(request, timeout)?;
         let response = loop {
             match self.receive(timeout)? {
-                Response::Progress => {}
+                Response::Progress if progresses => {}
+                Response::Progress => {
+                    self.kill(FailureKind::Protocol);
+                    return Err(Error::Protocol);
+                }
                 response => break response,
             }
         };
@@ -329,12 +335,7 @@ impl Helper {
             match self.transport.flush(remaining.min(POLL)) {
                 Ok(()) => return Ok(Some(())),
                 Err(Stopped::TimedOut) if started.elapsed() < timeout => continue,
-                Err(Stopped::TimedOut) => {
-                    self.kill(FailureKind::TimedOut);
-                    return Err(Error::TimedOut {
-                        slot: self.culprit()?,
-                    });
-                }
+                Err(Stopped::TimedOut) => return Err(self.timed_out()),
                 Err(Stopped::Closed) => {
                     return self.ended_controlled(cancelled).map_or(Ok(None), Err);
                 }
@@ -430,12 +431,7 @@ impl Helper {
             match self.transport.receive(remaining.min(POLL)) {
                 Ok(Ok(message)) => return Ok(Some(message)),
                 Err(Stopped::TimedOut) if started.elapsed() < timeout => continue,
-                Err(Stopped::TimedOut) => {
-                    self.kill(FailureKind::TimedOut);
-                    return Err(Error::TimedOut {
-                        slot: self.culprit()?,
-                    });
-                }
+                Err(Stopped::TimedOut) => return Err(self.timed_out()),
                 Ok(Err(error)) if error.kind() == io::ErrorKind::InvalidData => {
                     self.kill(FailureKind::Protocol);
                     return Err(Error::Protocol);
@@ -448,17 +444,26 @@ impl Helper {
     fn message(&mut self, timeout: Duration) -> Result<Incoming, Error> {
         match self.transport.receive(timeout) {
             Ok(Ok(message)) => Ok(message),
-            Err(Stopped::TimedOut) => {
-                self.kill(FailureKind::TimedOut);
-                Err(Error::TimedOut {
-                    slot: self.culprit()?,
-                })
-            }
+            Err(Stopped::TimedOut) => Err(self.timed_out()),
             Ok(Err(error)) if error.kind() == io::ErrorKind::InvalidData => {
                 self.kill(FailureKind::Protocol);
                 Err(Error::Protocol)
             }
             _ => Err(self.ended()),
+        }
+    }
+
+    /// Terminates a helper that stopped responding. A canceller that ended it first decides the
+    /// error, as when the call sees the closed connection.
+    fn timed_out(&mut self) -> Error {
+        let cancelled = !self.end_reported;
+        self.kill(FailureKind::TimedOut);
+        let by_canceller =
+            cancelled && self.child.monitor().end_reason() == Some(FailureKind::Cancelled);
+        match self.culprit() {
+            Ok(slot) if by_canceller => Error::Cancelled { slot },
+            Ok(slot) => Error::TimedOut { slot },
+            Err(error) => error,
         }
     }
 

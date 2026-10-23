@@ -634,9 +634,12 @@ can include the last reported slot, which may be unavailable. Treat plugin failu
 recoverable application events.
 
 `canceller()` returns a clonable `ChainCanceller` for the current helper generation. Its
-`cancel()` terminates that helper from any thread without waiting, which ends a call the chain
-is blocked in, such as a plugin that does not return from loading, restoring state, opening its
-editor or processing a block. That call, or the chain's next call if none is blocked, returns
+`cancel()` terminates that helper from any thread and waits for it to exit, without waiting for
+the chain; call it from application or control code, not an audio callback. It ends a call the
+chain is blocked in, such as a plugin that does not return from restoring state, loading a
+preset, opening its editor, preparing again or processing a block. Loading in `Chain::spawn`,
+`recover` and `recover_realtime` is bounded by the load timeout instead, since the chain and its
+canceller exist only once it is done. That call, or the chain's next call if none is blocked, returns
 `Error::Cancelled` (`FailureKind::Cancelled`) with the slot the helper was calling; later calls
 return `Error::Crashed` as after a timeout, until the application recovers the chain. A
 recovered chain has its own canceller; cancelling a helper that already ended does nothing.

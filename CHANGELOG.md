@@ -11,7 +11,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 - `Chain::canceller` returns a `ChainCanceller` whose `cancel` terminates the chain's helper from
   any thread, which ends a call the chain is blocked in, such as a plugin that does not return
-  from loading, restoring state, opening its editor or processing a block. That call, or the next
+  from restoring state, loading a preset, opening its editor, preparing again or processing a
+  block. That call, or the next
   one if none is blocked, returns the new `Error::Cancelled` (`FailureKind::Cancelled`) with the
   slot the helper was calling, and later calls return `Error::Crashed` as after a timeout.
 - `HelperMonitor::end_reason` tells why a helper ended once its exit is observed: it crashed or
@@ -22,8 +23,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 ### Changed
 
 - The load timeout bounds each plugin of a chain rather than the whole chain: loading a chain,
-  and preparing an already configured chain again, renew it after each plugin, also in
-  `recover` and `recover_realtime`. A chain of instruments that each load within the timeout no
+  and preparing an already configured chain again, renew it after each plugin they load or
+  prepare, also in `recover` and `recover_realtime`. A chain of instruments that each load within the timeout no
   longer times out together.
 - A panic in the helper aborts it, so the application reports a crash of the slot the helper
   was calling. A panic on its processing thread made the request it served time out without

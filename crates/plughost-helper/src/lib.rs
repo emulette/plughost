@@ -96,8 +96,10 @@ pub fn run() -> ExitCode {
 
 /// Ends the whole helper on any panic, after the default report. A panic that unwound instead
 /// would end one thread without a reply, clear the slot that thread recorded, and leave the
-/// application waiting for a timeout that names no slot; a panic in a native callback cannot
-/// unwind at all. An abort keeps the slot recorded, so the application reports a crash of it.
+/// application waiting for a timeout that names no slot; a panic in a VST3 or Objective-C
+/// callback cannot unwind at all. An abort keeps the slot recorded, so the application reports
+/// a crash of it. clack-host catches a panic in a CLAP host callback and goes on, which this
+/// replaces with the abort too: the state the panic left behind is not known to be sound.
 fn abort_on_panic() {
     let report = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

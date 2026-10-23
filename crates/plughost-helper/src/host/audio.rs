@@ -174,6 +174,11 @@ impl Host {
                     Ok(prepared) => *report = Some(prepared),
                     Err(error) => return failed(slot, &error),
                 }
+                // A slot prepared in place in a staged preparation renews the deadline, as a
+                // staged one does. A failed write means the application disconnected.
+                if staged {
+                    let _ = self.responder.send(&Response::Progress);
+                }
             }
         }
         // Every slot has its report now.
