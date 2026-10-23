@@ -144,7 +144,7 @@ impl Plugin {
 pub(super) fn midi_output_names(unit: &AUAudioUnit) -> Vec<String> {
     let names = unsafe { unit.MIDIOutputNames() };
     (0..names.count())
-        .map(|index| names.objectAtIndex(index).to_string())
+        .map(|index| super::text(&names.objectAtIndex(index)))
         .collect()
 }
 
@@ -209,7 +209,7 @@ pub(super) fn buses(
                     index as u64,
                     index as u32,
                     unsafe { bus.name() }
-                        .map(|name| name.to_string())
+                        .map(|name| super::text(&name))
                         .unwrap_or_default(),
                     direction,
                     if index == 0 {

@@ -84,8 +84,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   its range is clamped into it, and one that is not finite, or whose range is not, reads as 0 in
   `parameters`. A CLAP parameter whose range is not finite has no default, and `set_parameter`
   and automation of a CLAP or Audio Unit parameter with such a range fail with the format's
-  parameter result error (`FailureKind::Host`). `parameters` reported such values as NaN or outside 0 to 1, and edits
-  sent NaN to the plugin.
+  parameter result error (`FailureKind::Host`). `parameters` reported such values as NaN or
+  outside 0 to 1, and edits sent NaN to the plugin.
+- Text an Audio Unit gives (parameter, group, bus, MIDI output and preset names, parameter units,
+  value text and error descriptions) is converted with U+FFFD in place of what is not valid
+  UTF-16, such as an unpaired surrogate, as component names already were. Such text aborted the
+  helper in debug builds and was undefined behaviour in release builds.
 
 ## [0.1.5] - 2026-10-23
 

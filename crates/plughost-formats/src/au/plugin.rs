@@ -11,6 +11,8 @@ mod parameters;
 mod programs;
 mod render_audio;
 #[cfg(test)]
+mod text_tests;
+#[cfg(test)]
 mod timing_tests;
 use std::collections::HashMap;
 use std::ptr::NonNull;
@@ -30,7 +32,8 @@ use objc2_audio_toolbox::{
     AudioUnitRenderActionFlags, AudioUnitSetParameter, kAudioUnitScope_Global,
 };
 use objc2_core_audio_types::{AudioBufferList, AudioTimeStamp};
-use objc2_foundation::{NSError, NSInteger, NSPropertyListFormat};
+use objc2_core_foundation::CFString;
+use objc2_foundation::{NSError, NSInteger, NSPropertyListFormat, NSString};
 use plughost_core::render::Tail;
 use plughost_core::{Capabilities, Support};
 use plughost_core::{
@@ -140,7 +143,15 @@ fn lock(engine: &Mutex<Engine>) -> MutexGuard<'_, Engine> {
 }
 
 fn describe(error: &NSError) -> String {
-    error.localizedDescription().to_string()
+    text(&error.localizedDescription())
+}
+
+/// `string` as Rust text, with U+FFFD for what is not valid UTF-16, such as an unpaired
+/// surrogate. The text a unit gives cannot use `NSString`'s `to_string`: it reads `UTF8String`,
+/// which is null for such a string, without checking it.
+fn text(string: &NSString) -> String {
+    // SAFETY: NSString is toll-free bridged with CFString, whose conversion replaces them.
+    unsafe { &*(string as *const NSString).cast::<CFString>() }.to_string()
 }
 
 /// An in-process native plugin owned and controlled by the thread that created it.
@@ -570,12 +581,12 @@ fn parameter_info(parameter: &AUParameter) -> ParameterInfo {
     let unit = unsafe { parameter.unit() };
     let discrete =
         unit == AudioUnitParameterUnit::Indexed || unit == AudioUnitParameterUnit::Boolean;
-    let title = unsafe { parameter.displayName() }.to_string();
+    let title = text(&*unsafe { parameter.displayName() });
     // AUParameter does not expose a default; never substitute the current value.
     let mut info = ParameterInfo::new(unsafe { parameter.address() }, title.clone());
     info.short_title = title.chars().take(8).collect();
     info.units = unsafe { parameter.unitName() }
-        .map(|name| name.to_string())
+        .map(|name| text(&name))
         .unwrap_or_default();
     info.step_count = if discrete {
         (max - min).round().max(0.0) as u32

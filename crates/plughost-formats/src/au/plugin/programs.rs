@@ -20,7 +20,7 @@ impl Plugin {
                 }
                 Ok(FactoryPreset::new(
                     FactoryPresetId::AudioUnit { number },
-                    unsafe { preset.name() }.to_string(),
+                    super::text(&*unsafe { preset.name() }),
                 ))
             })
             .collect()

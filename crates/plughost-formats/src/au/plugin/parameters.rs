@@ -84,7 +84,7 @@ impl Plugin {
         // the nonnull SDK annotation. Preserve unsupported conversion as an error.
         let text: Option<Retained<NSString>> =
             unsafe { msg_send![&*self.parameter(id)?, stringFromValue: &plain] };
-        let text = text.ok_or(AuError::ParameterConversion)?.to_string();
+        let text = super::text(&*text.ok_or(AuError::ParameterConversion)?);
         if text.len() > PARAMETER_TEXT_BYTES {
             return Err(AuError::ParameterResult);
         }
@@ -123,8 +123,8 @@ fn group_path(
             path.insert(
                 0,
                 plughost_core::ParameterGroup {
-                    id: unsafe { child.keyPath() }.to_string(),
-                    name: unsafe { child.displayName() }.to_string(),
+                    id: super::text(&*unsafe { child.keyPath() }),
+                    name: super::text(&*unsafe { child.displayName() }),
                     program_list_id: None,
                 },
             );
