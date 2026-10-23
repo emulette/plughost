@@ -29,7 +29,7 @@ use super::errors::{BLOCK, CONFIGURATION, EVENTS, GENERATION, invalid};
 use super::memory::Memory;
 use super::{Descriptor, SharedAudio, SlotConfig, Submission, clock};
 use crate::render::Tail;
-use crate::{AutomationEvent, BlockContext, Event, FailureKind, Transport};
+use crate::{AutomationEvent, BlockContext, Events, FailureKind, Transport};
 
 /// The most lanes a ring has: a latency of three quanta plus two.
 pub const MAX_LANES: usize = 5;
@@ -389,7 +389,7 @@ impl Ring {
         context: &BlockContext,
         input: &[&[T]],
         automation: &[AutomationEvent],
-        events: &[Event],
+        events: &Events,
     ) -> io::Result<()> {
         let lane = self.lane(sequence);
         let header = self.control.header(lane, false);
@@ -425,7 +425,7 @@ impl Ring {
         sequence: u64,
         scratch: &mut [Vec<T>],
         automation: &mut Vec<AutomationEvent>,
-        events: &mut Vec<Event>,
+        events: &mut Events,
     ) -> io::Result<Quantum> {
         let lane = self.lane(sequence);
         let header = self.control.header(lane, false);
@@ -483,7 +483,7 @@ impl Ring {
         &mut self,
         quantum: &Quantum,
         output: &[&[T]],
-        events: &[Event],
+        events: &Events,
         latency: u32,
         tail: Tail,
     ) -> io::Result<()> {
@@ -544,7 +544,7 @@ impl Ring {
         sequence: u64,
         output: &mut [&mut [T]],
         event_ports: usize,
-        produced: &mut Vec<Event>,
+        produced: &mut Events,
     ) -> io::Result<Option<(Outcome, usize)>> {
         let lane = self.lane(sequence);
         let header = self.control.header(lane, true);
@@ -601,7 +601,7 @@ impl Ring {
             automation: 0,
             events: count,
         };
-        let skipped = self.lanes[lane].read_output_skipping_sysex(
+        let skipped = self.lanes[lane].read_output_within_capacity(
             submission,
             output,
             count,
@@ -638,7 +638,7 @@ macro_rules! ring_samples {
                 context: &BlockContext,
                 input: &[&[$sample]],
                 automation: &[AutomationEvent],
-                events: &[Event],
+                events: &Events,
             ) -> io::Result<()> {
                 self.submit(generation, sequence, context, input, automation, events)
             }
@@ -649,7 +649,7 @@ macro_rules! ring_samples {
                 sequence: u64,
                 scratch: &mut [Vec<$sample>],
                 automation: &mut Vec<AutomationEvent>,
-                events: &mut Vec<Event>,
+                events: &mut Events,
             ) -> io::Result<Quantum> {
                 self.take(generation, sequence, scratch, automation, events)
             }
@@ -658,23 +658,22 @@ macro_rules! ring_samples {
                 &mut self,
                 quantum: &Quantum,
                 output: &[&[$sample]],
-                events: &[Event],
+                events: &Events,
                 latency: u32,
                 tail: Tail,
             ) -> io::Result<()> {
                 self.complete(quantum, output, events, latency, tail)
             }
-            /// Reads quantum `sequence` of `generation` into `output`, and its events except
-            /// system exclusive ones into `produced` while its capacity lasts. `None` while the
-            /// worker has not completed it; otherwise the outcome and how many events were left
-            /// out. On a failed outcome or an error, `output` is unspecified.
+            /// Reads quantum `sequence` of `generation` into `output`, and its events into the
+            /// room `produced` has reserved. `None` while the worker has not completed it;
+            /// otherwise the outcome and how many events were left out for want of room. On a failed outcome or an error, `output` is unspecified.
             pub fn $read(
                 &mut self,
                 generation: u64,
                 sequence: u64,
                 output: &mut [&mut [$sample]],
                 event_ports: usize,
-                produced: &mut Vec<Event>,
+                produced: &mut Events,
             ) -> io::Result<Option<(Outcome, usize)>> {
                 self.read(generation, sequence, output, event_ports, produced)
             }

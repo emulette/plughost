@@ -1,5 +1,5 @@
 use super::*;
-use plughost_core::{AudioBusConfig, AudioBusRole, AudioConfig, AudioDirection, Support};
+use plughost_core::{AudioBusConfig, AudioBusRole, AudioConfig, AudioDirection, Events, Support};
 
 fn buses(sample_format: SampleFormat, main: Layout) -> AudioConfig {
     AudioConfig {
@@ -79,8 +79,8 @@ fn native_bus_roles_and_main_convenience_do_not_assume_bus_zero() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(left, [1.0; 4]);
@@ -113,8 +113,8 @@ fn sidechain_auxiliary_outputs_and_point_automation_follow_native_bus_order() {
                 offset: 2,
                 value: 0.25,
             }],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(outputs[0], [2.0; 4]);
@@ -154,8 +154,8 @@ fn multibus_f64_surround_and_bypass_survive_state_and_reset() {
             &input,
             &mut output,
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(outputs[2][0], (1.0 + 1.0e-10) * 0.5);
@@ -173,8 +173,8 @@ fn multibus_f64_surround_and_bypass_survive_state_and_reset() {
             &input,
             &mut output,
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(outputs[2], inputs[1]);
@@ -203,7 +203,7 @@ fn multibus_f64_surround_and_bypass_survive_state_and_reset() {
         &mut restored,
         &input,
         4,
-        &[],
+        &Events::new(),
         &RenderOptions::new(TailPolicy::Reported, 0.0),
     )
     .unwrap();
@@ -232,8 +232,8 @@ fn preparing_again_holds_the_value_automation_left() {
                     offset,
                     value,
                 }],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         outputs
@@ -280,8 +280,8 @@ fn bypass_set_before_preparation_holds_once_prepared() {
             &[&key, &left, &right],
             &mut slices,
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(plugin.bypass().unwrap().enabled, Some(true));
@@ -350,7 +350,7 @@ fn every_layout_f64_render_preserves_every_native_speaker_position() {
             &mut plugin,
             &slices,
             4,
-            &[],
+            &Events::new(),
             &RenderOptions::new(TailPolicy::Reported, 0.0),
         )
         .unwrap();
@@ -401,8 +401,8 @@ fn custom_sample_implementations_are_rejected_before_native_pointer_casts() {
                     &[&input, &input],
                     &mut [&mut left, &mut right],
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap_err()
                 .input_error(),
@@ -434,8 +434,8 @@ fn arrangements_the_plugin_took_are_used_whatever_it_answered() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(plugin.config().unwrap().output, Layout::Stereo);
@@ -466,8 +466,8 @@ fn automate_gain(plugin: &mut Plugin, offset: usize) {
                 offset,
                 value: 0.25,
             }],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
 }

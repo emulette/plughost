@@ -91,8 +91,8 @@ fn midi_assignment_queries_allow_the_processing_thread_to_advance() {
                     &[&input, &input],
                     &mut [&mut left, &mut right],
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap();
             std::thread::yield_now();

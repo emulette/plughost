@@ -70,8 +70,8 @@ fn dynamic_flags_refresh_process_validation_without_consuming_app_events() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &automation,
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap_err();
     assert!(matches!(
@@ -104,8 +104,8 @@ fn dynamic_flags_refresh_process_validation_without_consuming_app_events() {
         &[&input, &input],
         &mut [&mut left, &mut right],
         &automation,
-        &[],
-        &mut Vec::new(),
+        &Events::new(),
+        &mut Events::for_block(),
     )
     .unwrap();
     assert!(!vst3.parameter_details(0, 0).unwrap().info.flags.read_only);
@@ -126,8 +126,8 @@ fn dynamic_flags_refresh_process_validation_without_consuming_app_events() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &automation,
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         ),
         Err(Error::Input {
             slot: Some(0),
@@ -140,8 +140,8 @@ fn dynamic_flags_refresh_process_validation_without_consuming_app_events() {
         &[&input, &input],
         &mut [&mut left, &mut right],
         &automation,
-        &[],
-        &mut Vec::new(),
+        &Events::new(),
+        &mut Events::for_block(),
     )
     .unwrap();
 }

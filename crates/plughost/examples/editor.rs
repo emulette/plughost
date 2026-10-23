@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use plughost::{
-    Chain, ChainSlot, Error, Event, Layout, PluginFormat, PluginId, PluginInfo, PluginKind,
+    Chain, ChainSlot, Error, Event, Events, Layout, PluginFormat, PluginId, PluginInfo, PluginKind,
     PluginRef, Scanner, SpawnOptions,
 };
 
@@ -36,10 +36,10 @@ fn tone(channels: usize, frames: usize, start: usize) -> Vec<Vec<f32>> {
 }
 
 /// Instruments play middle C for a quarter second every half second instead of the tone.
-fn notes(channels: usize, start: usize) -> Vec<Event> {
+fn notes(channels: usize, start: usize) -> Events {
     const PERIOD: usize = RATE as usize / 2;
     if channels > 0 {
-        return Vec::new();
+        return Events::new();
     }
     (start..start + BLOCK)
         .filter_map(|i| match i % PERIOD {
@@ -62,7 +62,7 @@ fn process(chain: &mut Chain, channels: usize, start: usize) -> Result<Vec<Vec<f
         &mut outputs,
         &[],
         &notes(channels, start),
-        &mut Vec::new(),
+        &mut Events::for_block(),
     )?;
     Ok(output)
 }

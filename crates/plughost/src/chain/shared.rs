@@ -1,13 +1,13 @@
 //! Prepared shared transport. Caller output is written only after the helper completes a block.
 use plughost_core::ipc::shared::{Descriptor, SharedAudio, SlotConfig};
-use plughost_core::{AutomationEvent, BlockContext, Failure, FailureKind};
+use plughost_core::{AutomationEvent, BlockContext, Events, Failure, FailureKind};
 
 use super::*;
 
 pub(super) struct Transport {
     pub memory: SharedAudio,
     sequence: u64,
-    events: Vec<Event>,
+    events: Events,
 }
 
 pub(super) fn storage_error(error: std::io::Error) -> Error {
@@ -49,7 +49,7 @@ impl Chain {
         Ok(Transport {
             memory,
             sequence: 0,
-            events: Vec::with_capacity(plughost_core::MAX_BLOCK_EVENTS),
+            events: Events::for_block(),
         })
     }
 
@@ -69,8 +69,8 @@ macro_rules! process {
                 input: &[&[$sample]],
                 output: &mut [&mut [$sample]],
                 automation: &[AutomationEvent],
-                events: &[Event],
-                produced: &mut Vec<Event>,
+                events: &Events,
+                produced: &mut Events,
             ) -> Result<(), Error> {
                 let mut transport = self.shared.take().ok_or(Error::NotPrepared)?;
                 let result = (|| {
@@ -126,7 +126,12 @@ macro_rules! process {
                         )
                         .map_err(|_| Error::Protocol)?;
                     produced.clear();
-                    produced.append(&mut transport.events);
+                    for event in &transport.events {
+                        // A block's events, which one block's room holds.
+                        produced
+                            .push(event)
+                            .map_err(|error| Error::Input { slot: None, error })?;
+                    }
                     self.latency = latency;
                     self.tail = tail;
                     Ok(())

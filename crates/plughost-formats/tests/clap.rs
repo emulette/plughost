@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use plughost_core::{
-    Event, FailureKind, InputError, Layout, PluginKind, ProcessConfig, ProcessMode, SampleFormat,
-    StatePurpose,
+    Event, Events, FailureKind, InputError, Layout, PluginKind, ProcessConfig, ProcessMode,
+    SampleFormat, StatePurpose,
 };
 use plughost_formats::clap::{self, Plugin};
 use plughost_formats::{BlockProcessor, HostedPlugin};
@@ -60,7 +60,7 @@ fn render_preflight_rejects_unprepared_and_late_invalid_ports() {
     let options =
         plughost_core::render::RenderOptions::new(plughost_core::render::TailPolicy::Reported, 0.0);
     assert_eq!(
-        plughost_core::render::render(&mut plugin, &[&input, &input], 32, &[], &options)
+        plughost_core::render::render(&mut plugin, &[&input, &input], 32, &Events::new(), &options)
             .unwrap_err()
             .kind(),
         FailureKind::NotPrepared
@@ -73,7 +73,7 @@ fn render_preflight_rejects_unprepared_and_late_invalid_ports() {
             &mut plugin,
             &[&input, &input],
             32,
-            &[Event::note_on(24, 0, 60, 100).on_port(99)],
+            &Events::from_iter([Event::note_on(24, 0, 60, 100).on_port(99)]),
             &options,
         )
         .unwrap_err()
@@ -132,8 +132,8 @@ fn native_logs_can_be_drained_without_an_application_callback() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert!(!plugin.take_diagnostics().records.is_empty());
@@ -160,7 +160,7 @@ fn synth() -> Plugin {
 }
 
 /// One block of the synth's first output channel.
-fn play(synth: &mut Plugin, events: &[Event]) -> Vec<f32> {
+fn play(synth: &mut Plugin, events: &Events) -> Vec<f32> {
     let mut output = vec![vec![1.0f32; BLOCK]; 2];
     let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
     synth
@@ -170,7 +170,7 @@ fn play(synth: &mut Plugin, events: &[Event]) -> Vec<f32> {
             &mut outputs,
             &[],
             events,
-            &mut Vec::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(output[0], output[1]);
@@ -273,8 +273,8 @@ fn run_processor(processor: &dyn BlockProcessor, input: &[Vec<f32>]) -> Vec<Vec<
                 &inputs,
                 &mut outputs,
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
     }
@@ -427,15 +427,22 @@ fn reset_without_state_extension_stops_notes_and_keeps_controls() {
     let mut synth = synth();
     play(
         &mut synth,
-        &[
+        &Events::from_iter([
             Event::control_change(0, 0, 7, 64),
             Event::note_on(0, 0, 69, 127),
-        ],
+        ]),
     );
     synth.reset().unwrap();
-    assert!(play(&mut synth, &[]).iter().all(|&sample| sample == 0.0));
+    assert!(
+        play(&mut synth, &Events::new())
+            .iter()
+            .all(|&sample| sample == 0.0)
+    );
     assert_eq!(
-        play(&mut synth, &[Event::note_on(0, 0, 69, 127)])[0],
+        play(
+            &mut synth,
+            &Events::from_iter([Event::note_on(0, 0, 69, 127)])
+        )[0],
         64.0 / 127.0
     );
 }
@@ -499,10 +506,10 @@ fn notes_start_and_stop_at_their_sample_offsets() {
     let mut synth = synth();
     let output = play(
         &mut synth,
-        &[
+        &Events::from_iter([
             Event::note_on(100, 0, 69, 127),
             Event::note_off(300, 0, 69, 0),
-        ],
+        ]),
     );
     assert!(output[..100].iter().all(|&s| s == 0.0));
     // The note's first sample is its velocity.
@@ -518,10 +525,10 @@ fn other_midi_messages_reach_a_port_that_takes_midi() {
     let mut synth = synth();
     let output = play(
         &mut synth,
-        &[
+        &Events::from_iter([
             Event::control_change(0, 0, 7, 64),
             Event::note_on(0, 0, 69, 127),
-        ],
+        ]),
     );
     assert_eq!(output[0], 64.0 / 127.0);
 }
@@ -575,8 +582,8 @@ fn a_restart_requested_while_processing_keeps_the_block_and_fails_the_next() {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 automation,
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .map(|()| left)
     };

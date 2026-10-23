@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use plughost::{
-    BlockContext, Chain, Error, FallbackReason, InputError, PluginFormat, PluginRef,
+    BlockContext, Chain, Error, Events, FallbackReason, InputError, PluginFormat, PluginRef,
     RealtimeConfig, RealtimeEndpoint, RealtimeOutput, RealtimeStatus, Timeouts,
 };
 
@@ -56,8 +56,8 @@ fn callback(endpoint: &mut RealtimeEndpoint, index: usize) -> (RealtimeOutput, S
             &[&input[0], &input[1]],
             &mut [left, right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     (played, output)
@@ -81,8 +81,8 @@ fn offline(slots: &[plughost::ChainSlot], first: usize, callbacks: usize) -> Vec
                     &[&input[0], &input[1]],
                     &mut [left, right],
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap();
             output

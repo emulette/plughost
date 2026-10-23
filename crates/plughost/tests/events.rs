@@ -4,8 +4,9 @@
 use plughost::{
     AudioBusConfig, AudioDirection, AudioInputRoute, AudioSource, AutomationEvent, BlockContext,
     Chain, ChannelAdaptation, Error, Event, EventData, EventInputRoute, EventPortInfo, EventSource,
-    FailureKind, Layout, ParameterChange, PluginFormat, PluginRef, ProcessMode, RenderOptions,
-    RoutedChainConfig, SampleFormat, SlotAudioConfig, SlotEventConfig, Support, TailPolicy, render,
+    Events, FailureKind, Layout, ParameterChange, PluginFormat, PluginRef, ProcessMode,
+    RenderOptions, RoutedChainConfig, SampleFormat, SlotAudioConfig, SlotEventConfig, Support,
+    TailPolicy, render,
 };
 
 mod support;
@@ -49,7 +50,7 @@ fn two_inputs(chain: &mut Chain, config: &mut RoutedChainConfig, slot: usize) {
 
 /// The events in their MIDI 1.0 form, as a MIDI consumer sees them. The routing fixture's VST3
 /// side sends its notes as VST3 note events, which arrive as notes; its CLAP side sends MIDI.
-fn as_midi(format: PluginFormat, events: &[Event]) -> Vec<Event> {
+fn as_midi(format: PluginFormat, events: &Events) -> Events {
     events
         .iter()
         .map(|event| match (&event.data, event.data.to_midi()) {
@@ -66,9 +67,9 @@ fn as_midi(format: PluginFormat, events: &[Event]) -> Vec<Event> {
                 }) =>
             {
                 assert_eq!(format, PluginFormat::Clap);
-                event.clone()
+                event
             }
-            _ => event.clone(),
+            _ => event,
         })
         .collect()
 }
@@ -79,12 +80,12 @@ fn run(
     chain: &mut Chain,
     config: &RoutedChainConfig,
     frames: usize,
-    events: &[Event],
-) -> Result<(Vec<f32>, Vec<Event>), Error> {
+    events: &Events,
+) -> Result<(Vec<f32>, Events), Error> {
     let input = vec![0.0; frames];
     let inputs = vec![input.as_slice(); config.inputs.len() * 2];
     let (mut left, mut right) = (vec![0.0; frames], vec![0.0; frames]);
-    let mut produced = Vec::new();
+    let mut produced = Events::for_block();
     chain.process_audio_f32(
         &BlockContext::new(frames),
         &inputs,
@@ -142,7 +143,7 @@ fn a_prepared_chain_refuses_a_state_that_changes_the_event_ports() {
     }
     // The active instance stays, with the ports the chain routes by.
     assert_eq!(ports(&mut chain, 0, AudioDirection::Output).len(), 1);
-    run(&mut chain, &config, 512, &[]).unwrap();
+    run(&mut chain, &config, 512, &Events::new()).unwrap();
 }
 
 #[test]
@@ -264,10 +265,10 @@ fn midi_effect_output_plays_an_instrument_before_an_audio_effect() {
         };
         chain.prepare_audio(&config).unwrap();
         // The effect moves key 57 up an octave, so the instrument plays A4 from frame 1000.
-        let events = [
+        let events = Events::from_iter([
             Event::note_on(1000, 0, 57, 127),
             Event::note_off(2000, 0, 57, 0),
-        ];
+        ]);
         let options = RenderOptions::new(TailPolicy::Reported, 0.0);
         let rendered = render::<f32, _>(&mut chain, &[], 4800, &events, &options).unwrap();
         let output = &rendered.channels[0];
@@ -290,11 +291,11 @@ fn the_same_note_on_two_ports_sounds_twice() {
         &mut chain,
         &config,
         64,
-        &[
+        &Events::from_iter([
             Event::note_on(0, 0, 69, 127),
             Event::note_on(0, 0, 69, 127).on_port(1),
             Event::note_off(32, 0, 69, 0),
-        ],
+        ]),
     )
     .unwrap();
     // The second port's voice is inverted: together they cancel, and alone it remains.
@@ -305,7 +306,7 @@ fn the_same_note_on_two_ports_sounds_twice() {
         &mut chain,
         &config,
         64,
-        &[Event::note_off(0, 0, 69, 0).on_port(1)],
+        &Events::from_iter([Event::note_off(0, 0, 69, 0).on_port(1)]),
     )
     .unwrap();
     assert!(output.iter().all(|&s| s == 0.0));
@@ -320,22 +321,28 @@ fn system_exclusive_sustain_and_reset_reach_the_instrument() {
         &mut chain,
         &config,
         64,
-        &[
-            Event::sysex(0, vec![0xF0, 0x7D, 0x01, 64, 0xF7]),
+        &Events::from_iter([
+            Event::sysex(0, &[0xF0, 0x7D, 0x01, 64, 0xF7]),
             Event::control_change(0, 0, 64, 127),
             Event::note_on(10, 0, 69, 127),
             Event::note_off(20, 0, 69, 0),
             Event::control_change(40, 0, 64, 0),
-        ],
+        ]),
     )
     .unwrap();
     assert_eq!(output[10], 64.0 / 127.0);
     // The pedal holds the note past its note off until the pedal is released.
     assert!(output[10..40].iter().all(|&s| s != 0.0));
     assert!(output[40..].iter().all(|&s| s == 0.0));
-    run(&mut chain, &config, 64, &[Event::note_on(0, 0, 69, 127)]).unwrap();
+    run(
+        &mut chain,
+        &config,
+        64,
+        &Events::from_iter([Event::note_on(0, 0, 69, 127)]),
+    )
+    .unwrap();
     chain.reset().unwrap();
-    let (output, _) = run(&mut chain, &config, 64, &[]).unwrap();
+    let (output, _) = run(&mut chain, &config, 64, &Events::new()).unwrap();
     assert!(output.iter().all(|&s| s == 0.0));
 }
 
@@ -349,12 +356,12 @@ fn last_slot_events_leave_the_chain_in_offset_order() {
             &mut chain,
             &config,
             64,
-            &[
+            &Events::from_iter([
                 Event::note_on(5, 0, 60, 100),
                 Event::note_on(7, 3, 60, 90).on_port(1),
-                Event::sysex(9, sysex.clone()),
+                Event::sysex(9, &sysex),
                 Event::note_off(11, 3, 60, 0).on_port(1),
-            ],
+            ]),
         )
         .unwrap();
         assert_eq!(
@@ -364,7 +371,7 @@ fn last_slot_events_leave_the_chain_in_offset_order() {
                 Event::control_change(5, 0, KEY_CONTROLLER, 60),
                 Event::note_on(7, 3, 84, 90),
                 Event::control_change(7, 3, KEY_CONTROLLER, 60),
-                Event::sysex(9, sysex),
+                Event::sysex(9, &sysex),
                 Event::note_off(11, 3, 84, 0),
             ],
             "{format:?}"
@@ -379,13 +386,19 @@ fn events_a_plugin_sends_past_the_block_land_on_its_last_frame() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let (mut chain, config) = routing_chain(format, true);
         chain.take_diagnostics().unwrap();
-        let (_, produced) = run(&mut chain, &config, 64, &[Event::note_off(10, 0, 0, 0)]).unwrap();
+        let (_, produced) = run(
+            &mut chain,
+            &config,
+            64,
+            &Events::from_iter([Event::note_off(10, 0, 0, 0)]),
+        )
+        .unwrap();
         assert_eq!(
             as_midi(format, &produced),
             [Event::note_off(63, 0, 12, 0)],
             "{format:?}"
         );
-        let (_, produced) = run(&mut chain, &config, 64, &[]).unwrap();
+        let (_, produced) = run(&mut chain, &config, 64, &Events::new()).unwrap();
         assert_eq!(produced, [], "{format:?}");
         let diagnostics = chain.take_diagnostics().unwrap();
         assert!(
@@ -400,17 +413,29 @@ fn events_a_plugin_sends_past_the_block_land_on_its_last_frame() {
 fn exceeding_the_output_budget_stops_processing_until_reset() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let (mut chain, config) = routing_chain(format, true);
-        let error = run(&mut chain, &config, 64, &[Event::sysex(0, FLOOD.to_vec())]).unwrap_err();
+        let error = run(
+            &mut chain,
+            &config,
+            64,
+            &Events::from_iter([Event::sysex(0, &FLOOD)]),
+        )
+        .unwrap_err();
         assert_eq!(error.kind(), FailureKind::Processing, "{format:?}");
         assert!(matches!(error, Error::Operation { slot: Some(0), .. }));
         // Events already delivered to the plugin may be lost, so the stream is out of sync.
-        let error = run(&mut chain, &config, 64, &[]).unwrap_err();
+        let error = run(&mut chain, &config, 64, &Events::new()).unwrap_err();
         assert!(matches!(error, Error::Operation { slot: None, .. }));
         assert_eq!(error.kind(), FailureKind::Processing);
         chain.reset().unwrap();
-        let (_, produced) = run(&mut chain, &config, 64, &[Event::note_on(0, 0, 60, 100)]).unwrap();
+        let (_, produced) = run(
+            &mut chain,
+            &config,
+            64,
+            &Events::from_iter([Event::note_on(0, 0, 60, 100)]),
+        )
+        .unwrap();
         assert_eq!(
-            as_midi(format, &produced[..1]),
+            as_midi(format, &produced.iter().take(1).collect()),
             [Event::note_on(0, 0, 72, 100)],
             "{format:?}"
         );
@@ -428,7 +453,7 @@ fn system_exclusive_output_declared_past_the_budget_fails_the_block_unread() {
             &mut chain,
             &config,
             64,
-            &[Event::sysex(0, OVERSIZED.to_vec())],
+            &Events::from_iter([Event::sysex(0, &OVERSIZED)]),
         )
         .unwrap_err();
         assert!(
@@ -453,8 +478,8 @@ fn first_slot_route_expansion_is_rejected_without_requiring_reset() {
         sysex[0] = 0xF0;
         *sysex.last_mut().unwrap() = 0xF7;
         for events in [
-            vec![Event::note_off(0, 0, 60, 0); plughost::MAX_BLOCK_EVENTS / 2 + 1],
-            vec![Event::sysex(0, sysex)],
+            Events::from_iter([Event::note_off(0, 0, 60, 0); plughost::MAX_BLOCK_EVENTS / 2 + 1]),
+            Events::from_iter([Event::sysex(0, &sysex)]),
         ] {
             assert!(
                 matches!(
@@ -466,8 +491,13 @@ fn first_slot_route_expansion_is_rejected_without_requiring_reset() {
                 ),
                 "{format:?}"
             );
-            let (_, produced) =
-                run(&mut chain, &config, 64, &[Event::note_on(0, 0, 60, 100)]).unwrap();
+            let (_, produced) = run(
+                &mut chain,
+                &config,
+                64,
+                &Events::from_iter([Event::note_on(0, 0, 60, 100)]),
+            )
+            .unwrap();
             assert_eq!(
                 as_midi(format, &produced),
                 [
@@ -518,7 +548,7 @@ fn events_from_the_previous_slot_and_its_automation_share_one_budget() {
             .id;
         // The first slot sends each note on with a controller: 4,000 events for the second slot,
         // which with its 100 automation points exceed one block.
-        let events: Vec<Event> = (0..2000)
+        let events: Events = (0..2000)
             .map(|index| Event::note_on(index * 512 / 2000, 0, 60, 100))
             .collect();
         let automation: Vec<AutomationEvent> = (0..100)
@@ -533,14 +563,14 @@ fn events_from_the_previous_slot_and_its_automation_share_one_budget() {
             .collect();
         let input = [0.0f32; 512];
         let (mut left, mut right) = ([0.0f32; 512], [0.0f32; 512]);
-        let mut block = |chain: &mut Chain, automation: &[AutomationEvent], events: &[Event]| {
+        let mut block = |chain: &mut Chain, automation: &[AutomationEvent], events: &Events| {
             chain.process_audio_f32(
                 &BlockContext::new(512),
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 automation,
                 events,
-                &mut Vec::new(),
+                &mut Events::for_block(),
             )
         };
         let error = block(&mut chain, &automation, &events).unwrap_err();
@@ -550,10 +580,10 @@ fn events_from_the_previous_slot_and_its_automation_share_one_budget() {
         );
         assert_eq!(error.kind(), FailureKind::Processing, "{format:?}");
         // The first slot took its events, so the stream is out of sync until a reset.
-        let error = block(&mut chain, &[], &[]).unwrap_err();
+        let error = block(&mut chain, &[], &Events::new()).unwrap_err();
         assert!(matches!(error, Error::Operation { slot: None, .. }));
         chain.reset().unwrap();
-        block(&mut chain, &automation, &events[..1000]).unwrap();
+        block(&mut chain, &automation, &events.iter().take(1000).collect()).unwrap();
     }
 }
 
@@ -564,9 +594,9 @@ fn misplaced_events_are_refused_as_event_input() {
     let on = Event::note_on(10, 0, 60, 100);
     let off = Event::note_off(20, 0, 60, 0);
     for events in [
-        vec![off.clone(), on.clone()],
-        vec![on.clone().at(64)],
-        vec![Event::midi(0, [0x90, 0x80, 1])],
+        Events::from_iter([off, on]),
+        Events::from_iter([on.at(64)]),
+        Events::from_iter([Event::midi(0, [0x90, 0x80, 1])]),
     ] {
         assert!(
             matches!(
@@ -580,5 +610,11 @@ fn misplaced_events_are_refused_as_event_input() {
         );
     }
     // Program change has one data byte; the third is ignored.
-    run(&mut chain, &config, 64, &[Event::midi(0, [0xC0, 5, 0x80])]).unwrap();
+    run(
+        &mut chain,
+        &config,
+        64,
+        &Events::from_iter([Event::midi(0, [0xC0, 5, 0x80])]),
+    )
+    .unwrap();
 }

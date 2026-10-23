@@ -1,7 +1,7 @@
 use super::{ClapError, Plugin, lock};
 use crate::Error;
 use plughost_core::render::{Process, Tail};
-use plughost_core::{AudioDirection, AutomationEvent, BlockContext, Event, InputError, Sample};
+use plughost_core::{AudioDirection, AutomationEvent, BlockContext, InputError, Sample};
 impl<S: Sample> Process<S> for Plugin {
     type Error = Error;
     fn sample_rate(&self) -> f64 {
@@ -26,7 +26,7 @@ impl<S: Sample> Process<S> for Plugin {
         self.config().ok_or(ClapError::NotPrepared)?;
         Ok(())
     }
-    fn validate_events(&mut self, events: &[Event]) -> Result<(), Error> {
+    fn validate_events(&mut self, events: &plughost_core::Events) -> Result<(), Error> {
         let engine = lock(&self.engine);
         let prepared = engine.prepared.as_ref().ok_or(ClapError::NotPrepared)?;
         if let Some(event) = events.iter().find(|event| {
@@ -63,8 +63,8 @@ impl<S: Sample> Process<S> for Plugin {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[AutomationEvent],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), Error> {
         if automation.iter().any(|event| event.slot != 0) {
             return Err(InputError::Slot.into());

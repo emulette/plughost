@@ -9,11 +9,11 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use plughost::{
-    Chain, HostIdentity, Layout, PluginFormat, PluginRef, ProcessMode, RenderOptions, SampleFormat,
-    ScanOutcome, Scanner, SpawnOptions, StatePurpose, TailPolicy, Timeouts, render,
+    Chain, Events, HostIdentity, Layout, PluginFormat, PluginRef, ProcessMode, RenderOptions,
+    SampleFormat, ScanOutcome, Scanner, SpawnOptions, StatePurpose, TailPolicy, Timeouts, render,
 };
 use plughost_core::render::{Process, Tail};
-use plughost_core::{AutomationEvent, BlockContext, Event, ProcessConfig};
+use plughost_core::{AutomationEvent, BlockContext, ProcessConfig};
 use plughost_formats::{BlockProcessor, HostedPlugin};
 
 use errors::Result;
@@ -144,8 +144,8 @@ impl Process<f32> for Direct {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         _automation: &[AutomationEvent],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &Events,
+        produced: &mut Events,
     ) -> std::result::Result<(), Self::Error> {
         self.processor
             .process_audio_f32(context, input, output, &[], events, produced)
@@ -210,7 +210,15 @@ fn direct_render(
         let (rendered, seconds) = std::thread::scope(|scope| {
             scope
                 .spawn(|| {
-                    timed(|| render(&mut direct, &[&input[0], &input[1]], frames, &[], &OPTIONS))
+                    timed(|| {
+                        render(
+                            &mut direct,
+                            &[&input[0], &input[1]],
+                            frames,
+                            &Events::new(),
+                            &OPTIONS,
+                        )
+                    })
                 })
                 .join()
         })
@@ -236,8 +244,15 @@ fn isolated_render(
     for trial in 0..=trials {
         chain.reset()?;
         let frames = input[0].len();
-        let (rendered, seconds) =
-            timed(|| render(chain, &[&input[0], &input[1]], frames, &[], &OPTIONS));
+        let (rendered, seconds) = timed(|| {
+            render(
+                chain,
+                &[&input[0], &input[1]],
+                frames,
+                &Events::new(),
+                &OPTIONS,
+            )
+        });
         rendered?;
         if trial > 0 {
             times.push(seconds);

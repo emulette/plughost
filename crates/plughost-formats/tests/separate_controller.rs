@@ -2,8 +2,8 @@
 #![cfg(feature = "vst3")]
 
 use plughost_core::{
-    BlockContext, HostIdentity, Layout, ParameterChange, PluginRef, ProcessConfig, ProcessMode,
-    SampleFormat, StatePurpose,
+    BlockContext, Events, HostIdentity, Layout, ParameterChange, PluginRef, ProcessConfig,
+    ProcessMode, SampleFormat, StatePurpose,
 };
 use plughost_formats::HostedPlugin;
 use std::path::Path;
@@ -49,8 +49,8 @@ fn component_state_and_connection_messages_reach_a_separate_controller() {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 changes,
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         assert_eq!(right, left);

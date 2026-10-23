@@ -6,7 +6,7 @@
 use std::f64::consts::TAU;
 
 use plughost::{
-    AudioDirection, BlockContext, Chain, Event, EventData, EventInputRoute, EventSource,
+    AudioDirection, BlockContext, Chain, Event, EventData, EventInputRoute, EventSource, Events,
     ExpressionKind, Layout, Note, NoteExpression, PluginFormat, RoutedChainConfig, SlotEventConfig,
 };
 
@@ -19,21 +19,21 @@ const SAMPLE_RATE: f64 = 48_000.0;
 const FRAMES: usize = 512;
 const KEY: u8 = 69;
 
-fn note_on(offset: usize, id: u32, velocity: f64) -> Event {
+fn note_on(offset: usize, id: u32, velocity: f64) -> Event<'static> {
     Event::new(
         offset,
         EventData::NoteOn(Note::new(0, KEY, velocity).with_id(id)),
     )
 }
 
-fn note_off(offset: usize, id: u32) -> Event {
+fn note_off(offset: usize, id: u32) -> Event<'static> {
     Event::new(
         offset,
         EventData::NoteOff(Note::new(0, KEY, 0.0).with_id(id)),
     )
 }
 
-fn expression(offset: usize, id: u32, kind: ExpressionKind, value: f64) -> Event {
+fn expression(offset: usize, id: u32, kind: ExpressionKind, value: f64) -> Event<'static> {
     let expression = NoteExpression::new(0, KEY, kind, value).with_id(id);
     Event::new(offset, EventData::Expression(expression))
 }
@@ -42,7 +42,7 @@ fn expression(offset: usize, id: u32, kind: ExpressionKind, value: f64) -> Event
 /// `velocity × (1 + pressure) × cos(phase)` at its key plus its tuning, from the sample of its
 /// note on to the sample of its note off. A note off or expression without an ID reaches every
 /// note.
-fn expected(events: &[Event]) -> Vec<f32> {
+fn expected(events: &Events) -> Vec<f32> {
     struct Voice {
         id: u32,
         velocity: f64,
@@ -92,11 +92,11 @@ fn expected(events: &[Event]) -> Vec<f32> {
 }
 
 /// Processes one block of `events` and returns the left channel and the chain's output events.
-fn run(chain: &mut Chain, config: &RoutedChainConfig, events: &[Event]) -> (Vec<f32>, Vec<Event>) {
+fn run(chain: &mut Chain, config: &RoutedChainConfig, events: &Events) -> (Vec<f32>, Events) {
     let outputs = config.output_channels();
     let mut output = vec![vec![0.0; FRAMES]; outputs];
     let mut views: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
-    let mut produced = Vec::new();
+    let mut produced = Events::for_block();
     chain
         .process_audio_f32(
             &BlockContext::new(FRAMES),
@@ -110,7 +110,7 @@ fn run(chain: &mut Chain, config: &RoutedChainConfig, events: &[Event]) -> (Vec<
     (output.into_iter().next().unwrap_or_default(), produced)
 }
 
-fn assert_plays(output: &[f32], events: &[Event], context: &str) {
+fn assert_plays(output: &[f32], events: &Events, context: &str) {
     let expected = expected(events);
     for (frame, (actual, expected)) in output.iter().zip(&expected).enumerate() {
         assert!(
@@ -145,7 +145,7 @@ fn routing_slot(chain: &mut Chain, slot: usize) -> (SlotEventConfig, u64) {
 #[test]
 #[ignore = "needs helper and synth fixtures (.ps1 or .sh build scripts)"]
 fn overlapping_notes_on_one_key_take_their_own_tuning_and_pressure() {
-    let events = [
+    let events = Events::from_iter([
         note_on(0, 1, 0.5),
         // A second note on the same key, told apart by its ID.
         note_on(64, 2, 0.25),
@@ -155,7 +155,7 @@ fn overlapping_notes_on_one_key_take_their_own_tuning_and_pressure() {
         // The first note ends; the second keeps sounding with its tuning.
         note_off(256, 1),
         note_off(320, 2),
-    ];
+    ]);
     for format in FORMATS {
         let mut chain = spawn(&[synth(format)]);
         let config = chain
@@ -173,13 +173,13 @@ fn overlapping_notes_on_one_key_take_their_own_tuning_and_pressure() {
 #[ignore = "needs helper and synth fixtures (.ps1 or .sh build scripts)"]
 fn a_note_off_or_expression_without_an_id_reaches_every_note_on_its_key() {
     let tuning = NoteExpression::new(0, KEY, ExpressionKind::Tuning, 12.0);
-    let events = [
+    let events = Events::from_iter([
         note_on(0, 1, 0.5),
         note_on(64, 2, 0.25),
         // Both notes go an octave up, and both end.
         Event::new(128, EventData::Expression(tuning)),
         Event::new(256, EventData::NoteOff(Note::new(0, KEY, 0.0))),
-    ];
+    ]);
     for format in FORMATS {
         let mut chain = spawn(&[synth(format)]);
         let config = chain
@@ -195,12 +195,12 @@ fn a_note_off_or_expression_without_an_id_reaches_every_note_on_its_key() {
 #[test]
 #[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
 fn notes_and_expressions_a_plugin_sends_reach_the_application() {
-    let events = [
+    let events = Events::from_iter([
         note_on(4, 7, 0.5),
         expression(10, 7, ExpressionKind::Tuning, 15.0),
         expression(12, 7, ExpressionKind::Pressure, 0.5),
         Event::new(20, EventData::NoteOff(Note::new(0, KEY, 0.25).with_id(7))),
-    ];
+    ]);
     for format in FORMATS {
         let mut chain = spawn(&[routing(format)]);
         let mut config = chain
@@ -211,7 +211,7 @@ fn notes_and_expressions_a_plugin_sends_reach_the_application() {
         let input = vec![0.0; FRAMES];
         let mut output = vec![vec![0.0; FRAMES]; 2];
         let mut views: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
-        let mut produced = Vec::new();
+        let mut produced = Events::for_block();
         chain
             .process_audio_f32(
                 &BlockContext::new(FRAMES),
@@ -229,12 +229,12 @@ fn notes_and_expressions_a_plugin_sends_reach_the_application() {
 #[test]
 #[ignore = "needs helper, routing and synth fixtures (.ps1 or .sh build scripts)"]
 fn expressions_a_plugin_sends_play_the_next_slot_at_their_offsets() {
-    let events = [
+    let events = Events::from_iter([
         note_on(0, 3, 0.5),
         expression(100, 3, ExpressionKind::Tuning, 12.0),
         expression(200, 3, ExpressionKind::Pressure, 0.5),
         note_off(300, 3),
-    ];
+    ]);
     for source in FORMATS {
         for instrument in FORMATS {
             let mut chain = spawn(&[routing(source), synth(instrument)]);
@@ -268,19 +268,19 @@ fn notes_reach_a_midi_port_in_their_midi_form() {
     let input = vec![0.0; FRAMES];
     let mut output = vec![vec![0.0; FRAMES]; 2];
     let mut views: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
-    let mut produced = Vec::new();
+    let mut produced = Events::for_block();
     chain
         .process_audio_f32(
             &BlockContext::new(FRAMES),
             &[&input, &input],
             &mut views,
             &[],
-            &[
+            &Events::from_iter([
                 Event::new(5, EventData::NoteOn(Note::new(0, 60, 0.5).with_id(9))),
                 // Tuning has no MIDI 1.0 form; it does not reach the port.
                 expression(6, 9, ExpressionKind::Tuning, 1.0),
                 Event::new(7, EventData::NoteOff(Note::new(0, 60, 0.0).with_id(9))),
-            ],
+            ]),
             &mut produced,
         )
         .unwrap();
@@ -311,22 +311,22 @@ fn a_later_slot_that_cannot_take_its_notes_stops_processing_until_reset() {
     run(
         &mut chain,
         &config,
-        &[note_on(0, 1, 0.5), note_on(0, 2, 0.5), note_on(0, 3, 0.5)],
+        &Events::from_iter([note_on(0, 1, 0.5), note_on(0, 2, 0.5), note_on(0, 3, 0.5)]),
     );
     // Each tuning without an ID reaches all three notes in VST3: 9,000 native events, more
     // than one block holds, after the routing slot took them.
     let tuning = NoteExpression::new(0, KEY, ExpressionKind::Tuning, 1.0);
-    let events = vec![Event::new(0, EventData::Expression(tuning)); 3000];
+    let events = Events::from_iter([Event::new(0, EventData::Expression(tuning)); 3000]);
     let mut output = vec![vec![0.0; FRAMES]; 2];
     let mut views: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
-    let mut block = |events: &[Event]| {
+    let mut block = |events: &Events| {
         chain.process_audio_f32(
             &BlockContext::new(FRAMES),
             &[],
             &mut views,
             &[],
             events,
-            &mut Vec::new(),
+            &mut Events::for_block(),
         )
     };
     let error = block(&events).unwrap_err();
@@ -334,13 +334,13 @@ fn a_later_slot_that_cannot_take_its_notes_stops_processing_until_reset() {
         matches!(error, plughost::Error::Operation { slot: Some(1), .. }),
         "{error:?}"
     );
-    let error = block(&[]).unwrap_err();
+    let error = block(&Events::new()).unwrap_err();
     assert!(
         matches!(error, plughost::Error::Operation { slot: None, .. }),
         "{error:?}"
     );
     chain.reset().unwrap();
-    run(&mut chain, &config, &[]);
+    run(&mut chain, &config, &Events::new());
 }
 
 #[test]
@@ -351,20 +351,22 @@ fn a_first_slot_native_event_overflow_is_rejected_without_advancing() {
     let config = chain
         .main_bus_config(SAMPLE_RATE, FRAMES, Layout::None, &[Layout::Stereo])
         .unwrap();
-    let notes = [note_on(0, 1, 0.5), note_on(0, 2, 0.5), note_on(0, 3, 0.5)];
+    let notes = Events::from_iter([note_on(0, 1, 0.5), note_on(0, 2, 0.5), note_on(0, 3, 0.5)]);
     for chain in [&mut chain, &mut reference] {
         chain.prepare_audio(&config).unwrap();
         run(chain, &config, &notes);
     }
     let tuning = NoteExpression::new(0, KEY, ExpressionKind::Tuning, 1.0);
-    let mut events = vec![Event::new(0, EventData::Expression(tuning)); 3000];
-    events.push(Event::new(
-        FRAMES - 1,
-        EventData::NoteOff(Note::new(0, KEY, 0.0)),
-    ));
+    let mut events = Events::from_iter([Event::new(0, EventData::Expression(tuning)); 3000]);
+    events
+        .push(Event::new(
+            FRAMES - 1,
+            EventData::NoteOff(Note::new(0, KEY, 0.0)),
+        ))
+        .unwrap();
     let mut output = vec![vec![7.0; FRAMES]; 2];
     let mut views: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
-    let mut produced = vec![notes[0].clone()];
+    let mut produced = Events::from_iter(notes.get(0));
     let error = chain
         .process_audio_f32(
             &BlockContext::new(FRAMES),
@@ -386,9 +388,10 @@ fn a_first_slot_native_event_overflow_is_rejected_without_advancing() {
         "{error:?}"
     );
     assert!(output.iter().flatten().all(|&sample| sample == 7.0));
-    assert_eq!(produced, [notes[0].clone()]);
+    assert_eq!(produced.get(0), notes.get(0));
+    assert_eq!(produced.len(), 1);
     // Retrying needs no reset, and the rejected tuning/note off did not change or advance DSP.
-    let (retried, _) = run(&mut chain, &config, &[]);
-    assert_eq!(retried, run(&mut reference, &config, &[]).0);
+    let (retried, _) = run(&mut chain, &config, &Events::new());
+    assert_eq!(retried, run(&mut reference, &config, &Events::new()).0);
     assert!(retried.iter().any(|&sample| sample != 0.0));
 }

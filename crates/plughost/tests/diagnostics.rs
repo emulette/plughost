@@ -1,5 +1,5 @@
 //! Real CLAP callbacks are collected in bounded queues and explicitly drained over IPC.
-use plughost::{DiagnosticSeverity, FailureKind, Layout, PluginFormat};
+use plughost::{DiagnosticSeverity, Events, FailureKind, Layout, PluginFormat};
 
 mod support;
 
@@ -56,8 +56,8 @@ fn plugin_severity_identity_overflow_and_reset_survive_ipc() {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
     }

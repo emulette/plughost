@@ -6,7 +6,7 @@ use plughost_core::render::{
     AutomationRamp, Process, RenderInput, RenderOptions, RenderSchedule, Tail, TailPolicy,
     render_stream,
 };
-use plughost_core::{AutomationEvent, BlockContext, Event, ParameterChange, RenderError};
+use plughost_core::{AutomationEvent, BlockContext, Event, Events, ParameterChange, RenderError};
 
 const SEED: u64 = 0xcbf29ce484222325;
 
@@ -51,8 +51,8 @@ impl Process<f32> for Probe {
         _: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[AutomationEvent],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &Events,
+        produced: &mut Events,
     ) -> Result<(), Self::Error> {
         let mut offset = 0;
         for point in automation {
@@ -73,7 +73,9 @@ impl Process<f32> for Probe {
         self.frames += context.frames;
         self.calls += 1;
         produced.clear();
-        produced.extend_from_slice(events);
+        for event in events {
+            produced.push(event).unwrap();
+        }
         Ok(())
     }
 }
@@ -83,7 +85,7 @@ fn run(
     frames: usize,
     ramps: &[AutomationRamp],
     points: &[AutomationEvent],
-    events: &[Event],
+    events: &Events,
     expected: [u64; 3],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let schedule = RenderSchedule {
@@ -157,7 +159,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         48_000 * 60,
         &ramps,
         &[],
-        &[],
+        &Events::new(),
         [0x9c37586baa53bc45, 0xb7771fc047d8b275, SEED],
     )?;
 
@@ -177,7 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         640,
         &ramps,
         &[],
-        &[],
+        &Events::new(),
         [0xedce44cd9847ece5, 0x037b62c199379f65, SEED],
     )?;
 
@@ -204,7 +206,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
         })
         .collect();
-    let events: Vec<_> = (0..2048)
+    let events: Events = (0..2048)
         .map(|index| Event::note_on(index * 512 + 100, 0, 60, 90))
         .collect();
     run(

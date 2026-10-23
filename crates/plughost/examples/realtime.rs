@@ -22,8 +22,8 @@ use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use plughost::{
-    BlockContext, Chain, Error, Event, Layout, MAX_BLOCK_EVENTS, PluginFormat, PluginId,
-    PluginKind, PluginRef, RealtimeConfig, RealtimeEndpoint, Scanner, SpawnOptions,
+    BlockContext, Chain, Error, Event, Events, Layout, PluginFormat, PluginId, PluginKind,
+    PluginRef, RealtimeConfig, RealtimeEndpoint, Scanner, SpawnOptions,
 };
 
 const USAGE: &str = "usage: realtime <helper executable> <bundle.vst3 | bundle.clap | Audio Unit class ID> [class index] [seconds] [quantum]";
@@ -90,7 +90,9 @@ struct Callback {
     tone: [Vec<f32>; 2],
     /// Quanta processed, which time the tone and the notes.
     quanta: u64,
-    produced: Vec<Event>,
+    /// The quantum's notes and the events the chain produced, in room reserved up front.
+    notes: Events,
+    produced: Events,
 }
 
 impl Callback {
@@ -121,11 +123,15 @@ impl Callback {
         right_tone.copy_from_slice(left_tone);
         // Instruments play the note for one second of every two.
         let second = (self.rate / self.quantum as f64) as u64;
-        let notes = match self.quanta % (2 * second) {
+        self.notes.clear();
+        let note = match self.quanta % (2 * second) {
             0 if self.instrument => Some(Event::note_on(0, 0, KEY, 100)),
             phase if self.instrument && phase == second => Some(Event::note_off(0, 0, KEY, 0)),
             _ => None,
         };
+        if let Some(note) = note {
+            self.notes.push(note).unwrap();
+        }
         let input: [&[f32]; 2] = [left_tone, right_tone];
         let input = if self.instrument { &[][..] } else { &input[..] };
         let [left, right] = &mut self.output;
@@ -134,7 +140,7 @@ impl Callback {
             input,
             &mut [left, right],
             &[],
-            notes.as_slice(),
+            &self.notes,
             &mut self.produced,
         );
         // Invalid buffers leave the output as it was; play silence instead.
@@ -201,7 +207,8 @@ fn run(
         played: quantum,
         tone: [vec![0.0; quantum], vec![0.0; quantum]],
         quanta: 0,
-        produced: Vec::with_capacity(MAX_BLOCK_EVENTS),
+        notes: Events::for_block(),
+        produced: Events::for_block(),
     };
     let stream = device
         .build_output_stream::<f32, _, _>(

@@ -1,7 +1,7 @@
 //! Recovering a chain in a new helper from the application's last saved states. Build the helper
 //! and the test plugins first (see `support`).
 
-use plughost::{Chain, Error, FailureKind, PluginFormat, StatePurpose};
+use plughost::{Chain, Error, Events, FailureKind, PluginFormat, StatePurpose};
 
 mod support;
 
@@ -61,8 +61,8 @@ fn a_crashed_chain_recovers_from_its_last_snapshot() {
                 &[&[0.0; 64], &[0.0; 64]],
                 &mut [&mut [0.0; 64], &mut [0.0; 64]],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             ),
             Err(Error::Crashed { slot: Some(1), .. })
         ));

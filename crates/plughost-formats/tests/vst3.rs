@@ -11,7 +11,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use plughost_core::render::{RenderOptions, TailPolicy, render};
 use plughost_core::{
-    Event, FailureKind, InputError, Layout, PluginKind, ProcessConfig, ProcessMode, Sample,
+    Event, Events, FailureKind, InputError, Layout, PluginKind, ProcessConfig, ProcessMode, Sample,
     SampleFormat,
 };
 use plughost_formats::HostedPlugin;
@@ -126,7 +126,7 @@ fn render_preflight_rejects_unprepared_and_late_invalid_ports() {
     let input = [1.0f32; 32];
     let options = RenderOptions::new(TailPolicy::Reported, 0.0);
     assert_eq!(
-        render(&mut plugin, &[&input, &input], 32, &[], &options)
+        render(&mut plugin, &[&input, &input], 32, &Events::new(), &options)
             .unwrap_err()
             .kind(),
         FailureKind::NotPrepared
@@ -139,7 +139,7 @@ fn render_preflight_rejects_unprepared_and_late_invalid_ports() {
             &mut plugin,
             &[&input, &input],
             32,
-            &[Event::note_on(24, 0, 60, 100).on_port(99)],
+            &Events::from_iter([Event::note_on(24, 0, 60, 100).on_port(99)]),
             &options,
         )
         .unwrap_err()
@@ -216,8 +216,8 @@ fn invalid_prepare_keeps_the_existing_processor_usable() {
             &[&input, &input],
             &mut [&mut output, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert!(output.iter().all(|value| (*value - 0.5).abs() < 1e-6));
@@ -305,8 +305,8 @@ fn malformed_parameter_changes_do_not_touch_audio_or_pending_edits() {
                     &[&input, &input],
                     &mut [&mut output, &mut right],
                     &changes,
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap_err()
                 .input_error(),
@@ -321,8 +321,8 @@ fn malformed_parameter_changes_do_not_touch_audio_or_pending_edits() {
             &[&input, &input],
             &mut [&mut output, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert!(output.iter().all(|value| (*value - 0.5).abs() < 1e-6));
@@ -341,7 +341,7 @@ fn signal<S: Sample>(frames: usize, from_f64: fn(f64) -> S) -> Vec<Vec<S>> {
 fn run<S: Sample>(plugin: &mut Plugin, input: &[Vec<S>]) -> Vec<Vec<S>> {
     let slices: Vec<&[S]> = input.iter().map(Vec::as_slice).collect();
     let options = RenderOptions::new(TailPolicy::Reported, 0.0);
-    render(plugin, &slices, input[0].len(), &[], &options)
+    render(plugin, &slices, input[0].len(), &Events::new(), &options)
         .unwrap()
         .channels
 }
@@ -560,8 +560,8 @@ fn a_main_input_the_caller_does_not_use_gets_silence() {
             &[],
             &mut outputs,
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert!(output.iter().flatten().all(|&s| s == 0.0));
@@ -588,8 +588,8 @@ fn buffers_must_match_the_prepared_sample_format() {
                 &inputs,
                 &mut outputs,
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap_err()
             .input_error(),
@@ -638,8 +638,8 @@ fn edits_reach_a_processor_running_on_another_thread() {
                     &inputs,
                     &mut outputs,
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap();
             let ratio = output[0][100] / input[0][100];
@@ -681,8 +681,8 @@ fn automation_reaches_the_controller_on_the_owning_thread_only() {
                         offset: 0,
                         value,
                     }],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap();
         }
@@ -748,8 +748,8 @@ fn processors_fail_once_the_plugin_is_dropped() {
                 &inputs,
                 &mut outputs,
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap_err()
             .kind(),
@@ -758,7 +758,7 @@ fn processors_fail_once_the_plugin_is_dropped() {
 }
 
 /// One block of `again` with `events`; again applies note velocity and gain per block.
-fn again_block(plugin: &mut Plugin, input: &[Vec<f32>], events: &[Event]) -> Vec<Vec<f32>> {
+fn again_block(plugin: &mut Plugin, input: &[Vec<f32>], events: &Events) -> Vec<Vec<f32>> {
     let inputs: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
     let mut output = vec![vec![0.0f32; input[0].len()]; 2];
     let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
@@ -769,7 +769,7 @@ fn again_block(plugin: &mut Plugin, input: &[Vec<f32>], events: &[Event]) -> Vec
             &mut outputs,
             &[],
             events,
-            &mut Vec::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     output
@@ -785,9 +785,17 @@ fn notes_reach_the_event_input() {
         .unwrap();
     let input = signal(512, |v| v as f32);
     // again lowers its gain by the velocity of the held note.
-    let held = again_block(&mut plugin, &input, &[Event::note_on(0, 0, 60, 64)]);
+    let held = again_block(
+        &mut plugin,
+        &input,
+        &Events::from_iter([Event::note_on(0, 0, 60, 64)]),
+    );
     assert!(max_difference(&held, &input, 1.0 - 64.0 / 127.0) < 1e-6);
-    let released = again_block(&mut plugin, &input, &[Event::note_off(0, 0, 60, 0)]);
+    let released = again_block(
+        &mut plugin,
+        &input,
+        &Events::from_iter([Event::note_off(0, 0, 60, 0)]),
+    );
     assert!(max_difference(&released, &input, 1.0) < 1e-6);
 }
 
@@ -801,7 +809,11 @@ fn midi_controllers_reach_the_parameters_the_controller_maps() {
         .unwrap();
     let input = signal(512, |v| v as f32);
     // again maps MIDI volume (controller 7) to its gain.
-    let output = again_block(&mut plugin, &input, &[Event::control_change(0, 0, 7, 32)]);
+    let output = again_block(
+        &mut plugin,
+        &input,
+        &Events::from_iter([Event::control_change(0, 0, 7, 32)]),
+    );
     assert!(max_difference(&output, &input, 32.0 / 127.0) < 1e-6);
     assert!((plugin.parameter_value(AGAIN_GAIN) - 32.0 / 127.0).abs() < 1e-6);
 }
@@ -836,8 +848,8 @@ fn instruments_start_notes_at_their_sample_offsets() {
             &[],
             &mut outputs,
             &[],
-            &[Event::note_on(100, 0, 60, 127)],
-            &mut Vec::new(),
+            &Events::from_iter([Event::note_on(100, 0, 60, 127)]),
+            &mut Events::for_block(),
         )
         .unwrap();
     // The synth's sine starts at zero on the note's first sample.
@@ -931,7 +943,10 @@ fn changed_midi_controller_assignments_are_followed() {
     let input = vec![vec![0.5f32; 512]; 2];
     let inputs: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
     let mut output = vec![vec![0.0f32; 512]; 2];
-    for events in [&[Event::control_change(0, 0, 11, 64)][..], &[]] {
+    for events in [
+        Events::from_iter([Event::control_change(0, 0, 11, 64)]),
+        Events::new(),
+    ] {
         let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
         plugin
             .process(
@@ -941,8 +956,8 @@ fn changed_midi_controller_assignments_are_followed() {
                 &inputs,
                 &mut outputs,
                 &[],
-                events,
-                &mut Vec::new(),
+                &events,
+                &mut Events::for_block(),
             )
             .unwrap();
     }
@@ -1009,7 +1024,7 @@ fn note_events_without_an_id_that_overflow_the_event_list_refuse_the_block() {
             ..config(48_000.0, SampleFormat::F32)
         })
         .unwrap();
-    let mut block = |events: &[Event]| {
+    let mut block = |events: &Events| {
         let mut output = vec![vec![0.0f32; 512]; 2];
         let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
         plugin
@@ -1019,25 +1034,27 @@ fn note_events_without_an_id_that_overflow_the_event_list_refuse_the_block() {
                 &mut outputs,
                 &[],
                 events,
-                &mut Vec::new(),
+                &mut Events::for_block(),
             )
             .map(|()| output)
     };
-    let notes: Vec<Event> = (1..=3)
+    let notes: Events = (1..=3)
         .map(|id| Event::new(0, EventData::NoteOn(Note::new(0, KEY, 1.0).with_id(id))))
         .collect();
     block(&notes).unwrap();
     // Each tuning without an ID reaches all three notes: 9,000 native events, and the note off
     // after them three more.
     let tuning = NoteExpression::new(0, KEY, ExpressionKind::Tuning, 0.0);
-    let mut events = vec![Event::new(0, EventData::Expression(tuning)); 3000];
-    events.push(Event::new(511, EventData::NoteOff(Note::new(0, KEY, 0.0))));
+    let mut events = Events::from_iter([Event::new(0, EventData::Expression(tuning)); 3000]);
+    events
+        .push(Event::new(511, EventData::NoteOff(Note::new(0, KEY, 0.0))))
+        .unwrap();
     assert_eq!(
         block(&events).unwrap_err().input_error(),
         Some(InputError::EventCapacity)
     );
     // The refused block changed nothing: its note off alone still ends all three notes.
-    let ended = block(&events[3000..]).unwrap();
+    let ended = block(&events.iter().skip(3000).collect()).unwrap();
     assert!(
         ended
             .iter()
@@ -1046,7 +1063,7 @@ fn note_events_without_an_id_that_overflow_the_event_list_refuse_the_block() {
             .any(|&sample| sample != 0.0)
     );
     assert!(
-        block(&[])
+        block(&Events::new())
             .unwrap()
             .iter()
             .flatten()
@@ -1068,7 +1085,7 @@ fn a_render_does_not_start_on_a_latency_the_plugin_changed() {
     assert!(plugin.timing().unwrap().latency_changed);
     let slices: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
     let options = RenderOptions::new(TailPolicy::Reported, 0.0);
-    let error = render(&mut plugin, &slices, 4800, &[], &options).unwrap_err();
+    let error = render(&mut plugin, &slices, 4800, &Events::new(), &options).unwrap_err();
     assert_eq!(error.kind(), FailureKind::RestartRequired);
     assert_eq!(
         std::error::Error::source(&error)

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use plughost::{Error, FailureKind, HostIdentity, PluginFormat, Timeouts};
+use plughost::{Error, Events, FailureKind, HostIdentity, PluginFormat, Timeouts};
 
 mod support;
 
@@ -118,8 +118,8 @@ fn native_state_save_timeout_terminates_the_helper_and_explicit_recovery_replace
                     &[&input, &input],
                     &mut [&mut left, &mut right],
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .is_err()
         );
@@ -132,8 +132,8 @@ fn native_state_save_timeout_terminates_the_helper_and_explicit_recovery_replace
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         assert_eq!(left[480], 1.0);

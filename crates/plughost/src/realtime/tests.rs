@@ -7,7 +7,7 @@ use std::sync::Arc;
 use plughost_core::ipc::shared::SlotConfig;
 use plughost_core::ipc::shared::realtime::{Ring, RingDescriptor};
 use plughost_core::{
-    AudioBusConfig, BlockContext, Layout, ProcessMode, RoutedChainConfig, SampleFormat,
+    AudioBusConfig, BlockContext, Events, Layout, ProcessMode, RoutedChainConfig, SampleFormat,
     SlotAudioConfig,
 };
 
@@ -62,8 +62,8 @@ fn call(endpoint: &mut RealtimeEndpoint) -> RealtimeOutput {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap()
 }

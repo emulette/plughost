@@ -78,7 +78,7 @@ fn run(chain: &mut Chain, input: &[Vec<f64>]) -> Vec<Vec<f64>> {
         chain,
         &input.iter().map(Vec::as_slice).collect::<Vec<_>>(),
         input[0].len(),
-        &[],
+        &Events::new(),
         &options(),
     )
     .unwrap()
@@ -132,8 +132,8 @@ fn native_bus_identity_f64_sidechain_render_and_bypass() {
                 &[&[], &[], &[]],
                 &mut empty.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         assert!(empty.iter().all(Vec::is_empty));
@@ -207,8 +207,8 @@ fn precision_rejection_preserves_output_and_f32_legacy_entry_uses_routing() {
             &[&[0.25; 4], &[0.5; 4], &[0.75; 4]],
             &mut output.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         );
         assert!(matches!(
             result,
@@ -227,8 +227,8 @@ fn precision_rejection_preserves_output_and_f32_legacy_entry_uses_routing() {
                 &[&[0.25; 4], &[0.5; 4], &[0.75; 4]],
                 &mut output.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         let mut expected = vec![vec![0.5; 4], vec![0.25; 4], vec![0.375; 4], vec![0.5625; 4]];
@@ -240,7 +240,7 @@ fn precision_rejection_preserves_output_and_f32_legacy_entry_uses_routing() {
             &mut chain,
             &[&[0.0f64; 0], &[0.0f64; 0], &[0.0f64; 0]],
             0,
-            &[],
+            &Events::new(),
             &options(),
         );
         assert!(matches!(
@@ -259,7 +259,7 @@ fn precision_rejection_preserves_output_and_f32_legacy_entry_uses_routing() {
             &mut chain,
             &[&[0.5f32; 4], &[0.75f32; 4]],
             4,
-            &[],
+            &Events::new(),
             &options(),
         )
         .unwrap();
@@ -364,7 +364,14 @@ fn plugins_process_with_subnormal_numbers_flushed_to_zero() {
         let options = RenderOptions::new(TailPolicy::Reported, 0.0);
         for (input, expected) in [(0.25, 0.25), (subnormal, 0.0)] {
             let channel = vec![input; 2048];
-            let rendered = render(&mut chain, &[&channel, &channel], 2048, &[], &options).unwrap();
+            let rendered = render(
+                &mut chain,
+                &[&channel, &channel],
+                2048,
+                &Events::new(),
+                &options,
+            )
+            .unwrap();
             assert!(
                 rendered
                     .channels

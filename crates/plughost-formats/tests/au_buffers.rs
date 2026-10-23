@@ -3,7 +3,7 @@
 
 mod support;
 
-use plughost_core::{BlockContext, Layout, ProcessConfig, ProcessMode, SampleFormat};
+use plughost_core::{BlockContext, Events, Layout, ProcessConfig, ProcessMode, SampleFormat};
 use plughost_formats::HostedPlugin;
 use plughost_formats::au::Plugin;
 
@@ -51,8 +51,8 @@ fn prepared_apple_audio_reuses_storage_across_blocks_and_reconfiguration() {
                         &[&left, &right],
                         &mut slices,
                         &changes,
-                        &[],
-                        &mut Vec::new(),
+                        &Events::new(),
+                        &mut Events::new(),
                     )
                 });
                 result.unwrap();

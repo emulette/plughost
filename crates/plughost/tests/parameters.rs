@@ -43,7 +43,7 @@ fn native_and_helper_parameter_conversions_reach_output_and_saved_state() {
             &mut chain,
             &[&input, &input],
             input.len(),
-            &[],
+            &Events::new(),
             &RenderOptions::new(TailPolicy::Reported, 0.0),
         )
         .unwrap();

@@ -105,8 +105,8 @@ pub struct RealtimeStatus {
     /// Quanta the helper completed later than `latency` quanta after their submission, whether
     /// or not the callback still waited for them.
     pub late: u64,
-    /// Output events left out: system exclusive events, which the callback cannot copy without
-    /// allocating, and events beyond `produced`'s capacity. A new generation's note offs for the
+    /// Output events left out because they go beyond the room `produced` has reserved, which
+    /// the callback cannot grow without allocating. A new generation's note offs for the
     /// notes earlier outputs left on count too when they do not fit `produced`, as does each
     /// note on beyond the 256 notes the endpoint keeps track of.
     pub dropped_events: u64,

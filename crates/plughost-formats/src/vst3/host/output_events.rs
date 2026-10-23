@@ -6,7 +6,7 @@ use super::*;
 use crate::vst3::errors::Vst3Error;
 use crate::vst3::note_expression;
 use plughost_core::{
-    Event as PortEvent, EventData, ExpressionKind, MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES,
+    Event as PortEvent, EventData, Events, ExpressionKind, MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES,
     MAX_NOTE_ID, Note, NoteExpression,
 };
 use std::collections::HashMap;
@@ -21,9 +21,9 @@ use vst3::Steinberg::Vst::Event_::EventTypes_;
 /// portable form, so their notes and expressions leave the plugin without one.
 type Sounding = HashMap<i32, (usize, u8, u8)>;
 
-#[derive(Default)]
 struct Output {
-    events: Vec<PortEvent>,
+    /// One block's room, reserved: adding an event allocates nothing.
+    events: Events,
     sysex: usize,
     /// The plugin added more events or system exclusive bytes than the block allows.
     overflow: bool,
@@ -52,10 +52,6 @@ impl Class for OutputEventList {
 }
 impl OutputEventList {
     pub fn new() -> Result<Self, Vst3Error> {
-        let mut events = Vec::new();
-        events
-            .try_reserve_exact(MAX_BLOCK_EVENTS)
-            .map_err(|_| Vst3Error::EventStorage)?;
         // Room for twice the notes it follows, so that it does not grow on the processing thread
         // after notes come and go.
         let mut sounding = HashMap::new();
@@ -64,9 +60,11 @@ impl OutputEventList {
             .map_err(|_| Vst3Error::EventStorage)?;
         Ok(Self {
             output: Mutex::new(Output {
-                events,
+                events: Events::try_for_block().map_err(|_| Vst3Error::EventStorage)?,
+                sysex: 0,
+                overflow: false,
+                unconvertible: 0,
                 sounding,
-                ..Output::default()
             }),
         })
     }
@@ -74,7 +72,7 @@ impl OutputEventList {
     /// plugin's order at equal offsets; events at or after the end of the block of `frames` land
     /// on its last frame. Fails when the plugin exceeded the block's budgets, whose events are
     /// discarded.
-    pub fn take(&self, into: &mut Vec<PortEvent>, frames: usize) -> Result<(), Vst3Error> {
+    pub fn take(&self, into: &mut Events, frames: usize) -> Result<(), Vst3Error> {
         let mut output = lock(&self.output);
         output.sysex = 0;
         if std::mem::take(&mut output.overflow) {
@@ -82,14 +80,13 @@ impl OutputEventList {
             return Err(Vst3Error::OutputEventCapacity);
         }
         let last = frames.saturating_sub(1);
-        for event in &mut output.events {
-            event.offset = event.offset.min(last);
+        for event in &output.events {
+            // The events fit one block's budget, which `into` has room for.
+            into.push(event.at(event.offset.min(last)))
+                .map_err(|_| Vst3Error::OutputEventCapacity)?;
         }
-        // A stable sort of a longer list allocates, even when it is already in order.
-        if !output.events.is_sorted_by_key(|event| event.offset) {
-            output.events.sort_by_key(|event| event.offset);
-        }
-        into.append(&mut output.events);
+        output.events.clear();
+        into.sort_by_offset();
         Ok(())
     }
     /// Drops the events of a block that failed.
@@ -136,7 +133,13 @@ fn note(channel: i16, pitch: i16, velocity: f32, id: i32) -> Option<Note> {
     Some(note)
 }
 
-fn expression(channel: u8, key: u8, kind: ExpressionKind, value: f64, id: i32) -> EventData {
+fn expression(
+    channel: u8,
+    key: u8,
+    kind: ExpressionKind,
+    value: f64,
+    id: i32,
+) -> EventData<'static> {
     let value = value.clamp(*kind.range().start(), *kind.range().end());
     let mut expression = NoteExpression::new(channel, key, kind, value);
     expression.id = note_id(id);
@@ -144,8 +147,12 @@ fn expression(channel: u8, key: u8, kind: ExpressionKind, value: f64, id: i32) -
 }
 
 /// The portable form of one output event: one event, or a note on and its tuning; `None` when it
-/// has none. Note expression values find their notes in `sounding`.
-fn convert(event: &Event, sounding: &Sounding) -> Option<(usize, EventData, Option<EventData>)> {
+/// has none. Note expression values find their notes in `sounding`. System exclusive bytes stay
+/// the plugin's, valid for the call that adds the event.
+fn convert<'a>(
+    event: &'a Event,
+    sounding: &Sounding,
+) -> Option<(usize, EventData<'a>, Option<EventData<'a>>)> {
     let port = usize::try_from(event.busIndex).ok()?;
     let channel_message = |status: u8, channel: i32, first: i32, second: u8| {
         let channel = u8::try_from(channel).ok().filter(|c| *c < 16)?;
@@ -194,8 +201,8 @@ fn convert(event: &Event, sounding: &Sounding) -> Option<(usize, EventData, Opti
                 if data.r#type != SYSEX || data.bytes.is_null() {
                     return None;
                 }
-                // The plugin owns the bytes for this call; they are copied now.
-                let bytes = std::slice::from_raw_parts(data.bytes, data.size as usize).to_vec();
+                // The plugin owns the bytes for this call; they are copied as the event is added.
+                let bytes = std::slice::from_raw_parts(data.bytes, data.size as usize);
                 (EventData::SysEx(bytes), None)
             }
             LEGACY_MIDI_CC_OUT => {
@@ -307,7 +314,7 @@ impl IEventListTrait for OutputEventList {
             output.unconvertible += 1;
             return kResultOk;
         };
-        let sysex = match &converted.data {
+        let sysex = match converted.data {
             EventData::SysEx(bytes) => bytes.len(),
             _ => 0,
         };
@@ -317,8 +324,12 @@ impl IEventListTrait for OutputEventList {
         }
         follow(&mut output.sounding, event, Some(&converted.data));
         output.sysex += sysex;
-        output.events.push(converted);
-        output.events.extend(tuning);
+        // The checks above keep the events within the block's room.
+        let added = output.events.push(converted);
+        let added = added.and_then(|()| tuning.map_or(Ok(()), |tuning| output.events.push(tuning)));
+        if added.is_err() {
+            return output.overflowed(event);
+        }
         kResultOk
     }
 }

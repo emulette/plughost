@@ -1,5 +1,5 @@
 use plughost::{
-    AudioBusConfig, AudioInputRoute, AudioSource, BlockContext, ChannelAdaptation, Error,
+    AudioBusConfig, AudioInputRoute, AudioSource, BlockContext, ChannelAdaptation, Error, Events,
     FailureKind, InputError, Layout, PluginFormat, ProcessMode, RoutedChainConfig, SampleFormat,
     SlotAudioConfig,
 };
@@ -91,8 +91,8 @@ fn reversed_bus_requests_route_previous_auxiliary_by_id_in_native_channel_order(
                 &[&left, &right, &key],
                 &mut buffers,
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         // Output channels follow native bus order, independently of the request order.
@@ -153,8 +153,8 @@ fn disabled_auxiliary_routes_are_ignored_and_surround_channel_order_is_exact() {
                     &inputs,
                     &mut outputs,
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap();
             assert_eq!(output, input, "{format:?} {layout:?}");
@@ -207,8 +207,8 @@ fn late_native_reprepare_failure_preserves_every_old_slot_and_pending_audio() {
                 &[&left, &right],
                 &mut [&mut first_left, &mut first_right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         assert_eq!(first_left, [0.0; 64]);
@@ -246,8 +246,8 @@ fn late_native_reprepare_failure_preserves_every_old_slot_and_pending_audio() {
                 &[&silence, &silence],
                 &mut [&mut after_left, &mut after_right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         let mut expected_left = [0.0f32; 512];
@@ -296,7 +296,7 @@ fn unused_upstream_delay_is_not_trimmed_from_an_external_main_path() {
             &mut chain,
             &[&left, &right],
             left.len(),
-            &[],
+            &Events::new(),
             &plughost::RenderOptions::new(plughost::TailPolicy::Reported, 0.0),
         )
         .unwrap();
@@ -350,8 +350,8 @@ fn external_sidechain_is_delayed_to_the_main_paths_arrival_across_blocks() {
                     &[&main[start..end], &main[start..end], &key[start..end]],
                     &mut [&mut left, &mut right],
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap();
             actual[0].extend(left);
@@ -417,8 +417,8 @@ fn check_restored_alignment(replaced: usize) {
                 &[&main, &main, &key],
                 &mut before.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         chain
@@ -432,8 +432,8 @@ fn check_restored_alignment(replaced: usize) {
                 &[&silence, &silence, &silence],
                 &mut after.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         let mut expected = vec![vec![0.0f32; 512]; 4];
@@ -492,8 +492,8 @@ fn excessive_alignment_is_rejected_before_replacing_a_working_chain() {
             &[&input, &input, &key],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(left, input);
@@ -517,8 +517,8 @@ fn event_budget_rejection_preserves_pending_native_audio() {
                 &[&impulse, &impulse],
                 &mut [&mut [0.0; 64], &mut [0.0; 64]],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         let automation = vec![
@@ -539,8 +539,8 @@ fn event_budget_rejection_preserves_pending_native_audio() {
                 &[&[0.0; 8], &[0.0; 8]],
                 &mut [&mut rejected_left, &mut rejected_right],
                 &automation,
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap_err();
         assert!(matches!(
@@ -559,8 +559,8 @@ fn event_budget_rejection_preserves_pending_native_audio() {
                 &[&[0.0; 512], &[0.0; 512]],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         let mut expected = [0.0; 512];

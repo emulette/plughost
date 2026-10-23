@@ -50,8 +50,8 @@ fn output(chain: &mut Chain) -> Vec<f32> {
             &[],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     left

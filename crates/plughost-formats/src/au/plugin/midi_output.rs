@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use block2::RcBlock;
 use objc2_audio_toolbox::{AUAudioUnit, AUEventSampleTime};
 use objc2_foundation::NSInteger;
-use plughost_core::{Event, EventData, MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES};
+use plughost_core::{Event, EventData, Events, MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES};
 
 use super::super::errors::AuError;
 
@@ -20,16 +20,46 @@ struct Collected {
     /// The cables prepared for delivery; events on other cables are dropped.
     cables: Vec<u64>,
     /// Per cable, the system exclusive message an earlier call started and has not ended.
-    partial: Vec<Option<Vec<u8>>>,
-    events: Vec<Event>,
+    partial: Vec<Partial>,
+    /// One block's room, reserved: collecting allocates nothing for the events.
+    events: Events,
     sysex: usize,
     /// The unit sent more events or system exclusive bytes than the block allows.
     overflow: bool,
 }
 
+/// A system exclusive message a call started and a later one may end, in room reserved for one
+/// block's system exclusive bytes so that joining it allocates nothing.
+#[derive(Default)]
+struct Partial {
+    open: bool,
+    bytes: Vec<u8>,
+}
+
+impl Partial {
+    fn reserved() -> Result<Partial, AuError> {
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(MAX_BLOCK_SYSEX_BYTES)
+            .map_err(|_| AuError::ProcessingStorage)?;
+        Ok(Partial { open: false, bytes })
+    }
+
+    fn start(&mut self, status: u8) {
+        self.open = true;
+        self.bytes.clear();
+        self.bytes.push(status);
+    }
+
+    fn close(&mut self) {
+        self.open = false;
+        self.bytes.clear();
+    }
+}
+
 impl Collected {
-    fn push(&mut self, event: Event) {
-        let sysex = match &event.data {
+    fn push(&mut self, event: Event<'_>) {
+        let sysex = match event.data {
             EventData::SysEx(bytes) => bytes.len(),
             _ => 0,
         };
@@ -40,8 +70,11 @@ impl Collected {
             self.overflow = true;
             return;
         }
+        if self.events.push(event).is_err() {
+            self.overflow = true;
+            return;
+        }
         self.sysex += sysex;
-        self.events.push(event);
     }
 }
 
@@ -64,14 +97,15 @@ impl Output {
         cables: Vec<u64>,
         unconvertible: Arc<AtomicU64>,
     ) -> Result<Output, AuError> {
-        let mut events = Vec::new();
-        events
-            .try_reserve_exact(MAX_BLOCK_EVENTS)
-            .map_err(|_| AuError::ProcessingStorage)?;
+        let events = Events::try_for_block().map_err(|_| AuError::ProcessingStorage)?;
+        let partial = cables
+            .iter()
+            .map(|_| Partial::reserved())
+            .collect::<Result<_, _>>()?;
         let collected = Arc::new(Mutex::new(Collected {
             start: 0,
             frames: 0,
-            partial: vec![None; cables.len()],
+            partial,
             cables,
             events,
             sysex: 0,
@@ -99,7 +133,7 @@ impl Output {
                 let offset = usize::try_from(time.saturating_sub(collected.start))
                     .unwrap_or(0)
                     .min(last);
-                let mut partial = collected.partial[index].take();
+                let mut partial = std::mem::take(&mut collected.partial[index]);
                 let result = split(bytes, &mut partial, |data| {
                     collected.push(Event::new(offset, data).on_port(usize::from(cable)))
                 });
@@ -133,48 +167,53 @@ impl Output {
 
     /// Forgets the system exclusive messages the unit started before it was reset.
     pub fn reset(&self) {
-        lock(&self.collected).partial.fill(None);
+        lock(&self.collected)
+            .partial
+            .iter_mut()
+            .for_each(Partial::close);
     }
 
     /// Moves the block's events into `into` in offset order, keeping the unit's order at equal
     /// offsets; fails when the unit exceeded the block's budgets, whose events are discarded.
-    pub fn take(&self, into: &mut Vec<Event>) -> Result<(), AuError> {
+    pub fn take(&self, into: &mut Events) -> Result<(), AuError> {
         let mut collected = lock(&self.collected);
         if collected.overflow {
             collected.events.clear();
             return Err(AuError::OutputEventCapacity);
         }
-        // A stable sort of a longer list allocates, even when it is already in order.
-        if !collected.events.is_sorted_by_key(|event| event.offset) {
-            collected.events.sort_by_key(|event| event.offset);
+        for event in &collected.events {
+            // The events fit one block's budget, which `into` has room for.
+            into.push(event).map_err(|_| AuError::OutputEventCapacity)?;
         }
-        into.append(&mut collected.events);
+        collected.events.clear();
+        into.sort_by_offset();
         Ok(())
     }
 }
 
 /// Splits a MIDI byte stream into channel and complete system exclusive messages, following
-/// running status. A system exclusive message the bytes do not end stays in `sysex` and goes on
-/// with the next call's bytes; real-time messages inside it are skipped. A message that cannot
+/// running status. A system exclusive message the bytes do not end stays open in `sysex` and goes
+/// on with the next call's bytes; real-time messages inside it are skipped. A message that cannot
 /// fit the block's system exclusive budget, including its terminator, is discarded with an
 /// overflow error. Returns how many messages had no such form (system common and real-time
 /// messages, or malformed bytes, which end the stream).
 fn split(
     mut bytes: &[u8],
-    sysex: &mut Option<Vec<u8>>,
-    mut each: impl FnMut(EventData),
+    sysex: &mut Partial,
+    mut each: impl FnMut(EventData<'_>),
 ) -> Result<u64, AuError> {
     let mut unconvertible = 0;
     let mut running = None;
     while let Some(&first) = bytes.first() {
-        if let Some(message) = sysex.as_mut() {
+        if sysex.open {
+            let message = &mut sysex.bytes;
             let data = bytes
                 .iter()
                 .position(|&byte| byte >= 0x80)
                 .unwrap_or(bytes.len());
             // Leave room for F7 before copying data, even when a clock follows this chunk.
             if message.len().saturating_add(data) >= MAX_BLOCK_SYSEX_BYTES {
-                *sysex = None;
+                sysex.close();
                 return Err(AuError::OutputEventCapacity);
             }
             message.extend_from_slice(&bytes[..data]);
@@ -190,12 +229,13 @@ fn split(
                     continue;
                 }
                 Some(_) => {
-                    *sysex = None;
+                    sysex.close();
                     return Ok(unconvertible + 1);
                 }
                 None => return Ok(unconvertible),
             }
-            each(EventData::SysEx(sysex.take().unwrap_or_default()));
+            each(EventData::SysEx(&sysex.bytes));
+            sysex.close();
             continue;
         }
         let (status, rest) = match (first, running) {
@@ -205,7 +245,7 @@ fn split(
         };
         match status {
             0xF0 => {
-                *sysex = Some(vec![status]);
+                sysex.start(status);
                 running = None;
                 bytes = rest;
             }
@@ -249,9 +289,12 @@ fn split(
 mod tests {
     use super::*;
 
-    fn messages(bytes: &[u8]) -> (Vec<EventData>, u64) {
-        let mut found = Vec::new();
-        let skipped = split(bytes, &mut None, |data| found.push(data)).unwrap();
+    fn messages(bytes: &[u8]) -> (Events, u64) {
+        let mut found = Events::new();
+        let skipped = split(bytes, &mut Partial::default(), |data| {
+            found.push(Event::new(0, data)).unwrap()
+        })
+        .unwrap();
         (found, skipped)
     }
 
@@ -267,11 +310,11 @@ mod tests {
         assert_eq!(
             found,
             [
-                EventData::Midi([0x90, 60, 100]),
-                EventData::Midi([0x90, 62, 90]),
-                EventData::Midi([0xC1, 5, 0]),
-                EventData::SysEx(vec![0xF0, 1, 2, 3, 0xF7]),
-                EventData::Midi([0xB0, 7, 99]),
+                Event::new(0, EventData::Midi([0x90, 60, 100])),
+                Event::new(0, EventData::Midi([0x90, 62, 90])),
+                Event::new(0, EventData::Midi([0xC1, 5, 0])),
+                Event::sysex(0, &[0xF0, 1, 2, 3, 0xF7]),
+                Event::new(0, EventData::Midi([0xB0, 7, 99])),
             ]
         );
         assert_eq!(skipped, 1);
@@ -290,7 +333,7 @@ mod tests {
             assert_eq!(skipped, 1, "{bytes:?}");
         }
         let (found, skipped) = messages(&[0xB0, 1, 2, 0xF2]);
-        assert_eq!(found, [EventData::Midi([0xB0, 1, 2])]);
+        assert_eq!(found, [Event::new(0, EventData::Midi([0xB0, 1, 2]))]);
         assert_eq!(skipped, 1);
     }
 
@@ -300,8 +343,8 @@ mod tests {
         assert_eq!(
             found,
             [
-                EventData::SysEx(vec![0xF0, 1, 2, 3, 0xF7]),
-                EventData::Midi([0x80, 60, 0]),
+                Event::sysex(0, &[0xF0, 1, 2, 3, 0xF7]),
+                Event::new(0, EventData::Midi([0x80, 60, 0])),
             ]
         );
         assert_eq!(skipped, 2);
@@ -309,38 +352,46 @@ mod tests {
 
     #[test]
     fn system_exclusive_split_over_calls_is_joined() {
-        let mut sysex = None;
-        let mut found = Vec::new();
+        let mut sysex = Partial::default();
+        let mut found = Events::new();
         for bytes in [
             &[0x90, 60, 1, 0xF0, 1][..],
             &[2, 0xF8][..],
             &[3, 0xF7, 0xC0, 4][..],
         ] {
-            split(bytes, &mut sysex, |data| found.push(data)).unwrap();
+            split(bytes, &mut sysex, |data| {
+                found.push(Event::new(0, data)).unwrap()
+            })
+            .unwrap();
         }
         assert_eq!(
             found,
             [
-                EventData::Midi([0x90, 60, 1]),
-                EventData::SysEx(vec![0xF0, 1, 2, 3, 0xF7]),
-                EventData::Midi([0xC0, 4, 0]),
+                Event::new(0, EventData::Midi([0x90, 60, 1])),
+                Event::sysex(0, &[0xF0, 1, 2, 3, 0xF7]),
+                Event::new(0, EventData::Midi([0xC0, 4, 0])),
             ]
         );
-        assert!(sysex.is_none());
+        assert!(!sysex.open);
     }
 
     #[test]
     fn system_exclusive_beyond_the_block_budget_is_rejected_without_emitting() {
-        let mut sysex = None;
-        let mut found = Vec::new();
+        let mut sysex = Partial::default();
+        let mut found = Events::new();
         let start = [0xF0, 1];
         let rest = vec![2; MAX_BLOCK_SYSEX_BYTES];
-        split(&start, &mut sysex, |data| found.push(data)).unwrap();
+        split(&start, &mut sysex, |data| {
+            found.push(Event::new(0, data)).unwrap()
+        })
+        .unwrap();
         assert!(matches!(
-            split(&rest, &mut sysex, |data| found.push(data)),
+            split(&rest, &mut sysex, |data| found
+                .push(Event::new(0, data))
+                .unwrap()),
             Err(AuError::OutputEventCapacity)
         ));
-        assert!(sysex.is_none());
+        assert!(!sysex.open);
         assert!(found.is_empty());
     }
 }

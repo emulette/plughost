@@ -9,7 +9,7 @@ use std::process::Command;
 use std::time::Instant;
 
 use plughost::{
-    Chain, ChainSlot, Layout, PluginFormat, PluginRef, RenderOptions, ScanOutcome, Scanner,
+    Chain, ChainSlot, Events, Layout, PluginFormat, PluginRef, RenderOptions, ScanOutcome, Scanner,
     SpawnOptions, StatePurpose, TailPolicy, render,
 };
 
@@ -186,7 +186,7 @@ fn run(options: &Options) -> Result<()> {
             &mut chain,
             &[&input[0], &input[1]],
             input[0].len(),
-            &[],
+            &Events::new(),
             &options_render,
         )?;
         let seconds = start.elapsed().as_secs_f64();

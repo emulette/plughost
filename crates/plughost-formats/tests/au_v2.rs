@@ -43,8 +43,8 @@ use objc2_core_audio_types::{
 };
 use objc2_core_foundation::{CFArray, CFRetained, CFString};
 use plughost_core::{
-    AudioBusConfig, AudioConfig, AudioDirection, Event, EventConfig, Layout, ParameterEvent,
-    ProcessMode, SampleFormat,
+    AudioBusConfig, AudioConfig, AudioDirection, Event, EventConfig, Events, Layout,
+    ParameterEvent, ProcessMode, SampleFormat,
 };
 use plughost_formats::HostedPlugin;
 use plughost_formats::au::{self, Plugin};
@@ -703,10 +703,10 @@ fn prepared() -> Plugin {
     plugin
 }
 
-fn block(plugin: &mut Plugin, events: &[Event]) -> Vec<Event> {
+fn block(plugin: &mut Plugin, events: &Events) -> Events {
     let mut output = vec![vec![0.0f32; 512]; 2];
     let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
-    let mut produced = Vec::new();
+    let mut produced = Events::for_block();
     plugin
         .process(
             &plughost_core::BlockContext::new(512),
@@ -723,17 +723,17 @@ fn block(plugin: &mut Plugin, events: &[Event]) -> Vec<Event> {
 #[test]
 fn midi_a_v2_unit_sends_arrives_through_the_bridge_at_its_offsets() {
     let mut plugin = prepared();
-    let events = [
+    let events = Events::from_iter([
         Event::note_on(100, 0, 60, 100),
         Event::control_change(300, 1, 7, 64),
-    ];
+    ]);
     assert_eq!(block(&mut plugin, &events), events);
-    let sysex = Event::sysex(200, vec![0xF0, 0x7D, 0x01, 0x02, 0xF7]);
+    let sysex = Event::sysex(200, &[0xF0, 0x7D, 0x01, 0x02, 0xF7]);
     assert_eq!(
-        block(&mut plugin, std::slice::from_ref(&sysex)),
-        [sysex.clone().at(0)]
+        block(&mut plugin, &Events::from_iter([sysex])),
+        [sysex.at(0)]
     );
-    assert_eq!(block(&mut plugin, &[]), []);
+    assert_eq!(block(&mut plugin, &Events::new()), []);
 }
 
 #[test]
@@ -775,8 +775,8 @@ fn index_values_reach_the_unit_whole_and_scheduled_at_their_offsets() {
                 offset: 256,
                 value: thirteen,
             }],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     // Another test times its renders by setting `TIMED`.
@@ -796,7 +796,7 @@ fn a_failed_render_still_moves_the_timeline_on() {
     plugin
         .set_parameter(u64::from(STEPS), f64::from(TIMED) / 22.0)
         .unwrap();
-    let mut render = |events: &[Event]| {
+    let mut render = |events: &Events| {
         let mut output = vec![vec![0.0f32; 512]; 2];
         let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
         plugin.process(
@@ -805,12 +805,12 @@ fn a_failed_render_still_moves_the_timeline_on() {
             &mut outputs,
             &[],
             events,
-            &mut Vec::new(),
+            &mut Events::for_block(),
         )
     };
-    render(&[]).unwrap();
-    render(&[Event::note_on(0, 0, FAIL_KEY, 1)]).unwrap_err();
-    render(&[]).unwrap();
+    render(&Events::new()).unwrap();
+    render(&Events::from_iter([Event::note_on(0, 0, FAIL_KEY, 1)])).unwrap_err();
+    render(&Events::new()).unwrap();
     assert_eq!(*RENDER_TIMES.lock().unwrap(), [0.0, 512.0, 1024.0]);
 }
 
@@ -852,8 +852,8 @@ fn non_realtime_parameters_allow_edits_but_reject_block_automation() {
                 value: 0.0,
             },
         ],
-        &[],
-        &mut Vec::new(),
+        &Events::new(),
+        &mut Events::for_block(),
     );
     assert_eq!(
         result.unwrap_err().input_error(),
@@ -862,7 +862,7 @@ fn non_realtime_parameters_allow_edits_but_reject_block_automation() {
         })
     );
     assert_eq!(output, [[7.0; 512]; 2]);
-    block(&mut plugin, &[]);
+    block(&mut plugin, &Events::new());
     let steps = plugin
         .parameters()
         .into_iter()

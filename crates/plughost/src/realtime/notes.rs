@@ -3,7 +3,7 @@
 //! so its first callback sends them instead. The table has a fixed capacity, reserved with the
 //! endpoint; the callback records and ends notes without allocating.
 
-use plughost_core::{Event, EventData, Message, Note};
+use plughost_core::{Event, EventData, Events, Message, Note};
 
 /// The most notes the table holds, across the chain's event outputs.
 pub(crate) const CAPACITY: usize = 256;
@@ -47,9 +47,9 @@ impl Notes {
 
     /// Follows the note ons and offs among `events`. A note off with an ID ends the note with
     /// that ID; one without, as a MIDI note off, ends every note on its port, channel and key.
-    pub fn record(&mut self, events: &[Event]) {
+    pub fn record(&mut self, events: &Events) {
         for event in events {
-            match &event.data {
+            match event.data {
                 EventData::NoteOn(note) => {
                     self.start(event.port, note.channel, note.key, Form::Note(note.id));
                 }
@@ -70,16 +70,12 @@ impl Notes {
         }
     }
 
-    /// Appends a note off at offset 0 for each held note to `events` while its capacity lasts,
-    /// and forgets them. Returns how many note offs could not be sent: those beyond the
-    /// capacity, and one for each note on the table had no room for.
-    pub fn end_all(&mut self, events: &mut Vec<Event>) -> u64 {
+    /// Appends a note off at offset 0 for each held note to `events` while the room they have
+    /// reserved lasts, and forgets them. Returns how many note offs could not be sent: those
+    /// beyond that room, and one for each note on the table had no room for.
+    pub fn end_all(&mut self, events: &mut Events) -> u64 {
         let mut dropped = std::mem::take(&mut self.unrecorded);
         for held in self.held.drain(..) {
-            if events.len() == events.capacity() {
-                dropped += 1;
-                continue;
-            }
             let data = match held.form {
                 Form::Midi => EventData::Midi([0x80 | held.channel, held.key, 0]),
                 Form::Note(id) => {
@@ -87,7 +83,9 @@ impl Notes {
                     EventData::NoteOff(id.map_or(note, |id| note.with_id(id)))
                 }
             };
-            events.push(Event::new(0, data).on_port(held.port));
+            if !events.push_within_capacity(Event::new(0, data).on_port(held.port)) {
+                dropped += 1;
+            }
         }
         self.keys.fill(0);
         dropped
@@ -136,13 +134,14 @@ fn index(channel: u8, key: u8) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use plughost_core::MAX_BLOCK_EVENTS;
 
-    fn note_on(port: usize, channel: u8, key: u8, id: Option<u32>) -> Event {
+    fn note_on(port: usize, channel: u8, key: u8, id: Option<u32>) -> Event<'static> {
         let note = Note::new(channel, key, 1.0);
         Event::new(0, EventData::NoteOn(id.map_or(note, |id| note.with_id(id)))).on_port(port)
     }
 
-    fn note_off(port: usize, channel: u8, key: u8, id: Option<u32>) -> Event {
+    fn note_off(port: usize, channel: u8, key: u8, id: Option<u32>) -> Event<'static> {
         let note = Note::new(channel, key, 0.0);
         Event::new(
             0,
@@ -151,8 +150,8 @@ mod tests {
         .on_port(port)
     }
 
-    fn ended(notes: &mut Notes) -> Vec<Event> {
-        let mut events = Vec::with_capacity(CAPACITY);
+    fn ended(notes: &mut Notes) -> Events {
+        let mut events = Events::for_block();
         assert_eq!(notes.end_all(&mut events), 0);
         events
     }
@@ -160,7 +159,7 @@ mod tests {
     #[test]
     fn notes_that_did_not_end_get_note_offs_in_their_form_and_port() {
         let mut notes = Notes::new();
-        notes.record(&[
+        notes.record(&Events::from_iter([
             Event::note_on(0, 1, 60, 100).on_port(1),
             Event::note_on(0, 1, 62, 100),
             Event::note_on(0, 1, 62, 0),
@@ -169,7 +168,7 @@ mod tests {
             note_off(0, 2, 64, Some(8)),
             note_on(2, 3, 65, None),
             Event::control_change(0, 1, 20, 60),
-        ]);
+        ]));
         assert_eq!(
             ended(&mut notes),
             [
@@ -184,28 +183,31 @@ mod tests {
     #[test]
     fn a_note_off_without_an_id_ends_every_note_on_its_key_and_port() {
         let mut notes = Notes::new();
-        notes.record(&[
+        notes.record(&Events::from_iter([
             note_on(0, 0, 60, Some(1)),
             note_on(0, 0, 60, Some(2)),
             Event::note_on(0, 0, 60, 100),
             Event::note_on(0, 0, 60, 100).on_port(1),
             Event::note_off(0, 0, 60, 0),
-        ]);
+        ]));
         assert_eq!(ended(&mut notes), [Event::note_off(0, 0, 60, 0).on_port(1)]);
     }
 
     #[test]
     fn notes_beyond_the_table_or_the_events_capacity_are_counted() {
         let mut notes = Notes::new();
-        let events: Vec<Event> = (0..CAPACITY + 3)
+        let events: Events = (0..CAPACITY + 3)
             .map(|index| note_on(0, 0, 0, Some(index as u32)))
             .collect();
         notes.record(&events);
-        let mut produced = Vec::with_capacity(CAPACITY - 10);
-        produced.push(Event::note_on(0, 0, 1, 1));
-        let room = produced.capacity() - 1;
+        // Leave room for fewer note offs than there are held notes.
+        let room = CAPACITY - 11;
+        let mut produced = Events::for_block();
+        for _ in 0..MAX_BLOCK_EVENTS - room {
+            produced.push(Event::note_on(0, 0, 1, 1)).unwrap();
+        }
         assert_eq!(notes.end_all(&mut produced), (CAPACITY - room + 3) as u64);
-        assert_eq!(produced.len(), room + 1);
-        assert_eq!(notes.end_all(&mut Vec::new()), 0);
+        assert_eq!(produced.len(), MAX_BLOCK_EVENTS);
+        assert_eq!(notes.end_all(&mut Events::new()), 0);
     }
 }

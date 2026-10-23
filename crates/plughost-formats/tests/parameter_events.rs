@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use plughost_core::{
-    BlockContext, HostIdentity, Layout, ParameterEvent, ProcessConfig, ProcessMode, SampleFormat,
+    BlockContext, Events, HostIdentity, Layout, ParameterEvent, ProcessConfig, ProcessMode,
+    SampleFormat,
 };
 use plughost_formats::HostedPlugin;
 
@@ -103,8 +104,8 @@ fn clap_process_events_preserve_order_and_bound_overflow() {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
     }
@@ -164,8 +165,8 @@ fn vst3_callbacks_and_processor_output_reach_the_consumer() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert!(

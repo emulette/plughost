@@ -75,7 +75,7 @@ pub fn output(bytes: &[u8]) -> bool {
         }
     }
     let frames = submission.frames.min(FRAMES);
-    let mut events = Vec::with_capacity(MAX_BLOCK_EVENTS);
+    let mut events = crate::Events::for_block();
     macro_rules! read {
         ($sample:ty, $method:ident) => {{
             let sentinel: $sample = -123.25;

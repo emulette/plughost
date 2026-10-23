@@ -2,7 +2,7 @@
 
 #![cfg(target_os = "macos")]
 
-use plughost_core::{Event, Layout, PluginKind, ProcessConfig, ProcessMode, SampleFormat};
+use plughost_core::{Event, Events, Layout, PluginKind, ProcessConfig, ProcessMode, SampleFormat};
 use plughost_formats::HostedPlugin;
 use plughost_formats::au::{self, Plugin};
 
@@ -50,8 +50,8 @@ fn run(plugin: &mut Plugin, input: &[Vec<f32>], blocks: usize) -> Vec<Vec<f32>> 
                 &slices,
                 &mut outs,
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         for (all, part) in output.iter_mut().zip(out) {
@@ -180,7 +180,7 @@ fn an_instrument_plays_notes_from_their_offset() {
         .to_string();
     let mut plugin = Plugin::new(&class).unwrap();
     plugin.prepare(&config(Layout::None)).unwrap();
-    let mut block = |events: &[Event]| {
+    let mut block = |events: &Events| {
         let mut output = vec![vec![1.0f32; 512]; 2];
         let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
         plugin
@@ -192,7 +192,7 @@ fn an_instrument_plays_notes_from_their_offset() {
                 &mut outputs,
                 &[],
                 events,
-                &mut Vec::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         output
@@ -203,8 +203,8 @@ fn an_instrument_plays_notes_from_their_offset() {
             .flat_map(|c| &c[range.clone()])
             .fold(0.0f32, |p, s| p.max(s.abs()))
     };
-    assert!(peak(&block(&[]), 0..512) < 1e-6);
-    let played = block(&[Event::note_on(100, 0, 60, 127)]);
+    assert!(peak(&block(&Events::new()), 0..512) < 1e-6);
+    let played = block(&Events::from_iter([Event::note_on(100, 0, 60, 127)]));
     // DLSMusicDevice's attack starts a few samples after the note.
     assert!(peak(&played, 0..100) < 1e-6);
     assert!(peak(&played, 100..132) > 1e-6);
@@ -242,8 +242,8 @@ fn surround_layouts_pass_each_channel_through() {
                 &inputs,
                 &mut outputs,
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         for (channel, (out, expected)) in output.iter().zip(&input).enumerate() {
@@ -321,8 +321,8 @@ fn explicit_bus_api_preserves_speaker_order_and_rejects_f64_without_unpreparing(
                 &inputs,
                 &mut outputs,
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         for (actual, expected) in output.iter().flatten().zip(input.iter().flatten()) {

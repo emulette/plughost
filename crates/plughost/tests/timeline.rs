@@ -84,8 +84,8 @@ impl Process<f32> for Native {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[AutomationEvent],
-        midi: &[Event],
-        produced: &mut Vec<Event>,
+        midi: &Events,
+        produced: &mut Events,
     ) -> Result<(), NativeError> {
         let changes: Vec<_> = automation.iter().map(|point| point.change).collect();
         self.plugin
@@ -185,7 +185,7 @@ fn native_and_helper_transport_automation_and_audio_less_clock_match() {
                 &mut native,
                 &[&input, &input],
                 input.len(),
-                &[],
+                &Events::new(),
                 &options(),
                 &schedule,
             )
@@ -196,7 +196,7 @@ fn native_and_helper_transport_automation_and_audio_less_clock_match() {
                 &mut isolated,
                 &[&input, &input],
                 input.len(),
-                &[],
+                &Events::new(),
                 &options(),
                 &schedule,
             )
@@ -227,8 +227,8 @@ fn native_and_helper_transport_automation_and_audio_less_clock_match() {
                     &[],
                     &mut [],
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap();
         }
@@ -253,7 +253,7 @@ fn segmented_latency_alignment_and_cancel_recovery_match_whole_render() {
             &mut whole,
             &[&source, &source],
             source.len(),
-            &[],
+            &Events::new(),
             &options(),
         )
         .unwrap();
@@ -271,7 +271,7 @@ fn segmented_latency_alignment_and_cancel_recovery_match_whole_render() {
                     RenderInput {
                         audio: &[segment, segment],
                         frames: segment.len(),
-                        events: &[],
+                        events: &Events::new(),
                         schedule: RenderSchedule::default(),
                     },
                     &mut consume,
@@ -289,7 +289,7 @@ fn segmented_latency_alignment_and_cancel_recovery_match_whole_render() {
             RenderInput {
                 audio: &[&source, &source],
                 frames: source.len(),
-                events: &[],
+                events: &Events::new(),
                 schedule: RenderSchedule::default(),
             },
             &options(),
@@ -304,7 +304,7 @@ fn segmented_latency_alignment_and_cancel_recovery_match_whole_render() {
             &mut segmented,
             &[&source, &source],
             source.len(),
-            &[],
+            &Events::new(),
             &options(),
         )
         .unwrap();
@@ -337,8 +337,8 @@ fn slot_automation_rejection_does_not_advance_earlier_plugins() {
             &[&source, &source],
             &mut [&mut left, &mut right],
             &invalid,
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap_err();
     assert_eq!(error.kind(), FailureKind::InvalidInput);
@@ -365,7 +365,7 @@ fn slot_automation_rejection_does_not_advance_earlier_plugins() {
         &mut chain,
         &[&source, &source],
         source.len(),
-        &[],
+        &Events::new(),
         &options(),
         &RenderSchedule {
             automation: &points,
@@ -402,8 +402,8 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &automation,
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
     }
@@ -426,7 +426,7 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
         &mut chain,
         &[&input, &input],
         32,
-        &[],
+        &Events::new(),
         &{
             let mut render_options = options();
             render_options.max_tail_seconds = 1.0;
@@ -461,8 +461,8 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
                     &[&input, &input],
                     &mut [&mut left, &mut right],
                     &automation,
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap_err()
                 .kind(),
@@ -481,8 +481,8 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
                     &[&input, &input],
                     &mut [&mut left, &mut right],
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap_err()
                 .kind(),
@@ -519,8 +519,8 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
     }
@@ -536,8 +536,8 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
 }
@@ -565,8 +565,8 @@ fn absent_time_stays_absent_and_discrete_automation_is_quantized() {
                 &[&input, &input],
                 &mut direct.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
                 &[point],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         block_chain
@@ -578,8 +578,8 @@ fn absent_time_stays_absent_and_discrete_automation_is_quantized() {
                     .map(Vec::as_mut_slice)
                     .collect::<Vec<_>>(),
                 &[point],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         assert_eq!(direct, isolated);
@@ -601,7 +601,7 @@ fn absent_time_stays_absent_and_discrete_automation_is_quantized() {
             &mut chain,
             &[&source, &source],
             source.len(),
-            &[],
+            &Events::new(),
             &options(),
             &RenderSchedule {
                 automation: &automation,
@@ -645,7 +645,7 @@ fn absent_time_stays_absent_and_discrete_automation_is_quantized() {
             &mut chain,
             &[&source, &source],
             source.len(),
-            &[],
+            &Events::new(),
             &options(),
             &RenderSchedule {
                 automation: &automation,
@@ -676,8 +676,8 @@ fn edits_and_resets_apply_while_a_restart_is_pending() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             automation,
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
     };
     let restart_required = |result: Result<(), Error>| {

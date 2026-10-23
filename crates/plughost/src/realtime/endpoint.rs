@@ -11,7 +11,7 @@ use std::time::Duration;
 use plughost_core::ipc::shared::clock;
 use plughost_core::ipc::shared::realtime::{Outcome, Ring};
 use plughost_core::{
-    AutomationEvent, BlockContext, Event, FailureKind, InputError, RoutedChainConfig, Sample,
+    AutomationEvent, BlockContext, Events, FailureKind, InputError, RoutedChainConfig, Sample,
     SampleFormat,
 };
 
@@ -112,7 +112,7 @@ trait Wire: Sample {
         context: &BlockContext,
         input: &[&[Self]],
         automation: &[AutomationEvent],
-        events: &[Event],
+        events: &Events,
     ) -> io::Result<()>;
     fn read(
         ring: &mut Ring,
@@ -120,7 +120,7 @@ trait Wire: Sample {
         sequence: u64,
         output: &mut [&mut [Self]],
         event_ports: usize,
-        produced: &mut Vec<Event>,
+        produced: &mut Events,
     ) -> io::Result<Option<(Outcome, usize)>>;
 }
 
@@ -137,7 +137,7 @@ macro_rules! wire {
                 context: &BlockContext,
                 input: &[&[Self]],
                 automation: &[AutomationEvent],
-                events: &[Event],
+                events: &Events,
             ) -> io::Result<()> {
                 ring.$submit(generation, sequence, context, input, automation, events)
             }
@@ -147,7 +147,7 @@ macro_rules! wire {
                 sequence: u64,
                 output: &mut [&mut [Self]],
                 event_ports: usize,
-                produced: &mut Vec<Event>,
+                produced: &mut Events,
             ) -> io::Result<Option<(Outcome, usize)>> {
                 ring.$read(generation, sequence, output, event_ports, produced)
             }
@@ -196,7 +196,7 @@ impl RealtimeEndpoint {
         &self,
         context: &BlockContext,
         automation: &[AutomationEvent],
-        events: &[Event],
+        events: &Events,
     ) -> Result<(), InputError> {
         context.validate()?;
         if let Some(transport) = context.transport {
@@ -226,8 +226,8 @@ impl RealtimeEndpoint {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[AutomationEvent],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &Events,
+        produced: &mut Events,
     ) -> Result<RealtimeOutput, Error> {
         let _audit = plughost_core::audit::processing();
         self.state.enter();
@@ -242,8 +242,8 @@ impl RealtimeEndpoint {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[AutomationEvent],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &Events,
+        produced: &mut Events,
     ) -> Result<RealtimeOutput, Error> {
         produced.clear();
         if S::FORMAT != self.format {
@@ -469,8 +469,9 @@ macro_rules! endpoint_process {
             /// [`crate::Chain::process_audio_f32`], and plays into `output` the chain's output
             /// for the quantum submitted `latency` callbacks before, or the fallback. Each slice
             /// is the callback's frames long, which must be the quantum. `produced` is replaced
-            /// with that output's events except system exclusive ones, up to its capacity;
-            /// reserve [`crate::MAX_BLOCK_EVENTS`] to receive them all. The first callback after
+            /// with that output's events, system exclusive ones included, up to the room it has
+            /// reserved: pass [`crate::Events::for_block`] to receive them all without
+            /// allocating. The first callback after
             /// a start, a resync or a recovery puts there instead a note off at offset 0 for each
             /// note earlier outputs started and did not end, in the form it started in: a MIDI
             /// note off, or a note off with the note's ID.
@@ -484,8 +485,8 @@ macro_rules! endpoint_process {
                 input: &[&[$sample]],
                 output: &mut [&mut [$sample]],
                 automation: &[AutomationEvent],
-                events: &[Event],
-                produced: &mut Vec<Event>,
+                events: &Events,
+                produced: &mut Events,
             ) -> Result<RealtimeOutput, Error> {
                 self.process(context, input, output, automation, events, produced)
             }

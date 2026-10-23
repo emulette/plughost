@@ -83,7 +83,7 @@ impl SharedAudio {
         frames: usize,
         input: &[&[T]],
         automation: &[AutomationEvent],
-        events: &[Event],
+        events: &Events,
     ) -> io::Result<Submission> {
         self.check_source(input, self.descriptor.config.input_channels, frames)?;
         if crate::validate_event_budget(automation.len(), events).is_err() {
@@ -106,7 +106,7 @@ impl SharedAudio {
         submission: Submission,
         scratch: &mut [Vec<T>],
         automation: &mut Vec<AutomationEvent>,
-        events: &mut Vec<Event>,
+        events: &mut Events,
     ) -> io::Result<()> {
         self.check_submission(submission)?;
         self.read_pcm(
@@ -123,7 +123,7 @@ impl SharedAudio {
         &mut self,
         submission: Submission,
         output: &[&[T]],
-        events: &[Event],
+        events: &Events,
     ) -> io::Result<()> {
         self.check_submission(submission)?;
         self.check_source(
@@ -145,21 +145,20 @@ impl SharedAudio {
         output: &mut [&mut [T]],
         event_count: usize,
         event_ports: usize,
-        events: &mut Vec<Event>,
+        events: &mut Events,
     ) -> io::Result<()> {
         self.read_output_events(submission, output, event_count, event_ports, events, None)
     }
 
-    /// As [`SharedAudio::read_output`], but leaves system exclusive events out instead of
-    /// allocating for them, and events beyond `events`' capacity, and returns how many it left
-    /// out.
-    pub(super) fn read_output_skipping_sysex<T: WireSample>(
+    /// As [`SharedAudio::read_output`], but leaves the events beyond the room `events` has
+    /// reserved out instead of allocating for them, and returns how many it left out.
+    pub(super) fn read_output_within_capacity<T: WireSample>(
         &mut self,
         submission: Submission,
         output: &mut [&mut [T]],
         event_count: usize,
         event_ports: usize,
-        events: &mut Vec<Event>,
+        events: &mut Events,
     ) -> io::Result<usize> {
         let mut skipped = 0;
         self.read_output_events(
@@ -179,7 +178,7 @@ impl SharedAudio {
         output: &mut [&mut [T]],
         event_count: usize,
         event_ports: usize,
-        events: &mut Vec<Event>,
+        events: &mut Events,
         skipped: Option<&mut usize>,
     ) -> io::Result<()> {
         self.check_submission(submission)?;
@@ -223,7 +222,7 @@ macro_rules! samples {
                 frames: usize,
                 input: &[&[$sample]],
                 automation: &[AutomationEvent],
-                events: &[Event],
+                events: &Events,
             ) -> io::Result<Submission> {
                 self.write_input(sequence, frames, input, automation, events)
             }
@@ -235,7 +234,7 @@ macro_rules! samples {
                 submission: Submission,
                 scratch: &mut [Vec<$sample>],
                 automation: &mut Vec<AutomationEvent>,
-                events: &mut Vec<Event>,
+                events: &mut Events,
             ) -> io::Result<()> {
                 self.read_input(submission, scratch, automation, events)
             }
@@ -245,7 +244,7 @@ macro_rules! samples {
                 &mut self,
                 submission: Submission,
                 output: &[&[$sample]],
-                events: &[Event],
+                events: &Events,
             ) -> io::Result<()> {
                 self.write_output(submission, output, events)
             }
@@ -260,7 +259,7 @@ macro_rules! samples {
                 output: &mut [&mut [$sample]],
                 event_count: usize,
                 event_ports: usize,
-                events: &mut Vec<Event>,
+                events: &mut Events,
             ) -> io::Result<()> {
                 self.read_output(submission, output, event_count, event_ports, events)
             }

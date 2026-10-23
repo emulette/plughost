@@ -2,8 +2,8 @@
 #![cfg(all(feature = "clap", feature = "vst3"))]
 
 use plughost_core::{
-    BlockContext, FailureKind, HostIdentity, Layout, ParameterChange, PluginFormat, PluginRef,
-    ProcessConfig, ProcessMode, SampleFormat,
+    BlockContext, Events, FailureKind, HostIdentity, Layout, ParameterChange, PluginFormat,
+    PluginRef, ProcessConfig, ProcessMode, SampleFormat,
 };
 use plughost_formats::HostedPlugin;
 use std::path::Path;
@@ -62,8 +62,8 @@ fn rejected_points_and_control_flushes_do_not_leave_stale_native_queues() {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &invalid,
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap_err();
         assert_eq!(error.kind(), FailureKind::InvalidInput);
@@ -75,8 +75,8 @@ fn rejected_points_and_control_flushes_do_not_leave_stale_native_queues() {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         assert_eq!(left, input, "invalid automation reached DSP");
@@ -95,8 +95,8 @@ fn rejected_points_and_control_flushes_do_not_leave_stale_native_queues() {
                     &[&input, &input],
                     &mut [&mut left, &mut right],
                     &edits,
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap();
             assert_eq!(left, [0.5; 32]);
@@ -138,7 +138,7 @@ fn native_automation_benchmark() {
             .collect();
         let input = [1.0f32; 512];
         let (mut left, mut right) = ([0.0f32; 512], [0.0f32; 512]);
-        let mut produced = Vec::new();
+        let mut produced = Events::for_block();
         let mut block = || {
             processor
                 .process_audio_f32(
@@ -146,7 +146,7 @@ fn native_automation_benchmark() {
                     &[&input, &input],
                     &mut [&mut left, &mut right],
                     &edits,
-                    &[],
+                    &Events::new(),
                     &mut produced,
                 )
                 .unwrap();

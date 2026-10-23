@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::{GenericNamespaced, Stream};
 use plughost::{
-    AudioBusConfig, AudioInputRoute, AudioSource, BlockContext, Chain, ChannelAdaptation,
+    AudioBusConfig, AudioInputRoute, AudioSource, BlockContext, Chain, ChannelAdaptation, Events,
     FailureKind, HostIdentity, Layout, PluginFormat, PluginRef, ProcessMode, RoutedChainConfig,
     SampleFormat, SlotAudioConfig, Timeouts,
 };
@@ -69,7 +69,7 @@ fn peer(name: &str, token: u64) {
     let mut activity_map = None;
     let mut input = Vec::new();
     let mut edits = Vec::with_capacity(MAX_BLOCK_EVENTS);
-    let mut events = Vec::with_capacity(MAX_BLOCK_EVENTS);
+    let mut events = Events::for_block();
     let mut blocks = 0;
     let mut preparations = 0;
     let mut validations = 0;
@@ -142,18 +142,24 @@ fn peer(name: &str, token: u64) {
                 let output_events = if blocks == 2 {
                     use plughost::{Event, EventData, Note};
                     match fault.as_str() {
-                        "event-offset" => vec![Event::note_on(context.frames, 0, 60, 100)],
-                        "event-order" => {
-                            vec![Event::note_on(20, 0, 60, 100), Event::note_off(2, 0, 60, 0)]
+                        "event-offset" => {
+                            Events::from_iter([Event::note_on(context.frames, 0, 60, 100)])
                         }
-                        "event-note" => {
-                            vec![Event::new(0, EventData::NoteOn(Note::new(0, 60, f64::NAN)))]
+                        "event-order" => Events::from_iter([
+                            Event::note_on(20, 0, 60, 100),
+                            Event::note_off(2, 0, 60, 0),
+                        ]),
+                        "event-note" => Events::from_iter([Event::new(
+                            0,
+                            EventData::NoteOn(Note::new(0, 60, f64::NAN)),
+                        )]),
+                        "event-port" => {
+                            Events::from_iter([Event::note_on(0, 0, 60, 100).on_port(1)])
                         }
-                        "event-port" => vec![Event::note_on(0, 0, 60, 100).on_port(1)],
-                        _ => vec![],
+                        _ => Events::new(),
                     }
                 } else {
-                    vec![]
+                    Events::new()
                 };
                 memory
                     .write_output_f32(submission, &[&input[0], &input[1]], &output_events)
@@ -320,7 +326,7 @@ fn caller(fault: &str) {
                 &mut chain,
                 &[&input, &input],
                 input.len(),
-                &[],
+                &Events::new(),
                 &plughost::RenderOptions::new(plughost::TailPolicy::Reported, 0.0),
                 &plughost::RenderSchedule {
                     automation: &points,
@@ -367,8 +373,8 @@ fn caller(fault: &str) {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         assert_eq!(left, input);
@@ -376,7 +382,7 @@ fn caller(fault: &str) {
         left.fill(42.0);
         right.fill(-42.0);
         let start = Instant::now();
-        let previous_events = vec![plughost::Event::note_on(0, 0, 42, 80)];
+        let previous_events = Events::from_iter([plughost::Event::note_on(0, 0, 42, 80)]);
         let mut produced = previous_events.clone();
         let error = if fault.starts_with("control-") || fault.ends_with("-slot") {
             chain.parameters(0).map(|_| ())
@@ -386,7 +392,7 @@ fn caller(fault: &str) {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
+                &Events::new(),
                 &mut produced,
             )
         }
@@ -410,7 +416,7 @@ fn caller(fault: &str) {
                     &mut chain,
                     &[&input, &input],
                     32,
-                    &[],
+                    &Events::new(),
                     &plughost::RenderOptions::default()
                 ),
                 Err(plughost::Error::NotPrepared)
@@ -424,8 +430,8 @@ fn caller(fault: &str) {
                     &[&input, &input],
                     &mut [&mut left, &mut right],
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap_err()
                 .kind(),
@@ -451,8 +457,8 @@ fn caller(fault: &str) {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         assert_eq!(left, input);

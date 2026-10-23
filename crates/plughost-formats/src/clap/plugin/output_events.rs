@@ -32,7 +32,7 @@ pub(super) fn sounding() -> Result<Sounding, ClapError> {
 
 pub(super) struct ProcessOutput<'a> {
     pub parameters: events::ParameterOutput<'a>,
-    pub events: &'a mut Vec<plughost_core::Event>,
+    pub events: &'a mut plughost_core::Events,
     pub sounding: &'a mut Sounding,
     /// The block's length; events at or after its end land on its last frame.
     pub frames: usize,
@@ -153,7 +153,7 @@ impl ProcessOutput<'_> {
                     // SAFETY: the plugin's buffer is valid during this call; it is copied now.
                     Some((
                         usize::from(event.port_index()),
-                        EventData::SysEx(unsafe { event.data() }.to_vec()),
+                        EventData::SysEx(unsafe { event.data() }),
                     ))
                 }
             }
@@ -177,22 +177,26 @@ impl ProcessOutput<'_> {
             self.unconvertible += 1;
             return Ok(());
         }
-        let sysex = match &event.data {
+        let sysex = match event.data {
             EventData::SysEx(bytes) => bytes.len(),
             _ => 0,
         };
         if self.events.len() == MAX_BLOCK_EVENTS {
             return self.overflowed();
         }
+        // Within the block's budgets, which the checks above keep, pushing allocates nothing for
+        // events with one block's room.
+        if self.events.push(event).is_err() {
+            return self.overflowed();
+        }
         self.sysex += sysex;
-        if let EventData::NoteOn(note) = &event.data
+        if let EventData::NoteOn(note) = event.data
             && let Some(id) = note.id
             && (self.sounding.len() < MAX_BLOCK_EVENTS || self.sounding.contains_key(&id))
         {
             self.sounding
                 .insert(id, (event.port, note.channel, note.key));
         }
-        self.events.push(event);
         Ok(())
     }
 }
@@ -219,12 +223,12 @@ mod tests {
     use clack_host::events::event_types::{
         NoteChokeEvent, NoteEndEvent, NoteExpressionEvent, NoteExpressionType,
     };
-    use plughost_core::ParameterEventBuffer;
+    use plughost_core::{Events, ParameterEventBuffer};
 
     /// What the plugin's `events` become in one block, and how many had no portable form.
-    fn block(sounding: &mut Sounding, events: &[&UnknownEvent]) -> (Vec<EventData>, u64) {
+    fn block(sounding: &mut Sounding, events: &[&UnknownEvent]) -> (Events, u64) {
         let (parameters, queue) = (ParameterCache::default(), ParameterEventBuffer::default());
-        let mut produced = Vec::new();
+        let mut produced = Events::for_block();
         let mut output = ProcessOutput {
             parameters: events::ParameterOutput {
                 parameters: &parameters,
@@ -241,26 +245,31 @@ mod tests {
             assert!(output.try_push(event).is_ok());
         }
         let unconvertible = output.unconvertible;
-        (
-            produced.into_iter().map(|event| event.data).collect(),
-            unconvertible,
-        )
+        (produced, unconvertible)
+    }
+
+    fn data(events: &Events) -> Vec<EventData<'_>> {
+        events.iter().map(|event| event.data).collect()
     }
 
     #[test]
     fn a_note_off_or_expression_may_name_its_note_by_id_alone() {
         let mut sounding = sounding().unwrap();
         let on = NoteOnEvent::new(0, Pckn::new(1u16, 2u16, 64u16, 5u32), 0.5);
-        let (data, _) = block(&mut sounding, &[on.as_unknown()]);
-        assert_eq!(data, [EventData::NoteOn(Note::new(2, 64, 0.5).with_id(5))]);
+        let (produced, _) = block(&mut sounding, &[on.as_unknown()]);
+        assert_eq!(
+            data(&produced),
+            [EventData::NoteOn(Note::new(2, 64, 0.5).with_id(5))]
+        );
 
         let by_id = Pckn::new(Match::All, Match::All, Match::All, 5u32);
         let tuning = NoteExpressionEvent::new(1, by_id, NoteExpressionType::Tuning, 12.0);
         let off = NoteOffEvent::new(2, by_id, 0.0);
-        let (data, unconvertible) = block(&mut sounding, &[tuning.as_unknown(), off.as_unknown()]);
+        let (produced, unconvertible) =
+            block(&mut sounding, &[tuning.as_unknown(), off.as_unknown()]);
         let expression = NoteExpression::new(2, 64, ExpressionKind::Tuning, 12.0).with_id(5);
         assert_eq!(
-            (data, unconvertible),
+            (data(&produced), unconvertible),
             (
                 vec![
                     EventData::Expression(expression),
@@ -271,8 +280,8 @@ mod tests {
         );
 
         // The note ended; its ID names no note any more.
-        let (data, unconvertible) = block(&mut sounding, &[tuning.as_unknown()]);
-        assert_eq!((data, unconvertible), (vec![], 1));
+        let (produced, unconvertible) = block(&mut sounding, &[tuning.as_unknown()]);
+        assert_eq!((produced.is_empty(), unconvertible), (true, 1));
     }
 
     #[test]
@@ -292,10 +301,11 @@ mod tests {
         let on = NoteOnEvent::new(0, Pckn::new(0u16, 0u16, 62u16, 9999u32), 0.5);
         let by_id = Pckn::new(Match::All, Match::All, Match::All, 9999u32);
         let tuning = NoteExpressionEvent::new(1, by_id, NoteExpressionType::Tuning, 12.0);
-        let (data, unconvertible) = block(&mut sounding, &[on.as_unknown(), tuning.as_unknown()]);
+        let (produced, unconvertible) =
+            block(&mut sounding, &[on.as_unknown(), tuning.as_unknown()]);
         let expression = NoteExpression::new(0, 62, ExpressionKind::Tuning, 12.0).with_id(9999);
         assert_eq!(
-            (data, unconvertible),
+            (data(&produced), unconvertible),
             (
                 vec![
                     EventData::NoteOn(Note::new(0, 62, 0.5).with_id(9999)),
@@ -318,7 +328,7 @@ mod tests {
             }
             let parameters = ParameterCache::default();
             let queue = ParameterEventBuffer::default();
-            let mut produced = Vec::with_capacity(MAX_BLOCK_EVENTS);
+            let mut produced = Events::for_block();
             let mut output = ProcessOutput {
                 parameters: events::ParameterOutput {
                     parameters: &parameters,

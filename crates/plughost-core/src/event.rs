@@ -4,6 +4,9 @@
 
 use std::ops::RangeInclusive;
 
+mod events;
+pub use events::{Events, Iter};
+
 /// Maximum events one processing block takes, counting automation points too: each automation
 /// point and each event (a MIDI message, a system exclusive message, a note on or off, or a note
 /// expression) is one record. For a chain this is the aggregate across all slots, and overflow
@@ -28,9 +31,9 @@ pub fn validate_event_count(automation: usize, events: usize) -> Result<(), crat
 }
 
 /// Checks the combined count of automation and events, and their system exclusive bytes.
-pub fn validate_event_budget(automation: usize, events: &[Event]) -> Result<(), crate::InputError> {
+pub fn validate_event_budget(automation: usize, events: &Events) -> Result<(), crate::InputError> {
     validate_event_count(automation, events.len())?;
-    if sysex_bytes(events) > MAX_BLOCK_SYSEX_BYTES {
+    if events.sysex_bytes() > MAX_BLOCK_SYSEX_BYTES {
         return Err(crate::InputError::EventCapacity);
     }
     Ok(())
@@ -38,17 +41,18 @@ pub fn validate_event_budget(automation: usize, events: &[Event]) -> Result<(), 
 
 /// An event on an event port at a sample offset: from the start of the block when processing
 /// blocks, and from the start of the input when rendering. Each format receives it in its own
-/// form; see [`EventData`].
-#[derive(Clone, Debug, PartialEq)]
+/// form; see [`EventData`]. Events are kept in an [`Events`], which holds the system exclusive
+/// bytes an event borrows.
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
-pub struct Event {
+pub struct Event<'a> {
     /// Zero-based sample offset in the block or render input.
     pub offset: usize,
     /// For a chain, the index of one of its external event inputs or outputs; for a plugin hosted
     /// directly, the index of its native event port in that direction.
     pub port: usize,
     /// MIDI, SysEx, note, or note-expression payload.
-    pub data: EventData,
+    pub data: EventData<'a>,
 }
 
 /// What an event carries.
@@ -61,14 +65,14 @@ pub struct Event {
 /// MIDI 1.0 form of [`EventData::to_midi`]; the note ID and the precision beyond 7 bits are lost
 /// there, and an expression other than pressure has no such form and is not delivered. Output
 /// notes and expressions in a format's note events become these variants; MIDI output stays MIDI.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
-pub enum EventData {
+pub enum EventData<'a> {
     /// A MIDI 1.0 channel message. Program change and channel pressure use two bytes; the third
     /// is ignored. MPE is MIDI 1.0 on member channels and is delivered as MIDI.
     Midi([u8; 3]),
     /// A complete system exclusive message, from its F0 to its F7.
-    SysEx(Vec<u8>),
+    SysEx(&'a [u8]),
     /// Starts a note with normalized velocity and an optional independent note ID.
     NoteOn(Note),
     /// Ends the notes it addresses; `velocity` is the release velocity.
@@ -224,7 +228,7 @@ fn seven_bits(value: f64) -> u8 {
     (value * 127.0).round().clamp(0.0, 127.0) as u8
 }
 
-impl EventData {
+impl EventData<'_> {
     /// The MIDI 1.0 channel message form: the message itself, a note on (with a velocity of at
     /// least 1, since 0 would end the note) or note off, or poly pressure for a pressure
     /// expression. `None` for system exclusive data and the other expressions.
@@ -315,9 +319,9 @@ pub enum Message {
     },
 }
 
-impl Event {
+impl<'a> Event<'a> {
     /// An event on port 0.
-    pub fn new(offset: usize, data: EventData) -> Event {
+    pub fn new(offset: usize, data: EventData<'a>) -> Event<'a> {
         Event {
             offset,
             port: 0,
@@ -326,12 +330,12 @@ impl Event {
     }
 
     /// A MIDI 1.0 channel message on port 0.
-    pub fn midi(offset: usize, data: [u8; 3]) -> Event {
+    pub fn midi(offset: usize, data: [u8; 3]) -> Event<'a> {
         Self::new(offset, EventData::Midi(data))
     }
 
     /// A MIDI 1.0 note on.
-    pub fn note_on(offset: usize, channel: u8, key: u8, velocity: u8) -> Event {
+    pub fn note_on(offset: usize, channel: u8, key: u8, velocity: u8) -> Event<'a> {
         Self::midi(
             offset,
             [0x90 | (channel & 0x0F), key & 0x7F, velocity & 0x7F],
@@ -339,7 +343,7 @@ impl Event {
     }
 
     /// A MIDI 1.0 note off.
-    pub fn note_off(offset: usize, channel: u8, key: u8, velocity: u8) -> Event {
+    pub fn note_off(offset: usize, channel: u8, key: u8, velocity: u8) -> Event<'a> {
         Self::midi(
             offset,
             [0x80 | (channel & 0x0F), key & 0x7F, velocity & 0x7F],
@@ -347,7 +351,7 @@ impl Event {
     }
 
     /// Constructs a MIDI controller event on port 0, masking channel and data to MIDI widths.
-    pub fn control_change(offset: usize, channel: u8, controller: u8, value: u8) -> Event {
+    pub fn control_change(offset: usize, channel: u8, controller: u8, value: u8) -> Event<'a> {
         Self::midi(
             offset,
             [0xB0 | (channel & 0x0F), controller & 0x7F, value & 0x7F],
@@ -355,17 +359,17 @@ impl Event {
     }
 
     /// A system exclusive message on port 0; `bytes` include the F0 and the F7.
-    pub fn sysex(offset: usize, bytes: Vec<u8>) -> Event {
+    pub fn sysex(offset: usize, bytes: &'a [u8]) -> Event<'a> {
         Self::new(offset, EventData::SysEx(bytes))
     }
 
     /// The same event on `port`.
-    pub fn on_port(self, port: usize) -> Event {
+    pub fn on_port(self, port: usize) -> Event<'a> {
         Event { port, ..self }
     }
 
     /// The same event at `offset`.
-    pub fn at(self, offset: usize) -> Event {
+    pub fn at(self, offset: usize) -> Event<'a> {
         Event { offset, ..self }
     }
 
@@ -425,7 +429,7 @@ impl Event {
     /// Whether the data is a MIDI 1.0 channel message, a complete system exclusive message, or a
     /// note or expression with values in their ranges.
     pub fn is_valid(&self) -> bool {
-        match &self.data {
+        match self.data {
             EventData::Midi(_) => self.message().is_some(),
             EventData::SysEx(bytes) => {
                 bytes.len() >= 2
@@ -439,24 +443,15 @@ impl Event {
     }
 }
 
-/// The system exclusive bytes in `events`, saturating instead of overflowing.
-pub fn sysex_bytes(events: &[Event]) -> usize {
-    events
-        .iter()
-        .filter_map(|event| match &event.data {
-            EventData::SysEx(bytes) => Some(bytes.len()),
-            _ => None,
-        })
-        .fold(0, usize::saturating_add)
-}
-
 /// Whether `events` can go with a block of `frames` samples: valid events in offset order, every
 /// offset inside the block. Budgets and ports are checked separately.
-pub fn events_fit(events: &[Event], frames: usize) -> bool {
-    events.iter().all(|e| e.offset < frames && e.is_valid())
-        && events
-            .windows(2)
-            .all(|pair| pair[0].offset <= pair[1].offset)
+pub fn events_fit(events: &Events, frames: usize) -> bool {
+    let mut previous = 0;
+    events.iter().all(|event| {
+        let ordered = event.offset >= previous;
+        previous = event.offset;
+        ordered && event.offset < frames && event.is_valid()
+    })
 }
 
 #[cfg(test)]
@@ -509,19 +504,19 @@ mod tests {
 
     #[test]
     fn system_exclusive_messages_are_complete_and_budgeted() {
-        let sysex = Event::sysex(0, vec![0xF0, 0x7D, 0x01, 0xF7]).on_port(1);
+        let sysex = Event::sysex(0, &[0xF0, 0x7D, 0x01, 0xF7]).on_port(1);
         assert!(sysex.is_valid());
         assert_eq!(sysex.message(), None);
         assert_eq!(sysex.data.to_midi(), None);
         assert_eq!(sysex.port, 1);
         for bytes in [vec![0xF0], vec![0xF0, 0x80, 0xF7], vec![0x7D, 0xF7]] {
-            assert!(!Event::sysex(0, bytes).is_valid());
+            assert!(!Event::sysex(0, &bytes).is_valid());
         }
         let mut large = vec![0; MAX_BLOCK_SYSEX_BYTES + 1];
         large[0] = 0xF0;
         large[MAX_BLOCK_SYSEX_BYTES] = 0xF7;
         assert_eq!(
-            validate_event_budget(0, &[Event::sysex(0, large)]),
+            validate_event_budget(0, &Events::from_iter([Event::sysex(0, &large)])),
             Err(crate::InputError::EventCapacity)
         );
     }
@@ -596,8 +591,8 @@ mod tests {
     fn events_must_be_ordered_and_inside_the_block() {
         let on = Event::note_on(10, 0, 60, 100);
         let off = Event::note_off(20, 0, 60, 0);
-        assert!(events_fit(&[on.clone(), off.clone()], 64));
-        assert!(!events_fit(&[off.clone(), on.clone()], 64));
-        assert!(!events_fit(&[on, off], 20));
+        assert!(events_fit(&Events::from_iter([on, off]), 64));
+        assert!(!events_fit(&Events::from_iter([off, on]), 64));
+        assert!(!events_fit(&Events::from_iter([on, off]), 20));
     }
 }

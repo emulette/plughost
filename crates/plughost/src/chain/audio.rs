@@ -214,7 +214,7 @@ impl Chain {
         input: &[&[S]],
         output: &[&mut [S]],
         automation: &[AutomationEvent],
-        events: &[Event],
+        events: &Events,
     ) -> Result<(), Error> {
         self.refuse_while_realtime()?;
         self.validate_render_precision(S::FORMAT)?;
@@ -262,7 +262,7 @@ impl Chain {
         Ok(())
     }
 
-    fn validate_render_events(&self, events: &[Event]) -> Result<(), Error> {
+    fn validate_render_events(&self, events: &Events) -> Result<(), Error> {
         let config = self.config.as_ref().ok_or(Error::NotPrepared)?;
         if let Some(event) = events
             .iter()
@@ -339,7 +339,8 @@ macro_rules! audio_process {
             /// entries and [`crate::MAX_BLOCK_SYSEX_BYTES`] of system exclusive data per block.
             /// Invalid input is rejected before any slot or delay history advances, and `output`
             /// and `produced` change only after the helper has completed the block. `produced` is
-            /// replaced with the chain's output events, by event output port.
+            /// replaced with the chain's output events, by event output port; one block's
+            /// ([`crate::Events::for_block`]) holds them without allocating.
             ///
             /// Events are delivered in the block they are submitted or produced in, without
             /// alignment for plugin latency. When a plugin produces, or routing gathers, more
@@ -351,8 +352,8 @@ macro_rules! audio_process {
                 input: &[&[$sample]],
                 output: &mut [&mut [$sample]],
                 automation: &[AutomationEvent],
-                events: &[Event],
-                produced: &mut Vec<Event>,
+                events: &Events,
+                produced: &mut Events,
             ) -> Result<(), Error> {
                 self.validate_audio_block(context, input, output, automation, events)?;
                 self.$shared(context, input, output, automation, events, produced)
@@ -406,7 +407,7 @@ macro_rules! render_process {
                 self.validate_render_precision(<$sample as Sample>::FORMAT)?;
                 self.validate_render_automation(automation)
             }
-            fn validate_events(&mut self, events: &[Event]) -> Result<(), Error> {
+            fn validate_events(&mut self, events: &Events) -> Result<(), Error> {
                 self.validate_render_events(events)
             }
             fn process(
@@ -415,8 +416,8 @@ macro_rules! render_process {
                 input: &[&[$sample]],
                 output: &mut [&mut [$sample]],
                 automation: &[AutomationEvent],
-                events: &[Event],
-                produced: &mut Vec<Event>,
+                events: &Events,
+                produced: &mut Events,
             ) -> Result<(), Error> {
                 Chain::$method(self, context, input, output, automation, events, produced)
             }

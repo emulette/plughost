@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use plughost::{
     AudioDirection, AutomationEvent, BlockContext, Chain, Error, Event, EventData, EventInputRoute,
-    EventSource, HostIdentity, Layout, Note, ParameterChange, PluginFormat, PluginRef,
+    EventSource, Events, HostIdentity, Layout, Note, ParameterChange, PluginFormat, PluginRef,
     PresetLocation, RealtimeConfig, RealtimeEndpoint, RealtimeOutput, StatePurpose, Timeouts,
 };
 
@@ -52,11 +52,11 @@ fn serve(
     endpoint: &mut RealtimeEndpoint,
     input: &Stereo,
     automation: &[AutomationEvent],
-    events: &[Event],
-) -> (RealtimeOutput, Stereo, Vec<Event>) {
+    events: &Events,
+) -> (RealtimeOutput, Stereo, Events) {
     let mut output = silence(QUANTUM);
     let [left, right] = &mut output;
-    let mut produced = Vec::with_capacity(plughost::MAX_BLOCK_EVENTS);
+    let mut produced = Events::for_block();
     let played = endpoint
         .process_audio_f32(
             &BlockContext::new(QUANTUM),
@@ -73,7 +73,7 @@ fn serve(
 /// One callback of the manual driver.
 fn callback(endpoint: &mut RealtimeEndpoint, input: &Stereo) -> (RealtimeOutput, Stereo) {
     thread::sleep(PACE);
-    let (played, output, _) = serve(endpoint, input, &[], &[]);
+    let (played, output, _) = serve(endpoint, input, &[], &Events::new());
     (played, output)
 }
 
@@ -90,8 +90,8 @@ fn offline(chain: &mut Chain, inputs: impl IntoIterator<Item = Stereo>) -> Vec<S
                     &[&input[0], &input[1]],
                     &mut [left, right],
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap();
             output
@@ -239,8 +239,8 @@ fn presets_and_factory_presets_apply_while_running() {
                 &[],
                 &mut [left, right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         (played, output)
@@ -439,16 +439,18 @@ fn notes_the_application_received_end_after_a_resync() {
     chain.prepare_audio(&config).unwrap();
     let mut endpoint = started(&mut chain, &RealtimeConfig::new(QUANTUM));
     let note = |id, key| Note::new(0, key, 0.5).with_id(id);
-    let starts = [
+    let starts = Events::from_iter([
         Event::note_on(0, 0, 60, 100),
         Event::note_on(0, 0, 62, 100),
         Event::new(10, EventData::NoteOn(note(5, 64))).on_port(1),
         Event::new(10, EventData::NoteOn(note(6, 65))).on_port(1),
-    ];
-    let ends = [
+    ]);
+    let sysex = Event::sysex(0, &[0xF0, 0x7D, 0x01, 0x02, 0xF7]);
+    let ends = Events::from_iter([
         Event::note_off(0, 0, 62, 0),
+        sysex,
         Event::new(10, EventData::NoteOff(note(6, 65))).on_port(1),
-    ];
+    ]);
     let silent = silence(QUANTUM);
     thread::sleep(PACE);
     serve(&mut endpoint, &silent, &[], &starts);
@@ -456,12 +458,14 @@ fn notes_the_application_received_end_after_a_resync() {
     let (_, _, produced) = serve(&mut endpoint, &silent, &[], &ends);
     assert_eq!(produced.len(), 6, "{produced:?}");
     thread::sleep(PACE);
-    let (_, _, produced) = serve(&mut endpoint, &silent, &[], &[]);
-    assert_eq!(produced.len(), 2, "{produced:?}");
+    let (_, _, produced) = serve(&mut endpoint, &silent, &[], &Events::new());
+    // The system exclusive message comes back too.
+    assert_eq!(produced.len(), 3, "{produced:?}");
+    assert!(produced.iter().any(|event| event == sysex), "{produced:?}");
 
     chain.resync_realtime().unwrap();
     thread::sleep(PACE);
-    let (played, _, produced) = serve(&mut endpoint, &silent, &[], &[]);
+    let (played, _, produced) = serve(&mut endpoint, &silent, &[], &Events::new());
     assert_eq!(played, PRIMING);
     assert_eq!(
         produced,
@@ -471,8 +475,8 @@ fn notes_the_application_received_end_after_a_resync() {
         ]
     );
     thread::sleep(PACE);
-    let (played, _, produced) = serve(&mut endpoint, &silent, &[], &[]);
-    assert_eq!((played, produced), (PROCESSED, Vec::new()));
+    let (played, _, produced) = serve(&mut endpoint, &silent, &[], &Events::new());
+    assert_eq!((played, produced), (PROCESSED, Events::new()));
     assert_eq!(chain.realtime_status().unwrap().dropped_events, 0);
 }
 
@@ -510,8 +514,8 @@ fn a_slot_prepared_again_drops_its_restart_request() {
             &[&input[0], &input[1]],
             &mut [left, right],
             automation,
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
     };
     assert_eq!(
@@ -529,7 +533,7 @@ fn a_slot_prepared_again_drops_its_restart_request() {
     // a request of the new instance waits too.
     let mut endpoint = started(&mut chain, &RealtimeConfig::new(QUANTUM));
     thread::sleep(PACE);
-    serve(&mut endpoint, &sine(0), &restart, &[]);
+    serve(&mut endpoint, &sine(0), &restart, &Events::new());
     for index in 1..4 {
         assert_eq!(callback(&mut endpoint, &sine(index)).0, PROCESSED);
     }
@@ -538,7 +542,7 @@ fn a_slot_prepared_again_drops_its_restart_request() {
     chain.reprepare_slot(0).unwrap();
     assert!(!restart_required(&mut chain));
     thread::sleep(PACE);
-    serve(&mut endpoint, &sine(4), &restart, &[]);
+    serve(&mut endpoint, &sine(4), &restart, &Events::new());
     for index in 5..9 {
         assert_eq!(callback(&mut endpoint, &sine(index)).0, PROCESSED);
     }

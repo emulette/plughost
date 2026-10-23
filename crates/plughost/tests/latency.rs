@@ -3,7 +3,7 @@
 //! processes is reported, and rendering keeps one alignment. Its tail is read again whenever the
 //! timing is. Build the helper and the test plugins first (see `support`).
 
-use plughost::{Error, PluginFormat, RenderError, RenderOptions, Tail, TailPolicy, render};
+use plughost::{Error, Events, PluginFormat, RenderError, RenderOptions, Tail, TailPolicy, render};
 
 mod support;
 
@@ -26,7 +26,14 @@ fn a_latency_change_takes_effect_when_the_chain_is_reset() {
     // The plugin announces its new latency halfway through the render and keeps its delay until
     // it activates again, so the whole render keeps the alignment it started with. Its latency
     // and tail getters answer wrong values on any thread but the one that created it.
-    let rendered = render(&mut chain, &[&input, &input], FRAMES, &[], &options).unwrap();
+    let rendered = render(
+        &mut chain,
+        &[&input, &input],
+        FRAMES,
+        &Events::new(),
+        &options,
+    )
+    .unwrap();
     assert_eq!(rendered.latency, LATENCY);
     assert_eq!(rendered.channels, [input.clone(), input.clone()]);
     let timing = chain.take_changes().unwrap().snapshot[0].unwrap();
@@ -34,7 +41,13 @@ fn a_latency_change_takes_effect_when_the_chain_is_reset() {
     assert_eq!(chain.latency(), LATENCY);
     // Many plugins delay by their new latency at once; a render does not start on the old one.
     assert!(matches!(
-        render(&mut chain, &[&input, &input], FRAMES, &[], &options),
+        render(
+            &mut chain,
+            &[&input, &input],
+            FRAMES,
+            &Events::new(),
+            &options
+        ),
         Err(Error::Render(RenderError::LatencyNotApplied))
     ));
 
@@ -43,7 +56,14 @@ fn a_latency_change_takes_effect_when_the_chain_is_reset() {
     assert_eq!(chain.latency(), CHANGED);
     let timing = chain.take_changes().unwrap().snapshot[0].unwrap();
     assert_eq!((timing.latency, timing.latency_changed), (CHANGED, false));
-    let rendered = render(&mut chain, &[&input, &input], FRAMES, &[], &options).unwrap();
+    let rendered = render(
+        &mut chain,
+        &[&input, &input],
+        FRAMES,
+        &Events::new(),
+        &options,
+    )
+    .unwrap();
     assert_eq!(rendered.latency, CHANGED);
     assert_eq!(rendered.channels, [input.clone(), input]);
 }
@@ -80,6 +100,13 @@ fn tail_edit(format: PluginFormat) {
 
     let input = vec![0.0f32; FRAMES];
     let options = RenderOptions::new(TailPolicy::Reported, 1.0);
-    let rendered = render(&mut chain, &[&input, &input], FRAMES, &[], &options).unwrap();
+    let rendered = render(
+        &mut chain,
+        &[&input, &input],
+        FRAMES,
+        &Events::new(),
+        &options,
+    )
+    .unwrap();
     assert_eq!(rendered.tail, 16);
 }

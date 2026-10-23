@@ -52,7 +52,7 @@ fn overlapping_slot_ramps_discrete_points_and_duplicate_edits_preserve_samples()
                 &mut chain,
                 &[&input, &input],
                 input.len(),
-                &[],
+                &Events::new(),
                 &RenderOptions::new(TailPolicy::Reported, 0.0),
                 &RenderSchedule {
                     automation: &points,
@@ -143,8 +143,8 @@ fn apple_ramp_matches_independent_control_edits() {
                     &[&[0.25], &[0.25]],
                     &mut [&mut left, &mut right],
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap();
             assert_eq!(left, right);
@@ -169,15 +169,15 @@ fn apple_ramp_matches_independent_control_edits() {
                 &[&silence, &silence],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         let result = render_with_schedule(
             &mut chain,
             &[&input, &input],
             input.len(),
-            &[],
+            &Events::new(),
             &RenderOptions::new(TailPolicy::Reported, 0.0),
             &RenderSchedule {
                 ramps: &ramp,

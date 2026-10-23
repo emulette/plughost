@@ -57,7 +57,7 @@ mod tests {
     use super::super::{Plugin, lock};
     use super::*;
     use plughost_core::{
-        BlockContext, FailureKind, Layout, ProcessConfig, ProcessMode, SampleFormat,
+        BlockContext, Events, FailureKind, Layout, ProcessConfig, ProcessMode, SampleFormat,
     };
 
     fn unit(plugin: &Plugin) -> Retained<AUAudioUnit> {
@@ -104,8 +104,8 @@ mod tests {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         );
         assert!(result.is_err(), "an invalidated instance must not render");
         assert_eq!(result.unwrap_err().kind(), FailureKind::RestartRequired);

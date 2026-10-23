@@ -1,11 +1,12 @@
 //! Serial, explicitly routed audio. Preparation resolves native bus identities to channel ranges.
 //! Each block is validated here, at the helper's IPC boundary, before any slot or delay advances.
 use super::*;
-use plughost_core::Event;
 use plughost_core::ipc::AudioSamples;
 use plughost_core::ipc::shared::Caller;
 use plughost_core::messages::CHAIN_NOT_PREPARED;
-use plughost_core::{Failure, FailureKind, InputError, RoutedChainConfig, Sample, events_fit};
+use plughost_core::{
+    Events, Failure, FailureKind, InputError, RoutedChainConfig, Sample, events_fit,
+};
 use std::io;
 use std::ops::{Add, Mul};
 
@@ -18,14 +19,14 @@ pub(super) trait Sink {
     fn complete_f32(
         &mut self,
         output: &[&[f32]],
-        events: &[Event],
+        events: &Events,
         latency: u32,
         tail: plughost_core::render::Tail,
     ) -> io::Result<()>;
     fn complete_f64(
         &mut self,
         output: &[&[f64]],
-        events: &[Event],
+        events: &Events,
         latency: u32,
         tail: plughost_core::render::Tail,
     ) -> io::Result<()>;
@@ -38,12 +39,12 @@ trait WireSample: Sample + Add<Output = Self> + Mul<Output = Self> + From<f32> {
         input: &[&[Self]],
         output: &mut [&mut [Self]],
         changes: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &Events,
+        produced: &mut Events,
     ) -> Result<(), plughost_formats::Error>;
     fn respond(
         output: &[&[Self]],
-        events: &[Event],
+        events: &Events,
         latency: u32,
         tail: plughost_core::render::Tail,
         sink: &mut dyn Sink,
@@ -58,14 +59,14 @@ macro_rules! wire_sample {
                 i: &[&[Self]],
                 o: &mut [&mut [Self]],
                 a: &[plughost_core::ParameterChange],
-                e: &[Event],
-                produced: &mut Vec<Event>,
+                e: &Events,
+                produced: &mut Events,
             ) -> Result<(), plughost_formats::Error> {
                 p.$method(c, i, o, a, e, produced)
             }
             fn respond(
                 output: &[&[Self]],
-                events: &[Event],
+                events: &Events,
                 latency: u32,
                 tail: plughost_core::render::Tail,
                 sink: &mut dyn Sink,
@@ -83,7 +84,7 @@ pub(super) fn process(
     input: &AudioSamples,
     context: &plughost_core::BlockContext,
     automation: &[plughost_core::AutomationEvent],
-    events: &[Event],
+    events: &Events,
     sink: &mut dyn Sink,
 ) -> io::Result<()> {
     let Some(config) = &pipeline.audio_config else {
@@ -171,7 +172,7 @@ fn validate<S: WireSample>(
     input: &[Vec<S>],
     context: &plughost_core::BlockContext,
     automation: &[plughost_core::AutomationEvent],
-    events: &[Event],
+    events: &Events,
 ) -> Result<(), InputError> {
     context.validate()?;
     plughost_core::validate_event_budget(automation.len(), events)?;
@@ -228,7 +229,7 @@ fn run<S: WireSample>(
     input: &[Vec<S>],
     context: &plughost_core::BlockContext,
     automation: &[plughost_core::AutomationEvent],
-    events: &[Event],
+    events: &Events,
     sink: &mut dyn Sink,
 ) -> io::Result<()> {
     if let Some(slot) = state
@@ -240,9 +241,11 @@ fn run<S: WireSample>(
         return sink.fail(Some(slot), audio_timing::restart_required());
     }
     let event_buffers = &mut *state.event_buffers;
+    // The first slot has no previous one; empty events hold no room.
+    let none = Events::new();
     for (slot, processor) in state.processors.iter().enumerate() {
         let (done, pending) = event_buffers.produced.split_at_mut(slot);
-        let previous_events = done.last().map_or(&[][..], Vec::as_slice);
+        let previous_events = done.last().unwrap_or(&none);
         let slot_events = &mut event_buffers.inputs[slot];
         let slot_automation = automation.iter().filter(|event| event.slot == slot).count();
         if let Err(error) =

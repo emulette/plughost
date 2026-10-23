@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use objc2_core_foundation::{
     CFArray, CFBoolean, CFDictionary, CFNumber, CFRetained, CFString, CFType,
 };
-use plughost::{BlockContext, Chain, Event, Layout, PluginFormat, PluginRef};
+use plughost::{BlockContext, Chain, Event, Events, Layout, PluginFormat, PluginRef};
 
 mod support;
 
@@ -117,8 +117,8 @@ fn request(chain: &mut Chain, key: u8) {
             &[],
             &mut [&mut left, &mut right],
             &[],
-            &[Event::note_on(0, 0, key, 127)],
-            &mut Vec::new(),
+            &Events::from_iter([Event::note_on(0, 0, key, 127)]),
+            &mut Events::for_block(),
         )
         .unwrap();
 }

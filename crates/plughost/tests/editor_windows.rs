@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use plughost::{BlockContext, Chain, Event, Layout, PluginFormat};
+use plughost::{BlockContext, Chain, Event, Events, Layout, PluginFormat};
 use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GA_ROOT, GUITHREADINFO, GetAncestor, GetClassNameW, GetClientRect,
@@ -78,8 +78,8 @@ fn request(chain: &mut Chain, key: u8) {
             &[],
             &mut [&mut left, &mut right],
             &[],
-            &[Event::note_on(0, 0, key, 127)],
-            &mut Vec::new(),
+            &Events::from_iter([Event::note_on(0, 0, key, 127)]),
+            &mut Events::for_block(),
         )
         .unwrap();
 }
@@ -218,8 +218,8 @@ fn edits_and_saves_with_the_editor_open_survive_until_a_crash_and_recovery_reope
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         if block % 10 == 9 {

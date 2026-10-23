@@ -1,6 +1,6 @@
 //! Exercise caller-supplied render options through the public rendering boundary.
 use plughost_core::render::{Process, RenderOptions, Tail, TailPolicy, render};
-use plughost_core::{Event, FailureKind, RenderError};
+use plughost_core::{Events, FailureKind, RenderError};
 
 #[derive(Default)]
 struct Instrument {
@@ -33,8 +33,8 @@ impl Process<f32> for Instrument {
         _: &[&[f32]],
         output: &mut [&mut [f32]],
         _: &[plughost_core::AutomationEvent],
-        _: &[Event],
-        _produced: &mut Vec<Event>,
+        _: &Events,
+        _produced: &mut Events,
     ) -> Result<(), RenderError> {
         self.calls += 1;
         output[0].fill(0.25);
@@ -47,7 +47,7 @@ fn reported(seconds: f64) -> RenderOptions {
 }
 
 fn rejected(processor: &mut Instrument, frames: usize, options: &RenderOptions) {
-    let error = render(processor, &[], frames, &[], options).unwrap_err();
+    let error = render(processor, &[], frames, &Events::new(), options).unwrap_err();
     assert_eq!(error.kind(), FailureKind::InvalidInput);
     assert_eq!(
         processor.calls, 0,
@@ -79,7 +79,7 @@ fn invalid_options_are_rejected_before_processing() {
 fn fractional_durations_round_to_samples_without_changing_valid_output() {
     for (seconds, tail) in [(0.49 / 48_000.0, 0), (0.51 / 48_000.0, 1)] {
         let mut processor = Instrument::default();
-        let result = render(&mut processor, &[], 3, &[], &reported(seconds)).unwrap();
+        let result = render(&mut processor, &[], 3, &Events::new(), &reported(seconds)).unwrap();
         assert_eq!(result.channels, [vec![0.25; 3 + tail]]);
         assert_eq!(result.tail, tail);
     }
@@ -95,10 +95,10 @@ fn zero_limits_and_finite_thresholds_above_unity_are_valid() {
         },
         0.0,
     );
-    let result = render(&mut processor, &[], 3, &[], &options).unwrap();
+    let result = render(&mut processor, &[], 3, &Events::new(), &options).unwrap();
     assert_eq!(result.channels, [vec![0.25; 3]]);
     assert_eq!(result.tail, 0);
-    let empty = render(&mut processor, &[], 0, &[], &options).unwrap();
+    let empty = render(&mut processor, &[], 0, &Events::new(), &options).unwrap();
     assert!(empty.channels[0].is_empty());
     assert_eq!(processor.calls, 1);
 }

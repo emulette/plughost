@@ -195,7 +195,7 @@ impl<'a> Timeline<'a> {
     }
 
     /// A timestamp is indivisible: reject an impossible group before rendering earlier audio.
-    pub(super) fn validate_capacity(&mut self, midi: &[crate::Event]) -> Result<(), InputError> {
+    pub(super) fn validate_capacity(&mut self, midi: &crate::Events) -> Result<(), InputError> {
         let Storage {
             starts,
             ends,
@@ -214,29 +214,33 @@ impl<'a> Timeline<'a> {
         for &time in times.iter() {
             let points = self.automation.partition_point(|p| p.change.offset <= time)
                 - self.automation.partition_point(|p| p.change.offset < time);
-            let notes = &midi[midi.partition_point(|e| e.offset < time)
-                ..midi.partition_point(|e| e.offset <= time)];
+            let notes = midi.partition_point(|offset| offset < time)
+                ..midi.partition_point(|offset| offset <= time);
             let ramps = starts.partition_point(|&index| self.ramps[index].start <= time)
                 - ends.partition_point(|&index| self.ramps[index].end < time);
-            crate::validate_event_budget(points, notes)?;
+            crate::validate_event_count(points, notes.len())?;
+            if midi.sysex_bytes_in(notes.clone()) > crate::MAX_BLOCK_SYSEX_BYTES {
+                return Err(InputError::EventCapacity);
+            }
             crate::validate_event_count(points + notes.len(), ramps)?;
         }
         Ok(())
     }
 
     /// Fills a bounded block, shortening it before an entire timestamp would exceed the count or
-    /// system exclusive budget. MIDI is counted here and copied by the render loop after the final
-    /// end is known.
+    /// system exclusive budget. MIDI from index `pending` on is counted here and copied by the
+    /// render loop after the final end is known.
     pub(super) fn fill_block(
         &mut self,
         start: usize,
         end: usize,
-        midi: &[crate::Event],
+        midi: &crate::Events,
+        pending: usize,
         output: &mut Vec<AutomationEvent>,
     ) -> usize {
         output.clear();
         let mut point = self.automation.partition_point(|p| p.change.offset < start);
-        let mut note = 0;
+        let mut note = pending;
         let mut sysex = 0;
         let mut cursor = start;
         while cursor < end {
@@ -254,18 +258,18 @@ impl<'a> Timeline<'a> {
                 .get(point)
                 .map(|p| p.change.offset)
                 .into_iter()
-                .chain(midi.get(note).map(|e| e.offset))
+                .chain(midi.get(note).map(|event| event.offset))
                 .chain(next_ramp)
                 .min();
             let Some(time) = next.filter(|&time| time < end) else {
                 break;
             };
             let point_end = self.automation.partition_point(|p| p.change.offset <= time);
-            let note_end = midi.partition_point(|e| e.offset <= time);
+            let note_end = midi.partition_point(|offset| offset <= time);
             self.advance(time);
             let added = point_end - point + self.active.len();
-            let added_sysex = crate::sysex_bytes(&midi[note..note_end]);
-            if output.len() + added + note_end > crate::MAX_BLOCK_EVENTS
+            let added_sysex = midi.sysex_bytes_in(note..note_end);
+            if output.len() + added + note_end - pending > crate::MAX_BLOCK_EVENTS
                 || sysex + added_sysex > crate::MAX_BLOCK_SYSEX_BYTES
             {
                 return time;

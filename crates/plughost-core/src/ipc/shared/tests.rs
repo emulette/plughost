@@ -15,10 +15,14 @@ fn malformed_output_events_are_rejected_before_copying_audio() {
     ] {
         let (mut owner, mut peer) = pair(SampleFormat::F32);
         let submission = owner
-            .write_input_f32(1, 8, &[&[0.0; 8][..]; 2], &[], &[])
+            .write_input_f32(1, 8, &[&[0.0; 8][..]; 2], &[], &Events::new())
             .unwrap();
-        peer.write_output_f32(submission, &[&[0.25; 8][..]; 2], &events)
-            .unwrap();
+        peer.write_output_f32(
+            submission,
+            &[&[0.25; 8][..]; 2],
+            &Events::from_iter(events.clone()),
+        )
+        .unwrap();
         let mut audio = vec![vec![42.0; 8]; 2];
         assert!(
             owner
@@ -27,7 +31,7 @@ fn malformed_output_events_are_rejected_before_copying_audio() {
                     &mut views(&mut audio),
                     events.len(),
                     crate::MAX_EVENT_PORTS,
-                    &mut Vec::with_capacity(MAX_BLOCK_EVENTS)
+                    &mut Events::for_block()
                 )
                 .is_err(),
             "{events:?}"
@@ -40,13 +44,17 @@ fn malformed_output_events_are_rejected_before_copying_audio() {
 fn overlapping_sysex_ranges_still_share_one_block_budget() {
     let (mut owner, mut peer) = pair(SampleFormat::F32);
     let submission = owner
-        .write_input_f32(1, 8, &[&[0.0; 8][..]; 2], &[], &[])
+        .write_input_f32(1, 8, &[&[0.0; 8][..]; 2], &[], &Events::new())
         .unwrap();
     let mut bytes = vec![0x7D; MAX_BLOCK_SYSEX_BYTES];
     bytes[0] = 0xF0;
     bytes[MAX_BLOCK_SYSEX_BYTES - 1] = 0xF7;
-    peer.write_output_f32(submission, &[&[0.25; 8][..]; 2], &[Event::sysex(0, bytes)])
-        .unwrap();
+    peer.write_output_f32(
+        submission,
+        &[&[0.25; 8][..]; 2],
+        &Events::from_iter([Event::sysex(0, &bytes)]),
+    )
+    .unwrap();
     // A corrupted peer repeats the first record, reusing the same valid arena range. The
     // decoded allocation budget must count each occurrence, not only the highest arena offset.
     let start = peer.layout.output_events.slots;
@@ -61,7 +69,7 @@ fn overlapping_sysex_ranges_still_share_one_block_budget() {
                 &mut views(&mut audio),
                 2,
                 crate::MAX_EVENT_PORTS,
-                &mut Vec::with_capacity(MAX_BLOCK_EVENTS)
+                &mut Events::for_block()
             )
             .is_err()
     );
@@ -116,21 +124,21 @@ fn fixed_slots_preserve_precision_event_order_and_variable_frames() {
     let mut audio = vec![vec![0.0; 8]; 2];
     let mut returned = audio.clone();
     let mut edits = Vec::with_capacity(MAX_BLOCK_EVENTS);
-    let mut notes = Vec::with_capacity(MAX_BLOCK_EVENTS);
+    let mut notes = Events::for_block();
     let expected_edits = automation();
     let note = Note::new(15, 127, 1.0 / 3.0);
     let expression = NoteExpression::new(3, 64, ExpressionKind::Tuning, -0.1);
     let expected_notes = [
         Event::note_on(0, 0, 64, 100),
-        Event::sysex(0, vec![0xF0, 0x7D, 0x12, 0x34, 0xF7]).on_port(3),
+        Event::sysex(0, &[0xF0, 0x7D, 0x12, 0x34, 0xF7]).on_port(3),
         Event::new(0, EventData::NoteOn(note.with_id(crate::MAX_NOTE_ID))).on_port(2),
         Event::new(0, EventData::Expression(expression.with_id(0))),
         Event::new(0, EventData::Expression(expression)).on_port(15),
         Event::note_off(0, 0, 64, 32).on_port(1),
         Event::new(0, EventData::NoteOff(note)),
-        Event::sysex(0, vec![0xF0, 0xF7]),
+        Event::sysex(0, &[0xF0, 0xF7]),
     ];
-    let mut produced = Vec::with_capacity(MAX_BLOCK_EVENTS);
+    let mut produced = Events::for_block();
     for (index, frames) in [8, 3, 0, 1, 8].into_iter().enumerate() {
         let input = vec![1.0 + f64::EPSILON; frames];
         let a = if frames == 0 {
@@ -139,12 +147,12 @@ fn fixed_slots_preserve_precision_event_order_and_variable_frames() {
             &expected_edits
         };
         let m = if frames == 0 {
-            &[][..]
+            Events::new()
         } else {
-            &expected_notes
+            Events::from_iter(expected_notes)
         };
         let submission = owner
-            .write_input_f64(index as u64 + 1, frames, &[&input, &input], a, m)
+            .write_input_f64(index as u64 + 1, frames, &[&input, &input], a, &m)
             .unwrap();
         peer.read_input_f64(submission, &mut audio, &mut edits, &mut notes)
             .unwrap();
@@ -157,7 +165,7 @@ fn fixed_slots_preserve_precision_event_order_and_variable_frames() {
             }
         }
         // The output events are the input events in reverse, echoed back.
-        let echoed: Vec<Event> = notes.iter().rev().cloned().collect();
+        let echoed: Events = notes.iter().rev().collect();
         peer.write_output_f64(submission, &[&audio[0], &audio[1]], &echoed)
             .unwrap();
         returned
@@ -182,9 +190,9 @@ fn submissions_outside_the_generation_or_slot_bounds_are_rejected() {
     let (mut owner, mut peer) = pair(SampleFormat::F32);
     let mut audio = vec![vec![0.0; 8]; 2];
     let mut edits = Vec::with_capacity(MAX_BLOCK_EVENTS);
-    let mut notes = Vec::with_capacity(MAX_BLOCK_EVENTS);
+    let mut notes = Events::for_block();
     let submission = owner
-        .write_input_f32(1, 1, &[&[0.25], &[0.5]], &automation(), &[])
+        .write_input_f32(1, 1, &[&[0.25], &[0.5]], &automation(), &Events::new())
         .unwrap();
     for bad in [
         Submission {
@@ -207,7 +215,7 @@ fn submissions_outside_the_generation_or_slot_bounds_are_rejected() {
     }
     peer.read_input_f32(submission, &mut audio, &mut edits, &mut notes)
         .unwrap();
-    peer.write_output_f32(submission, &[&audio[0], &audio[1]], &[])
+    peer.write_output_f32(submission, &[&audio[0], &audio[1]], &Events::new())
         .unwrap();
     for bad in [
         Submission {
@@ -226,7 +234,7 @@ fn submissions_outside_the_generation_or_slot_bounds_are_rejected() {
                     &mut views(&mut audio),
                     0,
                     crate::MAX_EVENT_PORTS,
-                    &mut Vec::new()
+                    &mut Events::for_block()
                 )
                 .is_err()
         );
@@ -237,7 +245,7 @@ fn submissions_outside_the_generation_or_slot_bounds_are_rejected() {
             &mut views(&mut audio),
             0,
             crate::MAX_EVENT_PORTS,
-            &mut Vec::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(audio, [vec![0.25], vec![0.5]]);
@@ -247,27 +255,32 @@ fn submissions_outside_the_generation_or_slot_bounds_are_rejected() {
 fn invalid_shape_precision_and_event_budget_do_not_replace_valid_input() {
     let (mut owner, mut peer) = pair(SampleFormat::F32);
     let submission = owner
-        .write_input_f32(1, 1, &[&[0.25], &[0.5]], &[], &[])
+        .write_input_f32(1, 1, &[&[0.25], &[0.5]], &[], &Events::new())
         .unwrap();
     assert!(
         owner
-            .write_input_f64(2, 1, &[&[1.0], &[1.0]], &[], &[])
+            .write_input_f64(2, 1, &[&[1.0], &[1.0]], &[], &Events::new())
             .is_err()
     );
     assert!(
         owner
-            .write_input_f32(2, 2, &[&[1.0], &[1.0]], &[], &[])
+            .write_input_f32(2, 2, &[&[1.0], &[1.0]], &[], &Events::new())
             .is_err()
     );
-    let too_many = vec![Event::note_on(0, 0, 60, 127); MAX_BLOCK_EVENTS];
+    let too_many = Events::from_iter([Event::note_on(0, 0, 60, 127); MAX_BLOCK_EVENTS]);
     assert!(
         owner
             .write_input_f32(2, 1, &[&[1.0], &[1.0]], &automation(), &too_many)
             .is_err()
     );
     let mut audio = vec![vec![0.0; 8]; 2];
-    peer.read_input_f32(submission, &mut audio, &mut Vec::new(), &mut Vec::new())
-        .unwrap();
+    peer.read_input_f32(
+        submission,
+        &mut audio,
+        &mut Vec::new(),
+        &mut Events::for_block(),
+    )
+    .unwrap();
     assert_eq!(audio, [vec![0.25], vec![0.5]]);
     for config in [
         SlotConfig {
@@ -302,18 +315,18 @@ fn insufficient_scratch_is_rejected_before_dsp() {
             1,
             &[&[1.0], &[1.0]],
             &[],
-            &[Event::note_on(0, 0, 60, 127)],
+            &Events::from_iter([Event::note_on(0, 0, 60, 127)]),
         )
         .unwrap();
     let mut audio = vec![vec![0.0; 8]; 2];
     let mut edits = Vec::with_capacity(MAX_BLOCK_EVENTS);
-    let mut notes = Vec::with_capacity(MAX_BLOCK_EVENTS);
+    let mut notes = Events::for_block();
     assert!(
         peer.read_input_f32(submission, &mut [], &mut edits, &mut notes)
             .is_err()
     );
     assert!(
-        peer.read_input_f32(submission, &mut audio, &mut edits, &mut Vec::new())
+        peer.read_input_f32(submission, &mut audio, &mut edits, &mut Events::new())
             .is_err()
     );
     peer.read_input_f32(submission, &mut audio, &mut edits, &mut notes)
@@ -325,12 +338,17 @@ fn insufficient_scratch_is_rejected_before_dsp() {
 fn anonymous_mapping_survives_peer_drop() {
     let (mut owner, mut peer) = pair(SampleFormat::F32);
     let submission = owner
-        .write_input_f32(1, 1, &[&[0.25], &[0.5]], &[], &[])
+        .write_input_f32(1, 1, &[&[0.25], &[0.5]], &[], &Events::new())
         .unwrap();
     let mut audio = vec![vec![0.0; 8]; 2];
-    peer.read_input_f32(submission, &mut audio, &mut Vec::new(), &mut Vec::new())
-        .unwrap();
-    peer.write_output_f32(submission, &[&audio[0], &audio[1]], &[])
+    peer.read_input_f32(
+        submission,
+        &mut audio,
+        &mut Vec::new(),
+        &mut Events::for_block(),
+    )
+    .unwrap();
+    peer.write_output_f32(submission, &[&audio[0], &audio[1]], &Events::new())
         .unwrap();
     drop(peer);
     owner
@@ -339,7 +357,7 @@ fn anonymous_mapping_survives_peer_drop() {
             &mut views(&mut audio),
             0,
             crate::MAX_EVENT_PORTS,
-            &mut Vec::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(audio, [vec![0.25], vec![0.5]]);
@@ -357,20 +375,21 @@ fn zero_audio_input_carries_the_full_event_budget_and_preserves_float_bits() {
     };
     let mut owner = SharedAudio::new(descriptor).unwrap();
     let mut peer = peer(&owner, descriptor);
-    let notes = vec![Event::note_off(0, 0, 60, 0); MAX_BLOCK_EVENTS - 1];
+    let notes = Events::from_iter([Event::note_off(0, 0, 60, 0); MAX_BLOCK_EVENTS - 1]);
     let changes = automation();
     let submission = owner
         .write_input_f32(1, 2, &[], &changes[..1], &notes)
         .unwrap();
     let mut edits = Vec::with_capacity(MAX_BLOCK_EVENTS);
-    let mut received = Vec::with_capacity(MAX_BLOCK_EVENTS);
+    let mut received = Events::for_block();
     peer.read_input_f32(submission, &mut [], &mut edits, &mut received)
         .unwrap();
     assert_eq!(edits, changes[..1]);
     assert_eq!(received, notes);
     let bits = [0xffc00123, 0x80000000];
     let output = bits.map(f32::from_bits);
-    peer.write_output_f32(submission, &[&output], &[]).unwrap();
+    peer.write_output_f32(submission, &[&output], &Events::new())
+        .unwrap();
     let mut result = vec![vec![0.0; 2]];
     owner
         .read_output_f32(
@@ -378,7 +397,7 @@ fn zero_audio_input_carries_the_full_event_budget_and_preserves_float_bits() {
             &mut views(&mut result),
             0,
             crate::MAX_EVENT_PORTS,
-            &mut Vec::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(
@@ -398,10 +417,15 @@ fn a_peer_cannot_shrink_the_shared_memory() {
     let handle = owner.memory.handle().try_clone().unwrap();
     assert!(std::fs::File::from(handle).set_len(0).is_err());
     let submission = owner
-        .write_input_f32(1, 8, &[&[0.25; 8], &[0.5; 8]], &[], &[])
+        .write_input_f32(1, 8, &[&[0.25; 8], &[0.5; 8]], &[], &Events::new())
         .unwrap();
     let mut audio = vec![vec![0.0; 8]; 2];
-    peer.read_input_f32(submission, &mut audio, &mut Vec::new(), &mut Vec::new())
-        .unwrap();
+    peer.read_input_f32(
+        submission,
+        &mut audio,
+        &mut Vec::new(),
+        &mut Events::for_block(),
+    )
+    .unwrap();
     assert_eq!(audio, [vec![0.25; 8], vec![0.5; 8]]);
 }

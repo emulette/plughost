@@ -26,8 +26,8 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use crate::{
-    AutomationEvent, Event, EventData, ExpressionKind, MAX_AUDIO_CHANNELS, MAX_BLOCK_EVENTS,
-    MAX_BLOCK_SYSEX_BYTES, Note, NoteExpression, SampleFormat,
+    AutomationEvent, Event, EventData, Events, ExpressionKind, MAX_AUDIO_CHANNELS,
+    MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES, Note, NoteExpression, SampleFormat,
 };
 pub use activity::{Activity, Caller};
 use errors::{BLOCK, CONFIGURATION, EVENTS, GENERATION, invalid};
@@ -76,7 +76,7 @@ pub struct Submission {
 
 /// Fixed event records and the system exclusive bytes they refer to, for one direction.
 #[derive(Clone, Copy)]
-struct Events {
+struct EventRegion {
     slots: usize,
     sysex: usize,
 }
@@ -85,8 +85,8 @@ struct Layout {
     input: usize,
     output: usize,
     automation: usize,
-    input_events: Events,
-    output_events: Events,
+    input_events: EventRegion,
+    output_events: EventRegion,
     bytes: usize,
 }
 
@@ -145,7 +145,7 @@ impl SlotConfig {
             .checked_add(pcm(self.output_channels)?)
             .ok_or_else(|| invalid(CONFIGURATION))?;
         // Event regions have fixed sizes; the system exclusive bytes stay 8-byte aligned.
-        let events = |start: usize| -> io::Result<(Events, usize)> {
+        let events = |start: usize| -> io::Result<(EventRegion, usize)> {
             let sysex = start
                 .checked_add(MAX_BLOCK_EVENTS * EVENT_BYTES)
                 .ok_or_else(|| invalid(CONFIGURATION))?;
@@ -153,7 +153,7 @@ impl SlotConfig {
                 .checked_add(MAX_BLOCK_SYSEX_BYTES)
                 .ok_or_else(|| invalid(CONFIGURATION))?;
             Ok((
-                Events {
+                EventRegion {
                     slots: start,
                     sysex,
                 },
@@ -257,7 +257,7 @@ impl SharedAudio {
     }
 
     /// Writes events within the count and system exclusive budgets, which the caller checked.
-    fn write_events(&self, region: Events, events: &[Event]) {
+    fn write_events(&self, region: EventRegion, events: &Events) {
         let mut sysex = 0;
         for (index, event) in events.iter().enumerate() {
             let offset = region.slots + index * EVENT_BYTES;
@@ -265,11 +265,11 @@ impl SharedAudio {
                 kind | u64::from(channel) << 8 | u64::from(key) << 16 | expression << 24
             };
             let id = |id: Option<u32>| id.map_or(0, |id| u64::from(id) + 1);
-            let (header, id, payload) = match &event.data {
+            let (header, id, payload) = match event.data {
                 EventData::Midi([status, first, second]) => (
                     MIDI_KIND,
                     0,
-                    u64::from(u32::from_le_bytes([*status, *first, *second, 0])),
+                    u64::from(u32::from_le_bytes([status, first, second, 0])),
                 ),
                 EventData::SysEx(bytes) => {
                     let destination = self.memory.as_ptr().wrapping_add(region.sysex + sysex);
@@ -334,17 +334,17 @@ impl SharedAudio {
         Ok(())
     }
 
-    /// Decodes events, checking each system exclusive range and the total allocation budget.
-    /// With `skipped`, system exclusive events and events beyond `events`' capacity are counted
-    /// there instead of decoded, so decoding allocates nothing.
+    /// Decodes events into `events`, checking each system exclusive range and the total budget.
+    /// Decoding allocates nothing: events beyond the room `events` has reserved are counted in
+    /// `skipped`, or without it fail the read.
     fn read_events(
         &self,
-        region: Events,
+        region: EventRegion,
         count: usize,
-        events: &mut Vec<Event>,
+        events: &mut Events,
         mut skipped: Option<&mut usize>,
     ) -> io::Result<()> {
-        if count > MAX_BLOCK_EVENTS || (skipped.is_none() && events.capacity() < count) {
+        if count > MAX_BLOCK_EVENTS {
             return Err(invalid(BLOCK));
         }
         events.clear();
@@ -359,6 +359,8 @@ impl SharedAudio {
                 id => Some(u32::try_from(id - 1).map_err(|_| invalid(EVENTS))?),
             };
             let payload = self.load(offset + 24);
+            let time = usize::try_from(self.load(offset)).map_err(|_| invalid(EVENTS))?;
+            let port = (port & u64::from(u32::MAX)) as usize;
             let note = || Note {
                 id,
                 channel,
@@ -381,15 +383,19 @@ impl SharedAudio {
                     {
                         return Err(invalid(EVENTS));
                     }
-                    if let Some(skipped) = skipped.as_deref_mut() {
-                        *skipped += 1;
-                        continue;
-                    }
-                    let mut bytes = vec![0; length];
                     let source = self.memory.as_ptr().wrapping_add(region.sysex + start);
-                    // SAFETY: the range was checked against this region's arena above.
-                    unsafe { std::ptr::copy_nonoverlapping(source, bytes.as_mut_ptr(), length) };
-                    EventData::SysEx(bytes)
+                    // SAFETY: the range was checked against this region's arena above, which no
+                    // atomic word overlaps; the slot belongs to the reader until handed back.
+                    let copy = |bytes: &mut [u8]| unsafe {
+                        std::ptr::copy_nonoverlapping(source, bytes.as_mut_ptr(), length)
+                    };
+                    let pushed = events.push_sysex_within_capacity(time, port, length, copy);
+                    match skipped.as_deref_mut() {
+                        Some(skipped) => *skipped += usize::from(!pushed),
+                        None if !pushed => return Err(invalid(BLOCK)),
+                        None => {}
+                    }
+                    continue;
                 }
                 NOTE_ON_KIND => EventData::NoteOn(note()),
                 NOTE_OFF_KIND => EventData::NoteOff(note()),
@@ -402,18 +408,17 @@ impl SharedAudio {
                 }),
                 _ => return Err(invalid(EVENTS)),
             };
-            if events.len() == events.capacity() {
-                // Only reached with `skipped`: the capacity check above covers the other case.
-                if let Some(skipped) = skipped.as_deref_mut() {
-                    *skipped += 1;
-                }
-                continue;
-            }
-            events.push(Event {
-                offset: usize::try_from(self.load(offset)).map_err(|_| invalid(EVENTS))?,
-                port: (port & u64::from(u32::MAX)) as usize,
+            let event = Event {
+                offset: time,
+                port,
                 data,
-            });
+            };
+            let pushed = events.push_within_capacity(event);
+            match skipped.as_deref_mut() {
+                Some(skipped) => *skipped += usize::from(!pushed),
+                None if !pushed => return Err(invalid(BLOCK)),
+                None => {}
+            }
         }
         Ok(())
     }

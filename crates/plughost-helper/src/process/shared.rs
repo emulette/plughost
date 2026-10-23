@@ -5,7 +5,7 @@ use std::io;
 use plughost_core::ipc::shared::{Descriptor, SharedAudio, Submission, transfer};
 use plughost_core::ipc::{AudioSamples, Response};
 use plughost_core::{
-    AutomationEvent, BlockContext, Event, Failure, FailureKind, InputError, MAX_BLOCK_EVENTS,
+    AutomationEvent, BlockContext, Events, Failure, FailureKind, InputError, MAX_BLOCK_EVENTS,
 };
 
 use super::{Pipeline, audio};
@@ -15,7 +15,7 @@ pub(crate) struct Transport {
     memory: SharedAudio,
     input: AudioSamples,
     automation: Vec<AutomationEvent>,
-    events: Vec<Event>,
+    events: Events,
 }
 
 impl Transport {
@@ -32,7 +32,7 @@ impl Transport {
             memory,
             input,
             automation: Vec::with_capacity(MAX_BLOCK_EVENTS),
-            events: Vec::with_capacity(MAX_BLOCK_EVENTS),
+            events: Events::for_block(),
         })
     }
     pub fn descriptor(&self) -> Descriptor {
@@ -104,7 +104,7 @@ macro_rules! complete {
         fn $name(
             &mut self,
             output: &[&[$sample]],
-            events: &[Event],
+            events: &Events,
             latency: u32,
             tail: plughost_core::render::Tail,
         ) -> io::Result<()> {

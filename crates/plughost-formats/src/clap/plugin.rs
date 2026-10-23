@@ -40,7 +40,7 @@ use plughost_core::PluginId;
 use plughost_core::render::Tail;
 use plughost_core::{DiagnosticBatch, DiagnosticBuffer};
 use plughost_core::{
-    Event, HostIdentity, Layout, Message, ParameterInfo, PluginFormat, PluginInfo, PluginKind,
+    HostIdentity, Layout, Message, ParameterInfo, PluginFormat, PluginInfo, PluginKind,
     PluginState, PluginTiming, ProcessConfig, ProcessMode, SampleFormat, events_fit,
 };
 
@@ -294,8 +294,8 @@ impl Plugin {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), crate::Error> {
         Ok(self
             .processor()
@@ -806,8 +806,8 @@ impl Processor {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), ClapError> {
         self.process_audio_impl(context, input, output, automation, events, produced)
     }

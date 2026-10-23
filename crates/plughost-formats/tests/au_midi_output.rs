@@ -21,8 +21,8 @@ use objc2_avf_audio::AVAudioFormat;
 use objc2_core_audio_types::AudioBufferList;
 use objc2_foundation::{NSArray, NSError, NSInteger, NSString};
 use plughost_core::{
-    AudioBusConfig, AudioConfig, AudioDirection, Event, EventConfig, Layout, MAX_BLOCK_EVENTS,
-    MAX_BLOCK_SYSEX_BYTES, ProcessMode, SampleFormat,
+    AudioBusConfig, AudioConfig, AudioDirection, Event, EventConfig, Events, Layout,
+    MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES, ProcessMode, SampleFormat,
 };
 use plughost_formats::au::{self, Plugin};
 use plughost_formats::{Error, HostedPlugin};
@@ -297,10 +297,10 @@ fn prepared(outputs: Vec<u64>) -> Plugin {
     plugin
 }
 
-fn block(plugin: &mut Plugin, events: &[Event]) -> Result<Vec<Event>, Error> {
+fn block(plugin: &mut Plugin, events: &Events) -> Result<Events, Error> {
     let mut output = vec![vec![0.0f32; 512]; 2];
     let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
-    let mut produced = Vec::new();
+    let mut produced = Events::for_block();
     plugin.process(
         &plughost_core::BlockContext::new(512),
         &[],
@@ -334,21 +334,21 @@ fn sent_midi_arrives_at_its_block_offset_as_separate_messages() {
     let sysex = vec![0xF0, 0x7D, 0x01, 0x02, 0xF7];
     let produced = block(
         &mut plugin,
-        &[
+        &Events::from_iter([
             Event::note_on(100, 0, 60, 100),
-            Event::sysex(200, sysex.clone()),
+            Event::sysex(200, &sysex),
             Event::control_change(300, 0, 127, 0),
-        ],
+        ]),
     )
     .unwrap();
     assert_eq!(
         produced,
         [
             Event::note_on(100, 0, 60, 100),
-            Event::sysex(200, sysex),
+            Event::sysex(200, &sysex),
             Event::midi(300, [0x90, 1, 2]),
             Event::midi(300, [0x90, 3, 4]),
-            Event::sysex(300, vec![0xF0, 0x7D, 0x01, 0xF7]),
+            Event::sysex(300, &[0xF0, 0x7D, 0x01, 0xF7]),
         ]
     );
     // The clock has no event form; it is reported, not delivered.
@@ -357,13 +357,17 @@ fn sent_midi_arrives_at_its_block_offset_as_separate_messages() {
     assert!(diagnostics[0].message.ends_with(" 1"), "{diagnostics:?}");
 
     // Offsets are relative to each block.
-    let produced = block(&mut plugin, &[Event::note_off(5, 0, 60, 0)]).unwrap();
+    let produced = block(
+        &mut plugin,
+        &Events::from_iter([Event::note_off(5, 0, 60, 0)]),
+    )
+    .unwrap();
     assert_eq!(produced, [Event::note_off(5, 0, 60, 0)]);
 }
 
 #[test]
 fn only_prepared_outputs_deliver_their_messages() {
-    let second = [Event::control_change(10, 0, 126, 42)];
+    let second = Events::from_iter([Event::control_change(10, 0, 126, 42)]);
     let mut first_only = prepared(vec![0]);
     assert_eq!(block(&mut first_only, &second).unwrap(), []);
 
@@ -382,10 +386,18 @@ fn only_prepared_outputs_deliver_their_messages() {
 #[test]
 fn a_block_with_too_many_events_fails_and_the_next_one_delivers() {
     let mut plugin = prepared(vec![0]);
-    let error = block(&mut plugin, &[Event::note_on(0, 0, 127, 1)]).unwrap_err();
+    let error = block(
+        &mut plugin,
+        &Events::from_iter([Event::note_on(0, 0, 127, 1)]),
+    )
+    .unwrap_err();
     assert!(error.is_output_event_overflow(), "{error}");
     assert_eq!(
-        block(&mut plugin, &[Event::note_on(7, 0, 60, 1)]).unwrap(),
+        block(
+            &mut plugin,
+            &Events::from_iter([Event::note_on(7, 0, 60, 1)])
+        )
+        .unwrap(),
         [Event::note_on(7, 0, 60, 1)]
     );
 }
@@ -395,28 +407,42 @@ fn system_exclusive_byte_limits_include_the_terminator() {
     let mut plugin = prepared(vec![0]);
     // Leave one byte for F7 and finish in the next block: the full budget is valid.
     assert!(
-        block(&mut plugin, &[Event::control_change(0, 0, 125, 2)])
-            .unwrap()
-            .is_empty()
+        block(
+            &mut plugin,
+            &Events::from_iter([Event::control_change(0, 0, 125, 2)])
+        )
+        .unwrap()
+        .is_empty()
     );
     let mut message = vec![1; MAX_BLOCK_SYSEX_BYTES];
     message[0] = 0xF0;
     message[MAX_BLOCK_SYSEX_BYTES - 1] = 0xF7;
     assert_eq!(
-        block(&mut plugin, &[Event::control_change(5, 0, 124, 0)]).unwrap(),
-        [Event::sysex(5, message)]
+        block(
+            &mut plugin,
+            &Events::from_iter([Event::control_change(5, 0, 124, 0)])
+        )
+        .unwrap(),
+        [Event::sysex(5, &message)]
     );
     // Reaching the limit without F7 cannot produce a valid message within the budget.
-    let error = block(&mut plugin, &[Event::control_change(0, 0, 125, 0)]).unwrap_err();
+    let error = block(
+        &mut plugin,
+        &Events::from_iter([Event::control_change(0, 0, 125, 0)]),
+    )
+    .unwrap_err();
     assert!(error.is_output_event_overflow(), "{error}");
     assert!(
-        block(&mut plugin, &[Event::control_change(0, 0, 124, 0)])
-            .unwrap()
-            .is_empty()
+        block(
+            &mut plugin,
+            &Events::from_iter([Event::control_change(0, 0, 124, 0)])
+        )
+        .unwrap()
+        .is_empty()
     );
     let note = Event::note_on(7, 0, 60, 1);
     assert_eq!(
-        block(&mut plugin, std::slice::from_ref(&note)).unwrap(),
+        block(&mut plugin, &Events::from_iter([note])).unwrap(),
         [note]
     );
 }
@@ -424,7 +450,11 @@ fn system_exclusive_byte_limits_include_the_terminator() {
 #[test]
 fn clocks_do_not_hide_system_exclusive_byte_overflow() {
     let mut plugin = prepared(vec![0]);
-    let error = block(&mut plugin, &[Event::control_change(0, 0, 125, 1)]).unwrap_err();
+    let error = block(
+        &mut plugin,
+        &Events::from_iter([Event::control_change(0, 0, 125, 1)]),
+    )
+    .unwrap_err();
     assert!(error.is_output_event_overflow(), "{error}");
 }
 
@@ -441,7 +471,11 @@ fn the_main_configuration_prepares_the_first_output() {
             mode: ProcessMode::Offline,
         })
         .unwrap();
-    let produced = block(&mut plugin, &[Event::note_on(3, 0, 64, 90)]).unwrap();
+    let produced = block(
+        &mut plugin,
+        &Events::from_iter([Event::note_on(3, 0, 64, 90)]),
+    )
+    .unwrap();
     assert_eq!(produced, [Event::note_on(3, 0, 64, 90)]);
 }
 
@@ -455,30 +489,23 @@ fn system_exclusive_input_longer_than_a_native_event_is_rejected_before_scheduli
         bytes
     };
     let longest = message(u16::MAX as usize);
-    let events = [
-        Event::sysex(7, longest.clone()),
-        Event::note_on(8, 0, 60, 90),
-    ];
+    let events = Events::from_iter([Event::sysex(7, &longest), Event::note_on(8, 0, 60, 90)]);
     let produced = block(&mut plugin, &events).unwrap();
     assert_eq!(produced.len(), 2);
-    assert_eq!(produced[0].offset, 7);
-    let plughost_core::EventData::SysEx(received) = &produced[0].data else {
-        panic!("expected SysEx");
-    };
-    assert!(received == &longest);
-    assert_eq!(produced[1], events[1]);
+    assert_eq!(produced.get(0), events.get(0));
+    assert_eq!(produced.get(1), events.get(1));
 
     let rejected = block(
         &mut plugin,
-        &[
+        &Events::from_iter([
             Event::note_on(3, 0, 64, 90),
-            Event::sysex(7, message(MAX_BLOCK_SYSEX_BYTES)),
-        ],
+            Event::sysex(7, &message(MAX_BLOCK_SYSEX_BYTES)),
+        ]),
     );
     assert_eq!(
         rejected.unwrap_err().input_error(),
         Some(plughost_core::InputError::EventCapacity)
     );
     // Nothing of the rejected block reached the unit.
-    assert!(block(&mut plugin, &[]).unwrap().is_empty());
+    assert!(block(&mut plugin, &Events::new()).unwrap().is_empty());
 }

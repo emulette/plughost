@@ -3,9 +3,9 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::time::Instant;
 
-use plughost::{RenderOptions, TailPolicy};
+use plughost::{Events, RenderOptions, TailPolicy};
 use plughost_core::render::{Process, RenderSchedule, Tail, render_with_schedule};
-use plughost_core::{AutomationEvent, BlockContext, Event};
+use plughost_core::{AutomationEvent, BlockContext};
 use serde::Serialize;
 
 use crate::cases::Case;
@@ -62,7 +62,7 @@ impl<P: Process<f32>> Process<f32> for Counted<P> {
     ) -> std::result::Result<(), Self::Error> {
         self.processor.validate_automation(events)
     }
-    fn validate_events(&mut self, events: &[Event]) -> std::result::Result<(), Self::Error> {
+    fn validate_events(&mut self, events: &Events) -> std::result::Result<(), Self::Error> {
         self.processor.validate_events(events)
     }
     fn process(
@@ -71,8 +71,8 @@ impl<P: Process<f32>> Process<f32> for Counted<P> {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[AutomationEvent],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &Events,
+        produced: &mut Events,
     ) -> std::result::Result<(), Self::Error> {
         self.calls += 1;
         self.frames += context.frames;
@@ -112,9 +112,15 @@ where
         counted.frames = 0;
         let allocations = crate::allocations::count();
         let start = Instant::now();
-        let output =
-            render_with_schedule(&mut counted, &slices, case.frames, &[], &options, &schedule)
-                .map_err(Into::into)?;
+        let output = render_with_schedule(
+            &mut counted,
+            &slices,
+            case.frames,
+            &Events::new(),
+            &options,
+            &schedule,
+        )
+        .map_err(Into::into)?;
         let seconds = start.elapsed().as_secs_f64();
         let allocations = crate::allocations::count() - allocations;
         case.verify(&input, &output)?;

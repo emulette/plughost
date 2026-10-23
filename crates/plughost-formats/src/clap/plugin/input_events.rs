@@ -75,7 +75,8 @@ impl InputBuffer {
     /// ports that take MIDI or MIDI with MPE get the other channel messages, and the MIDI 1.0
     /// form of notes and pressure where they have no CLAP dialect.
     /// System exclusive data goes to ports that take MIDI. The rest are not delivered.
-    /// A system exclusive event refers to `event`'s bytes until the buffer is cleared.
+    /// A system exclusive event refers to the bytes of the `Events` holding `event`, which the
+    /// process call reading the buffer must not outlive.
     pub fn note(&mut self, event: &plughost_core::Event, dialects: NoteDialects) {
         let time = event.offset as u32;
         let port = event.port as u16;
@@ -88,8 +89,8 @@ impl InputBuffer {
         match &event.data {
             EventData::SysEx(bytes) => {
                 if dialects.supports(NoteDialect::Midi) {
-                    // SAFETY: the caller keeps `event` alive until the buffer is cleared, after
-                    // the process call that reads it.
+                    // SAFETY: the bytes belong to the caller's `Events`, which outlives the process
+                    // call that reads the buffer; the next call clears the buffer before use.
                     let sysex = unsafe { MidiSysExEvent::new(time, port, bytes) };
                     self.push(NativeEvent::SysEx(sysex));
                 }

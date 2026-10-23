@@ -2,7 +2,7 @@ use super::{
     Delivery, Process, RenderInput, RenderOptions, RenderProgress, RenderSchedule, RenderStatus,
     Scratch, Tail, TailPolicy, TransportChange, render_reusing,
 };
-use crate::{AutomationEvent, BlockContext, Event, RenderError, Sample, Transport};
+use crate::{AutomationEvent, BlockContext, Events, RenderError, Sample, Transport};
 
 /// Lifecycle of a continuous render session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,7 +91,7 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
         let request = RenderInput {
             audio: &audio,
             frames: 0,
-            events: &[],
+            events: &Events::new(),
             schedule: RenderSchedule::default(),
         };
         let result = self.run(request, options, true, consume, cancelled)?;
@@ -209,7 +209,7 @@ impl<S: Sample, P: Process<S>> Process<S> for Segment<'_, P> {
     fn validate_automation(&mut self, automation: &[AutomationEvent]) -> Result<(), Self::Error> {
         self.processor.validate_automation(automation)
     }
-    fn validate_events(&mut self, events: &[Event]) -> Result<(), Self::Error> {
+    fn validate_events(&mut self, events: &Events) -> Result<(), Self::Error> {
         self.processor.validate_events(events)
     }
     fn process(
@@ -218,8 +218,8 @@ impl<S: Sample, P: Process<S>> Process<S> for Segment<'_, P> {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[AutomationEvent],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &Events,
+        produced: &mut Events,
     ) -> Result<(), Self::Error> {
         self.processor
             .process(context, input, output, automation, events, produced)

@@ -1,5 +1,5 @@
 use super::*;
-use plughost_core::FactoryPresetId;
+use plughost_core::{Events, FactoryPresetId};
 
 #[test]
 #[ignore = "needs scripts/build-test-plugins.ps1 or .sh"]
@@ -56,8 +56,8 @@ fn factory_programs_reach_the_processor_and_survive_immediate_state_save() {
             &[&input, &input],
             &mut [&mut output, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert!(output[..480].iter().all(|&value| value == 0.0));

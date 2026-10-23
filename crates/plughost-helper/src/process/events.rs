@@ -2,8 +2,8 @@
 //! resolves native port IDs to the indices processors use, on the control thread; blocks reuse
 //! storage reserved with it.
 use plughost_core::{
-    AudioDirection, Event, EventPortInfo, EventSource, InputError, MAX_BLOCK_EVENTS,
-    RoutedChainConfig, validate_event_budget,
+    AudioDirection, EventPortInfo, EventSource, Events, InputError, RoutedChainConfig,
+    validate_event_budget,
 };
 
 use crate::errors::EVENT_PORT_PLAN;
@@ -28,9 +28,9 @@ pub(crate) struct EventPlan {
 /// Per-slot events of one block: what each slot receives and what it produced, and the chain's
 /// output. Capacity for a full block is reserved when the plan is made.
 pub(crate) struct EventBuffers {
-    pub inputs: Vec<Vec<Event>>,
-    pub produced: Vec<Vec<Event>>,
-    pub output: Vec<Event>,
+    pub inputs: Vec<Events>,
+    pub produced: Vec<Events>,
+    pub output: Events,
 }
 
 impl EventPlan {
@@ -75,7 +75,7 @@ impl EventPlan {
     }
 
     pub fn buffers(&self) -> EventBuffers {
-        let block = || Vec::with_capacity(MAX_BLOCK_EVENTS);
+        let block = Events::for_block;
         EventBuffers {
             inputs: self.slots.iter().map(|_| block()).collect(),
             produced: self.slots.iter().map(|_| block()).collect(),
@@ -90,10 +90,10 @@ impl EventPlan {
     pub fn gather(
         &self,
         slot: usize,
-        chain: &[Event],
-        previous: &[Event],
+        chain: &Events,
+        previous: &Events,
         automation: usize,
-        into: &mut Vec<Event>,
+        into: &mut Events,
     ) -> Result<(), InputError> {
         into.clear();
         for (native, source) in &self.slots[slot].inputs {
@@ -102,28 +102,24 @@ impl EventPlan {
                 Source::Previous(port) => (previous, port),
             };
             for event in events.iter().filter(|event| event.port == port) {
-                if into.len() == MAX_BLOCK_EVENTS {
-                    return Err(InputError::EventCapacity);
-                }
-                into.push(event.clone().on_port(*native));
+                into.push(event.on_port(*native))?;
             }
         }
         validate_event_budget(automation, into)?;
-        // A stable sort of a longer list allocates, even when it is already in order.
-        if !into.is_sorted_by_key(|event| event.offset) {
-            into.sort_by_key(|event| event.offset);
-        }
+        into.sort_by_offset();
         Ok(())
     }
 
     /// The chain's output events: the last slot's collected outputs, numbered by their position
     /// in the requested outputs.
-    pub fn output(&self, produced: &[Event], into: &mut Vec<Event>) {
+    pub fn output(&self, produced: &Events, into: &mut Events) {
         into.clear();
         let outputs = &self.slots[self.slots.len() - 1].outputs;
-        into.extend(produced.iter().filter_map(|event| {
-            let port = outputs.iter().position(|&native| native == event.port)?;
-            Some(event.clone().on_port(port))
-        }));
+        for event in produced {
+            if let Some(port) = outputs.iter().position(|&native| native == event.port) {
+                // A subset of one block's events fits one block's room.
+                let _ = into.push(event.on_port(port));
+            }
+        }
     }
 }

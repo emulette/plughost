@@ -1,5 +1,5 @@
 //! Calls a [`BlockProcessor`] in the precision of the sample type a generic test uses.
-use plughost_core::{BlockContext, Event, ParameterChange, Sample};
+use plughost_core::{BlockContext, Events, ParameterChange, Sample};
 use plughost_formats::{BlockProcessor, Error};
 
 pub trait ProcessSample: Sample {
@@ -9,7 +9,7 @@ pub trait ProcessSample: Sample {
         input: &[&[Self]],
         output: &mut [&mut [Self]],
         automation: &[ParameterChange],
-        events: &[Event],
+        events: &Events,
     ) -> Result<(), Error>;
 }
 
@@ -20,9 +20,16 @@ impl ProcessSample for f32 {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[ParameterChange],
-        events: &[Event],
+        events: &Events,
     ) -> Result<(), Error> {
-        processor.process_audio_f32(context, input, output, automation, events, &mut Vec::new())
+        processor.process_audio_f32(
+            context,
+            input,
+            output,
+            automation,
+            events,
+            &mut Events::new(),
+        )
     }
 }
 
@@ -33,8 +40,15 @@ impl ProcessSample for f64 {
         input: &[&[f64]],
         output: &mut [&mut [f64]],
         automation: &[ParameterChange],
-        events: &[Event],
+        events: &Events,
     ) -> Result<(), Error> {
-        processor.process_audio_f64(context, input, output, automation, events, &mut Vec::new())
+        processor.process_audio_f64(
+            context,
+            input,
+            output,
+            automation,
+            events,
+            &mut Events::new(),
+        )
     }
 }

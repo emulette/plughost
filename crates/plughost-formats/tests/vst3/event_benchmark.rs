@@ -3,7 +3,7 @@
 use std::io::Write;
 use std::time::Instant;
 
-use plughost_core::{BlockContext, EventData, MAX_BLOCK_EVENTS, Note};
+use plughost_core::{BlockContext, EventData, Events, MAX_BLOCK_EVENTS, Note};
 
 use super::*;
 
@@ -30,13 +30,13 @@ fn input_event_staging_benchmark() {
                 )
             })
             .collect();
-        let events: Vec<_> = (0..MAX_BLOCK_EVENTS)
+        let events: Events = (0..MAX_BLOCK_EVENTS)
             .map(|index| Event::control_change(0, 0, 7, (index % 128) as u8))
             .collect();
         let input = [1.0f32];
         let (mut left, mut right) = ([0.0f32], [0.0f32]);
-        let mut produced = Vec::with_capacity(MAX_BLOCK_EVENTS);
-        let mut block = |events: &[Event]| {
+        let mut produced = Events::for_block();
+        let mut block = |events: &Events| {
             plugin
                 .process(
                     &BlockContext::new(1),
@@ -53,19 +53,20 @@ fn input_event_staging_benchmark() {
         if !dense {
             // The routing fixture echoes each note plus a controller, within the output budget.
             for notes in notes.chunks(MAX_BLOCK_EVENTS / 2) {
-                assert_eq!(block(notes).1, 2 * notes.len());
+                let chunk = notes.iter().copied().collect();
+                assert_eq!(block(&chunk).1, 2 * notes.len());
             }
         }
         // Fill the fixture's delay before timing; every subsequent sample is exactly one.
         for _ in 0..TEST_DELAY_LATENCY {
-            block(&[]);
+            block(&Events::new());
         }
         let iterations = if dense { 1_000 } else { 100_000 };
-        let inputs = if dense { events.as_slice() } else { &[] };
+        let inputs = if dense { events } else { Events::new() };
         let started = Instant::now();
         let mut sum = 0.0f64;
         for _ in 0..iterations {
-            let (sample, events) = block(std::hint::black_box(inputs));
+            let (sample, events) = block(std::hint::black_box(&inputs));
             assert_eq!(events, 0);
             sum += f64::from(sample);
         }
@@ -73,7 +74,10 @@ fn input_event_staging_benchmark() {
         assert_eq!(sum, f64::from(iterations));
         if !dense {
             // All 4,096 held note IDs still receive the wildcard note-off after empty blocks.
-            assert_eq!(block(&[Event::note_off(0, 0, 60, 0)]).1, MAX_BLOCK_EVENTS);
+            assert_eq!(
+                block(&Events::from_iter([Event::note_off(0, 0, 60, 0)])).1,
+                MAX_BLOCK_EVENTS
+            );
         }
         writeln!(
             std::io::stdout(),

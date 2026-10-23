@@ -23,8 +23,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   has none. Reading needs no plugin, writes a state back unchanged, and checks every
   length against `MAX_STATE_BYTES` before allocating; bytes it cannot read fail with the new
   `InputError::StateBytes`.
+- `Events` holds a block's or a render's events as fixed records, with the system exclusive
+  bytes of all of them in one area, so a system exclusive message no longer allocates on its own.
+  `Events::for_block()` reserves one block's `MAX_BLOCK_EVENTS` events and
+  `MAX_BLOCK_SYSEX_BYTES` bytes, within which `push` never allocates and beyond which it fails
+  with `InputError::EventCapacity`, and `Events::try_for_block()` reports a failed reservation
+  instead of aborting; `Events::new()` grows without that limit. It is built with `push` or by
+  collecting `Event`s, read with `iter`, `get` and `len`, and compares equal to a slice or array
+  of `Event`. A clone of a block's `Events` reserves a block's room again.
 
 ### Changed
+
+- Events are passed as `&Events` and produced into `&mut Events` instead of `&[Event]` and
+  `&mut Vec<Event>`: in `Chain::process_audio_*`, `RealtimeEndpoint::process_audio_*`,
+  `render`, `render_with_schedule`, `RenderInput`, `Delivery`, the `Process` trait,
+  `events_fit`, `validate_event_budget`, `BlockProcessor` and the format plugins' processing
+  calls, and `Rendered::events` is an `Events`. `plughost_core::sysex_bytes` is removed; read
+  `Events::sysex_bytes()`. Write `&Events::new()` for no events and
+  `&Events::from_iter([Event::note_on(0, 0, 60, 100)])` for a literal list, and reuse an
+  `Events::for_block()` for `produced`. `Event` and `EventData` are `Copy` with a lifetime:
+  `EventData::SysEx` borrows its bytes, from the `Events` it was read from or from the caller,
+  so `Event::sysex(offset, &bytes)` takes a slice and `.clone()` calls become copies.
+- A realtime endpoint delivers the output's system exclusive events into `produced`, which it
+  dropped and counted before. `RealtimeStatus::dropped_events` now counts only events beyond the
+  room `produced` has reserved, so pass it an `Events::for_block()`. System exclusive output an
+  Audio Unit sends over several calls is joined in room reserved when the unit is prepared,
+  instead of in a buffer allocated per message on the render thread.
 
 - The public types no longer implement serde's `Serialize` and `Deserialize`, apart from
   `PluginId`: persist states with `PluginState::to_bytes` and plugins by `PluginId`, and keep

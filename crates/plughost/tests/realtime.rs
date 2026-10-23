@@ -9,7 +9,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use plughost::{
-    AutomationEvent, BlockContext, Chain, Error, FailureKind, Fallback, FallbackReason,
+    AutomationEvent, BlockContext, Chain, Error, Events, FailureKind, Fallback, FallbackReason,
     ParameterChange, PluginFormat, PluginRef, RealtimeConfig, RealtimeEndpoint, RealtimeOutput,
     StatePurpose, Timeouts,
 };
@@ -62,8 +62,8 @@ fn automate(
             &[&input[0], &input[1]],
             &mut [left, right],
             automation,
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     (played, output)
@@ -90,8 +90,8 @@ fn offline(plugin: &PluginRef, callbacks: usize) -> Vec<Stereo> {
                     &[&input[0], &input[1]],
                     &mut [left, right],
                     &[],
-                    &[],
-                    &mut Vec::new(),
+                    &Events::new(),
+                    &mut Events::for_block(),
                 )
                 .unwrap();
             output
@@ -260,8 +260,8 @@ fn reconfiguring_the_chain_under_a_running_endpoint_is_refused() {
         &[&input[0], &input[1]],
         &mut [left, right],
         &[],
-        &[],
-        &mut Vec::new(),
+        &Events::new(),
+        &mut Events::for_block(),
     )));
     assert!(running(
         chain
@@ -337,8 +337,8 @@ fn a_restart_request_waits_while_the_endpoint_runs() {
             &[&input[0], &input[1]],
             &mut [&mut *left, &mut *right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
     };
     assert_eq!(

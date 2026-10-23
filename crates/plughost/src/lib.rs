@@ -25,7 +25,7 @@
 //! ```no_run
 //! use std::path::Path;
 //! use plughost::{
-//!     Chain, Layout, PluginRef, RenderOptions, SpawnOptions, render,
+//!     Chain, Events, Layout, PluginRef, RenderOptions, SpawnOptions, render,
 //! };
 //!
 //! fn render_effect(
@@ -37,7 +37,13 @@
 //!     let mut chain = Chain::spawn(helper, &[plugin.into()], &SpawnOptions::default())?;
 //!     let config = chain.main_bus_config(48_000.0, 512, Layout::Stereo, &[Layout::Stereo])?;
 //!     chain.prepare_audio(&config)?;
-//!     let output = render(&mut chain, &[left, right], left.len(), &[], &RenderOptions::default())?;
+//!     let output = render(
+//!         &mut chain,
+//!         &[left, right],
+//!         left.len(),
+//!         &Events::new(),
+//!         &RenderOptions::default(),
+//!     )?;
 //!     Ok(output.channels)
 //! }
 //! ```
@@ -66,18 +72,19 @@ pub use plughost_core::{
     CHANGE_CAPACITY, Capabilities, CapabilityReport, ChangeBatch, ChannelAdaptation, ClassId,
     DIAGNOSTIC_CAPACITY, DIAGNOSTIC_MESSAGE_BYTES, Diagnostic, DiagnosticBatch, DiagnosticSeverity,
     DiscoveredPreset, Event, EventConfig, EventData, EventInputRoute, EventPortInfo, EventSource,
-    ExpressionKind, FactoryPreset, FactoryPresetId, Failure, FailureKind, HostIdentity, InputError,
-    Layout, LoopRegion, MAX_ALIGNMENT_BYTES, MAX_AUDIO_BUSES, MAX_AUDIO_CHANNELS, MAX_BLOCK_EVENTS,
-    MAX_BLOCK_SYSEX_BYTES, MAX_EVENT_PORTS, MAX_FACTORY_PRESETS, MAX_NOTE_ID, MAX_PRESET_BYTES,
-    MAX_STATE_BYTES, Message, Note, NoteExpression, PARAMETER_CHOICE_PAGE_SIZE,
-    PARAMETER_EVENT_CAPACITY, PARAMETER_TEXT_BYTES, PRESET_DISCOVERY_TEXT_BYTES, ParameterChange,
-    ParameterChoice, ParameterChoicePage, ParameterDetails, ParameterEvent, ParameterEventBatch,
-    ParameterFlags, ParameterGroup, ParameterInfo, PluginFormat, PluginId, PluginInfo, PluginKind,
-    PluginRef, PluginState, PluginTiming, PresetDiscovery, PresetDiscoveryTarget,
-    PresetFileFailure, PresetFileType, PresetInfo, PresetLocation, PresetLocationInfo,
-    PresetMetadata, PresetPluginId, PresetProviderInfo, PresetSoundpack, ProcessMode, RenderError,
-    RoutedChainConfig, Sample, SampleFormat, SlotAudioConfig, SlotChange, SlotEventConfig,
-    StatePurpose, Support, TimeSignature, Transport,
+    Events, EventsIter, ExpressionKind, FactoryPreset, FactoryPresetId, Failure, FailureKind,
+    HostIdentity, InputError, Layout, LoopRegion, MAX_ALIGNMENT_BYTES, MAX_AUDIO_BUSES,
+    MAX_AUDIO_CHANNELS, MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES, MAX_EVENT_PORTS,
+    MAX_FACTORY_PRESETS, MAX_NOTE_ID, MAX_PRESET_BYTES, MAX_STATE_BYTES, Message, Note,
+    NoteExpression, PARAMETER_CHOICE_PAGE_SIZE, PARAMETER_EVENT_CAPACITY, PARAMETER_TEXT_BYTES,
+    PRESET_DISCOVERY_TEXT_BYTES, ParameterChange, ParameterChoice, ParameterChoicePage,
+    ParameterDetails, ParameterEvent, ParameterEventBatch, ParameterFlags, ParameterGroup,
+    ParameterInfo, PluginFormat, PluginId, PluginInfo, PluginKind, PluginRef, PluginState,
+    PluginTiming, PresetDiscovery, PresetDiscoveryTarget, PresetFileFailure, PresetFileType,
+    PresetInfo, PresetLocation, PresetLocationInfo, PresetMetadata, PresetPluginId,
+    PresetProviderInfo, PresetSoundpack, ProcessMode, RenderError, RoutedChainConfig, Sample,
+    SampleFormat, SlotAudioConfig, SlotChange, SlotEventConfig, StatePurpose, Support,
+    TimeSignature, Transport,
 };
 pub use preset_paths::{
     PresetDirectory, PresetFile, PresetSearchError, discover_preset_files,

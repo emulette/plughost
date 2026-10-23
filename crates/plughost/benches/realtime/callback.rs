@@ -6,7 +6,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 use plughost::{
-    AutomationEvent, BlockContext, FallbackReason, MAX_BLOCK_EVENTS, ParameterChange,
+    AutomationEvent, BlockContext, Events, FallbackReason, MAX_BLOCK_EVENTS, ParameterChange,
     RealtimeEndpoint, RealtimeOutput,
 };
 use plughost_core::ipc::shared::clock;
@@ -169,7 +169,7 @@ pub fn drive(
     feed: Option<Feed>,
 ) -> Measured {
     let mut lane = Lane::new(first, inputs);
-    let mut produced = Vec::with_capacity(MAX_BLOCK_EVENTS);
+    let mut produced = Events::for_block();
     let mut measured = Measured {
         delays: Vec::with_capacity(callbacks),
         callbacks: Vec::with_capacity(callbacks),
@@ -210,7 +210,7 @@ pub fn drive(
             &[input_left, input_right],
             &mut [left, right],
             points,
-            &[],
+            &Events::new(),
             &mut produced,
         );
         let done = clock::now();

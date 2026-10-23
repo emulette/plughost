@@ -20,7 +20,7 @@ use std::time::Instant;
 use plughost_core::PluginRef;
 use plughost_core::render::{Process, RenderOptions, Tail, TailPolicy, render};
 use plughost_core::{
-    AudioBusRole, AudioDirection, Event, Layout, ParameterInfo, PluginFormat, PluginInfo,
+    AudioBusRole, AudioDirection, Event, Events, Layout, ParameterInfo, PluginFormat, PluginInfo,
     PluginKind, ProcessConfig, ProcessMode, SampleFormat,
 };
 use plughost_formats::{BlockProcessor, Error, HostedPlugin};
@@ -214,8 +214,8 @@ impl Process<f32> for Driver {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::AutomationEvent],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &Events,
+        produced: &mut Events,
     ) -> Result<(), Error> {
         if automation.iter().any(|event| event.slot != 0) {
             return Err(plughost_formats::Error::from(
@@ -411,12 +411,12 @@ fn render_signal(driver: &mut Driver, rate: f64, seconds: f64) -> Result<Vec<Vec
         .collect();
     // Instruments play middle C for the first half instead.
     let notes = if signal.is_empty() {
-        vec![
+        Events::from_iter([
             Event::note_on(0, 0, 60, 100),
             Event::note_off(frames / 2, 0, 60, 0),
-        ]
+        ])
     } else {
-        Vec::new()
+        Events::new()
     };
     render_input(driver, &signal, frames, &notes)
 }
@@ -427,14 +427,19 @@ fn render_silence(
     seconds: f64,
 ) -> Result<Vec<Vec<f32>>, Error> {
     let frames = (RATE * seconds) as usize;
-    render_input(driver, &vec![vec![0.0; frames]; channels], frames, &[])
+    render_input(
+        driver,
+        &vec![vec![0.0; frames]; channels],
+        frames,
+        &Events::new(),
+    )
 }
 
 fn render_input(
     driver: &mut Driver,
     input: &[Vec<f32>],
     frames: usize,
-    events: &[Event],
+    events: &Events,
 ) -> Result<Vec<Vec<f32>>, Error> {
     let slices: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
     let options = RenderOptions::new(TailPolicy::Reported, 0.0);

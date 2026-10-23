@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use plughost_core::{
-    BlockContext, FailureKind, HostIdentity, Layout, ProcessConfig, ProcessMode, SampleFormat,
-    Support,
+    BlockContext, Events, FailureKind, HostIdentity, Layout, ProcessConfig, ProcessMode,
+    SampleFormat, Support,
 };
 use plughost_formats::clap::Plugin;
 use plughost_formats::{Error, HostedPlugin};
@@ -42,8 +42,8 @@ fn process(plugin: &mut Plugin) -> Result<[Vec<f32>; 2], Error> {
         &[&input, &input],
         &mut [&mut left, &mut right],
         &[],
-        &[],
-        &mut Vec::new(),
+        &Events::new(),
+        &mut Events::for_block(),
     )?;
     Ok([left, right])
 }

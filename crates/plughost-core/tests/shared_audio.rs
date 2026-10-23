@@ -11,7 +11,9 @@ use interprocess::local_socket::{
 };
 use plughost_core::ipc::shared::{Descriptor, SharedAudio, SlotConfig, Submission, transfer};
 use plughost_core::ipc::{MessageReader, MessageWriter};
-use plughost_core::{AutomationEvent, Event, MAX_BLOCK_EVENTS, ParameterChange, SampleFormat};
+use plughost_core::{
+    AutomationEvent, Event, Events, MAX_BLOCK_EVENTS, ParameterChange, SampleFormat,
+};
 
 const CHILD_SOCKET: &str = "PLUGHOST_SHARED_TEST_SOCKET";
 
@@ -81,7 +83,7 @@ fn shared_audio_child() {
     let mut memory = unsafe { receiver.receive(descriptor, token) }.unwrap();
     write.write(&true).unwrap();
     let mut edits = Vec::with_capacity(MAX_BLOCK_EVENTS);
-    let mut notes = Vec::with_capacity(MAX_BLOCK_EVENTS);
+    let mut notes = Events::for_block();
     let mut audio32 = vec![vec![0.0f32; descriptor.config.max_frames]; 2];
     let mut audio64 = vec![vec![0.0f64; descriptor.config.max_frames]; 2];
     while let Some(submission) = read.read::<Option<Submission>>().unwrap() {
@@ -96,7 +98,7 @@ fn shared_audio_child() {
                     }
                 }
                 memory
-                    .write_output_f32(submission, &[&audio32[0], &audio32[1]], &[])
+                    .write_output_f32(submission, &[&audio32[0], &audio32[1]], &Events::new())
                     .unwrap();
             }
             SampleFormat::F64 => {
@@ -109,7 +111,7 @@ fn shared_audio_child() {
                     }
                 }
                 memory
-                    .write_output_f64(submission, &[&audio64[0], &audio64[1]], &[])
+                    .write_output_f64(submission, &[&audio64[0], &audio64[1]], &Events::new())
                     .unwrap();
             }
         });
@@ -190,9 +192,9 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
                     .collect()
             };
             let notes = if frames == 0 {
-                vec![]
+                Events::new()
             } else {
-                vec![Event::note_on(0, 1, 64, 100), Event::note_off(0, 1, 64, 0)]
+                Events::from_iter([Event::note_on(0, 1, 64, 100), Event::note_off(0, 1, 64, 0)])
             };
             let input32 = vec![0.25f32; frames];
             let input64 = vec![1.0 + f64::EPSILON; frames];
@@ -231,7 +233,7 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
                             &mut views,
                             0,
                             plughost_core::MAX_EVENT_PORTS,
-                            &mut Vec::new(),
+                            &mut Events::new(),
                         )
                     })
                     .unwrap();
@@ -250,7 +252,7 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
                             &mut views,
                             0,
                             plughost_core::MAX_EVENT_PORTS,
-                            &mut Vec::new(),
+                            &mut Events::new(),
                         )
                     })
                     .unwrap();
@@ -274,7 +276,7 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
                     &mut output32.iter_mut().map(|c| &mut c[..9]).collect::<Vec<_>>(),
                     0,
                     plughost_core::MAX_EVENT_PORTS,
-                    &mut Vec::new()
+                    &mut Events::for_block()
                 )
                 .is_err()
         );

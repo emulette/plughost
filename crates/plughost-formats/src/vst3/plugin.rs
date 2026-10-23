@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 
 use plughost_core::render::{Process, Tail};
 use plughost_core::{
-    Event, HostIdentity, ParameterChange, ParameterEvent, ParameterFlags, ParameterInfo,
-    PluginFormat, PluginInfo, PluginState, PluginTiming, ProcessConfig, Sample,
+    HostIdentity, ParameterChange, ParameterEvent, ParameterFlags, ParameterInfo, PluginFormat,
+    PluginInfo, PluginState, PluginTiming, ProcessConfig, Sample,
 };
 use vst3::Steinberg::Vst::ParameterInfo_::ParameterFlags_;
 use vst3::Steinberg::Vst::{
@@ -158,8 +158,8 @@ impl Plugin {
         input: &[&[S]],
         output: &mut [&mut [S]],
         changes: &[ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), crate::Error> {
         Ok(lock(&self.engine).process(context, input, output, changes, events, produced)?)
     }
@@ -575,7 +575,7 @@ impl<S: Sample> Process<S> for Plugin {
         Ok(())
     }
 
-    fn validate_events(&mut self, events: &[Event]) -> Result<(), crate::Error> {
+    fn validate_events(&mut self, events: &plughost_core::Events) -> Result<(), crate::Error> {
         let engine = lock(&self.engine);
         let prepared = engine.prepared.as_ref().ok_or(Vst3Error::NotPrepared)?;
         if let Some(event) = events.iter().find(|event| {
@@ -596,8 +596,8 @@ impl<S: Sample> Process<S> for Plugin {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[plughost_core::AutomationEvent],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), crate::Error> {
         if automation.iter().any(|event| event.slot != 0) {
             return Err(plughost_core::InputError::Slot.into());

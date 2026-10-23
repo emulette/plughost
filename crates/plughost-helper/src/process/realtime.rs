@@ -13,7 +13,7 @@ use std::time::Duration;
 use plughost_core::ipc::AudioSamples;
 use plughost_core::ipc::shared::realtime::{Control, Quantum, Ring};
 use plughost_core::render::Tail;
-use plughost_core::{AutomationEvent, Event, Failure, FailureKind, InputError, MAX_BLOCK_EVENTS};
+use plughost_core::{AutomationEvent, Events, Failure, FailureKind, InputError, MAX_BLOCK_EVENTS};
 
 use super::{Command, Pipeline, Work, audio};
 use crate::Responder;
@@ -24,7 +24,7 @@ pub(crate) struct Transport {
     ring: Ring,
     input: AudioSamples,
     automation: Vec<AutomationEvent>,
-    events: Vec<Event>,
+    events: Events,
 }
 
 impl Transport {
@@ -34,7 +34,7 @@ impl Transport {
             ring,
             input,
             automation: Vec::with_capacity(MAX_BLOCK_EVENTS),
-            events: Vec::with_capacity(MAX_BLOCK_EVENTS),
+            events: Events::for_block(),
         })
     }
 
@@ -234,7 +234,7 @@ impl audio::Sink for Lane<'_> {
     fn complete_f32(
         &mut self,
         output: &[&[f32]],
-        events: &[Event],
+        events: &Events,
         latency: u32,
         tail: Tail,
     ) -> io::Result<()> {
@@ -245,7 +245,7 @@ impl audio::Sink for Lane<'_> {
     fn complete_f64(
         &mut self,
         output: &[&[f64]],
-        events: &[Event],
+        events: &Events,
         latency: u32,
         tail: Tail,
     ) -> io::Result<()> {

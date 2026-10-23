@@ -295,7 +295,8 @@ the shared helper.
 ## Blocks, transport, and events
 
 `Chain::process_audio_f32(context, input, output, automation, events, produced)` (or `_f64`)
-processes one block and replaces `produced` with the chain's output events. All channel slices must have `context.frames` samples,
+processes one block of `events: &Events` and replaces `produced: &mut Events` with the chain's
+output events; reuse an `Events::for_block()` for `produced`. All channel slices must have `context.frames` samples,
 no more than the prepared maximum block size. `BlockContext::new(frames)` supplies frame
 count without transport, and `.with_transport(transport)` adds one. The helper's reply is validated before it modifies output buffers.
 Plugins process, reset and flush parameters with subnormal numbers flushed to zero, as inputs and
@@ -343,6 +344,17 @@ gives it as 0.
 `control_change` and `sysex` build MIDI 1.0 messages. `on_port(port)` selects one of the
 chain's external event inputs and `at(offset)` moves the event. Offsets are block-relative for
 direct processing and render-relative for rendering.
+
+Events travel in an `Events`, which keeps fixed records with the system exclusive bytes of all
+of them in one area, so a system exclusive message costs no allocation of its own. `Event<'a>` is
+`Copy`: `EventData::SysEx(&'a [u8])` borrows bytes from the `Events` it was read from, or from the
+caller (`Event::sysex(offset, &bytes)`). `push(event)` copies the event in; `iter()`, `get(index)`,
+`len()`, `clear()` and collecting `Event`s build or read one, and it compares equal to a slice
+or array of `Event`. `Events::new()` grows as needed, for a render's events;
+`Events::for_block()` reserves one block's `MAX_BLOCK_EVENTS` events and
+`MAX_BLOCK_SYSEX_BYTES` bytes, so pushing within them never allocates, and `push` beyond them
+fails with `InputError::EventCapacity`; `Events::try_for_block()` returns a failed reservation
+instead of aborting, and a clone of a block's `Events` reserves a block's room again.
 
 A `Note` has a channel (0..=15), key (0..=127), velocity (0..=1; release velocity for a note
 off) and an optional ID of at most `MAX_NOTE_ID` (`Note::new(channel, key, velocity)`,
@@ -502,8 +514,9 @@ returns `RealtimeOutput::Processed` or `RealtimeOutput::Fallback(reason)`: `Stop
 helper had not completed that output), or `Resync`. A change of source ramps over one quantum:
 into the fallback from the last sample played, and back to the output after a miss with a
 crossfade. The first output after a start, a resync or a recovery plays as is, so without misses
-the output is the offline output for blocks of one quantum, `latency * quantum` frames later. `produced` receives the output events except system
-exclusive ones, up to its capacity; reserve `MAX_BLOCK_EVENTS`.
+the output is the offline output for blocks of one quantum, `latency * quantum` frames later. `produced` receives the output events, system
+exclusive ones included, within the room it has reserved; pass an `Events::for_block()`. Events
+beyond that room count as `dropped_events`.
 Invalid input is an error and starts a resync; wrong output buffers or precision are an error
 and leave `output` unchanged. `endpoint.last_completion()` says how long the helper took for
 the output just played. Drop the endpoint on a control thread. Call the endpoint once per

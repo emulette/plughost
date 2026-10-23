@@ -58,18 +58,21 @@ fn tuning(id: i32) -> Event {
 }
 
 /// What the plugin's `events` become in one block, and how many had no portable form.
-fn block(list: &OutputEventList, events: &[Event]) -> (Vec<EventData>, u64) {
+fn block(list: &OutputEventList, events: &[Event]) -> (Events, u64) {
     for event in events {
         let mut event = *event;
         assert_eq!(unsafe { list.addEvent(&mut event) }, kResultOk);
     }
-    let mut taken = Vec::new();
+    let mut taken = Events::for_block();
     list.take(&mut taken, 1).unwrap();
-    let data = taken.into_iter().map(|event| event.data).collect();
-    (data, list.take_unconvertible())
+    (taken, list.take_unconvertible())
 }
 
-fn five_octaves_up(key: u8, id: Option<u32>) -> EventData {
+fn data(events: &Events) -> Vec<EventData<'_>> {
+    events.iter().map(|event| event.data).collect()
+}
+
+fn five_octaves_up(key: u8, id: Option<u32>) -> EventData<'static> {
     let mut expression = NoteExpression::new(0, key, ExpressionKind::Tuning, 60.0);
     expression.id = id;
     EventData::Expression(expression)
@@ -82,18 +85,18 @@ fn notes_ended_by_key_leave_room_to_follow_later_notes() {
         let (_, unconvertible) = block(&list, &[note_on(60, id, 0.0), note_off(60, -1)]);
         assert_eq!(unconvertible, 0);
     }
-    let (data, unconvertible) = block(&list, &[note_on(62, 9999, 0.0), tuning(9999)]);
+    let (taken, unconvertible) = block(&list, &[note_on(62, 9999, 0.0), tuning(9999)]);
     assert_eq!(unconvertible, 0);
-    assert_eq!(data[1], five_octaves_up(62, Some(9999)));
+    assert_eq!(data(&taken)[1], five_octaves_up(62, Some(9999)));
 }
 
 #[test]
 fn notes_with_ids_from_the_plugins_own_range_take_their_expressions_by_key() {
     let list = OutputEventList::new().unwrap();
-    let (data, unconvertible) = block(&list, &[note_on(60, -5000, 0.0), tuning(-5000)]);
+    let (taken, unconvertible) = block(&list, &[note_on(60, -5000, 0.0), tuning(-5000)]);
     assert_eq!(unconvertible, 0);
     assert_eq!(
-        data,
+        data(&taken),
         [
             EventData::NoteOn(Note::new(0, 60, 0.5)),
             five_octaves_up(60, None)
@@ -104,7 +107,10 @@ fn notes_with_ids_from_the_plugins_own_range_take_their_expressions_by_key() {
 #[test]
 fn a_note_on_with_a_tuning_that_is_not_a_number_plays_untuned() {
     let list = OutputEventList::new().unwrap();
-    let (data, unconvertible) = block(&list, &[note_on(60, 3, f32::NAN)]);
+    let (taken, unconvertible) = block(&list, &[note_on(60, 3, f32::NAN)]);
     assert_eq!(unconvertible, 0);
-    assert_eq!(data, [EventData::NoteOn(Note::new(0, 60, 0.5).with_id(3))]);
+    assert_eq!(
+        data(&taken),
+        [EventData::NoteOn(Note::new(0, 60, 0.5).with_id(3))]
+    );
 }

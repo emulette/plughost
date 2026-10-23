@@ -2,8 +2,8 @@
 use std::path::PathBuf;
 
 use plughost::{
-    Chain, Layout, PluginFormat, RenderOptions, Scanner, SpawnOptions, StatePurpose, TailPolicy,
-    render,
+    Chain, Events, Layout, PluginFormat, RenderOptions, Scanner, SpawnOptions, StatePurpose,
+    TailPolicy, render,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &mut chain,
                 &[&input, &input],
                 input.len(),
-                &[],
+                &Events::new(),
                 &RenderOptions::new(TailPolicy::Reported, 0.0),
             )?;
             let expected: Vec<f32> = input.iter().map(|v| *v * gain as f32).collect();

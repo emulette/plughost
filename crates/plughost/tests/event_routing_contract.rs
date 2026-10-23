@@ -3,7 +3,7 @@ use plughost::*;
 
 mod support;
 
-fn notes(events: &[Event]) -> Vec<(usize, usize, u8)> {
+fn notes(events: &Events) -> Vec<(usize, usize, u8)> {
     events
         .iter()
         .filter_map(|event| {
@@ -13,10 +13,10 @@ fn notes(events: &[Event]) -> Vec<(usize, usize, u8)> {
         .collect()
 }
 
-fn process(chain: &mut Chain, events: &[Event]) -> Vec<Event> {
+fn process(chain: &mut Chain, events: &Events) -> Events {
     let input = [0.0f32; 16];
     let (mut left, mut right) = ([0.0; 16], [0.0; 16]);
-    let mut output = Vec::new();
+    let mut output = Events::for_block();
     chain
         .process_audio_f32(
             &BlockContext::new(16),
@@ -36,7 +36,8 @@ fn main_bus_defaults_carry_events_between_slots_and_stop_at_a_missing_port() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let mut chain = support::spawn(&[support::routing(format), support::routing(format)]);
         support::prepare(&mut chain);
-        let events = [Event::note_on(2, 0, 40, 127), Event::note_on(5, 0, 45, 127)];
+        let events =
+            Events::from_iter([Event::note_on(2, 0, 40, 127), Event::note_on(5, 0, 45, 127)]);
         // Each routing fixture transposes its first native input by one octave.
         assert_eq!(
             notes(&process(&mut chain, &events)),
@@ -71,13 +72,13 @@ fn merged_native_inputs_order_by_offset_then_route_then_source() {
             })
             .into();
         chain.prepare_audio(&config).unwrap();
-        let events = [
+        let events = Events::from_iter([
             Event::note_on(2, 0, 24, 127),
             Event::note_on(5, 0, 25, 127),
             Event::note_on(5, 0, 35, 127).on_port(1),
             Event::note_on(5, 0, 26, 127),
             Event::note_on(5, 0, 36, 127).on_port(1),
-        ];
+        ]);
         assert_eq!(
             notes(&process(&mut chain, &events)),
             [(2, 0, 36), (5, 0, 47), (5, 0, 48), (5, 0, 37), (5, 0, 38),],
@@ -100,8 +101,8 @@ fn an_unconfigured_external_port_is_rejected_before_native_processing() {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &[],
-                &[Event::note_on(0, 0, 40, 127).on_port(1)],
-                &mut Vec::new(),
+                &Events::from_iter([Event::note_on(0, 0, 40, 127).on_port(1)]),
+                &mut Events::for_block(),
             )
             .unwrap_err();
         assert!(matches!(
@@ -114,7 +115,10 @@ fn an_unconfigured_external_port_is_rejected_before_native_processing() {
         assert_eq!(left, [7.0; 16]);
         assert_eq!(right, left);
         assert_eq!(
-            notes(&process(&mut chain, &[Event::note_on(0, 0, 40, 127)])),
+            notes(&process(
+                &mut chain,
+                &Events::from_iter([Event::note_on(0, 0, 40, 127)])
+            )),
             [(0, 0, 52)]
         );
     }

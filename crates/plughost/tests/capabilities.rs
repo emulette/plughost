@@ -1,5 +1,5 @@
 //! Capabilities are observations from real loaded plugins, transported through the helper.
-use plughost::{Error, InputError, Layout, PluginFormat, Support};
+use plughost::{Error, Events, InputError, Layout, PluginFormat, Support};
 
 mod support;
 
@@ -53,8 +53,8 @@ fn native_support_is_distinct_from_chain_support_and_unknown() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(left, [0.0; 512]); // two 480-sample delays
@@ -66,8 +66,8 @@ fn native_support_is_distinct_from_chain_support_and_unknown() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(left[..448], [0.0; 448]);

@@ -6,9 +6,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use plughost::{
-    Chain, Error, Event, FailureKind, HostIdentity, InputError, Layout, PluginFormat, PluginRef,
-    RenderOptions, RoutedChainConfig, ScanAction, ScanOutcome, ScanPolicy, Scanner, Source,
-    TailPolicy, Timeouts, render,
+    Chain, Error, Event, Events, FailureKind, HostIdentity, InputError, Layout, PluginFormat,
+    PluginRef, RenderOptions, RoutedChainConfig, ScanAction, ScanOutcome, ScanPolicy, Scanner,
+    Source, TailPolicy, Timeouts, render,
 };
 
 mod support;
@@ -85,7 +85,7 @@ fn signal(frames: usize) -> Vec<Vec<f32>> {
 fn run(chain: &mut Chain, input: &[Vec<f32>]) -> Vec<Vec<f32>> {
     let slices: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
     let options = RenderOptions::new(TailPolicy::Reported, 0.0);
-    render(chain, &slices, input[0].len(), &[], &options)
+    render(chain, &slices, input[0].len(), &Events::new(), &options)
         .unwrap()
         .channels
 }
@@ -110,8 +110,8 @@ fn try_process_block(chain: &mut Chain, input: &[Vec<f32>]) -> Result<Vec<Vec<f3
         &slices,
         &mut outputs,
         &[],
-        &[],
-        &mut Vec::new(),
+        &Events::new(),
+        &mut Events::for_block(),
     )?;
     Ok(output)
 }
@@ -457,8 +457,8 @@ fn blocks_keep_processing_while_a_plugin_holds_up_the_main_thread() {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         assert_eq!(left, input);
@@ -778,10 +778,10 @@ fn notes_render_through_a_chain_in_time() {
         .main_bus_config(48_000.0, 512, Layout::None, &[Layout::Stereo; 2])
         .unwrap();
     chain.prepare_audio(&config).unwrap();
-    let events = [
+    let events = Events::from_iter([
         Event::note_on(1000, 0, 69, 127),
         Event::note_off(2000, 0, 69, 0),
-    ];
+    ]);
     let options = RenderOptions::new(TailPolicy::Reported, 0.0);
     let rendered = render::<f32, _>(&mut chain, &[], 4800, &events, &options).unwrap();
     assert_eq!(rendered.latency, DELAY_LATENCY);

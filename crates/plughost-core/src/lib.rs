@@ -52,9 +52,9 @@ pub mod messages {
 #[doc(hidden)]
 pub mod audit;
 pub use event::{
-    Event, EventData, ExpressionKind, MAX_BLOCK_EVENTS, MAX_BLOCK_SYSEX_BYTES, MAX_NOTE_ID,
-    Message, Note, NoteExpression, events_fit, sysex_bytes, validate_event_budget,
-    validate_event_count,
+    Event, EventData, Events, ExpressionKind, Iter as EventsIter, MAX_BLOCK_EVENTS,
+    MAX_BLOCK_SYSEX_BYTES, MAX_NOTE_ID, Message, Note, NoteExpression, events_fit,
+    validate_event_budget, validate_event_count,
 };
 pub use event_routing::{
     EventConfig, EventInputRoute, EventPortInfo, EventSource, MAX_EVENT_PORTS, SlotEventConfig,

@@ -17,7 +17,7 @@ fn render_markers(chain: &mut Chain, layout: Layout) {
         chain,
         &input.iter().map(Vec::as_slice).collect::<Vec<_>>(),
         1024,
-        &[],
+        &Events::new(),
         &RenderOptions::new(TailPolicy::Reported, 0.0),
     )
     .unwrap();

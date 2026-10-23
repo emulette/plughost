@@ -8,8 +8,8 @@ impl Processor {
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), ClapError> {
         produced.clear();
         let mut engine = lock(&self.engine);
@@ -135,7 +135,7 @@ impl Processor {
         }
         for event in events {
             if let Some(Some(dialects)) = prepared.event_inputs.get(event.port) {
-                input_events_buffer.note(event, *dialects);
+                input_events_buffer.note(&event, *dialects);
             }
         }
         input_events_buffer.sort();
@@ -213,11 +213,8 @@ impl Processor {
             produced.clear();
             return Err(ClapError::OutputEventCapacity);
         }
-        // Plugins push events in time order; the stable sort only enforces it, and would allocate
-        // for a longer list even when it is already in order.
-        if !produced.is_sorted_by_key(|event| event.offset) {
-            produced.sort_by_key(|event| event.offset);
-        }
+        // Plugins push events in time order; the sort only enforces it.
+        produced.sort_by_offset();
         outputs.copy_output(output, prepared.main_output, all_buses);
         Ok(())
     }

@@ -4,8 +4,8 @@
 //! plugins first (see `support`).
 
 use plughost::{
-    AutomationEvent, BlockContext, Chain, DiagnosticSeverity, ParameterChange, PluginFormat,
-    StatePurpose,
+    AutomationEvent, BlockContext, Chain, DiagnosticSeverity, Events, ParameterChange,
+    PluginFormat, StatePurpose,
 };
 
 mod support;
@@ -24,8 +24,8 @@ fn block(chain: &mut Chain, automation: &[AutomationEvent]) {
             &[&input, &input],
             &mut [&mut left, &mut right],
             automation,
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
 }

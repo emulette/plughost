@@ -9,7 +9,7 @@ use std::sync::Arc;
 use plughost_core::Capabilities;
 use plughost_core::PluginRef;
 use plughost_core::{
-    Event, HostIdentity, ParameterInfo, PluginInfo, PluginState, PluginTiming, ProcessConfig,
+    HostIdentity, ParameterInfo, PluginInfo, PluginState, PluginTiming, ProcessConfig,
 };
 
 #[cfg(all(feature = "au", target_os = "macos"))]
@@ -190,8 +190,8 @@ pub trait HostedPlugin {
 pub trait BlockProcessor: Send {
     /// Processes one block in the prepared precision. `events` are in offset order, inside the
     /// block, on active native event input ports by index. `produced` is replaced with the
-    /// plugin's output events in offset order, on native event output ports by index; give it
-    /// capacity for `MAX_BLOCK_EVENTS` to process without allocating for them. A plugin that
+    /// plugin's output events in offset order, on native event output ports by index; pass
+    /// `Events::for_block()` to process without allocating for them. A plugin that
     /// produces more events or system exclusive bytes than one block allows fails the block,
     /// which the caller resolves with a reset.
     fn process_audio_f32(
@@ -200,8 +200,8 @@ pub trait BlockProcessor: Send {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), Error>;
     /// Processes f64 audio with the event, automation, and capacity contracts of [`Self::process_audio_f32`].
     fn process_audio_f64(
@@ -210,8 +210,8 @@ pub trait BlockProcessor: Send {
         input: &[&[f64]],
         output: &mut [&mut [f64]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), Error>;
     /// The timing the owning thread last read (see [`HostedPlugin::timing`]), without calling the
     /// plugin.
@@ -412,8 +412,8 @@ impl BlockProcessor for vst3::Processor {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), Error> {
         Ok(vst3::Processor::process(
             self, context, input, output, automation, events, produced,
@@ -426,8 +426,8 @@ impl BlockProcessor for vst3::Processor {
         input: &[&[f64]],
         output: &mut [&mut [f64]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), Error> {
         Ok(vst3::Processor::process(
             self, context, input, output, automation, events, produced,
@@ -579,8 +579,8 @@ impl BlockProcessor for au::Processor {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), Error> {
         Ok(au::Processor::process(
             self, context, input, output, automation, events, produced,
@@ -593,8 +593,8 @@ impl BlockProcessor for au::Processor {
         input: &[&[f64]],
         output: &mut [&mut [f64]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), Error> {
         let _ = (context, input, output, automation, events, produced);
         Err(au::AuError::SampleFormatUnsupported(plughost_core::SampleFormat::F64).into())
@@ -769,8 +769,8 @@ impl BlockProcessor for clap::Processor {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), Error> {
         Ok(clap::Processor::process(
             self, context, input, output, automation, events, produced,
@@ -783,8 +783,8 @@ impl BlockProcessor for clap::Processor {
         input: &[&[f64]],
         output: &mut [&mut [f64]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), Error> {
         Ok(clap::Processor::process(
             self, context, input, output, automation, events, produced,

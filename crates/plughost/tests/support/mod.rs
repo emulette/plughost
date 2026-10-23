@@ -19,7 +19,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use plughost::{
-    BlockContext, Chain, HostIdentity, Layout, PluginFormat, PluginRef, RoutedChainConfig, Timeouts,
+    BlockContext, Chain, Events, HostIdentity, Layout, PluginFormat, PluginRef, RoutedChainConfig,
+    Timeouts,
 };
 
 pub fn target() -> PathBuf {
@@ -141,8 +142,8 @@ pub fn block(chain: &mut Chain, frames: usize, value: f32) -> Vec<f32> {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     left

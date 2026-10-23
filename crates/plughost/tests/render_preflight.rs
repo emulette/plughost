@@ -20,7 +20,7 @@ fn unprepared_render_reports_not_prepared_for_both_precisions() {
                     &mut chain,
                     &vec![&input32[..]; channels],
                     32,
-                    &[],
+                    &Events::new(),
                     &options()
                 ),
                 Err(Error::NotPrepared)
@@ -30,7 +30,7 @@ fn unprepared_render_reports_not_prepared_for_both_precisions() {
                     &mut chain,
                     &vec![&input64[..]; channels],
                     32,
-                    &[],
+                    &Events::new(),
                     &options()
                 ),
                 Err(Error::NotPrepared)
@@ -78,7 +78,8 @@ fn late_invalid_event_port_leaves_dsp_untouched_in_render_and_session() {
         chain.prepare_audio(&config).unwrap();
         let input = [1.0f32; 32];
         let audio = [&input[..], &input[..]];
-        let events = [Event::note_on(24, 0, 60, 100).on_port(config.event_inputs)];
+        let events =
+            Events::from_iter([Event::note_on(24, 0, 60, 100).on_port(config.event_inputs)]);
         let invalid_port = |result: Result<(), Error>| {
             assert!(matches!(
                 result,

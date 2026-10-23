@@ -10,8 +10,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use plughost::{
-    Chain, ChainSlot, Error, Event, FailureKind, Layout, PluginFormat, PluginId, PluginInfo,
-    PluginKind, PluginRef, RenderOptions, Rendered, Scanner, SpawnOptions, StatePurpose, render,
+    Chain, ChainSlot, Error, Event, Events, FailureKind, Layout, PluginFormat, PluginId,
+    PluginInfo, PluginKind, PluginRef, RenderOptions, Rendered, Scanner, SpawnOptions,
+    StatePurpose, render,
 };
 
 const USAGE: &str = "usage: render <helper executable> <bundle.vst3 | bundle.clap | Audio Unit class ID> [class index]";
@@ -69,17 +70,17 @@ fn job(chain: &mut Chain, instrument: bool, key: u8) -> Result<Rendered<f32>, Er
     let frames = (SECONDS * RATE) as usize;
     let options = RenderOptions::default();
     if instrument {
-        let notes = [
+        let notes = Events::from_iter([
             Event::note_on(0, 0, key, 100),
             Event::note_off(frames / 2, 0, key, 0),
-        ];
+        ]);
         return render::<f32, _>(chain, &[], frames, &notes, &options);
     }
     let pitch = 440.0 * 2f64.powf((f64::from(key) - 69.0) / 12.0);
     let tone: Vec<f32> = (0..frames)
         .map(|i| 0.25 * (i as f64 * pitch / RATE * std::f64::consts::TAU).sin() as f32)
         .collect();
-    render(chain, &[&tone, &tone], frames, &[], &options)
+    render(chain, &[&tone, &tone], frames, &Events::new(), &options)
 }
 
 fn report(key: u8, rendered: &Rendered<f32>) {

@@ -46,7 +46,7 @@ Given a `PluginRef` from `Catalog::plugins()`, render stereo effect input throug
 
 ```rust
 use std::path::Path;
-use plughost::{Chain, Layout, PluginRef, RenderOptions, SpawnOptions, render};
+use plughost::{Chain, Events, Layout, PluginRef, RenderOptions, SpawnOptions, render};
 
 fn render_effect(
     helper: &Path,
@@ -57,7 +57,13 @@ fn render_effect(
     let mut chain = Chain::spawn(helper, &[plugin.into()], &SpawnOptions::default())?;
     let config = chain.main_bus_config(48_000.0, 512, Layout::Stereo, &[Layout::Stereo])?;
     chain.prepare_audio(&config)?;
-    let output = render(&mut chain, &[left, right], left.len(), &[], &RenderOptions::default())?;
+    let output = render(
+        &mut chain,
+        &[left, right],
+        left.len(),
+        &Events::new(),
+        &RenderOptions::default(),
+    )?;
     Ok(output.channels)
 }
 ```
@@ -87,9 +93,10 @@ fn start(chain: &mut Chain) -> Result<(RealtimeEndpoint, u32), Error> {
     Ok((endpoint, latency))
 }
 
-// In the audio callback, with 128-frame stereo buffers:
+// In the audio callback, with 128-frame stereo buffers and `events` and `produced` made with
+// `Events::for_block()` before the stream starts:
 // endpoint.process_audio_f32(&BlockContext::new(128), &[&left_in, &right_in],
-//     &mut [&mut left_out, &mut right_out], &[], &[], &mut produced)?;
+//     &mut [&mut left_out, &mut right_out], &[], &events, &mut produced)?;
 ```
 
 When the helper's output is late, the callback plays silence, or the delayed input for effects,

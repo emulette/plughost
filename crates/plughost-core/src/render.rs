@@ -8,7 +8,7 @@ pub use session::{RenderSession, SessionState};
 pub use timeline::{AutomationRamp, RenderSchedule, TransportChange};
 
 use crate::errors::RenderError;
-use crate::event::{Event, events_fit};
+use crate::event::{Events, events_fit};
 use crate::sample::Sample;
 
 /// The tail length a processor reports.
@@ -138,22 +138,23 @@ pub trait Process<S: Sample> {
     /// Processors with configured input ports must override this to reject unavailable ports.
     /// Offsets, ordering and event values are already checked by the renderer. The default
     /// imposes no port restrictions, preserving processors that do not expose port metadata.
-    fn validate_events(&mut self, _events: &[Event]) -> Result<(), Self::Error> {
+    fn validate_events(&mut self, _events: &Events) -> Result<(), Self::Error> {
         Ok(())
     }
     /// Processes one block. Every input and output slice has the same length, at most
     /// `max_block_size`; automation and MIDI are in offset order, inside the block. Points hold
     /// their values from their offsets, including equal-offset input order. Native adapters own
-    /// any subdivision needed to avoid implicit interpolation between point edits. `produced` is
-    /// replaced with the block's output events in offset order, with block offsets.
+    /// any subdivision needed to avoid implicit interpolation between point edits. `produced`
+    /// holds one block's events ([`Events::for_block`]) and is replaced with the block's output
+    /// events in offset order, with block offsets.
     fn process(
         &mut self,
         context: &crate::BlockContext,
         input: &[&[S]],
         output: &mut [&mut [S]],
         automation: &[crate::AutomationEvent],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &Events,
+        produced: &mut Events,
     ) -> Result<(), Self::Error>;
 }
 
@@ -166,7 +167,7 @@ pub struct Delivery<'a, S> {
     /// One slice per output channel, all of one length, which may be zero.
     pub audio: &'a [&'a [S]],
     /// Output events with offsets on the processing timeline, without audio latency alignment.
-    pub events: &'a [Event],
+    pub events: &'a Events,
 }
 
 /// Owned output of a completed render, with audio aligned by removing native latency.
@@ -177,7 +178,7 @@ pub struct Rendered<S> {
     pub channels: Vec<Vec<S>>,
     /// Output events in offset order, counted from the start of the input without latency
     /// alignment, including events processed during the tail.
-    pub events: Vec<Event>,
+    pub events: Events,
     /// The latency that was removed, in samples.
     pub latency: u32,
     /// Samples rendered after the end of the input.
@@ -201,7 +202,7 @@ pub fn render<S: Sample, P: Process<S>>(
     processor: &mut P,
     input: &[&[S]],
     frames: usize,
-    events: &[Event],
+    events: &Events,
     options: &RenderOptions,
 ) -> Result<Rendered<S>, P::Error> {
     render_with_schedule(
@@ -222,12 +223,12 @@ pub fn render_with_schedule<S: Sample, P: Process<S>>(
     processor: &mut P,
     input: &[&[S]],
     frames: usize,
-    events: &[Event],
+    events: &Events,
     options: &RenderOptions,
     schedule: &RenderSchedule<'_>,
 ) -> Result<Rendered<S>, P::Error> {
     let mut channels = vec![Vec::new(); processor.output_channels()];
-    let mut produced = Vec::new();
+    let mut produced = Events::new();
     let result = render_stream(
         processor,
         RenderInput {
@@ -241,7 +242,7 @@ pub fn render_with_schedule<S: Sample, P: Process<S>>(
             for (channel, samples) in channels.iter_mut().zip(delivery.audio) {
                 channel.extend_from_slice(samples);
             }
-            produced.extend_from_slice(delivery.events);
+            produced.extend_from(delivery.events);
         },
         || false,
     )?;
@@ -262,7 +263,7 @@ pub struct RenderInput<'a, S> {
     /// Input duration in frames; explicit even when the processor has no input channels.
     pub frames: usize,
     /// Input events in nondecreasing offset order, strictly before `frames`.
-    pub events: &'a [Event],
+    pub events: &'a Events,
     /// Transport and automation offsets relative to this input segment.
     pub schedule: RenderSchedule<'a>,
 }
@@ -325,17 +326,32 @@ pub fn render_stream<S: Sample, P: Process<S>>(
 }
 
 /// Buffers a render reuses from block to block, and a session from segment to segment.
-#[derive(Default)]
 struct Scratch<S> {
     input: Vec<Vec<S>>,
     output: Vec<Vec<S>>,
     stage: stream::Output<S>,
-    events: Vec<Event>,
+    events: Events,
     automation: Vec<crate::AutomationEvent>,
-    produced: Vec<Event>,
-    produced_since: Vec<Event>,
+    produced: Events,
+    produced_since: Events,
     targets: Vec<crate::AutomationEvent>,
     timeline: timeline::Storage,
+}
+
+impl<S: Sample> Default for Scratch<S> {
+    fn default() -> Scratch<S> {
+        Scratch {
+            input: Vec::new(),
+            output: Vec::new(),
+            stage: stream::Output::default(),
+            events: Events::for_block(),
+            automation: Vec::new(),
+            produced: Events::for_block(),
+            produced_since: Events::new(),
+            targets: Vec::new(),
+            timeline: timeline::Storage::default(),
+        }
+    }
 }
 
 /// Sizes `buffers` to `channels` channels of `frames` samples, keeping their storage. The
@@ -443,14 +459,13 @@ fn render_reusing<S: Sample, P: Process<S>>(
     output.start(output_block.len(), silence);
     let mut status = RenderStatus::Complete;
     let mut position = 0;
-    let mut pending = events;
+    // The first input event not yet submitted.
+    let mut pending = 0;
     block_events.clear();
     automation.clear();
     produced.clear();
     produced_since.clear();
-    block_events.reserve(crate::MAX_BLOCK_EVENTS);
     automation.reserve(crate::MAX_BLOCK_EVENTS);
-    produced.reserve(crate::MAX_BLOCK_EVENTS);
 
     while position < end {
         if cancelled() {
@@ -459,7 +474,7 @@ fn render_reusing<S: Sample, P: Process<S>>(
         }
         let boundary = schedule.next_transport(position).unwrap_or(end).min(end);
         let limit = position + block.min(boundary - position);
-        let block_end = timeline.fill_block(position, limit, pending, automation);
+        let block_end = timeline.fill_block(position, limit, events, pending, automation);
         let count = block_end - position;
         let start = position.min(frames);
         let available = count.min(frames - start);
@@ -472,16 +487,15 @@ fn render_reusing<S: Sample, P: Process<S>>(
         }
         let inputs: Vec<&[S]> = input_block.iter().map(|b| &b[..count]).collect();
         let mut outputs: Vec<&mut [S]> = output_block.iter_mut().map(|b| &mut b[..count]).collect();
-        let due = pending
-            .iter()
-            .take_while(|event| event.offset < position + count)
-            .count();
+        let due = events.partition_point(|offset| offset < position + count);
         block_events.clear();
-        block_events.extend(pending[..due].iter().map(|event| Event {
-            offset: event.offset - position,
-            ..event.clone()
-        }));
-        pending = &pending[due..];
+        for event in events.iter().skip(pending).take(due - pending) {
+            // The timeline fitted the block's events to one block's budget.
+            block_events
+                .push(event.at(event.offset - position))
+                .map_err(RenderError::Input)?;
+        }
+        pending = due;
         let context = crate::BlockContext {
             frames: count,
             transport: schedule
@@ -496,10 +510,11 @@ fn render_reusing<S: Sample, P: Process<S>>(
             block_events,
             produced,
         )?;
-        produced_since.extend(produced.drain(..).map(|event| Event {
-            offset: event.offset + position,
-            ..event
-        }));
+        for event in produced.iter() {
+            produced_since
+                .push(event.at(event.offset + position))
+                .map_err(RenderError::Input)?;
+        }
         let now = processor.latency()?;
         if now != latency {
             return Err(RenderError::LatencyChanged {

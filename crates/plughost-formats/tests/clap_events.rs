@@ -41,10 +41,10 @@ fn prepared() -> Plugin {
 }
 
 /// Processes one block of `events` and returns the events the plugin produced.
-fn block(plugin: &Plugin, events: &[Event]) -> Result<Vec<Event>, Error> {
+fn block(plugin: &Plugin, events: &Events) -> Result<Events, Error> {
     let input = [0.0f32; FRAMES];
     let (mut left, mut right) = ([0.0f32; FRAMES], [0.0f32; FRAMES]);
-    let mut produced = Vec::new();
+    let mut produced = Events::for_block();
     plugin.processor().process_audio_f32(
         &BlockContext::new(FRAMES),
         &[&input, &input],
@@ -62,7 +62,7 @@ fn events_whose_header_gives_another_size_than_their_type_are_not_read() {
     let mut plugin = prepared();
     plugin.take_diagnostics();
     plugin.take_parameter_events();
-    let produced = block(&plugin, &[Event::sysex(0, MALFORMED.to_vec())]).unwrap();
+    let produced = block(&plugin, &Events::from_iter([Event::sysex(0, &MALFORMED)])).unwrap();
     assert_eq!(produced, []);
     assert_eq!(plugin.take_parameter_events().events, []);
     // Both count as events with no portable form.

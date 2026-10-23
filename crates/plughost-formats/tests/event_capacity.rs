@@ -6,8 +6,8 @@
 ))]
 use plughost_core::PluginRef;
 use plughost_core::{
-    BlockContext, Event, HostIdentity, Layout, MAX_BLOCK_EVENTS, ParameterChange, PluginFormat,
-    ProcessConfig, ProcessMode, SampleFormat,
+    BlockContext, Event, Events, HostIdentity, Layout, MAX_BLOCK_EVENTS, ParameterChange,
+    PluginFormat, ProcessConfig, ProcessMode, SampleFormat,
 };
 #[cfg(feature = "clap")]
 use plughost_formats::HostedPlugin;
@@ -43,9 +43,12 @@ fn check(reference: PluginRef) {
     let (mut left, mut right) = ([99.0f32; 8], [99.0f32; 8]);
     let input = [0.25f32; 8];
     for (changes, events) in [
-        (automation.as_slice(), &[][..]),
-        (&[][..], notes.as_slice()),
-        (&automation[..MAX_BLOCK_EVENTS], &notes[..1]),
+        (automation.as_slice(), Events::new()),
+        (&[][..], Events::from_iter(notes.clone())),
+        (
+            &automation[..MAX_BLOCK_EVENTS],
+            Events::from_iter([notes[0]]),
+        ),
     ] {
         let error = processor
             .process_audio_f32(
@@ -53,8 +56,8 @@ fn check(reference: PluginRef) {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 changes,
-                events,
-                &mut Vec::new(),
+                &events,
+                &mut Events::for_block(),
             )
             .unwrap_err();
         assert_eq!(
@@ -72,8 +75,8 @@ fn check(reference: PluginRef) {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &automation[..MAX_BLOCK_EVENTS],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(left, input);
@@ -145,7 +148,7 @@ fn clap_pending_edits_are_bounded_and_survive_a_rejected_audio_block() {
     let processor = plugin.processor();
     let input = [1.0f32; 8];
     let (mut left, mut right) = ([99.0; 8], [99.0; 8]);
-    let notes = vec![Event::note_off(0, 0, 60, 0); MAX_BLOCK_EVENTS + 1];
+    let notes = Events::from_iter([Event::note_off(0, 0, 60, 0); MAX_BLOCK_EVENTS + 1]);
     assert!(
         processor
             .process_audio_f32(
@@ -154,7 +157,7 @@ fn clap_pending_edits_are_bounded_and_survive_a_rejected_audio_block() {
                 &mut [&mut left, &mut right],
                 &[],
                 &notes,
-                &mut Vec::new(),
+                &mut Events::for_block(),
             )
             .is_err()
     );
@@ -165,8 +168,8 @@ fn clap_pending_edits_are_bounded_and_survive_a_rejected_audio_block() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(left, [0.25; 8]);
@@ -178,8 +181,8 @@ fn clap_pending_edits_are_bounded_and_survive_a_rejected_audio_block() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(left, [0.75; 8]);
@@ -220,8 +223,8 @@ fn clap_pending_edits_survive_a_block_the_plugin_fails() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[Event::sysex(0, FAIL.to_vec())],
-            &mut Vec::new(),
+            &Events::from_iter([Event::sysex(0, &FAIL)]),
+            &mut Events::for_block(),
         )
         .unwrap_err();
     assert_eq!(error.failure().kind, plughost_core::FailureKind::Processing);
@@ -232,8 +235,8 @@ fn clap_pending_edits_survive_a_block_the_plugin_fails() {
             &[&input, &input],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(left, [0.25; 8]);

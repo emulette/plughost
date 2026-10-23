@@ -7,7 +7,8 @@ mod support;
 use std::path::Path;
 
 use plughost_core::{
-    AudioBusConfig, AudioConfig, BlockContext, HostIdentity, Layout, ProcessMode, SampleFormat,
+    AudioBusConfig, AudioConfig, BlockContext, Events, HostIdentity, Layout, ProcessMode,
+    SampleFormat,
 };
 use plughost_formats::clap::Plugin;
 use plughost_formats::{BlockProcessor, HostedPlugin};
@@ -91,7 +92,7 @@ fn blocks<S: ProcessSample>(processor: &dyn BlockProcessor, multiple: bool, valu
                 &inputs,
                 &mut outputs,
                 &changes,
-                &[],
+                &Events::new(),
             )
         });
         result.unwrap();

@@ -1,4 +1,4 @@
-use plughost::{Chain, Error, FailureKind, Layout, PluginFormat, PluginRef};
+use plughost::{Chain, Error, Events, FailureKind, Layout, PluginFormat, PluginRef};
 
 mod support;
 
@@ -37,8 +37,8 @@ fn a_reset_that_fails_partway_leaves_the_chain_to_be_prepared_again() {
         &[&input, &input],
         &mut [&mut left, &mut right],
         &[],
-        &[],
-        &mut Vec::new(),
+        &Events::new(),
+        &mut Events::for_block(),
     );
     match result {
         Err(Error::Operation {
@@ -81,8 +81,8 @@ fn overflowing_chain_latency_is_reported_without_losing_the_helper() {
                 &[&input, &input],
                 &mut [&mut left, &mut right],
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap_err()
             .kind(),

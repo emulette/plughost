@@ -311,8 +311,8 @@ impl Engine {
         input: &[&[S]],
         output: &mut [&mut [S]],
         changes: &[ParameterChange],
-        events: &[plughost_core::Event],
-        produced: &mut Vec<plughost_core::Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), Vst3Error> {
         produced.clear();
         let instance = self.instance.as_ref().ok_or(Vst3Error::Closed)?;
@@ -577,8 +577,8 @@ impl Processor {
         input: &[&[S]],
         output: &mut [&mut [S]],
         changes: &[ParameterChange],
-        events: &[plughost_core::Event],
-        produced: &mut Vec<plughost_core::Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), Vst3Error> {
         lock(&self.engine).process(context, input, output, changes, events, produced)
     }
@@ -741,7 +741,7 @@ impl Prepared {
     /// Translates the inputs once and counts their expansion on a copy of the tracked notes,
     /// so a block that does not fit is refused before it changes anything. SysEx pointers remain
     /// valid through this process call; staged inputs are overwritten before every use.
-    fn stage_inputs(&mut self, events: &[plughost_core::Event]) -> usize {
+    fn stage_inputs(&mut self, events: &plughost_core::Events) -> usize {
         self.inputs.clear();
         if events.is_empty() {
             return 0;
@@ -749,7 +749,7 @@ impl Prepared {
         self.counted.copy_from(&self.notes);
         let mut count = 0;
         for event in events {
-            let Some(native) = self.translate(event) else {
+            let Some(native) = self.translate(&event) else {
                 continue;
             };
             self.inputs.push((event.offset, native));

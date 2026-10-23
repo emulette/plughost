@@ -72,8 +72,8 @@ fn native_port_ids_roles_and_configurations_are_preserved() {
             &refs,
             &mut outputs,
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     for channel in 0..6 {
@@ -98,8 +98,8 @@ fn multibus_f64_preserves_precision_sidechain_auxiliary_and_native_bypass() {
             &[&left, &right, &key],
             &mut output.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(output[2], left);
@@ -122,8 +122,8 @@ fn multibus_f64_preserves_precision_sidechain_auxiliary_and_native_bypass() {
             &[&left, &right, &key],
             &mut output.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(output[0], left);
@@ -153,8 +153,8 @@ fn inactive_ports_keep_native_indices_and_reset_retains_routing() {
                 &[&left, &right],
                 &mut output.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         assert_eq!(output, [left.clone(), right.clone()]);
@@ -184,8 +184,8 @@ fn inactive_ports_keep_native_indices_and_reset_retains_routing() {
             &[&[0.5; 32], &[0.75; 32]],
             &mut [&mut left_out, &mut right_out],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!(left_out, vec![0.5; 32]);
@@ -218,8 +218,8 @@ fn main_bus_preparation_follows_ports_left_out_without_port_activation() {
             &[&[0.5; 32], &[0.75; 32]],
             &mut [&mut left, &mut right],
             &[],
-            &[],
-            &mut Vec::new(),
+            &Events::new(),
+            &mut Events::for_block(),
         )
         .unwrap();
     assert_eq!((left, right), (vec![0.5; 32], vec![0.75; 32]));
@@ -245,8 +245,8 @@ fn invalid_requested_layout_and_precision_buffers_are_rejected() {
                 &[&[0.0f32; 32][..]; 3],
                 &mut output.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap_err()
             .input_error(),
@@ -273,7 +273,7 @@ fn native_render_keeps_all_active_channels_and_f64_surround_order() {
         &mut plugin,
         &refs,
         32,
-        &[],
+        &Events::new(),
         &RenderOptions::new(TailPolicy::Reported, 0.0),
     )
     .unwrap();
@@ -309,7 +309,7 @@ fn configurable_ports_take_every_layout_clap_expresses() {
             &mut plugin,
             &refs,
             32,
-            &[],
+            &Events::new(),
             &RenderOptions::new(TailPolicy::Reported, 0.0),
         )
         .unwrap();
@@ -374,8 +374,8 @@ fn full_bus_calls_of_varying_length_do_not_reuse_old_sidechain_audio() {
                 &[&left[..frames], &right[..frames], &key[..frames]],
                 &mut outputs,
                 &[],
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap();
         assert_eq!(&output[2][..frames], &left[..frames]);

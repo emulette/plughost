@@ -307,8 +307,8 @@ impl Plugin {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), crate::Error> {
         produced.clear();
         Ok(lock(&self.engine).process(context, input, output, automation, events, produced)?)
@@ -829,8 +829,8 @@ impl Engine {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), AuError> {
         self.unit()?;
         let prepared = self.prepared.as_mut().ok_or(AuError::NotPrepared)?;
@@ -843,7 +843,7 @@ impl Engine {
         plughost_core::validate_event_budget(automation.len(), events).map_err(AuError::Input)?;
         // An AU MIDI event carries at most 65,535 bytes; longer messages fail before any part of
         // the block is scheduled.
-        let native = |event: &Event| match &event.data {
+        let native = |event: Event<'_>| match event.data {
             EventData::SysEx(bytes) => bytes.len() <= MAX_NATIVE_SYSEX_BYTES,
             _ => true,
         };
@@ -927,8 +927,8 @@ impl Engine {
                 // The block takes complete MIDI messages, system exclusive included.
                 // Notes and pressure go in their MIDI 1.0 form; other expressions have none.
                 let midi = event.data.to_midi();
-                let bytes = match (&event.data, &midi) {
-                    (EventData::SysEx(bytes), _) => bytes.as_slice(),
+                let bytes = match (event.data, &midi) {
+                    (EventData::SysEx(bytes), _) => bytes,
                     (_, Some(midi)) if matches!(midi[0] & 0xF0, 0xC0 | 0xD0) => &midi[..2],
                     (_, Some(midi)) => midi.as_slice(),
                     (_, None) => continue,
@@ -1009,8 +1009,8 @@ impl Processor {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         automation: &[plughost_core::ParameterChange],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &plughost_core::Events,
+        produced: &mut plughost_core::Events,
     ) -> Result<(), AuError> {
         produced.clear();
         lock(&self.engine).process(context, input, output, automation, events, produced)

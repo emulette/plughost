@@ -2,8 +2,8 @@
 //! input, through real helpers. Build the helper and the test plugins first (see `support`).
 
 use plughost::{
-    BlockContext, Chain, Event, FailureKind, Layout, PluginFormat, RenderOptions, SampleFormat,
-    TailPolicy, render,
+    BlockContext, Chain, Event, Events, FailureKind, Layout, PluginFormat, RenderOptions,
+    SampleFormat, TailPolicy, render,
 };
 
 mod support;
@@ -44,7 +44,14 @@ where
         .collect();
     let frames = input[0].len();
     let options = RenderOptions::new(TailPolicy::Reported, 0.0);
-    let rendered = render(chain, &[&input[0], &input[1]], frames, &[], &options).unwrap();
+    let rendered = render(
+        chain,
+        &[&input[0], &input[1]],
+        frames,
+        &Events::new(),
+        &options,
+    )
+    .unwrap();
     let case = format!("{format:?} {rate} Hz, {block}-frame blocks");
     assert_eq!(rendered.latency, expected_latency(format, rate), "{case}");
     // The delay has unit gain, so latency compensation leaves the input exactly.
@@ -91,8 +98,8 @@ fn note_peak(chain: &mut Chain) -> Result<f32, plughost::Error> {
         &[],
         &mut [&mut left, &mut right],
         &[],
-        &[Event::note_on(0, 0, 60, 100)],
-        &mut Vec::new(),
+        &Events::from_iter([Event::note_on(0, 0, 60, 100)]),
+        &mut Events::for_block(),
     )?;
     Ok(left.iter().fold(0.0, |peak, sample| peak.max(sample.abs())))
 }

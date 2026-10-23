@@ -34,7 +34,7 @@ fn late_invalid_render_targets_leave_earlier_plugin_state_untouched() {
                 &mut chain,
                 &[&input, &input],
                 input.len(),
-                &[],
+                &Events::new(),
                 &RenderOptions::new(TailPolicy::Reported, 0.0),
                 &RenderSchedule {
                     automation: &automation,
@@ -85,7 +85,7 @@ fn writable_nonautomatable_parameters_reject_block_and_render_automation() {
         &mut chain,
         &[&input, &input],
         96,
-        &[],
+        &Events::new(),
         &RenderOptions::new(TailPolicy::Reported, 0.0),
         &RenderSchedule {
             automation: &edits,
@@ -112,8 +112,8 @@ fn writable_nonautomatable_parameters_reject_block_and_render_automation() {
                 &[&input[..16], &input[..16]],
                 &mut [&mut left, &mut right],
                 &edits,
-                &[],
-                &mut Vec::new(),
+                &Events::new(),
+                &mut Events::for_block(),
             )
             .unwrap_err(),
     );

@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use super::*;
+use crate::Event;
 
 const RATE: f64 = 48_000.0;
 
@@ -28,7 +29,7 @@ struct Echo {
     tail_after_blocks: Option<(usize, Tail)>,
     blocks: usize,
     /// The events each block received, by block number.
-    events: Vec<(usize, Vec<Event>)>,
+    events: Vec<(usize, Events)>,
     max_block_size: usize,
 }
 
@@ -88,17 +89,16 @@ impl Process<f32> for Echo {
         input: &[&[f32]],
         output: &mut [&mut [f32]],
         _automation: &[crate::AutomationEvent],
-        events: &[Event],
-        produced: &mut Vec<Event>,
+        events: &Events,
+        produced: &mut Events,
     ) -> Result<(), RenderError> {
-        self.events.push((self.blocks, events.to_vec()));
+        self.events.push((self.blocks, events.clone()));
         // The events come back out on port 1, one sample later where the block allows.
         produced.clear();
-        produced.extend(events.iter().map(|event| Event {
-            offset: (event.offset + 1).min(input[0].len() - 1),
-            port: 1,
-            ..event.clone()
-        }));
+        for event in events {
+            let offset = (event.offset + 1).min(input[0].len() - 1);
+            produced.push(event.at(offset).on_port(1)).unwrap();
+        }
         let direct = self.latency as usize;
         let echo = direct + self.echo_delay;
         for ((history, source), destination) in self.history.iter_mut().zip(input).zip(output) {
@@ -134,7 +134,7 @@ fn run(
     options: RenderOptions,
 ) -> Result<Rendered<f32>, RenderError> {
     let slices: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
-    render(processor, &slices, input[0].len(), &[], &options)
+    render(processor, &slices, input[0].len(), &Events::new(), &options)
 }
 
 fn reported(max_tail_seconds: f64) -> RenderOptions {
@@ -274,7 +274,7 @@ fn input_must_match_the_processor() {
     );
     let uneven: Vec<&[f32]> = vec![&[0.0; 10], &[0.0; 9]];
     assert_eq!(
-        render(&mut processor, &uneven, 10, &[], &reported(1.0)).unwrap_err(),
+        render(&mut processor, &uneven, 10, &Events::new(), &reported(1.0)).unwrap_err(),
         RenderError::Input(crate::InputError::AudioBuffers)
     );
 }
@@ -290,41 +290,40 @@ fn events_reach_the_block_they_fall_in_with_block_offsets() {
         &mut processor,
         &slices,
         1000,
-        &[on.clone(), off.clone()],
+        &Events::from_iter([on, off]),
         &reported(1.0),
     )
     .unwrap();
-    let received: Vec<(usize, Vec<Event>)> = processor
+    let received: Vec<(usize, Events)> = processor
         .events
         .into_iter()
         .filter(|(_, events)| !events.is_empty())
         .collect();
-    let moved = Event {
-        offset: 44,
-        ..off.clone()
-    };
-    assert_eq!(received, [(0, vec![on.clone()]), (1, vec![moved])]);
+    assert_eq!(
+        received,
+        [
+            (0, Events::from_iter([on])),
+            (1, Events::from_iter([off.at(44)]))
+        ]
+    );
     // Output events count from the start of the input, whichever block produced them.
     let rendered = render(
         &mut Echo::new(0, 0, Tail::Samples(0)),
         &slices,
         1000,
-        &[on.clone(), off.clone()],
+        &Events::from_iter([on, off]),
         &reported(1.0),
     )
     .unwrap();
     assert_eq!(
         rendered.events,
-        [on.clone().on_port(1), off.clone().on_port(1)].map(|event| Event {
-            offset: event.offset + 1,
-            ..event
-        })
+        [on, off].map(|event| event.on_port(1).at(event.offset + 1))
     );
     let unordered = render(
         &mut Echo::new(0, 0, Tail::Samples(0)),
         &slices,
         1000,
-        &[off, on],
+        &Events::from_iter([off, on]),
         &reported(1.0),
     );
     assert_eq!(
@@ -340,7 +339,7 @@ fn output_events_keep_processing_offsets_when_audio_latency_is_trimmed() {
     // Echo emits an event one frame later, clamped to its 256-frame block. Audio loses its
     // first 300 processing frames; events retain the documented processing timeline, including
     // events in that trimmed prefix and the event at the end of the aligned audio.
-    let events: Vec<_> = [0, 298, 299, 300, 511, 512, 999]
+    let events: Events = [0, 298, 299, 300, 511, 512, 999]
         .into_iter()
         .enumerate()
         .map(|(id, frame)| Event::control_change(frame, 0, id as u8, 64))
@@ -411,8 +410,8 @@ impl Process<f32> for NonFinite {
         _input: &[&[f32]],
         output: &mut [&mut [f32]],
         _automation: &[crate::AutomationEvent],
-        _events: &[Event],
-        produced: &mut Vec<Event>,
+        _events: &Events,
+        produced: &mut Events,
     ) -> Result<(), RenderError> {
         produced.clear();
         let (left, right) = output.split_at_mut(1);
@@ -460,7 +459,7 @@ fn a_session_of_segments_shorter_than_the_latency_renders_like_one_render() {
                 RenderInput {
                     audio: &segment,
                     frames: end - start,
-                    events: &[],
+                    events: &Events::new(),
                     schedule: RenderSchedule::default(),
                 },
                 &mut consume,
@@ -493,7 +492,7 @@ fn non_finite_samples_are_counted_in_the_delivered_output() {
         nan_from: 1100,
         position: 0,
     };
-    let rendered = render::<f32, _>(&mut processor(), &[], 1000, &[], &options).unwrap();
+    let rendered = render::<f32, _>(&mut processor(), &[], 1000, &Events::new(), &options).unwrap();
     // NaN is never silent, so the tail runs to the maximum. The NaN in the removed latency is
     // not delivered and not counted.
     assert_eq!(rendered.tail, 480);
@@ -522,7 +521,7 @@ fn non_finite_samples_are_counted_in_the_delivered_output() {
                 RenderInput {
                     audio: &[],
                     frames: 40,
-                    events: &[],
+                    events: &Events::new(),
                     schedule: RenderSchedule::default(),
                 },
                 &mut consume,
