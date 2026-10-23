@@ -22,6 +22,15 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
         mut audio: Audio,
         events: Events,
     ) -> Result<ProcessStatus, PluginError> {
+        if FAULTS.load(std::sync::atomic::Ordering::Relaxed)
+            && events.input.iter().any(|event| {
+                // SAFETY: the host's buffer is valid during this process call.
+                matches!(event.as_core_event(), Some(CoreEventSpace::MidiSysEx(sysex))
+                    if unsafe { sysex.data() } == crate::FAIL)
+            })
+        {
+            return Err(PluginError::Message(crate::errors::PROCESS));
+        }
         let frames = audio.frames_count() as usize;
         super::events::route(events.input, events.output, frames as u32);
         let values = crate::frame_values(

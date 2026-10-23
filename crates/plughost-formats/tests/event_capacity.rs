@@ -190,3 +190,57 @@ fn clap_pending_edits_are_bounded_and_survive_a_rejected_audio_block() {
         .unwrap();
     assert_eq!(left, [0.75; 8]);
 }
+
+#[cfg(feature = "clap")]
+#[test]
+#[ignore = "needs routing CLAP fixture"]
+fn clap_pending_edits_survive_a_block_the_plugin_fails() {
+    // The routing-faults bundle fails the block that brings it this message, before it takes the
+    // block's edits.
+    const FAIL: [u8; 4] = [0xF0, 0x7D, 0x7B, 0xF7];
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/test-plugins/plughost-test-routing-faults.clap");
+    let mut plugin = plughost_formats::clap::Plugin::new(
+        &path,
+        "com.studio.plughost.test-routing",
+        &HostIdentity::default(),
+    )
+    .unwrap();
+    plugin
+        .prepare(&ProcessConfig {
+            sample_rate: 48_000.0,
+            max_block_size: 8,
+            sample_format: SampleFormat::F32,
+            input: Layout::Stereo,
+            output: Layout::Stereo,
+            mode: ProcessMode::Offline,
+        })
+        .unwrap();
+    plugin.set_parameter(0, 0.25).unwrap();
+    let processor = plugin.processor();
+    let input = [1.0f32; 8];
+    let (mut left, mut right) = ([99.0; 8], [99.0; 8]);
+    let error = processor
+        .process_audio_f32(
+            &BlockContext::new(8),
+            &[&input, &input],
+            &mut [&mut left, &mut right],
+            &[],
+            &[Event::sysex(0, FAIL.to_vec())],
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+    assert_eq!(error.failure().kind, plughost_core::FailureKind::Processing);
+    // The next block brings the edit again.
+    processor
+        .process_audio_f32(
+            &BlockContext::new(8),
+            &[&input, &input],
+            &mut [&mut left, &mut right],
+            &[],
+            &[],
+            &mut Vec::new(),
+        )
+        .unwrap();
+    assert_eq!(left, [0.25; 8]);
+}

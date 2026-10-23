@@ -114,12 +114,13 @@ impl Processor {
             processor.ensure_processing_started()
         })
         .map_err(|error| ClapError::Process(error.to_string()))?;
-        // Host edits apply from the start of the block, so they come before the notes.
+        // Host edits apply from the start of the block, so they come before the notes. They stay
+        // queued until the plugin has processed the block.
         let input_events_buffer = &mut prepared.input_events;
         input_events_buffer.clear();
-        started.access_shared_handler(|shared| {
+        let edits = started.access_shared_handler(|shared| {
             shared.flush_requested.store(false, Ordering::Relaxed);
-            shared.drain_pending(|id, value| {
+            shared.copy_pending(|id, value| {
                 if let Some(id) = ClapId::from_raw(id) {
                     input_events_buffer.parameter(0, id, value);
                 }
@@ -186,6 +187,9 @@ impl Processor {
             };
             processed.map_err(|error| ClapError::Process(error.to_string()))
         });
+        if result.is_ok() {
+            processor.access_shared_handler(|shared| shared.forget_delivered(edits));
+        }
         prepared.steady_time = next_time;
         if processor
             .access_shared_handler(|shared| shared.tail_changed.swap(false, Ordering::Relaxed))

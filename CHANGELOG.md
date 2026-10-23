@@ -93,6 +93,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - A CLAP plugin that registers or unregisters a timer off the main thread is refused, with a
   `PluginMisbehaving` diagnostic. The host's timer list, which only the main thread may use, was
   changed from that thread.
+- Host edits of a CLAP plugin's parameters stay queued until a block the plugin processes has
+  delivered them. A block the plugin failed took them, so the plugin kept the old values.
 
 ## [0.1.5] - 2026-10-23
 

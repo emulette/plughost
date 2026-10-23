@@ -174,16 +174,24 @@ impl Shared {
             .collect()
     }
 
-    /// Processing consumes edits without transferring or freeing the producer's storage.
-    pub fn drain_pending(&self, mut consume: impl FnMut(u32, f64)) {
-        for (id, value) in self
-            .pending
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .drain(..)
-        {
-            consume(id, value);
+    /// Processing sends the edits without taking them, so that a block that fails leaves them for
+    /// the next one: the values are absolute, so one the plugin already has may reach it again.
+    /// Returns how many it sent.
+    pub fn copy_pending(&self, mut send: impl FnMut(u32, f64)) -> usize {
+        let pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
+        for &(id, value) in pending.iter() {
+            send(id, value);
         }
+        pending.len()
+    }
+
+    /// Forgets the first `count` edits, which a block delivered, keeping those queued since and
+    /// the producer's storage. A state or preset load on the owning thread may have dropped them
+    /// already.
+    pub fn forget_delivered(&self, count: usize) {
+        let mut pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
+        let count = count.min(pending.len());
+        pending.drain(..count);
     }
 }
 

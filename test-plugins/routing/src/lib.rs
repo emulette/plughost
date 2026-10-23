@@ -4,15 +4,16 @@
 //! event inputs feed one event output: notes from input port `p` of the first two leave
 //! transposed up by 12 × (p + 1) semitones with controller `KEY_CONTROLLER` carrying the input
 //! key, system exclusive messages are echoed, `FLOOD` makes the fixture exceed any block's
-//! event budget, and `OVERSIZED` is echoed declaring 4 GiB of bytes. A note off on `LATE_KEY` leaves at the block's length, past its last frame, and
-//! the CLAP side also reports the note's end. On the CLAP side, `MALFORMED` makes the fixture send
-//! a note on and a parameter value whose headers give only the header's size, and a third
-//! parameter's range is the whole real line. CLAP enables these faults only in the
-//! `routing-faults` bundle, where restoring a state whose gain is `PORTS_GAIN` also adds a second
-//! note output port, as a plugin whose ports depend on its state does; the `routing-fixed-ports`
-//! bundle has no CLAP audio port activation, and the `routing-counts` bundle reports `u32::MAX`
-//! CLAP parameters, note outputs and audio port configurations. Notes and their expressions on
-//! `EXPRESSION_PORT`
+//! event budget, and `OVERSIZED` is echoed declaring 4 GiB of bytes. A note off on `LATE_KEY`
+//! leaves at the block's length, past its last frame, and the CLAP side also reports the note's
+//! end. On the CLAP side, `MALFORMED` makes the fixture send a note on and a parameter value whose
+//! headers give only the header's size, `FAIL` fails the block that brings it before the fixture
+//! takes its edits, and a third parameter's range is the whole real line. CLAP enables these
+//! faults only in the `routing-faults` bundle, where restoring a state whose gain is `PORTS_GAIN`
+//! also adds a second note output port, as a plugin whose ports depend on its state does; the
+//! `routing-fixed-ports` bundle has no CLAP audio port activation, and the `routing-counts` bundle
+//! reports `u32::MAX` CLAP parameters, note outputs and audio port configurations. Notes and their
+//! expressions on `EXPRESSION_PORT`
 //! leave unchanged: CLAP note and note expression events, and VST3 notes, poly pressure and note
 //! expression values.
 //! The VST3 processor and controller are separate COM objects. Preparation requires a two-way
@@ -27,6 +28,7 @@ const FLOOD: [u8; 4] = [0xF0, 0x7D, 0x7F, 0xF7];
 const FLOOD_EVENTS: usize = 5000;
 const MALFORMED: [u8; 4] = [0xF0, 0x7D, 0x7C, 0xF7];
 const OVERSIZED: [u8; 4] = [0xF0, 0x7D, 0x7E, 0xF7];
+const FAIL: [u8; 4] = [0xF0, 0x7D, 0x7B, 0xF7];
 const EVENT_INPUTS: u32 = 3;
 const EXPRESSION_PORT: usize = 2;
 const PORTS_GAIN: f64 = 0.125;
