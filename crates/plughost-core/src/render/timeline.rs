@@ -136,29 +136,41 @@ impl RenderSchedule<'_> {
     }
 }
 
+/// Ramp orders and timestamps a timeline builds, kept so a session reuses their storage.
+#[derive(Default)]
+pub(super) struct Storage {
+    starts: Vec<usize>,
+    ends: Vec<usize>,
+    times: Vec<usize>,
+}
+
 /// Forward-only scheduling state for one render. The active set follows the caller's ramp
 /// order, including when input ramps are not sorted by start time.
 pub(super) struct Timeline<'a> {
     automation: &'a [AutomationEvent],
     ramps: &'a [AutomationRamp],
-    starts: Vec<usize>,
-    ends: Vec<usize>,
+    storage: &'a mut Storage,
     next_start: usize,
     next_end: usize,
     active: BTreeSet<usize>,
 }
 
 impl<'a> Timeline<'a> {
-    pub(super) fn new(schedule: RenderSchedule<'a>) -> Self {
-        let mut starts: Vec<_> = (0..schedule.ramps.len()).collect();
-        starts.sort_unstable_by_key(|&index| schedule.ramps[index].start);
-        let mut ends: Vec<_> = (0..schedule.ramps.len()).collect();
-        ends.sort_unstable_by_key(|&index| schedule.ramps[index].end);
+    pub(super) fn new(schedule: RenderSchedule<'a>, storage: &'a mut Storage) -> Self {
+        storage.starts.clear();
+        storage.starts.extend(0..schedule.ramps.len());
+        storage
+            .starts
+            .sort_unstable_by_key(|&index| schedule.ramps[index].start);
+        storage.ends.clear();
+        storage.ends.extend(0..schedule.ramps.len());
+        storage
+            .ends
+            .sort_unstable_by_key(|&index| schedule.ramps[index].end);
         Self {
             automation: schedule.automation,
             ramps: schedule.ramps,
-            starts,
-            ends,
+            storage,
             next_start: 0,
             next_end: 0,
             active: BTreeSet::new(),
@@ -166,14 +178,14 @@ impl<'a> Timeline<'a> {
     }
 
     fn advance(&mut self, time: usize) {
-        while let Some(&index) = self.starts.get(self.next_start) {
+        while let Some(&index) = self.storage.starts.get(self.next_start) {
             if self.ramps[index].start > time {
                 break;
             }
             self.active.insert(index);
             self.next_start += 1;
         }
-        while let Some(&index) = self.ends.get(self.next_end) {
+        while let Some(&index) = self.storage.ends.get(self.next_end) {
             if self.ramps[index].end >= time {
                 break;
             }
@@ -183,27 +195,29 @@ impl<'a> Timeline<'a> {
     }
 
     /// A timestamp is indivisible: reject an impossible group before rendering earlier audio.
-    pub(super) fn validate_capacity(&self, midi: &[crate::Event]) -> Result<(), InputError> {
-        let mut times: Vec<_> = self
-            .automation
-            .iter()
-            .map(|point| point.change.offset)
-            .chain(midi.iter().map(|event| event.offset))
-            .chain(self.ramps.iter().map(|ramp| ramp.start))
-            .collect();
+    pub(super) fn validate_capacity(&mut self, midi: &[crate::Event]) -> Result<(), InputError> {
+        let Storage {
+            starts,
+            ends,
+            times,
+        } = &mut *self.storage;
+        times.clear();
+        times.extend(
+            self.automation
+                .iter()
+                .map(|point| point.change.offset)
+                .chain(midi.iter().map(|event| event.offset))
+                .chain(self.ramps.iter().map(|ramp| ramp.start)),
+        );
         times.sort_unstable();
         times.dedup();
-        for time in times {
+        for &time in times.iter() {
             let points = self.automation.partition_point(|p| p.change.offset <= time)
                 - self.automation.partition_point(|p| p.change.offset < time);
             let notes = &midi[midi.partition_point(|e| e.offset < time)
                 ..midi.partition_point(|e| e.offset <= time)];
-            let ramps = self
-                .starts
-                .partition_point(|&index| self.ramps[index].start <= time)
-                - self
-                    .ends
-                    .partition_point(|&index| self.ramps[index].end < time);
+            let ramps = starts.partition_point(|&index| self.ramps[index].start <= time)
+                - ends.partition_point(|&index| self.ramps[index].end < time);
             crate::validate_event_budget(points, notes)?;
             crate::validate_event_count(points + notes.len(), ramps)?;
         }
@@ -228,7 +242,8 @@ impl<'a> Timeline<'a> {
         while cursor < end {
             self.advance(cursor);
             let next_ramp = if self.active.is_empty() {
-                self.starts
+                self.storage
+                    .starts
                     .get(self.next_start)
                     .map(|&index| self.ramps[index].start)
             } else {

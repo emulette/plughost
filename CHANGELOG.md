@@ -12,9 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - `Chain::canceller` returns a `ChainCanceller` whose `cancel` terminates the chain's helper from
   any thread, which ends a call the chain is blocked in, such as a plugin that does not return
   from restoring state, loading a preset, opening its editor, preparing again or processing a
-  block. That call, or the next
-  one if none is blocked, returns the new `Error::Cancelled` (`FailureKind::Cancelled`) with the
-  slot the helper was calling, and later calls return `Error::Crashed` as after a timeout.
+  block. That call, or the next one if none is blocked, returns the new `Error::Cancelled`
+  (`FailureKind::Cancelled`) with the slot the helper was calling, and later calls return
+  `Error::Crashed` as after a timeout.
 - `HelperMonitor::end_reason` tells why a helper ended once its exit is observed: it crashed or
   exited on its own, plughost terminated it after a timeout, a protocol error or a cancellation,
   or its chain shut it down. The errors after the first one report `Error::Crashed` whatever the
@@ -24,11 +24,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 - The load timeout bounds each plugin of a chain rather than the whole chain: loading a chain,
   and preparing an already configured chain again, renew it after each plugin they load or
-  prepare, also in `recover` and `recover_realtime`. A chain of instruments that each load within the timeout no
-  longer times out together.
+  prepare, also in `recover` and `recover_realtime`. A chain of instruments that each load
+  within the timeout no longer times out together.
 - A panic in the helper aborts it, so the application reports a crash of the slot the helper
   was calling. A panic on its processing thread made the request it served time out without
   naming a slot before.
+- `RenderSession` reuses its render buffers from one `push` to the next instead of allocating
+  and zero-filling block buffers and event storage for every segment, and trims the latency
+  without copying each delivery's channel list. Output and progress are unchanged.
 - The internal helper protocol is now 31. Applications and helpers with different protocol
   versions fail the handshake; rebuild and distribute the helper with the application.
 
@@ -590,6 +593,7 @@ Windows x64, and of Audio Units on macOS, with each chain isolated in a helper p
 - Failures: typed errors with the failing slot, helper exit monitoring, diagnostics, and chain
   recovery in a new helper from saved states.
 
+[Unreleased]: https://github.com/emulette/plughost/compare/v0.1.5...HEAD
 [0.1.5]: https://github.com/emulette/plughost/releases/tag/v0.1.5
 [0.1.4]: https://github.com/emulette/plughost/releases/tag/v0.1.4
 [0.1.3]: https://github.com/emulette/plughost/releases/tag/v0.1.3

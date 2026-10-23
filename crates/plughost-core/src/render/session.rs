@@ -1,6 +1,6 @@
 use super::{
     Delivery, Process, RenderInput, RenderOptions, RenderProgress, RenderSchedule, RenderStatus,
-    Tail, TailPolicy, TransportChange, render_stream,
+    Scratch, Tail, TailPolicy, TransportChange, render_reusing,
 };
 use crate::{AutomationEvent, BlockContext, Event, RenderError, Sample, Transport};
 
@@ -26,7 +26,10 @@ pub struct RenderSession<'a, S: Sample, P: Process<S>> {
     skip: usize,
     transport: Option<Transport>,
     state: SessionState,
-    marker: std::marker::PhantomData<S>,
+    /// Render buffers every segment reuses.
+    scratch: Scratch<S>,
+    /// The current segment's transport changes, reused likewise.
+    transport_changes: Vec<TransportChange>,
 }
 
 impl<S: Sample, P: Process<S>> std::fmt::Debug for RenderSession<'_, S, P> {
@@ -51,7 +54,8 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
             skip: latency as usize,
             transport: None,
             state: SessionState::Active,
-            marker: std::marker::PhantomData,
+            scratch: Scratch::default(),
+            transport_changes: Vec::new(),
         })
     }
 
@@ -71,7 +75,7 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
             tail: TailPolicy::Reported,
             max_tail_seconds: 0.0,
         };
-        self.run(request, &options, None, consume, cancelled)
+        self.run(request, &options, consume, cancelled)
     }
 
     /// Flushes the remaining latency and tail once, then closes the session.
@@ -82,15 +86,16 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
         consume: impl FnMut(Delivery<'_, S>),
         cancelled: impl FnMut() -> bool,
     ) -> Result<RenderProgress, P::Error> {
+        // Silent input as long as the latency; the tail after it is silent too.
+        let zeros = vec![S::default(); self.latency as usize];
+        let audio = vec![zeros.as_slice(); self.processor.input_channels()];
         let request = RenderInput {
-            audio: &[],
+            audio: &audio,
             frames: self.latency as usize,
             events: &[],
             schedule: RenderSchedule::default(),
         };
-        // Allocated once per flush; every block borrows it as silent input.
-        let zeros = vec![S::default(); self.processor.max_block_size()];
-        let result = self.run(request, options, Some(zeros), consume, cancelled)?;
+        let result = self.run(request, options, consume, cancelled)?;
         if self.state == SessionState::Active {
             self.state = SessionState::Finished;
         }
@@ -101,14 +106,14 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
         &mut self,
         request: RenderInput<'_, S>,
         options: &RenderOptions,
-        silent: Option<Vec<S>>,
-        mut consume: impl FnMut(Delivery<'_, S>),
+        consume: impl FnMut(Delivery<'_, S>),
         cancelled: impl FnMut() -> bool,
     ) -> Result<RenderProgress, P::Error> {
         if self.state != SessionState::Active {
             return Err(RenderError::SessionClosed.into());
         }
-        let mut transport = Vec::new();
+        let transport = &mut self.transport_changes;
+        transport.clear();
         if self.transport.is_some()
             && request
                 .schedule
@@ -123,40 +128,24 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
         }
         transport.extend_from_slice(request.schedule.transport);
         let schedule = RenderSchedule {
-            transport: &transport,
+            transport,
             ..request.schedule
         };
-        let skip_before = self.skip;
-        let mut emitted = 0;
         let mut adapter = Segment {
             processor: self.processor,
             latency: self.latency,
-            silent,
         };
-        let result = render_stream(
+        // The latency is trimmed once, from the start of the session's output.
+        let result = render_reusing(
             &mut adapter,
             RenderInput {
                 schedule,
                 ..request
             },
             options,
-            |delivery| {
-                let count = delivery.audio.first().map_or(0, |channel| channel.len());
-                let skip = self.skip.min(count);
-                self.skip -= skip;
-                if skip < count || !delivery.events.is_empty() {
-                    let slices: Vec<_> = delivery
-                        .audio
-                        .iter()
-                        .map(|channel| &channel[skip..])
-                        .collect();
-                    consume(Delivery {
-                        audio: &slices,
-                        events: delivery.events,
-                    });
-                    emitted += count - skip;
-                }
-            },
+            Some(self.skip),
+            &mut self.scratch,
+            consume,
             cancelled,
         );
         match result {
@@ -167,12 +156,7 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
                 if progress.status == RenderStatus::Cancelled {
                     self.state = SessionState::Cancelled;
                 }
-                if self.processor.output_channels() == 0 {
-                    let skipped = skip_before.min(progress.output_frames);
-                    self.skip = skip_before - skipped;
-                    emitted = progress.output_frames - skipped;
-                }
-                progress.output_frames = emitted;
+                self.skip -= self.skip.min(progress.processed_frames);
                 progress.latency = self.latency;
                 Ok(progress)
             }
@@ -186,14 +170,12 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
 
 /// Remove per-call alignment from the shared renderer; the session trims only once, and this
 /// adapter checks the real native latency before any samples reach the output consumer.
-struct Segment<'a, S, P> {
+struct Segment<'a, P> {
     processor: &'a mut P,
     latency: u32,
-    /// Zero input for the final flush, at least one block long.
-    silent: Option<Vec<S>>,
 }
 
-impl<S: Sample, P: Process<S>> Process<S> for Segment<'_, S, P> {
+impl<S: Sample, P: Process<S>> Process<S> for Segment<'_, P> {
     type Error = P::Error;
     fn sample_rate(&self) -> f64 {
         self.processor.sample_rate()
@@ -202,11 +184,7 @@ impl<S: Sample, P: Process<S>> Process<S> for Segment<'_, S, P> {
         self.processor.max_block_size()
     }
     fn input_channels(&self) -> usize {
-        if self.silent.is_some() {
-            0
-        } else {
-            self.processor.input_channels()
-        }
+        self.processor.input_channels()
     }
     fn output_channels(&self) -> usize {
         self.processor.output_channels()
@@ -240,13 +218,7 @@ impl<S: Sample, P: Process<S>> Process<S> for Segment<'_, S, P> {
         events: &[Event],
         produced: &mut Vec<Event>,
     ) -> Result<(), Self::Error> {
-        if let Some(zeros) = &self.silent {
-            let input = vec![&zeros[..context.frames]; self.processor.input_channels()];
-            self.processor
-                .process(context, &input, output, automation, events, produced)
-        } else {
-            self.processor
-                .process(context, input, output, automation, events, produced)
-        }
+        self.processor
+            .process(context, input, output, automation, events, produced)
     }
 }

@@ -4,6 +4,7 @@ use super::Delivery;
 use crate::{Event, Sample};
 
 /// A bounded output stage. Only the unconfirmed silence hold is retained between blocks.
+#[derive(Default)]
 pub(super) struct Output<S> {
     quiet: Vec<Vec<S>>,
     ready: Vec<Vec<S>>,
@@ -13,26 +14,28 @@ pub(super) struct Output<S> {
 }
 
 impl<S: Sample> Output<S> {
-    pub fn new(channels: usize, silence: Option<(f64, usize)>) -> Self {
-        Self {
-            quiet: vec![Vec::new(); channels],
-            ready: vec![Vec::new(); channels],
-            silence,
-            quiet_frames: 0,
-            emitted: 0,
+    /// Starts a render with `channels` empty channels, keeping their storage.
+    pub fn start(&mut self, channels: usize, silence: Option<(f64, usize)>) {
+        for buffers in [&mut self.quiet, &mut self.ready] {
+            buffers.resize_with(channels, Vec::new);
+            buffers.iter_mut().for_each(Vec::clear);
         }
+        self.silence = silence;
+        self.quiet_frames = 0;
+        self.emitted = 0;
     }
 
-    /// Returns true when the silence hold has elapsed. `start` is the raw processing offset.
+    /// Returns true when the silence hold has elapsed. `start` is the raw processing offset;
+    /// frames before `skip` are dropped.
     pub fn accept(
         &mut self,
         block: &[Vec<S>],
         count: usize,
         start: usize,
-        latency: usize,
+        skip: usize,
         body: usize,
     ) -> bool {
-        let first = latency.saturating_sub(start).min(count);
+        let first = skip.saturating_sub(start).min(count);
         let Some((threshold, hold)) = self.silence else {
             self.emit(block, first..count);
             return false;

@@ -305,6 +305,51 @@ pub fn render_stream<S: Sample, P: Process<S>>(
     processor: &mut P,
     request: RenderInput<'_, S>,
     options: &RenderOptions,
+    consume: impl FnMut(Delivery<'_, S>),
+    cancelled: impl FnMut() -> bool,
+) -> Result<RenderProgress, P::Error> {
+    render_reusing(
+        processor,
+        request,
+        options,
+        None,
+        &mut Scratch::default(),
+        consume,
+        cancelled,
+    )
+}
+
+/// Buffers a render reuses from block to block, and a session from segment to segment.
+#[derive(Default)]
+struct Scratch<S> {
+    input: Vec<Vec<S>>,
+    output: Vec<Vec<S>>,
+    stage: stream::Output<S>,
+    events: Vec<Event>,
+    automation: Vec<crate::AutomationEvent>,
+    produced: Vec<Event>,
+    produced_since: Vec<Event>,
+    targets: Vec<crate::AutomationEvent>,
+    timeline: timeline::Storage,
+}
+
+/// Sizes `buffers` to `channels` channels of `frames` samples, keeping their storage. The
+/// render loop overwrites every frame it passes on, so earlier contents are not cleared.
+fn size<S: Sample>(buffers: &mut Vec<Vec<S>>, channels: usize, frames: usize) {
+    buffers.resize_with(channels, Vec::new);
+    for buffer in buffers {
+        buffer.resize(frames, S::default());
+    }
+}
+
+/// [`render_stream`] in `scratch`, dropping the first `skip` processed frames of output, or the
+/// latency when `None`.
+fn render_reusing<S: Sample, P: Process<S>>(
+    processor: &mut P,
+    request: RenderInput<'_, S>,
+    options: &RenderOptions,
+    skip: Option<usize>,
+    scratch: &mut Scratch<S>,
     mut consume: impl FnMut(Delivery<'_, S>),
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<RenderProgress, P::Error> {
@@ -314,6 +359,17 @@ pub fn render_stream<S: Sample, P: Process<S>>(
         events,
         schedule,
     } = request;
+    let Scratch {
+        input: input_block,
+        output: output_block,
+        stage: output,
+        events: block_events,
+        automation,
+        produced,
+        produced_since,
+        targets,
+        timeline: storage,
+    } = scratch;
     processor.begin_render()?;
     let expected = processor.input_channels();
     if input.len() != expected {
@@ -355,24 +411,26 @@ pub fn render_stream<S: Sample, P: Process<S>>(
     schedule
         .validate(frames, end, sample_rate)
         .map_err(RenderError::Input)?;
-    let mut timeline = timeline::Timeline::new(schedule);
+    let mut timeline = timeline::Timeline::new(schedule, storage);
     timeline
         .validate_capacity(events)
         .map_err(RenderError::Input)?;
-    let targets: Vec<_> = schedule
-        .automation
-        .iter()
-        .copied()
-        .chain(schedule.ramps.iter().map(|ramp| crate::AutomationEvent {
-            slot: ramp.slot,
-            change: crate::ParameterChange {
-                id: ramp.id,
-                offset: ramp.start,
-                value: ramp.from,
-            },
-        }))
-        .collect();
-    processor.validate_automation(&targets)?;
+    targets.clear();
+    targets.extend(
+        schedule
+            .automation
+            .iter()
+            .copied()
+            .chain(schedule.ramps.iter().map(|ramp| crate::AutomationEvent {
+                slot: ramp.slot,
+                change: crate::ParameterChange {
+                    id: ramp.id,
+                    offset: ramp.start,
+                    value: ramp.from,
+                },
+            })),
+    );
+    processor.validate_automation(targets)?;
     let silence = match options.tail {
         TailPolicy::UntilSilence {
             threshold,
@@ -381,16 +439,20 @@ pub fn render_stream<S: Sample, P: Process<S>>(
         TailPolicy::Reported => None,
     };
 
-    let mut input_block = vec![vec![S::default(); block]; input.len()];
-    let mut output_block = vec![vec![S::default(); block]; processor.output_channels()];
-    let mut output = stream::Output::new(output_block.len(), silence);
+    let skip = skip.unwrap_or(latency as usize);
+    size(input_block, input.len(), block);
+    size(output_block, processor.output_channels(), block);
+    output.start(output_block.len(), silence);
     let mut status = RenderStatus::Complete;
     let mut position = 0;
     let mut pending = events;
-    let mut block_events = Vec::with_capacity(crate::MAX_BLOCK_EVENTS);
-    let mut automation = Vec::with_capacity(crate::MAX_BLOCK_EVENTS);
-    let mut produced = Vec::with_capacity(crate::MAX_BLOCK_EVENTS);
-    let mut produced_since = Vec::new();
+    block_events.clear();
+    automation.clear();
+    produced.clear();
+    produced_since.clear();
+    block_events.reserve(crate::MAX_BLOCK_EVENTS);
+    automation.reserve(crate::MAX_BLOCK_EVENTS);
+    produced.reserve(crate::MAX_BLOCK_EVENTS);
 
     while position < end {
         if cancelled() {
@@ -399,7 +461,7 @@ pub fn render_stream<S: Sample, P: Process<S>>(
         }
         let boundary = schedule.next_transport(position).unwrap_or(end).min(end);
         let limit = position + block.min(boundary - position);
-        let block_end = timeline.fill_block(position, limit, pending, &mut automation);
+        let block_end = timeline.fill_block(position, limit, pending, automation);
         let count = block_end - position;
         let start = position.min(frames);
         let available = count.min(frames - start);
@@ -407,7 +469,7 @@ pub fn render_stream<S: Sample, P: Process<S>>(
             buffer[..available].copy_from_slice(&source[start..start + available]);
             buffer[available..count].fill(S::default());
         }
-        for buffer in &mut output_block {
+        for buffer in output_block.iter_mut() {
             buffer[..count].fill(S::default());
         }
         let inputs: Vec<&[S]> = input_block.iter().map(|b| &b[..count]).collect();
@@ -432,9 +494,9 @@ pub fn render_stream<S: Sample, P: Process<S>>(
             &context,
             &inputs,
             &mut outputs,
-            &automation,
-            &block_events,
-            &mut produced,
+            automation,
+            block_events,
+            produced,
         )?;
         produced_since.extend(produced.drain(..).map(|event| Event {
             offset: event.offset + position,
@@ -448,20 +510,21 @@ pub fn render_stream<S: Sample, P: Process<S>>(
             }
             .into());
         }
-        let done = output.accept(&output_block, count, position, latency as usize, body);
+        let done = output.accept(output_block, count, position, skip, body);
         position += count;
-        output.deliver(&mut produced_since, &mut consume);
+        output.deliver(produced_since, &mut consume);
         if done {
             break;
         }
     }
-    output.deliver(&mut produced_since, &mut consume);
+    output.deliver(produced_since, &mut consume);
     Ok(RenderProgress {
         status,
         processed_frames: position,
         output_frames: output.emitted,
         latency,
-        tail: output.emitted.saturating_sub(frames),
+        // The input ends `body - skip` frames into the delivered output.
+        tail: output.emitted.saturating_sub(body.saturating_sub(skip)),
     })
 }
 
