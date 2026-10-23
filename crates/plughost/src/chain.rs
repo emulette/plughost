@@ -440,11 +440,7 @@ fn start(
     timeouts: Timeouts,
 ) -> Result<Chain, Error> {
     for (slot, plugin) in plugins.iter().enumerate() {
-        if plugin
-            .bundle
-            .as_ref()
-            .is_some_and(|path| path.to_str().is_none())
-        {
+        if plugin.bundle().is_some_and(|path| path.to_str().is_none()) {
             return Err(Error::Input {
                 slot: Some(slot),
                 error: plughost_core::InputError::PathEncoding,

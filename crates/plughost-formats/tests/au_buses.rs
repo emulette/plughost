@@ -153,7 +153,7 @@ fn class_id(kind: u32) -> String {
         .into_iter()
         .find(|component| {
             component.name == "paired"
-                && component.class_id.starts_with(
+                && component.id.class_id().as_str().starts_with(
                     &kind
                         .iter()
                         .map(|byte| format!("{byte:02X}"))
@@ -161,7 +161,9 @@ fn class_id(kind: u32) -> String {
                 )
         })
         .unwrap()
-        .class_id
+        .id
+        .class_id()
+        .to_string()
 }
 
 fn prepare(kind: u32, input: Layout) -> Result<(), plughost_formats::Error> {

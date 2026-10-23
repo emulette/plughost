@@ -31,13 +31,13 @@ fn plugin_severity_identity_overflow_and_reset_survive_ipc() {
             .records
             .iter()
             .take(7)
-            .all(|r| r.plugin.as_ref() == Some(&plugin)
+            .all(|r| r.plugin.as_ref() == Some(plugin.id())
                 && r.slot == Some(0)
                 && r.failure_kind.is_none())
     );
     // Clack logs the two deliberately rejected GUI requests through the native host logger.
     for record in &batch.records[7..] {
-        assert_eq!(record.plugin.as_ref(), Some(&plugin));
+        assert_eq!(record.plugin.as_ref(), Some(plugin.id()));
         assert_eq!(record.slot, Some(0));
         assert_eq!(record.failure_kind, None);
     }

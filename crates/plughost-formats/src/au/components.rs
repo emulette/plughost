@@ -9,7 +9,7 @@ use objc2_audio_toolbox::{
     kAudioUnitType_MusicEffect,
 };
 use objc2_core_foundation::CFString;
-use plughost_core::{PluginFormat, PluginInfo, PluginKind};
+use plughost_core::{PluginFormat, PluginId, PluginInfo, PluginKind};
 
 use super::errors::AuError;
 
@@ -81,8 +81,7 @@ fn info(component: AudioComponent) -> Option<PluginInfo> {
         .contains(AudioComponentFlags::IsV3AudioUnit);
     Some({
         let mut plugin_info = PluginInfo::new(
-            PluginFormat::AudioUnit,
-            class_id(&description),
+            PluginId::new(PluginFormat::AudioUnit, class_id(&description)),
             name,
             if instrument {
                 PluginKind::Instrument
@@ -158,7 +157,11 @@ mod tests {
             u32::from_be_bytes(*b"PgHt"),
         );
         let id = class_id(&desc);
-        assert!(!components().iter().any(|info| info.class_id == id));
+        assert!(
+            !components()
+                .iter()
+                .any(|info| info.id.class_id().as_str() == id)
+        );
         let component = unsafe {
             AudioComponentRegister(
                 NonNull::from(&mut desc),
@@ -171,14 +174,14 @@ mod tests {
         let listed = components();
         let info = listed
             .iter()
-            .find(|info| info.class_id == id)
+            .find(|info| info.id.class_id().as_str() == id)
             .expect("MIDI registration missing");
         assert_eq!(info.name, "MIDI registration fixture");
         assert_eq!(info.vendor, "plughost");
         assert_eq!(info.version, "1.2.3");
         assert_eq!(info.kind, PluginKind::Effect);
         let direct = super::component(desc).unwrap();
-        assert_eq!(direct.class_id, info.class_id);
+        assert_eq!(direct.id.class_id().as_str(), info.id.class_id().as_str());
         assert_eq!(direct.name, info.name);
         assert_eq!(direct.vendor, info.vendor);
         assert_eq!(direct.version, info.version);

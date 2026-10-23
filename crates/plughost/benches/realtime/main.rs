@@ -47,9 +47,7 @@ use std::sync::mpsc::channel;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use plughost::{
-    Chain, HostIdentity, Layout, PluginFormat, PluginRef, RealtimeConfig, StatePurpose, Timeouts,
-};
+use plughost::{Chain, HostIdentity, Layout, PluginRef, RealtimeConfig, StatePurpose, Timeouts};
 use plughost_core::ipc::shared::clock;
 
 use callback::{Feed, Handover, Inputs, Profile, Shared};
@@ -265,11 +263,10 @@ fn stall_fixture(assets: &Path, address: String) -> (PluginRef, HostIdentity) {
         name: address,
         ..HostIdentity::default()
     };
-    let plugin = PluginRef {
-        format: PluginFormat::Clap,
-        bundle: Some(assets.join("plughost-test-stall-in-process.clap")),
-        class_id: "com.studio.plughost.test-delay.79000018".into(),
-    };
+    let plugin = PluginRef::clap(
+        assets.join("plughost-test-stall-in-process.clap"),
+        "com.studio.plughost.test-delay.79000018",
+    );
     (plugin, identity)
 }
 
@@ -288,11 +285,10 @@ fn run(options: &Options) -> Result<()> {
             (plugin, identity, None)
         }
         (None, _) => (
-            PluginRef {
-                format: PluginFormat::Vst3,
-                bundle: Some(options.assets.join("plughost-test-routing.vst3")),
-                class_id: "706C7567686F7374526F7574696E6701".into(),
-            },
+            PluginRef::vst3(
+                options.assets.join("plughost-test-routing.vst3"),
+                "706C7567686F7374526F7574696E6701",
+            ),
             HostIdentity::default(),
             None,
         ),

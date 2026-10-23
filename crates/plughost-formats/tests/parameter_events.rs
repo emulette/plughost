@@ -134,7 +134,7 @@ fn vst3_callbacks_and_processor_output_reach_the_consumer() {
     let module = plughost_formats::vst3::Module::load(&bundle("vst3")).unwrap();
     let mut plugin = plughost_formats::vst3::Plugin::new(
         &module,
-        &module.classes()[0].class_id,
+        module.classes()[0].id.class_id().as_str(),
         &HostIdentity::default(),
     )
     .unwrap();

@@ -43,7 +43,7 @@ impl Host {
         for (slot, (plugin, poll)) in self.slots.iter().zip(&mut self.timing_polls).enumerate() {
             poll.run(
                 now,
-                plugin.info().format,
+                plugin.info().id.format(),
                 || {
                     let _call = self.calls.enter(Caller::Main, slot);
                     plugin.poll_timing()

@@ -49,19 +49,22 @@ fn audio_unit_policy_filters_both_progress_and_catalog() {
             ..
         } = event
         {
-            notified.lock().unwrap().push(class.class_id.clone());
+            notified
+                .lock()
+                .unwrap()
+                .push(class.id.class_id().to_string());
         }
     });
     assert_eq!(*notified.lock().unwrap(), [selected]);
     let units = classes(&catalog.audio_units);
     assert_eq!(units.len(), 1);
-    assert_eq!(units[0].class_id, selected);
+    assert_eq!(units[0].id.class_id().as_str(), selected);
     assert_eq!(catalog.plugins().len(), 1);
     let blocked = scanner.policy(ScanPolicy::default().audio_unit(selected, ScanAction::Block));
     assert!(
         !classes(&blocked.discover().audio_units)
             .iter()
-            .any(|unit| unit.class_id == selected)
+            .any(|unit| unit.id.class_id().as_str() == selected)
     );
     assert!(!directory.path().join("cache.json").exists());
 }
@@ -198,7 +201,7 @@ fn file_changes_invalidate_native_results_without_rewriting_discovery_cache() {
         assert_eq!(fs::read(&cache).unwrap(), before);
         let scan = scanner.scan(&|_| {}).unwrap().bundles.remove(0);
         assert_eq!(scan.source, Source::Loaded);
-        assert_eq!(classes(&scan.outcome)[0].class_id, ROUTING_ID);
+        assert_eq!(classes(&scan.outcome)[0].id.class_id().as_str(), ROUTING_ID);
         assert_eq!(scanner.discover().bundles[0].source, Source::Cache);
     }
     fs::remove_file(&metadata).unwrap();

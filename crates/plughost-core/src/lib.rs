@@ -65,7 +65,7 @@ pub use parameter::{PARAMETER_TEXT_BYTES, validate_normalized, validate_paramete
 pub use parameter_events::{
     PARAMETER_EVENT_CAPACITY, ParameterEvent, ParameterEventBatch, ParameterEventBuffer,
 };
-pub use plugin::{PluginFormat, PluginInfo, PluginKind, PluginRef};
+pub use plugin::{ClassId, PluginFormat, PluginId, PluginInfo, PluginKind, PluginRef};
 pub use sample::Sample;
 pub use state::{MAX_STATE_BYTES, PluginState};
 pub use transport::{BarPosition, BlockContext, LoopRegion, TimeSignature, Transport};

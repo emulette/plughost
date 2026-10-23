@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use plughost::{
-    Chain, Error, Event, Layout, PluginFormat, PluginInfo, PluginKind, PluginRef, ScanOutcome,
+    Chain, Error, Event, Layout, PluginFormat, PluginId, PluginInfo, PluginKind, PluginRef,
     Scanner, Timeouts,
 };
 
@@ -98,29 +98,22 @@ fn find(
         .is_some_and(|e| e.eq_ignore_ascii_case("vst3") || e.eq_ignore_ascii_case("clap"))
     {
         let scanned = scanner.retry(target)?;
-        match scanned.outcome {
-            ScanOutcome::Found(classes) => classes.into_iter().nth(index).map(|class| {
-                let plugin = PluginRef {
-                    format: class.format,
-                    bundle: Some(target.to_path_buf()),
-                    class_id: class.class_id.clone(),
-                };
-                (plugin, class)
-            }),
-            outcome => {
-                out!("scan: {outcome:?}");
-                None
-            }
+        let found = scanned
+            .plugins()
+            .into_iter()
+            .nth(index)
+            .map(|(plugin, class)| (plugin, class.clone()));
+        if found.is_none() {
+            out!("scan: {:?}", scanned.outcome);
         }
+        found
     } else {
         let catalog = scanner.directories(Vec::new()).scan(&|_| {})?;
-        let class_id = target.to_string_lossy();
+        let id = PluginId::new(PluginFormat::AudioUnit, target.to_string_lossy());
         catalog
             .plugins()
             .into_iter()
-            .find(|(plugin, _)| {
-                plugin.format == PluginFormat::AudioUnit && plugin.class_id == class_id
-            })
+            .find(|(plugin, _)| plugin.id() == &id)
             .map(|(plugin, info)| (plugin, info.clone()))
     };
     let _ = std::fs::remove_file(&cache);

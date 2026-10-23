@@ -326,11 +326,7 @@ fn replacing_a_slot_instance_keeps_its_bypass_unless_the_change_sets_it() {
     use plughost::StatePurpose::Project;
     // Apple's AUMatrixReverb, 'aufx' 'mrev' 'appl', which has factory presets. Audio Unit bypass
     // is a property outside the state.
-    let reverb = PluginRef {
-        format: PluginFormat::AudioUnit,
-        bundle: None,
-        class_id: "617566786D7265766170706C".to_owned(),
-    };
+    let reverb = PluginRef::audio_unit("617566786D7265766170706C");
     let mut chain = spawn(&[reverb]);
     support::prepare(&mut chain);
     chain.set_bypass(0, true).unwrap();

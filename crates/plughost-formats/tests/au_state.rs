@@ -236,7 +236,9 @@ fn plugin() -> Plugin {
         .into_iter()
         .find(|info| info.name == "restore edits")
         .unwrap()
-        .class_id;
+        .id
+        .class_id()
+        .to_string();
     Plugin::new(&id).unwrap()
 }
 
@@ -325,7 +327,7 @@ fn au_instantiation_benchmark() {
     drop(first);
     let started = std::time::Instant::now();
     for _ in 0..300 {
-        let mut unit = Plugin::new(&expected.class_id).unwrap();
+        let mut unit = Plugin::new(expected.id.class_id().as_str()).unwrap();
         assert_eq!(unit.info().name, expected.name);
         assert_eq!(unit.info().vendor, expected.vendor);
         assert_eq!(unit.info().sdk_version, expected.sdk_version);

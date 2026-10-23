@@ -9,8 +9,8 @@ use std::process::Command;
 use std::time::Instant;
 
 use plughost::{
-    Chain, HostIdentity, Layout, PluginRef, RenderOptions, ScanOutcome, Scanner, StatePurpose,
-    TailPolicy, Timeouts, render,
+    Chain, HostIdentity, Layout, PluginFormat, PluginRef, RenderOptions, ScanOutcome, Scanner,
+    StatePurpose, TailPolicy, Timeouts, render,
 };
 
 use errors::Result;
@@ -135,12 +135,12 @@ fn plugin_ref(helper: &Path, bundle: &Path) -> Result<PluginRef> {
         class.name,
         class.vendor,
         class.version,
-        class.format
+        class.id.format()
     );
-    Ok(PluginRef {
-        format: class.format,
-        bundle: Some(bundle.to_path_buf()),
-        class_id: class.class_id,
+    let class_id = class.id.class_id().as_str();
+    Ok(match class.id.format() {
+        PluginFormat::Vst3 => PluginRef::vst3(bundle, class_id),
+        _ => PluginRef::clap(bundle, class_id),
     })
 }
 

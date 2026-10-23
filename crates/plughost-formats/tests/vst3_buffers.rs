@@ -21,7 +21,7 @@ fn prepared_native_audio_reuses_storage_across_blocks_and_reconfiguration() {
     let module = Module::load(&path).unwrap();
     let mut plugin = Plugin::new(
         &module,
-        &module.classes()[0].class_id,
+        module.classes()[0].id.class_id().as_str(),
         &HostIdentity::default(),
     )
     .unwrap();

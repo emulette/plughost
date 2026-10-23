@@ -38,8 +38,8 @@ impl Scanner {
             let stage = match helper.receive_controlled(timeout, &stopped) {
                 Ok(Some(Response::ModuleLoaded)) => ScanStage::ModuleLoaded,
                 Ok(Some(Response::Class(class))) => {
-                    if class.format == plughost_core::PluginFormat::AudioUnit
-                        && !self.policy.allows_audio_unit(&class.class_id)
+                    if class.id.format() == plughost_core::PluginFormat::AudioUnit
+                        && !self.policy.allows_audio_unit(class.id.class_id().as_str())
                     {
                         continue;
                     }

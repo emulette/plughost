@@ -38,7 +38,7 @@ use clack_extensions::tail::{HostTail, HostTailImpl, PluginTail};
 use clack_extensions::thread_check::{HostThreadCheck, HostThreadCheckImpl};
 use clack_extensions::timer::{HostTimer, HostTimerImpl, PluginTimer, TimerId};
 use clack_host::prelude::*;
-use plughost_core::PluginRef;
+use plughost_core::PluginId;
 use plughost_core::{DiagnosticBuffer, DiagnosticSeverity};
 use plughost_core::{ParameterEvent, ParameterEventBuffer};
 
@@ -108,7 +108,7 @@ pub struct Shared {
     pub parameter_events: ParameterEventBuffer,
     pub preset_load_failed: AtomicBool,
     diagnostics: DiagnosticBuffer,
-    plugin: PluginRef,
+    plugin: PluginId,
     main_thread: ThreadId,
     pub extensions: OnceLock<Extensions>,
     pub restart_requested: AtomicBool,
@@ -133,7 +133,7 @@ pub struct Shared {
 }
 
 impl Shared {
-    pub fn new(diagnostics: DiagnosticBuffer, plugin: PluginRef) -> Shared {
+    pub fn new(diagnostics: DiagnosticBuffer, plugin: PluginId) -> Shared {
         Shared {
             parameter_events: ParameterEventBuffer::default(),
             preset_load_failed: AtomicBool::new(false),
@@ -515,11 +515,7 @@ mod tests {
     fn shared() -> Shared {
         Shared::new(
             DiagnosticBuffer::default(),
-            PluginRef {
-                format: PluginFormat::Clap,
-                bundle: None,
-                class_id: String::new(),
-            },
+            PluginId::new(PluginFormat::Clap, ""),
         )
     }
 

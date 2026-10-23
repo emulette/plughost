@@ -182,7 +182,7 @@ fn multibus_f64_surround_and_bypass_survive_state_and_reset() {
     let module = module("plughost-test-routing");
     let mut restored = Plugin::new(
         &module,
-        &module.classes()[0].class_id,
+        module.classes()[0].id.class_id().as_str(),
         &plughost_core::HostIdentity::default(),
     )
     .unwrap();

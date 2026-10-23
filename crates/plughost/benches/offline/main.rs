@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use plughost::{Chain, HostIdentity, Layout, PluginFormat, PluginRef, Timeouts};
+use plughost::{Chain, HostIdentity, Layout, PluginRef, Timeouts};
 
 use cases::Case;
 use errors::Result;
@@ -179,11 +179,7 @@ fn run(options: Options) -> Result<()> {
         .assets
         .join("plughost-test-routing.vst3")
         .canonicalize()?;
-    let plugin = PluginRef {
-        format: PluginFormat::Vst3,
-        bundle: Some(bundle),
-        class_id: "706C7567686F7374526F7574696E6701".into(),
-    };
+    let plugin = PluginRef::vst3(bundle, "706C7567686F7374526F7574696E6701");
     let cases = cases::matrix(options.seconds, &options.blocks);
     fs::create_dir_all(&options.output)?;
     let mut results = BufWriter::new(File::create(options.output.join("results.jsonl"))?);

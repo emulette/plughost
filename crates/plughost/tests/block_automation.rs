@@ -106,11 +106,7 @@ fn overlapping_slot_ramps_discrete_points_and_duplicate_edits_preserve_samples()
 #[test]
 #[ignore = "needs the helper and Apple AUDelay"]
 fn apple_ramp_matches_independent_control_edits() {
-    let reference = PluginRef {
-        format: PluginFormat::AudioUnit,
-        bundle: None,
-        class_id: "6175667864656C796170706C".into(),
-    };
+    let reference = PluginRef::audio_unit("6175667864656C796170706C");
     let ramp = [AutomationRamp {
         slot: 0,
         id: 0,

@@ -195,10 +195,10 @@ impl Plugin {
     /// process, as macOS does by default.
     pub fn new(class_id: &str) -> Result<Plugin, crate::Error> {
         let description = parse_class_id(class_id)?;
-        // Zero codes match any component, so the found one must have the requested ID; its
-        // hexadecimal digits may differ in case, as `ScanPolicy` allows.
+        // Zero codes match any component, so the found one must have the requested ID.
+        let id = plughost_core::PluginId::new(PluginFormat::AudioUnit, class_id);
         let info = component(description)
-            .filter(|info| info.class_id.eq_ignore_ascii_case(class_id))
+            .filter(|info| info.id == id)
             .ok_or_else(|| AuError::ClassNotFound(class_id.to_owned()))?;
         let unit = instantiate(description)?;
         let invalidated = Arc::new(AtomicBool::new(false));
@@ -432,7 +432,7 @@ impl Plugin {
         let component = plist::encode(&state, NSPropertyListFormat::BinaryFormat_v1_0)?;
         Ok(PluginState {
             format: PluginFormat::AudioUnit,
-            class_id: self.info.class_id.clone(),
+            class_id: self.info.id.class_id().to_string(),
             name: self.info.name.clone(),
             vendor: self.info.vendor.clone(),
             version: self.info.version.clone(),
@@ -450,7 +450,7 @@ impl Plugin {
         if purpose == plughost_core::StatePurpose::Duplicate {
             return Err(AuError::StatePurposeUnsupported);
         }
-        if state.format != PluginFormat::AudioUnit || state.class_id != self.info.class_id {
+        if plughost_core::PluginId::new(state.format, state.class_id.as_str()) != self.info.id {
             return Err(AuError::StateMismatch);
         }
         let dictionary = plist::decode(&state.component)?;

@@ -14,7 +14,6 @@
 //! reset clears internal audio down to the plugin's own idle output.
 
 use std::io::Write;
-use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -110,24 +109,20 @@ fn classes(bundle: &str) -> Option<(PluginFormat, Vec<PluginInfo>)> {
 fn find_class(bundle: &str, index: usize) -> Option<(PluginRef, PluginInfo)> {
     let (format, classes) = classes(bundle)?;
     let info = classes.into_iter().nth(index)?;
-    let plugin = PluginRef {
-        format,
-        bundle: Some(PathBuf::from(bundle)),
-        class_id: info.class_id.clone(),
+    let class_id = info.id.class_id().as_str();
+    let plugin = match format {
+        PluginFormat::Vst3 => PluginRef::vst3(bundle, class_id),
+        _ => PluginRef::clap(bundle, class_id),
     };
     Some((plugin, info))
 }
 
 #[cfg(target_os = "macos")]
 fn find_audio_unit(class_id: &str) -> Option<(PluginRef, PluginInfo)> {
+    let plugin = PluginRef::audio_unit(class_id);
     let info = plughost_formats::au::components()
         .into_iter()
-        .find(|info| info.class_id.eq_ignore_ascii_case(class_id))?;
-    let plugin = PluginRef {
-        format: PluginFormat::AudioUnit,
-        bundle: None,
-        class_id: info.class_id.clone(),
-    };
+        .find(|info| &info.id == plugin.id())?;
     Some((plugin, info))
 }
 

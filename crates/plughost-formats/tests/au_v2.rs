@@ -668,7 +668,9 @@ fn class_id() -> String {
         .into_iter()
         .find(|component| component.name == "v2 echo")
         .unwrap()
-        .class_id
+        .id
+        .class_id()
+        .to_string()
 }
 
 fn prepared() -> Plugin {

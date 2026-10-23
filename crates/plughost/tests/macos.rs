@@ -6,11 +6,7 @@ use plughost::*;
 mod support;
 
 fn chain() -> Chain {
-    support::spawn(&[PluginRef {
-        format: PluginFormat::AudioUnit,
-        bundle: None,
-        class_id: "6175667864656C796170706C".into(),
-    }])
+    support::spawn(&[PluginRef::audio_unit("6175667864656C796170706C")])
 }
 
 fn render_markers(chain: &mut Chain, layout: Layout) {

@@ -7,15 +7,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ## [Unreleased]
 
+### Added
+
+- `PluginId` names a plugin class independently of where it is installed: its `PluginFormat`
+  and a `ClassId` kept in canonical form, VST3 and Audio Unit IDs in upper case and CLAP IDs as
+  given, so IDs written in another case are one class. It supports serde, with format names
+  `"vst3"`, `"audio-unit"` and `"clap"`, for storing with the work that uses the plugin.
+  `Catalog::resolve(&id)` finds the installed class as a `PluginRef`, from the highest priority
+  directory, and `BundleScan::plugins()` gives the references of one scanned bundle.
+
 ### Changed
 
+- `PluginRef` holds a `PluginId` and the bundle, both private: build it with
+  `PluginRef::vst3(bundle, class_id)`, `PluginRef::clap(bundle, class_id)` or
+  `PluginRef::audio_unit(class_id)` and read it with `id()` and `bundle()`, so a VST3 or CLAP
+  reference without a bundle can no longer be made; the error for one is removed.
+  `PluginInfo::format` and `PluginInfo::class_id` are `PluginInfo::id`: read
+  `info.id.format()` and `info.id.class_id().as_str()`, and build an ID read from storage with
+  `PluginId::new(format, class_id)`. `PluginInfo::new` takes a `PluginId`, and
+  `Diagnostic::plugin` is an `Option<PluginId>`.
+- Class IDs compare in their canonical form everywhere. A state or preset whose VST3 or Audio
+  Unit class ID differs from the plugin's only in case restores (an Audio Unit state failed with
+  `FailureKind::StateMismatch`).
+- The scan cache schema is 3: caches written by 0.1 are read as empty and their bundles
+  inspected again.
+- The internal helper protocol is now 32. Applications and helpers with different protocol
+  versions fail the handshake; rebuild and distribute the helper with the application.
 - `plughost_formats::Error` is one opaque struct for every format instead of an enum with a
   variant per format, and `Vst3Error`, `ClapError` and `AuError` are no longer public; the
   format modules' functions, such as `vst3::Module::load` and `clap::classes`, return
   `plughost_formats::Error`. Match `kind()` for the `FailureKind` and `input_error()` for
   rejected caller input instead of variants; `format()` names the format whose host failed
-  (none for rejected caller input),
-  `native_code()` gives the VST3 `tresult` or the Audio Unit `OSStatus` (or `NSError` code), and
+  (none for rejected caller input), `native_code()` gives the VST3 `tresult` or the Audio Unit `OSStatus` (or `NSError` code), and
   `is_output_event_overflow()` and `failure()` remain. It is no longer `Clone` or `PartialEq`;
   compare `kind()`.
 - Errors keep their causes. A plughost-formats error and a `RenderError` display only their own

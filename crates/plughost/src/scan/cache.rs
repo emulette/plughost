@@ -19,7 +19,7 @@ use super::bundle::FileStamp;
 mod tests;
 
 /// Increment when the meaning or representation of native results changes.
-const SCHEMA: u32 = 2;
+const SCHEMA: u32 = 3;
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct Cache {

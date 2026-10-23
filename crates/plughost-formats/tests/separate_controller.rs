@@ -2,8 +2,8 @@
 #![cfg(feature = "vst3")]
 
 use plughost_core::{
-    BlockContext, HostIdentity, Layout, ParameterChange, PluginFormat, PluginRef, ProcessConfig,
-    ProcessMode, SampleFormat, StatePurpose,
+    BlockContext, HostIdentity, Layout, ParameterChange, PluginRef, ProcessConfig, ProcessMode,
+    SampleFormat, StatePurpose,
 };
 use plughost_formats::HostedPlugin;
 use std::path::Path;
@@ -20,14 +20,11 @@ fn value(plugin: &mut dyn HostedPlugin, id: u64) -> f64 {
 #[test]
 #[ignore = "needs routing VST3 fixture"]
 fn component_state_and_connection_messages_reach_a_separate_controller() {
-    let reference = PluginRef {
-        format: PluginFormat::Vst3,
-        bundle: Some(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../target/test-plugins/plughost-test-routing.vst3"),
-        ),
-        class_id: "706C7567686F7374526F7574696E6701".into(),
-    };
+    let reference = PluginRef::vst3(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/test-plugins/plughost-test-routing.vst3"),
+        "706C7567686F7374526F7574696E6701",
+    );
     let mut plugin = plughost_formats::load(&reference, &HostIdentity::default()).unwrap();
     // The controller starts with opposite defaults until setComponentState copies the DSP state.
     assert_eq!(value(&mut *plugin, 0), 1.0);

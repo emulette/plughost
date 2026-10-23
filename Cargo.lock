@@ -692,6 +692,7 @@ dependencies = [
  "rtsan-standalone",
  "rustix",
  "serde",
+ "serde_json",
  "windows-sys",
 ]
 

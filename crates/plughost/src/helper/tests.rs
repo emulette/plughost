@@ -98,11 +98,10 @@ fn editing_controls_return_timing_in_their_own_response() {
     helper
         .load(
             &HostIdentity::default(),
-            &[PluginRef {
-                format: plughost_core::PluginFormat::Clap,
-                bundle: Some(target.join("test-plugins/plughost-test-delay.clap")),
-                class_id: "com.studio.plughost.test-delay.79000001".into(),
-            }],
+            &[PluginRef::clap(
+                target.join("test-plugins/plughost-test-delay.clap"),
+                "com.studio.plughost.test-delay.79000001",
+            )],
             timeout,
         )
         .unwrap();
@@ -168,11 +167,10 @@ fn main_thread_ticks_during_queued_requests() {
     helper
         .load(
             &HostIdentity::default(),
-            &[PluginRef {
-                format: plughost_core::PluginFormat::Clap,
-                bundle: Some(target.join("test-plugins/plughost-test-timers.clap")),
-                class_id: "com.studio.plughost.test-delay.7900000d".into(),
-            }],
+            &[PluginRef::clap(
+                target.join("test-plugins/plughost-test-timers.clap"),
+                "com.studio.plughost.test-delay.7900000d",
+            )],
             Duration::from_secs(30),
         )
         .unwrap();

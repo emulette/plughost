@@ -258,7 +258,9 @@ fn class_id() -> String {
         .into_iter()
         .find(|component| component.name == "MIDI echo")
         .unwrap()
-        .class_id
+        .id
+        .class_id()
+        .to_string()
 }
 
 /// The unit's stereo output with MIDI input and the given MIDI outputs.

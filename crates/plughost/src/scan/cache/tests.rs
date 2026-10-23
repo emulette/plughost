@@ -11,8 +11,7 @@ fn entry(name: &str) -> Entry {
     Entry {
         fingerprint: Vec::new(),
         outcome: ScanOutcome::Found(vec![plughost_core::PluginInfo::new(
-            plughost_core::PluginFormat::Clap,
-            "test-cache",
+            plughost_core::PluginId::new(plughost_core::PluginFormat::Clap, "test-cache"),
             name,
             plughost_core::PluginKind::Effect,
         )]),

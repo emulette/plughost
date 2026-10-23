@@ -81,25 +81,37 @@ fn static_metadata_never_substitutes_for_native_inspection_or_native_cache() {
     let discovered = scanner.discover();
     assert_eq!(discovered.bundles[0].source, Source::ModuleInfo);
     assert_eq!(
-        classes(&discovered.bundles[0].outcome)[0].class_id,
+        classes(&discovered.bundles[0].outcome)[0]
+            .id
+            .class_id()
+            .as_str(),
         STATIC_ID
     );
     assert!(!cache.exists());
     let inspected = scanner.scan(&|_| {}).unwrap();
     assert_eq!(inspected.bundles[0].source, Source::Loaded);
     assert_eq!(
-        classes(&inspected.bundles[0].outcome)[0].class_id,
+        classes(&inspected.bundles[0].outcome)[0]
+            .id
+            .class_id()
+            .as_str(),
         ROUTING_ID
     );
     let saved = fs::read(&cache).unwrap();
     for catalog in [scanner.discover(), scanner.scan(&|_| {}).unwrap()] {
         assert_eq!(catalog.bundles[0].source, Source::Cache);
-        assert_eq!(classes(&catalog.bundles[0].outcome)[0].class_id, ROUTING_ID);
+        assert_eq!(
+            classes(&catalog.bundles[0].outcome)[0]
+                .id
+                .class_id()
+                .as_str(),
+            ROUTING_ID
+        );
     }
     assert_eq!(fs::read(&cache).unwrap(), saved);
-    // Schema 1 cannot tell static metadata from native results; even successes must be rechecked.
+    // A cache of an earlier schema is not read; even successes must be rechecked.
     let mut legacy: serde_json::Value = serde_json::from_slice(&saved).unwrap();
-    legacy["schema"] = 1.into();
+    legacy["schema"] = 2.into();
     fs::write(&cache, serde_json::to_vec(&legacy).unwrap()).unwrap();
     assert_eq!(scanner.discover().bundles[0].source, Source::ModuleInfo);
     assert_eq!(
@@ -115,14 +127,20 @@ fn static_metadata_never_substitutes_for_native_inspection_or_native_cache() {
     );
     assert_eq!(fs::read(&cache).unwrap(), before);
     assert_eq!(
-        classes(&scanner.scan(&|_| {}).unwrap().bundles[0].outcome)[0].class_id,
+        classes(&scanner.scan(&|_| {}).unwrap().bundles[0].outcome)[0]
+            .id
+            .class_id()
+            .as_str(),
         ROUTING_ID
     );
     // Explicit retry also always calls native code, even when moduleinfo is valid.
     fs::write(&metadata, METADATA).unwrap();
     let retried = scanner.retry(&bundle).unwrap();
     assert_eq!(retried.source, Source::Loaded);
-    assert_eq!(classes(&retried.outcome)[0].class_id, ROUTING_ID);
+    assert_eq!(
+        classes(&retried.outcome)[0].id.class_id().as_str(),
+        ROUTING_ID
+    );
 }
 
 #[test]

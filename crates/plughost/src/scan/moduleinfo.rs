@@ -5,7 +5,7 @@
 use std::fs;
 use std::path::Path;
 
-use plughost_core::{PluginFormat, PluginInfo, PluginKind};
+use plughost_core::{PluginFormat, PluginId, PluginInfo, PluginKind};
 mod errors;
 mod value;
 
@@ -40,14 +40,13 @@ pub(super) fn parse(text: &str) -> Option<Vec<PluginInfo>> {
                         .collect()
                 })
                 .unwrap_or_default();
-            let class_id = text("CID")?.to_ascii_uppercase();
+            let class_id = text("CID")?;
             if class_id.len() != 32 || !class_id.bytes().all(|b| b.is_ascii_hexdigit()) {
                 return None;
             }
             Some({
                 let mut plugin_info = PluginInfo::new(
-                    PluginFormat::Vst3,
-                    class_id,
+                    PluginId::new(PluginFormat::Vst3, class_id),
                     text("Name")?,
                     if categories.iter().any(|c| c == "Instrument") {
                         PluginKind::Instrument
@@ -94,7 +93,10 @@ mod tests {
         let classes = parse(SDK_STYLE).unwrap();
         assert_eq!(classes.len(), 1);
         let class = &classes[0];
-        assert_eq!(class.class_id, "ABCDEF019182FAEB4163747A44784C76");
+        assert_eq!(
+            class.id.class_id().as_str(),
+            "ABCDEF019182FAEB4163747A44784C76"
+        );
         assert_eq!(class.name, "dxLevel");
         assert_eq!(class.vendor, "accentize");
         assert_eq!(class.categories, ["Fx", "RoomFx"]);
@@ -111,7 +113,10 @@ mod tests {
             }] }"#,
         )
         .unwrap();
-        assert_eq!(classes[0].class_id, "ABCDEF019182FAEB4163747A44784C76");
+        assert_eq!(
+            classes[0].id.class_id().as_str(),
+            "ABCDEF019182FAEB4163747A44784C76"
+        );
     }
 
     #[test]

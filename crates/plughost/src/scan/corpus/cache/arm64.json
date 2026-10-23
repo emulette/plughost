@@ -1,1 +1,1 @@
-{"schema": 2, "architecture": "aarch64", "bundles": {"fixture.clap": {"fingerprint": [], "outcome": "TimedOut", "failures": 2}}}
+{"schema": 3, "architecture": "aarch64", "bundles": {"fixture.clap": {"fingerprint": [], "outcome": "TimedOut", "failures": 2}}}

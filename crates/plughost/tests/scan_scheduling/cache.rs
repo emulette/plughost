@@ -141,7 +141,7 @@ fn parallel_completions_publish_valid_snapshots() {
                     .get(scan.path.to_str().unwrap())
                     .is_some()
             );
-            assert_eq!(snapshot["schema"], 2);
+            assert_eq!(snapshot["schema"], 3);
             completed.fetch_add(1, Ordering::Relaxed);
         })
         .unwrap();
@@ -315,7 +315,7 @@ fn removed_bundles_keep_their_failures() {
     let failed = directory.path().join("failed.clap");
     let found = directory.path().join("found.clap");
     let cache = serde_json::json!({
-        "schema": 2,
+        "schema": 3,
         "architecture": std::env::consts::ARCH,
         "bundles": {
             failed.to_str().unwrap(): {"fingerprint": [], "outcome": "TimedOut", "failures": 2},

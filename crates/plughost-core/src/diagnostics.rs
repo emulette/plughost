@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use crate::FailureKind;
-use crate::plugin::PluginRef;
+use crate::plugin::PluginId;
 
 /// Maximum retained records per buffer and per helper snapshot.
 pub const DIAGNOSTIC_CAPACITY: usize = 128;
@@ -42,7 +42,7 @@ pub struct Diagnostic {
     /// Human-readable UTF-8 text; not a stable machine-readable code.
     pub message: String,
     /// Present for messages from a plugin; helper failures can identify only the slot.
-    pub plugin: Option<PluginRef>,
+    pub plugin: Option<PluginId>,
     /// Zero-based plugin slot, when known.
     pub slot: Option<usize>,
     /// Present for host operation failures, absent for plugin-authored log messages.
@@ -91,7 +91,7 @@ impl DiagnosticBuffer {
         &self,
         severity: DiagnosticSeverity,
         message: &str,
-        plugin: Option<&PluginRef>,
+        plugin: Option<&PluginId>,
         slot: Option<usize>,
         failure_kind: Option<FailureKind>,
     ) {

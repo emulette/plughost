@@ -158,11 +158,7 @@ fn plugin_ref(options: &Options) -> Result<PluginRef> {
     // Audio Units are registered classes, named by class ID instead of a bundle.
     if let Some(class_id) = options.plugin.to_str().and_then(|p| p.strip_prefix("au:")) {
         out!("plugin: {class_id} | {:?}", PluginFormat::AudioUnit);
-        return Ok(PluginRef {
-            format: PluginFormat::AudioUnit,
-            bundle: None,
-            class_id: class_id.to_owned(),
-        });
+        return Ok(PluginRef::audio_unit(class_id));
     }
     let cache = std::env::temp_dir().join(format!("plughost-compare-{}.json", std::process::id()));
     let scan = Scanner::new(&options.helper, &cache).retry(&options.plugin);
@@ -179,12 +175,12 @@ fn plugin_ref(options: &Options) -> Result<PluginRef> {
         class.name,
         class.vendor,
         class.version,
-        class.format
+        class.id.format()
     );
-    Ok(PluginRef {
-        format: class.format,
-        bundle: Some(options.plugin.clone()),
-        class_id: class.class_id,
+    let class_id = class.id.class_id().as_str();
+    Ok(match class.id.format() {
+        PluginFormat::Vst3 => PluginRef::vst3(&options.plugin, class_id),
+        _ => PluginRef::clap(&options.plugin, class_id),
     })
 }
 

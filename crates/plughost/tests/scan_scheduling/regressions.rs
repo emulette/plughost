@@ -116,15 +116,11 @@ fn audio_unit_registry_overlaps_a_blocked_bundle_within_the_job_budget() {
 }
 
 fn helpers_of_another_version_report_both_protocol_versions() {
-    use plughost::{Chain, Error, HostIdentity, PluginFormat, PluginRef, Timeouts};
+    use plughost::{Chain, Error, HostIdentity, PluginRef, Timeouts};
     let directory = Directory::new();
     let root = directory.path();
     let path = bundle(root, "a");
-    let plugin = PluginRef {
-        format: PluginFormat::Clap,
-        bundle: Some(path.clone()),
-        class_id: "fixture".into(),
-    };
+    let plugin = PluginRef::clap(path.clone(), "fixture");
     let scanner = directory.fault("protocol");
     let mismatch = Error::ProtocolVersion {
         application: PROTOCOL_VERSION,
@@ -156,7 +152,7 @@ fn helpers_of_another_version_report_both_protocol_versions() {
 }
 
 fn unsupported_bundle_paths_do_not_poison_other_scans_or_start_a_chain() {
-    use plughost::{Chain, Error, HostIdentity, InputError, PluginFormat, PluginRef, Timeouts};
+    use plughost::{Chain, Error, HostIdentity, InputError, PluginRef, Timeouts};
     let directory = Directory::new();
     let root = directory.path();
     #[cfg(unix)]
@@ -178,11 +174,7 @@ fn unsupported_bundle_paths_do_not_poison_other_scans_or_start_a_chain() {
     let valid = bundle(root, "valid");
     let plugins: Vec<_> = [&valid, &invalid]
         .into_iter()
-        .map(|path| PluginRef {
-            format: PluginFormat::Clap,
-            bundle: Some(path.clone()),
-            class_id: "fixture".into(),
-        })
+        .map(|path| PluginRef::clap(path.clone(), "fixture"))
         .collect();
     assert!(matches!(
         Chain::spawn(

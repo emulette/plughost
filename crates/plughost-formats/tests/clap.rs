@@ -116,8 +116,13 @@ fn native_logs_can_be_drained_without_an_application_callback() {
     let mut plugin = plugin();
     let initial = plugin.take_diagnostics();
     assert!(!initial.records.is_empty());
-    assert!(initial.records.iter().all(|record| record.slot.is_none()
-        && record.plugin.as_ref().is_some_and(|p| p.class_id == CLASS)));
+    assert!(initial.records.iter().all(|record| {
+        record.slot.is_none()
+            && record
+                .plugin
+                .as_ref()
+                .is_some_and(|p| p.class_id().as_str() == CLASS)
+    }));
     plugin.prepare(&config(48_000.0)).unwrap();
     let input = [0.0f32; BLOCK];
     let (mut left, mut right) = ([0.0; BLOCK], [0.0; BLOCK]);
@@ -327,7 +332,7 @@ fn classes_are_listed_with_their_plugin_ids() {
     let _serial = serial();
     let classes = clap::classes(&bundle()).unwrap();
     assert_eq!(classes.len(), 1);
-    assert_eq!(classes[0].class_id, CLASS);
+    assert_eq!(classes[0].id.class_id().as_str(), CLASS);
     assert_eq!(classes[0].name, "plughost test delay");
     assert_eq!(classes[0].kind, PluginKind::Effect);
 }

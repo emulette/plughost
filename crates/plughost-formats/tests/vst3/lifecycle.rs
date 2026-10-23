@@ -9,7 +9,7 @@ fn inactive_flush_provides_a_complete_zero_frame_context() {
     let module = module("plughost-test-context-required");
     let mut plugin = Plugin::new(
         &module,
-        &module.classes()[0].class_id,
+        module.classes()[0].id.class_id().as_str(),
         &plughost_core::HostIdentity::default(),
     )
     .unwrap();
@@ -29,7 +29,7 @@ fn inactive_flush_delivers_processor_output_to_the_controller() {
     let module = module("plughost-test-delay");
     let mut plugin = Plugin::new(
         &module,
-        &module.classes()[0].class_id,
+        module.classes()[0].id.class_id().as_str(),
         &plughost_core::HostIdentity::default(),
     )
     .unwrap();

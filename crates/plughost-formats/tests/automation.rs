@@ -17,12 +17,12 @@ fn routing(format: PluginFormat) -> PluginRef {
         PluginFormat::Clap => ("clap", "com.studio.plughost.test-routing"),
         _ => unreachable!(),
     };
-    PluginRef {
-        format,
-        bundle: Some(Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-            "../../target/test-plugins/plughost-test-routing.{extension}"
-        ))),
-        class_id: class.into(),
+    let bundle = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/test-plugins/plughost-test-routing.{extension}"
+    ));
+    match format {
+        PluginFormat::Vst3 => PluginRef::vst3(bundle, class),
+        _ => PluginRef::clap(bundle, class),
     }
 }
 
@@ -114,14 +114,10 @@ fn native_automation_benchmark() {
         routing(PluginFormat::Vst3),
         routing(PluginFormat::Clap),
         #[cfg(all(feature = "au", target_os = "macos"))]
-        PluginRef {
-            format: PluginFormat::AudioUnit,
-            bundle: None,
-            class_id: "6175667864656C796170706C".into(),
-        },
+        PluginRef::audio_unit("6175667864656C796170706C"),
     ];
     for reference in references {
-        let au = reference.format == PluginFormat::AudioUnit;
+        let au = reference.id().format() == PluginFormat::AudioUnit;
         let plugin = prepared(&reference);
         let processor = plugin.processor();
         let mut edits = Vec::new();
@@ -165,7 +161,7 @@ fn native_automation_benchmark() {
         }
         println!(
             "{:?}, 1,000 blocks, {} points/block: {:?}",
-            reference.format,
+            reference.id().format(),
             edits.len(),
             start.elapsed()
         );

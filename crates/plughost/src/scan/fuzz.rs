@@ -26,7 +26,10 @@ mod tests {
         let classes = moduleinfo(include_bytes!("corpus/moduleinfo/audio.json5")).unwrap();
         assert_eq!(classes.len(), 1);
         let class = &classes[0];
-        assert_eq!(class.class_id, "0123456789ABCDEF0123456789ABCDEF");
+        assert_eq!(
+            class.id.class_id().as_str(),
+            "0123456789ABCDEF0123456789ABCDEF"
+        );
         assert_eq!(class.name, "Corpus synth");
         assert_eq!(class.vendor, "Corpus vendor");
         assert_eq!(class.categories, ["Instrument", "Synth"]);

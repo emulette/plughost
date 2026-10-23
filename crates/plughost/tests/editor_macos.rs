@@ -21,11 +21,7 @@ const AU_DELAY: &str = "6175667864656C796170706C";
 const SYNTH_EDITOR_WIDTH: f64 = 200.0;
 
 fn audio_unit(class_id: &str) -> PluginRef {
-    PluginRef {
-        format: PluginFormat::AudioUnit,
-        bundle: None,
-        class_id: class_id.to_owned(),
-    }
+    PluginRef::audio_unit(class_id)
 }
 
 #[link(name = "CoreGraphics", kind = "framework")]

@@ -96,7 +96,8 @@ impl Plugin {
     }
 
     pub(super) fn midi_input(&self) -> Result<bool, AuError> {
-        let kind = super::super::components::parse_class_id(&self.info.class_id)?.componentType;
+        let kind = super::super::components::parse_class_id(self.info.id.class_id().as_str())?
+            .componentType;
         Ok([
             kAudioUnitType_MusicDevice,
             kAudioUnitType_MusicEffect,

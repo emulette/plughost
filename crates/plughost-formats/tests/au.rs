@@ -73,7 +73,10 @@ fn value(plugin: &mut Plugin, id: u64) -> f64 {
 #[test]
 fn apple_units_are_listed_from_the_registry() {
     let components = au::components();
-    let delay = components.iter().find(|c| c.class_id == AU_DELAY).unwrap();
+    let delay = components
+        .iter()
+        .find(|c| c.id.class_id().as_str() == AU_DELAY)
+        .unwrap();
     assert_eq!(
         (delay.vendor.as_str(), delay.name.as_str()),
         ("Apple", "AUDelay")
@@ -81,7 +84,7 @@ fn apple_units_are_listed_from_the_registry() {
     assert_eq!(delay.kind, PluginKind::Effect);
     let dls = components
         .iter()
-        .find(|c| c.class_id.starts_with(DLS_MUSIC_DEVICE))
+        .find(|c| c.id.class_id().as_str().starts_with(DLS_MUSIC_DEVICE))
         .unwrap();
     assert_eq!(dls.kind, PluginKind::Instrument);
 }
@@ -170,9 +173,11 @@ fn reset_clears_the_delay_line() {
 fn an_instrument_plays_notes_from_their_offset() {
     let class = au::components()
         .into_iter()
-        .find(|c| c.class_id.starts_with(DLS_MUSIC_DEVICE))
+        .find(|c| c.id.class_id().as_str().starts_with(DLS_MUSIC_DEVICE))
         .unwrap()
-        .class_id;
+        .id
+        .class_id()
+        .to_string();
     let mut plugin = Plugin::new(&class).unwrap();
     plugin.prepare(&config(Layout::None)).unwrap();
     let mut block = |events: &[Event]| {
@@ -361,7 +366,7 @@ fn native_bypass_keeps_parameter_state_and_survives_reset() {
 #[test]
 fn class_ids_are_matched_without_regard_to_case() {
     let plugin = Plugin::new(&AU_DELAY.to_ascii_lowercase()).unwrap();
-    assert_eq!(plugin.info().class_id, AU_DELAY);
+    assert_eq!(plugin.info().id.class_id().as_str(), AU_DELAY);
     // A well-formed ID that no registered unit has.
     let error = Plugin::new("6175667800000000000000AA").unwrap_err();
     assert_eq!(error.kind(), plughost_core::FailureKind::NotFound);

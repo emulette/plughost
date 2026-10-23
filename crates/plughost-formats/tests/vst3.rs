@@ -86,7 +86,7 @@ fn factory_receives_a_live_host_before_class_enumeration() {
     assert_eq!(module.classes()[0].vendor, "plughost");
     let instance = Plugin::new(
         &module,
-        &module.classes()[0].class_id,
+        module.classes()[0].id.class_id().as_str(),
         &plughost_core::HostIdentity::default(),
     )
     .unwrap();
@@ -105,11 +105,7 @@ fn hosted_factory_uses_the_callers_identity() {
         ..plughost_core::HostIdentity::default()
     };
     let plugin = plughost_formats::load(
-        &plughost_core::PluginRef {
-            format: plughost_core::PluginFormat::Vst3,
-            bundle: Some(path),
-            class_id: "706C7567686F7374526F7574696E6701".into(),
-        },
+        &plughost_core::PluginRef::vst3(path, "706C7567686F7374526F7574696E6701"),
         &identity,
     )
     .unwrap();
@@ -118,7 +114,7 @@ fn hosted_factory_uses_the_callers_identity() {
 
 fn plugin(name: &str) -> Plugin {
     let module = module(name);
-    let class = module.classes()[0].class_id.clone();
+    let class = module.classes()[0].id.class_id().to_string();
     Plugin::new(&module, &class, &plughost_core::HostIdentity::default()).unwrap()
 }
 
@@ -374,7 +370,7 @@ fn classes_are_listed_with_their_sdk_class_ids() {
         ["AGain VST3", "AGain SideChain VST3"],
         "{NEEDS_PLUGINS}"
     );
-    assert_eq!(classes[0].class_id, AGAIN_CLASS);
+    assert_eq!(classes[0].id.class_id().as_str(), AGAIN_CLASS);
     assert_eq!(classes[0].kind, PluginKind::Effect);
     assert!(classes[0].categories.iter().any(|c| c == "Fx"));
 }
@@ -822,7 +818,7 @@ fn instruments_start_notes_at_their_sample_offsets() {
         .unwrap();
     let mut plugin = Plugin::new(
         &module,
-        &class.class_id,
+        class.id.class_id().as_str(),
         &plughost_core::HostIdentity::default(),
     )
     .unwrap();
@@ -861,7 +857,7 @@ fn event_buses_report_the_note_expressions_their_controller_lists() {
         .unwrap();
     let mut plugin = Plugin::new(
         &module,
-        &class.class_id,
+        class.id.class_id().as_str(),
         &plughost_core::HostIdentity::default(),
     )
     .unwrap();

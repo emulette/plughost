@@ -90,7 +90,7 @@ fn main() -> ExitCode {
         for unit in units {
             out!(
                 "{} | {} | {} | {} | {:?}",
-                unit.class_id,
+                unit.id.class_id().as_str(),
                 unit.vendor,
                 unit.name,
                 unit.sdk_version,

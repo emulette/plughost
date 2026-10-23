@@ -63,7 +63,7 @@ pub use plughost_core::render::{
 pub use plughost_core::{
     AudioBusConfig, AudioBusInfo, AudioBusRole, AudioConfiguration, AudioDirection,
     AudioInputRoute, AudioSource, AutomationEvent, BarPosition, BlockContext, BypassState,
-    CHANGE_CAPACITY, Capabilities, CapabilityReport, ChangeBatch, ChannelAdaptation,
+    CHANGE_CAPACITY, Capabilities, CapabilityReport, ChangeBatch, ChannelAdaptation, ClassId,
     DIAGNOSTIC_CAPACITY, DIAGNOSTIC_MESSAGE_BYTES, Diagnostic, DiagnosticBatch, DiagnosticSeverity,
     DiscoveredPreset, Event, EventConfig, EventData, EventInputRoute, EventPortInfo, EventSource,
     ExpressionKind, FactoryPreset, FactoryPresetId, Failure, FailureKind, HostIdentity, InputError,
@@ -72,12 +72,12 @@ pub use plughost_core::{
     MAX_STATE_BYTES, Message, Note, NoteExpression, PARAMETER_CHOICE_PAGE_SIZE,
     PARAMETER_EVENT_CAPACITY, PARAMETER_TEXT_BYTES, PRESET_DISCOVERY_TEXT_BYTES, ParameterChange,
     ParameterChoice, ParameterChoicePage, ParameterDetails, ParameterEvent, ParameterEventBatch,
-    ParameterFlags, ParameterGroup, ParameterInfo, PluginFormat, PluginInfo, PluginKind, PluginRef,
-    PluginState, PluginTiming, PresetDiscovery, PresetDiscoveryTarget, PresetFileFailure,
-    PresetFileType, PresetInfo, PresetLocation, PresetLocationInfo, PresetMetadata, PresetPluginId,
-    PresetProviderInfo, PresetSoundpack, ProcessMode, RenderError, RoutedChainConfig, Sample,
-    SampleFormat, SlotAudioConfig, SlotChange, SlotEventConfig, StatePurpose, Support,
-    TimeSignature, Transport,
+    ParameterFlags, ParameterGroup, ParameterInfo, PluginFormat, PluginId, PluginInfo, PluginKind,
+    PluginRef, PluginState, PluginTiming, PresetDiscovery, PresetDiscoveryTarget,
+    PresetFileFailure, PresetFileType, PresetInfo, PresetLocation, PresetLocationInfo,
+    PresetMetadata, PresetPluginId, PresetProviderInfo, PresetSoundpack, ProcessMode, RenderError,
+    RoutedChainConfig, Sample, SampleFormat, SlotAudioConfig, SlotChange, SlotEventConfig,
+    StatePurpose, Support, TimeSignature, Transport,
 };
 pub use preset_paths::{
     PresetDirectory, PresetFile, PresetSearchError, discover_preset_files,

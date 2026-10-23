@@ -36,7 +36,7 @@ use clack_host::events::event_types::{
 use clack_host::events::{Match, Pckn};
 use clack_host::plugin::PluginDescriptor;
 use clack_host::prelude::*;
-use plughost_core::PluginRef;
+use plughost_core::PluginId;
 use plughost_core::render::Tail;
 use plughost_core::{DiagnosticBatch, DiagnosticBuffer};
 use plughost_core::{
@@ -88,8 +88,7 @@ fn info(descriptor: &PluginDescriptor) -> Option<PluginInfo> {
         .collect();
     Some({
         let mut plugin_info = PluginInfo::new(
-            PluginFormat::Clap,
-            descriptor.id()?.to_str().ok()?.to_owned(),
+            PluginId::new(PluginFormat::Clap, descriptor.id()?.to_str().ok()?),
             text(descriptor.name()),
             if categories.iter().any(|c| c == INSTRUMENT) {
                 PluginKind::Instrument
@@ -184,7 +183,7 @@ impl Plugin {
         let info = factory
             .plugin_descriptors()
             .filter_map(info)
-            .find(|info| info.class_id == class_id)
+            .find(|info| info.id == PluginId::new(PluginFormat::Clap, class_id))
             .ok_or_else(|| ClapError::ClassNotFound(class_id.to_owned()))?;
         let id =
             CString::new(class_id).map_err(|_| ClapError::ClassNotFound(class_id.to_owned()))?;
@@ -199,11 +198,7 @@ impl Plugin {
             |_| {
                 Shared::new(
                     diagnostics.clone(),
-                    PluginRef {
-                        format: PluginFormat::Clap,
-                        bundle: Some(bundle.to_owned()),
-                        class_id: class_id.to_owned(),
-                    },
+                    PluginId::new(PluginFormat::Clap, class_id),
                 )
             },
             |shared| MainThread::new(shared),
@@ -452,7 +447,7 @@ impl Plugin {
         result.map_err(|_| ClapError::State)?;
         Ok(PluginState {
             format: PluginFormat::Clap,
-            class_id: self.info.class_id.clone(),
+            class_id: self.info.id.class_id().to_string(),
             name: self.info.name.clone(),
             vendor: self.info.vendor.clone(),
             version: self.info.version.clone(),
@@ -472,7 +467,7 @@ impl Plugin {
             return Err(ClapError::StatePurposeUnsupported);
         }
         let context_type = state_context(purpose)?;
-        if state.format != PluginFormat::Clap || state.class_id != self.info.class_id {
+        if PluginId::new(state.format, state.class_id.as_str()) != self.info.id {
             return Err(ClapError::StateMismatch);
         }
         self.shared().take_pending();

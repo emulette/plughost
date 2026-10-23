@@ -8,7 +8,6 @@ use plughost_core::{Failure, FailureKind, InputError, PluginFormat, RenderError}
 use std::fmt;
 
 const UNSUPPORTED_FORMAT: &str = "this build does not support the plugin's format";
-const NO_BUNDLE: &str = "VST3 and CLAP plugins need a bundle path";
 const CONTINUOUS_PARAMETER: &str = "continuous parameters do not expose a discrete choice list";
 const PRESET_UNSUPPORTED: &str = "this format has no supported preset file codec";
 const FACTORY_PRESETS_UNSUPPORTED: &str = "this format has no supported factory program interface";
@@ -96,7 +95,6 @@ pub(crate) enum Repr {
     #[cfg(feature = "clap")]
     Clap(ClapError),
     UnsupportedFormat(PluginFormat),
-    NoBundle,
     Render(RenderError),
 }
 
@@ -108,7 +106,7 @@ impl Error {
     /// Classifies this failure for scan policy and helper diagnostics.
     pub fn kind(&self) -> FailureKind {
         match &self.0 {
-            Repr::Input(_) | Repr::NoBundle => FailureKind::InvalidInput,
+            Repr::Input(_) => FailureKind::InvalidInput,
             Repr::UnsupportedFormat(_)
             | Repr::PresetUnsupported
             | Repr::ContinuousParameter
@@ -220,7 +218,6 @@ impl fmt::Display for Error {
             #[cfg(feature = "clap")]
             Repr::Clap(error) => error.fmt(f),
             Repr::UnsupportedFormat(format) => write!(f, "{UNSUPPORTED_FORMAT} ({format:?})"),
-            Repr::NoBundle => f.write_str(NO_BUNDLE),
             Repr::Render(_) => f.write_str(RENDER),
         }
     }

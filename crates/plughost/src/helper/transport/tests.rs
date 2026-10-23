@@ -172,11 +172,10 @@ fn an_unread_request_does_not_block_the_supervisor_or_cleanup() {
     identify(&mut transport, &mut peer);
     let request = Request::Load {
         host: plughost_core::HostIdentity::default(),
-        plugins: vec![plughost_core::PluginRef {
-            format: plughost_core::PluginFormat::Clap,
-            bundle: None,
-            class_id: "x".repeat(8 * 1024 * 1024),
-        }],
+        plugins: vec![plughost_core::PluginRef::clap(
+            "x.clap",
+            "x".repeat(8 * 1024 * 1024),
+        )],
         activity: 0,
     };
     let started = Instant::now();
@@ -211,13 +210,12 @@ fn a_large_request_flushed_in_short_slices_arrives_intact() {
     identify(&mut transport, &mut peer);
     let request = Request::Load {
         host: plughost_core::HostIdentity::default(),
-        plugins: vec![plughost_core::PluginRef {
-            format: plughost_core::PluginFormat::Clap,
-            bundle: None,
-            class_id: (0..8 * 1024 * 1024)
+        plugins: vec![plughost_core::PluginRef::clap(
+            "x.clap",
+            (0..8 * 1024 * 1024)
                 .map(|index| char::from(b'a' + (index % 26) as u8))
-                .collect(),
-        }],
+                .collect::<String>(),
+        )],
         activity: 0,
     };
     let reader = std::thread::spawn(move || MessageReader::new(Slow(peer)).read::<Request>());

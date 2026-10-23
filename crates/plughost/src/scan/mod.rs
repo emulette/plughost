@@ -4,6 +4,8 @@
 mod benchmark;
 mod bundle;
 mod cache;
+#[cfg(test)]
+mod catalog_tests;
 mod control;
 mod execute;
 use control::Work;
@@ -20,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use plughost_core::ipc::Request;
-use plughost_core::{Failure, PluginInfo};
+use plughost_core::{Failure, PluginFormat, PluginId, PluginInfo};
 use plughost_core::{HostIdentity, PluginRef};
 use serde::{Deserialize, Serialize};
 
@@ -101,35 +103,59 @@ pub struct Catalog {
     pub audio_units: ScanOutcome,
 }
 
+impl BundleScan {
+    /// The classes this bundle supplied, each with the reference that loads it from this bundle,
+    /// without a guarantee of successful loading. Empty unless the outcome is
+    /// [`ScanOutcome::Found`].
+    pub fn plugins(&self) -> Vec<(PluginRef, &PluginInfo)> {
+        let ScanOutcome::Found(classes) = &self.outcome else {
+            return Vec::new();
+        };
+        classes
+            .iter()
+            .filter_map(|class| {
+                let class_id = class.id.class_id().as_str();
+                let plugin = match class.id.format() {
+                    PluginFormat::Vst3 => PluginRef::vst3(&self.path, class_id),
+                    PluginFormat::Clap => PluginRef::clap(&self.path, class_id),
+                    // A helper reported a class no bundle can hold.
+                    _ => return None,
+                };
+                Some((plugin, class))
+            })
+            .collect()
+    }
+}
+
 impl Catalog {
     /// Every discovered plugin class identity, without a guarantee of successful loading.
-    /// When bundles of the same format share a class ID,
-    /// the one found first (in the higher priority directory) wins.
+    /// When bundles share a [`PluginId`], the one found first (in the higher priority directory)
+    /// wins.
     pub fn plugins(&self) -> Vec<(PluginRef, &PluginInfo)> {
         let mut seen = HashSet::new();
-        let vst3 = self
-            .bundles
-            .iter()
-            .filter_map(|scan| match &scan.outcome {
-                ScanOutcome::Found(classes) => Some((scan.path.as_path(), classes)),
-                _ => None,
-            })
-            .flat_map(|(path, classes)| classes.iter().map(move |class| (Some(path), class)));
         let audio_units = match &self.audio_units {
             ScanOutcome::Found(classes) => classes.as_slice(),
             _ => &[],
         };
-        vst3.chain(audio_units.iter().map(|class| (None, class)))
-            .filter(|(_, class)| seen.insert((class.format, class.class_id.clone())))
-            .map(|(bundle, class)| {
-                let plugin = PluginRef {
-                    format: class.format,
-                    bundle: bundle.map(Path::to_path_buf),
-                    class_id: class.class_id.clone(),
-                };
-                (plugin, class)
-            })
+        self.bundles
+            .iter()
+            .flat_map(BundleScan::plugins)
+            .chain(
+                audio_units
+                    .iter()
+                    .map(|class| (PluginRef::audio_unit(class.id.class_id().as_str()), class)),
+            )
+            .filter(|(plugin, _)| seen.insert(plugin.id().clone()))
             .collect()
+    }
+
+    /// Where the class `id` is installed: the reference [`Catalog::plugins`] gives it, from the
+    /// highest priority directory that has it. `None` when the catalog has no such class.
+    pub fn resolve(&self, id: &PluginId) -> Option<PluginRef> {
+        self.plugins()
+            .into_iter()
+            .map(|(plugin, _)| plugin)
+            .find(|plugin| plugin.id() == id)
     }
 }
 

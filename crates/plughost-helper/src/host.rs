@@ -197,7 +197,7 @@ impl Host {
                         capabilities.sample_accurate_automation = Support::Supported;
                         capabilities.state = Support::Supported;
                         capabilities.factory_presets =
-                            (plugin.info().format != plughost_core::PluginFormat::Clap).into();
+                            (plugin.info().id.format() != plughost_core::PluginFormat::Clap).into();
                         capabilities.f32 = Support::Supported;
                         capabilities.f64 = Support::Supported;
                         capabilities
@@ -271,11 +271,11 @@ impl Host {
                 purpose,
             } => self.restore_state(slot, &state, purpose),
             Request::InspectPreset { slot, bytes } => self.with_slot(slot, |plugin| {
-                plughost_formats::preset::decode(plugin.info().format, &bytes)
+                plughost_formats::preset::decode(plugin.info().id.format(), &bytes)
                     .map(|preset| Response::PresetInfo(preset.info))
             }),
             Request::ExportPreset { slot } => self.with_slot(slot, |plugin| {
-                plughost_formats::preset::supported(plugin.info().format)?;
+                plughost_formats::preset::supported(plugin.info().id.format())?;
                 let state = plugin.save_state(plughost_core::StatePurpose::Preset)?;
                 plughost_formats::preset::encode(&state).map(Response::Preset)
             }),

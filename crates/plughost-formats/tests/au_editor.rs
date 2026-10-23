@@ -167,7 +167,9 @@ mod unit {
             .into_iter()
             .find(|component| component.name == "view")
             .unwrap()
-            .class_id
+            .id
+            .class_id()
+            .to_string()
     }
 
     fn controller() -> Retained<NSViewController> {

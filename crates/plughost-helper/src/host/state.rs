@@ -6,17 +6,17 @@ use super::audio::Routes;
 use super::*;
 use crate::process::audio_timing::DelayReplacement;
 use crate::process::{Replace, Retime};
-use plughost_core::{PluginFormat, PluginInfo, PluginState, SampleFormat};
+use plughost_core::{PluginId, PluginInfo, PluginState, SampleFormat};
 
 impl Host {
     pub(super) fn import_preset(&mut self, slot: usize, bytes: &[u8]) -> Response {
         let info = self.slots[slot].info();
-        let preset = match plughost_formats::preset::decode(info.format, bytes) {
+        let preset = match plughost_formats::preset::decode(info.id.format(), bytes) {
             Ok(preset) => preset,
             Err(error) => return rejected_or_failed(slot, &error),
         };
         let state = PluginState {
-            format: info.format,
+            format: info.id.format(),
             class_id: preset.info.class_id,
             name: info.name.clone(),
             vendor: info.vendor.clone(),
@@ -257,12 +257,7 @@ impl Host {
 
 /// Whether `state` was saved by the plugin class `info` describes.
 pub(super) fn same_class(info: &PluginInfo, state: &PluginState) -> bool {
-    let class = if info.format == PluginFormat::Vst3 {
-        info.class_id.eq_ignore_ascii_case(&state.class_id)
-    } else {
-        info.class_id == state.class_id
-    };
-    info.format == state.format && class
+    info.id == PluginId::new(state.format, state.class_id.as_str())
 }
 
 pub(super) fn mismatch(slot: usize) -> Response {

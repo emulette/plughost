@@ -6,7 +6,7 @@ use std::mem::ManuallyDrop;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use plughost_core::{HostIdentity, PluginFormat, PluginInfo, PluginKind};
+use plughost_core::{HostIdentity, PluginFormat, PluginId, PluginInfo, PluginKind};
 use vst3::Steinberg::{
     FUnknown, IPluginFactory, IPluginFactory2, IPluginFactory2Trait, IPluginFactory3,
     IPluginFactory3Trait, IPluginFactoryTrait, PClassInfo, PClassInfo2, PClassInfoW, PFactoryInfo,
@@ -91,9 +91,10 @@ impl Module {
     }
 
     pub(crate) fn find_class(&self, class_id: &str) -> Result<(TUID, PluginInfo), Vst3Error> {
+        let id = PluginId::new(PluginFormat::Vst3, class_id);
         self.audio_classes()
             .into_iter()
-            .find(|(_, info)| info.class_id.eq_ignore_ascii_case(class_id))
+            .find(|(_, info)| info.id == id)
             .ok_or_else(|| Vst3Error::ClassNotFound(class_id.to_owned()))
     }
 
@@ -125,8 +126,7 @@ impl Module {
             };
             classes.push((class.cid, {
                 let mut plugin_info = PluginInfo::new(
-                    PluginFormat::Vst3,
-                    uid::to_string(&class.cid),
+                    PluginId::new(PluginFormat::Vst3, uid::to_string(&class.cid)),
                     class.name,
                     kind,
                 );

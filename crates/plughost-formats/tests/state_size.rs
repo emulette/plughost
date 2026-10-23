@@ -25,10 +25,10 @@ fn oversized_direct_restore_is_rejected_before_discarding_pending_edits() {
             "com.studio.plughost.test-delay.79000008",
         ),
     ] {
-        let reference = PluginRef {
-            format,
-            bundle: Some(target().join(format!("plughost-test-large-state.{extension}"))),
-            class_id: class_id.to_owned(),
+        let bundle = target().join(format!("plughost-test-large-state.{extension}"));
+        let reference = match format {
+            PluginFormat::Vst3 => PluginRef::vst3(bundle, class_id),
+            _ => PluginRef::clap(bundle, class_id),
         };
         let mut plugin = plughost_formats::load(&reference, &HostIdentity::default()).unwrap();
         plugin

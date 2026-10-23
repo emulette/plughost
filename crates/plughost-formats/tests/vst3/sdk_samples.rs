@@ -8,7 +8,10 @@ fn classes_described_only_in_unicode_are_listed() {
     let _serial = serial();
     let classes = module("utf16-name").classes();
     assert_eq!(classes.len(), 1);
-    assert_eq!(classes[0].class_id, "04F0CA5C1A1650F69F2EE4F3C216D8B5");
+    assert_eq!(
+        classes[0].id.class_id().as_str(),
+        "04F0CA5C1A1650F69F2EE4F3C216D8B5"
+    );
     assert!(
         classes[0].name.starts_with("UTF16Name öüäéèê-やあ-"),
         "{}",

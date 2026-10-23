@@ -45,7 +45,7 @@ fn warm_scan_benchmark() {
     if requested_bundle.is_none() {
         assert_eq!(expected.len(), 1);
         assert_eq!(
-            expected[0].class_id,
+            expected[0].id.class_id().as_str(),
             "com.studio.plughost.test-delay.79000001"
         );
     }

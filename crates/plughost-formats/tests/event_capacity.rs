@@ -26,7 +26,7 @@ fn check(reference: PluginRef) {
             mode: ProcessMode::Offline,
         })
         .unwrap();
-    let dry = if reference.format == PluginFormat::AudioUnit {
+    let dry = if reference.id().format() == PluginFormat::AudioUnit {
         0.0
     } else {
         1.0
@@ -85,12 +85,12 @@ fn check(reference: PluginRef) {
 #[ignore = "needs routing VST3 and CLAP fixtures"]
 fn native_effects_reject_combined_event_overflow_without_touching_output() {
     let check_native = |format: PluginFormat, extension: &str, class: &str| {
-        check(PluginRef {
-            format,
-            bundle: Some(Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-                "../../target/test-plugins/plughost-test-routing.{extension}"
-            ))),
-            class_id: class.into(),
+        let bundle = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/test-plugins/plughost-test-routing.{extension}"
+        ));
+        check(match format {
+            PluginFormat::Vst3 => PluginRef::vst3(bundle, class),
+            _ => PluginRef::clap(bundle, class),
         });
     };
     #[cfg(feature = "vst3")]
@@ -110,11 +110,7 @@ fn native_effects_reject_combined_event_overflow_without_touching_output() {
 #[cfg(all(target_os = "macos", feature = "au"))]
 #[test]
 fn apple_effect_rejects_combined_event_overflow_without_touching_output() {
-    check(PluginRef {
-        format: PluginFormat::AudioUnit,
-        bundle: None,
-        class_id: "6175667864656C796170706C".into(),
-    });
+    check(PluginRef::audio_unit("6175667864656C796170706C"));
 }
 
 #[cfg(feature = "clap")]

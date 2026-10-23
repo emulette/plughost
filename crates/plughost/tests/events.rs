@@ -107,11 +107,13 @@ fn instrument_chain() -> (Chain, RoutedChainConfig) {
 fn routing_chain(format: PluginFormat, faults: bool) -> (Chain, RoutedChainConfig) {
     let mut reference = routing(format);
     if faults && format == PluginFormat::Clap {
-        reference
-            .bundle
-            .as_mut()
-            .unwrap()
-            .set_file_name("plughost-test-routing-faults.clap");
+        reference = PluginRef::clap(
+            reference
+                .bundle()
+                .unwrap()
+                .with_file_name("plughost-test-routing-faults.clap"),
+            reference.id().class_id().as_str(),
+        );
     }
     let mut chain = spawn(&[reference]);
     let mut config = chain

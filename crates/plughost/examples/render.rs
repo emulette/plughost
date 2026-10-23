@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use plughost::{
-    Chain, Error, Event, FailureKind, HostIdentity, Layout, PluginFormat, PluginInfo, PluginKind,
-    PluginRef, RenderOptions, Rendered, ScanOutcome, Scanner, StatePurpose, Timeouts, render,
+    Chain, Error, Event, FailureKind, HostIdentity, Layout, PluginFormat, PluginId, PluginInfo,
+    PluginKind, PluginRef, RenderOptions, Rendered, Scanner, StatePurpose, Timeouts, render,
 };
 
 const USAGE: &str = "usage: render <helper executable> <bundle.vst3 | bundle.clap | Audio Unit class ID> [class index]";
@@ -40,30 +40,24 @@ fn find(
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("vst3") || e.eq_ignore_ascii_case("clap"))
     {
-        match scanner.retry(target)?.outcome {
-            ScanOutcome::Found(classes) => classes.into_iter().nth(index).map(|class| {
-                let plugin = PluginRef {
-                    format: class.format,
-                    bundle: Some(target.to_path_buf()),
-                    class_id: class.class_id.clone(),
-                };
-                (plugin, class)
-            }),
-            outcome => {
-                out!("scan: {outcome:?}");
-                None
-            }
+        let scanned = scanner.retry(target)?;
+        let found = scanned
+            .plugins()
+            .into_iter()
+            .nth(index)
+            .map(|(plugin, class)| (plugin, class.clone()));
+        if found.is_none() {
+            out!("scan: {:?}", scanned.outcome);
         }
+        found
     } else {
-        let class_id = target.to_string_lossy();
+        let id = PluginId::new(PluginFormat::AudioUnit, target.to_string_lossy());
         scanner
             .directories(Vec::new())
             .scan(&|_| {})?
             .plugins()
             .into_iter()
-            .find(|(plugin, _)| {
-                plugin.format == PluginFormat::AudioUnit && plugin.class_id == class_id
-            })
+            .find(|(plugin, _)| plugin.id() == &id)
             .map(|(plugin, info)| (plugin, info.clone()))
     };
     let _ = std::fs::remove_file(&cache);

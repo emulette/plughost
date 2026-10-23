@@ -52,10 +52,10 @@ pub fn bundle(format: PluginFormat, name: &str) -> PathBuf {
 }
 
 pub fn fixture(format: PluginFormat, name: &str, class_id: &str) -> PluginRef {
-    PluginRef {
-        format,
-        bundle: Some(bundle(format, name)),
-        class_id: class_id.to_owned(),
+    match format {
+        PluginFormat::Vst3 => PluginRef::vst3(bundle(format, name), class_id),
+        PluginFormat::Clap => PluginRef::clap(bundle(format, name), class_id),
+        other => panic!("no {other:?} fixture bundle"),
     }
 }
 

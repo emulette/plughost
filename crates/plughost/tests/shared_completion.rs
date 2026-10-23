@@ -80,7 +80,7 @@ fn peer(name: &str, token: u64) {
             } => {
                 // SAFETY: Chain transferred its activity mapping once, before this request.
                 activity_map = Some(unsafe { receiver.receive_activity(activity) }.unwrap());
-                fault = plugins[0].class_id.clone();
+                fault = plugins[0].id().class_id().to_string();
                 if fault == "loaded-count" {
                     write.write(&Response::Loaded(vec![])).unwrap();
                     continue;
@@ -88,8 +88,7 @@ fn peer(name: &str, token: u64) {
                 write
                     .write(&Response::Loaded(vec![{
                         let mut plugin_info = PluginInfo::new(
-                            PluginFormat::Clap,
-                            fault.clone(),
+                            plughost::PluginId::new(PluginFormat::Clap, fault.clone()),
                             "Protocol boundary fixture",
                             PluginKind::Effect,
                         );
@@ -263,11 +262,7 @@ fn caller(fault: &str) {
     };
     let result = Chain::spawn(
         &std::env::current_exe().unwrap(),
-        &[PluginRef {
-            format: PluginFormat::Clap,
-            bundle: None,
-            class_id: fault.into(),
-        }],
+        &[PluginRef::clap("fault.clap", fault)],
         &HostIdentity::default(),
         timeout,
     );

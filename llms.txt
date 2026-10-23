@@ -25,7 +25,7 @@ The application depends on `plughost = "=0.1.6"`. A separate executable depends 
 `std::process::ExitCode`. Ship that executable with the application and pass its path to
 `Scanner::new` and `Chain::spawn`. The library supplies the helper's command-line arguments
 and IPC handshake. Keep application and helper versions matched; the internal helper protocol
-is 31, and an application and a helper with different protocol versions fail the handshake with
+is 32, and an application and a helper with different protocol versions fail the handshake with
 `Error::ProtocolVersion`, which carries both versions.
 
 Supported targets are `aarch64-apple-darwin`, on macOS 15 or newer, and
@@ -88,9 +88,20 @@ or incompatible caches are treated as empty by `discover` and `discover_controll
 `&BundleScan`. With multiple jobs it can be called concurrently. Static metadata never
 substitutes for native inspection, but unchanged native results can be reused from cache.
 Each result includes its source, outcome, failure count,
-and exclusion state. `Catalog::plugins()` returns `(PluginRef, &PluginInfo)` entries.
-`PluginRef` contains `format`, optional `bundle`, and `class_id`; use discovered values.
-VST3/CLAP references require a bundle path, while Audio Unit references use their class ID.
+and exclusion state. `Catalog::plugins()` returns `(PluginRef, &PluginInfo)` entries, and
+`BundleScan::plugins()` those of one bundle, such as a `retry` result.
+
+A plugin class's identity is a `PluginId`: its `PluginFormat` and `ClassId`, independent of
+where it is installed. `ClassId` is canonical, so IDs written in another case are the same class:
+VST3 class IDs (32 hexadecimal digits, as `.vstpreset` files use) and Audio Unit IDs (type,
+subtype and manufacturer as 24 hexadecimal digits) are kept in upper case, CLAP IDs as given.
+`PluginInfo::id` and `PluginRef::id()` give it, and the catalog lists one entry per `PluginId`,
+from the highest priority directory that has it. Persist the `PluginId` (it supports serde, as a
+`format` of `"vst3"`, `"audio-unit"` or `"clap"` and a `class_id`), not a path, and find the
+installed class with `Catalog::resolve(&id)`, which returns the `PluginRef` to load or `None`.
+A `PluginRef` is the identity and the location: build it with `PluginRef::vst3(bundle, class_id)`,
+`PluginRef::clap(bundle, class_id)` or `PluginRef::audio_unit(class_id)`, or take discovered
+values; Audio Units are found in the system registry, without a bundle.
 Bundle and preset paths must be valid Unicode. `Chain::spawn`, `load_discovered_preset`,
 `preset_providers` and `discover_presets` reject unrepresentable paths with
 `InputError::PathEncoding` before sending them to a helper. Scans report only that bundle as
@@ -98,8 +109,8 @@ Bundle and preset paths must be valid Unicode. `Chain::spawn`, `load_discovered_
 
 Neither metadata discovery nor native class inspection proves that instantiation,
 preparation, or processing will succeed. Audio Units are enumerated from the registry in
-both paths. Cache schema 2 contains native bundle results; earlier caches are invalidated
-because they did not distinguish static metadata from native inspection.
+both paths. Cache schema 3 contains native bundle results with the classes' `PluginId`; earlier caches are
+invalidated and their bundles inspected again.
 Cache compatibility depends on the schema and architecture, not the plughost version.
 Matching fingerprints reuse the native result before reading binary headers or static metadata.
 The default scan stall timeout is 30 seconds. Two consecutive failures of an unchanged

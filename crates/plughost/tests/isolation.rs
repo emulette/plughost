@@ -47,11 +47,7 @@ const AU_DELAY_TIME: u64 = 1;
 
 #[cfg(target_os = "macos")]
 fn audio_unit(class_id: &str) -> PluginRef {
-    PluginRef {
-        format: PluginFormat::AudioUnit,
-        bundle: None,
-        class_id: class_id.to_owned(),
-    }
+    PluginRef::audio_unit(class_id)
 }
 
 fn again() -> PluginRef {
@@ -157,15 +153,18 @@ fn scanning_reports_classes_and_isolates_crashes_and_hangs() {
     let found = |file: &str| match &outcome(&catalog, file).outcome {
         ScanOutcome::Found(classes) => classes
             .iter()
-            .map(|c| c.class_id.clone())
+            .map(|c| c.id.class_id().to_string())
             .collect::<Vec<_>>(),
         other => panic!("{file}: {other:?}"),
     };
     assert_eq!(found("again.vst3")[0], AGAIN);
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let plugin = delay(format);
-        let file = plugin.bundle.as_ref().unwrap().file_name().unwrap();
-        assert_eq!(found(file.to_str().unwrap()), [plugin.class_id.as_str()]);
+        let file = plugin.bundle().unwrap().file_name().unwrap();
+        assert_eq!(
+            found(file.to_str().unwrap()),
+            [plugin.id().class_id().as_str()]
+        );
     }
     for extension in ["vst3", "clap"] {
         let crashed = &outcome(
@@ -257,7 +256,11 @@ fn chains_of_mixed_formats_render_aligned_output() {
         tolerance: 1e-4,
     });
     for case in cases {
-        let names: Vec<_> = case.plugins.iter().map(|p| p.class_id.clone()).collect();
+        let names: Vec<_> = case
+            .plugins
+            .iter()
+            .map(|p| p.id().class_id().to_string())
+            .collect();
         let mut chain = spawn(&case.plugins);
         prepare(&mut chain);
         if let Some(latency) = case.latency {
@@ -562,7 +565,11 @@ fn an_edit_saved_right_away_is_restored_in_a_new_helper() {
             .save_state(0, plughost::StatePurpose::Project)
             .unwrap();
         let edited = value(&mut original);
-        assert!((edited - 0.25).abs() < 1e-4, "{}", case.plugin.class_id);
+        assert!(
+            (edited - 0.25).abs() < 1e-4,
+            "{}",
+            case.plugin.id().class_id().as_str()
+        );
         drop(original);
 
         let mut fresh = spawn(std::slice::from_ref(&case.plugin));
@@ -573,14 +580,14 @@ fn an_edit_saved_right_away_is_restored_in_a_new_helper() {
         assert!(
             (value(&mut fresh) - edited).abs() < 1e-4,
             "{}",
-            case.plugin.class_id
+            case.plugin.id().class_id().as_str()
         );
         if let Some(gain) = case.rendered_gain {
             let input = signal(4800);
             assert!(
                 max_difference(&run(&mut fresh, &input), &input, gain) < 1e-6,
                 "{}",
-                case.plugin.class_id
+                case.plugin.id().class_id().as_str()
             );
         }
     }
@@ -691,7 +698,7 @@ fn invalid_controls_are_rejected_without_changing_the_plugin() {
                 error: InputError::UnknownParameter { id: u64::MAX },
             })
         ));
-        if chain.plugins()[0].format == PluginFormat::Vst3 {
+        if chain.plugins()[0].id.format() == PluginFormat::Vst3 {
             let (meter, _) = chain
                 .parameters(0)
                 .unwrap()

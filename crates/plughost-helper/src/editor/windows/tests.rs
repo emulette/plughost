@@ -19,7 +19,7 @@ fn native_editor_scales_minimizes_closes_and_reopens() {
     let module = Module::load(&path).unwrap();
     let mut plugin = Plugin::new(
         &module,
-        &module.classes()[0].class_id,
+        module.classes()[0].id.class_id().as_str(),
         &plughost_core::HostIdentity::default(),
     )
     .unwrap();

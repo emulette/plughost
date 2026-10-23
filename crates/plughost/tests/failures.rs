@@ -1,4 +1,6 @@
-use plughost::{Chain, Error, FailureKind, HostIdentity, Layout, PluginFormat, Timeouts};
+use plughost::{
+    Chain, Error, FailureKind, HostIdentity, Layout, PluginFormat, PluginRef, Timeouts,
+};
 
 mod support;
 
@@ -105,8 +107,12 @@ fn overflowing_chain_latency_is_reported_without_losing_the_helper() {
 fn format_errors_keep_their_category_and_slot_through_ipc() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let plugin = delay(format);
-        let mut wrong = plugin.clone();
-        wrong.class_id = "00000000000000000000000000000000".to_owned();
+        let bundle = plugin.bundle().unwrap();
+        let unknown = "00000000000000000000000000000000";
+        let wrong = match format {
+            PluginFormat::Vst3 => PluginRef::vst3(bundle, unknown),
+            _ => PluginRef::clap(bundle, unknown),
+        };
         let error = match Chain::spawn(
             &helper(),
             &[wrong],

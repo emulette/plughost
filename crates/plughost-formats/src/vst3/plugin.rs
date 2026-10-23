@@ -344,7 +344,7 @@ impl Plugin {
         }
         Ok(PluginState {
             format: PluginFormat::Vst3,
-            class_id: self.info.class_id.clone(),
+            class_id: self.info.id.class_id().to_string(),
             name: self.info.name.clone(),
             vendor: self.info.vendor.clone(),
             version: self.info.version.clone(),
@@ -364,9 +364,7 @@ impl Plugin {
 
     fn restore(&mut self, state: &PluginState, kind: StateKind) -> Result<(), Vst3Error> {
         state.validate().map_err(Vst3Error::Input)?;
-        if state.format != PluginFormat::Vst3
-            || !state.class_id.eq_ignore_ascii_case(&self.info.class_id)
-        {
+        if plughost_core::PluginId::new(state.format, state.class_id.as_str()) != self.info.id {
             return Err(Vst3Error::StateMismatch);
         }
         // Values the processing thread handed back predate the state and must not overwrite it.

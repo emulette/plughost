@@ -233,26 +233,21 @@ pub trait BlockProcessor: Send {
 /// Loads the plugin class `plugin` names, in this process.
 pub fn load(plugin: &PluginRef, host: &HostIdentity) -> Result<Box<dyn HostedPlugin>, Error> {
     host.validate()?;
-    match plugin.format {
+    let class_id = plugin.id().class_id().as_str();
+    // A VST3 or CLAP reference always has a bundle and an Audio Unit one none.
+    match (plugin.id().format(), plugin.bundle()) {
         #[cfg(feature = "vst3")]
-        plughost_core::PluginFormat::Vst3 => {
-            let bundle = plugin.bundle.as_deref().ok_or(Error::new(Repr::NoBundle))?;
+        (plughost_core::PluginFormat::Vst3, Some(bundle)) => {
             let module = vst3::Module::load_with_host(bundle, host)?;
-            Ok(Box::new(vst3::Plugin::new(
-                &module,
-                &plugin.class_id,
-                host,
-            )?))
+            Ok(Box::new(vst3::Plugin::new(&module, class_id, host)?))
         }
         #[cfg(all(feature = "au", target_os = "macos"))]
-        plughost_core::PluginFormat::AudioUnit => Ok(Box::new(au::Plugin::new(&plugin.class_id)?)),
+        (plughost_core::PluginFormat::AudioUnit, _) => Ok(Box::new(au::Plugin::new(class_id)?)),
         #[cfg(feature = "clap")]
-        plughost_core::PluginFormat::Clap => {
-            let bundle = plugin.bundle.as_deref().ok_or(Error::new(Repr::NoBundle))?;
-            Ok(Box::new(clap::Plugin::new(bundle, &plugin.class_id, host)?))
+        (plughost_core::PluginFormat::Clap, Some(bundle)) => {
+            Ok(Box::new(clap::Plugin::new(bundle, class_id, host)?))
         }
-        #[allow(unreachable_patterns)]
-        format => Err(Error::new(Repr::UnsupportedFormat(format))),
+        (format, _) => Err(Error::new(Repr::UnsupportedFormat(format))),
     }
 }
 
