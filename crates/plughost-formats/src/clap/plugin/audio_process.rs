@@ -90,11 +90,12 @@ impl Processor {
                 .info
                 .automation_value(change.value)
                 .map_err(ClapError::Input)?;
-            prepared.automation.push((
-                change.offset as u32,
-                parameter.native,
-                parameter.plain(change.value),
-            ));
+            let plain = parameter
+                .plain(change.value)
+                .ok_or(ClapError::ParameterResult)?;
+            prepared
+                .automation
+                .push((change.offset as u32, parameter.native, plain));
         }
         let transport = context
             .transport

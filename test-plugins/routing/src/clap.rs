@@ -105,12 +105,25 @@ impl PluginMainThreadParams for MainThread<'_> {
     fn count(&self) -> u32 {
         if COUNTS.load(std::sync::atomic::Ordering::Relaxed) {
             u32::MAX
+        } else if FAULTS.load(std::sync::atomic::Ordering::Relaxed) {
+            3
         } else {
             2
         }
     }
     fn get_info(&self, index: u32, writer: &mut ParamInfoWriter) {
-        if index >= 2 && COUNTS.load(std::sync::atomic::Ordering::Relaxed) {
+        if index == 2 && FAULTS.load(std::sync::atomic::Ordering::Relaxed) {
+            writer.set(&ParamInfo {
+                id: ClapId::new(UNBOUNDED),
+                flags: ParamInfoFlags::IS_AUTOMATABLE,
+                cookie: Cookie::empty(),
+                name: b"Unbounded",
+                module: b"",
+                min_value: f64::NEG_INFINITY,
+                max_value: f64::INFINITY,
+                default_value: 0.0,
+            });
+        } else if index >= 2 && COUNTS.load(std::sync::atomic::Ordering::Relaxed) {
             writer.set(&ParamInfo {
                 id: ClapId::new(index),
                 flags: ParamInfoFlags::IS_READONLY,
@@ -140,6 +153,9 @@ impl PluginMainThreadParams for MainThread<'_> {
         }
     }
     fn get_value(&self, id: ClapId) -> Option<f64> {
+        if id.get() == UNBOUNDED && FAULTS.load(std::sync::atomic::Ordering::Relaxed) {
+            return Some(0.0);
+        }
         lock(&self.shared.values).get(id.get() as usize).copied()
     }
     fn value_to_text(
@@ -196,6 +212,9 @@ impl PluginStateImpl for MainThread<'_> {
     }
 }
 static FAULTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The `routing-faults` bundle's parameter whose range is the whole real line, which has no
+/// normalized form.
+const UNBOUNDED: u32 = 2;
 /// The `routing-fixed-ports` bundle leaves out audio port activation, so every port stays active.
 static FIXED_PORTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// The `routing-counts` bundle reports `u32::MAX` parameters, note outputs that take no dialect

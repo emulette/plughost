@@ -84,10 +84,8 @@ impl Plugin {
         let parameter = cache
             .get(id)
             .ok_or(ClapError::Input(InputError::UnknownParameter { id }))?;
-        let (min, max) = (parameter.min, parameter.max);
-        if !min.is_finite() || !max.is_finite() || min > max || !(max - min).is_finite() {
-            return Err(ClapError::ParameterResult);
-        }
+        let (min, max) = crate::parameter_values::range(parameter.min, parameter.max)
+            .ok_or(ClapError::ParameterResult)?;
         Ok((parameter.native.get(), min, max))
     }
 
@@ -100,7 +98,7 @@ impl Plugin {
         let parameter = cache
             .get(id)
             .ok_or(ClapError::Input(InputError::UnknownParameter { id }))?;
-        Ok(parameter.plain(value))
+        parameter.plain(value).ok_or(ClapError::ParameterResult)
     }
 
     pub(crate) fn parameter_to_normalized(

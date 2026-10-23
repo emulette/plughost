@@ -1,10 +1,10 @@
-//! What CLAP hosting makes of events a plugin sends against the rules, with the
-//! `plughost-test-routing-faults` bundle of the routing fixture, which sends them on request.
+//! What CLAP hosting makes of events and parameters a plugin gives against the rules, with the
+//! `plughost-test-routing-faults` bundle of the routing fixture, which gives them.
 //! Build it with `scripts/build-test-plugins.sh`, then run
 //! `cargo test -p plughost-formats -- --ignored`.
 #![cfg(feature = "clap")]
 use plughost_core::*;
-use plughost_formats::clap::Plugin;
+use plughost_formats::clap::{ClapError, Plugin};
 use plughost_formats::{Error, HostedPlugin};
 use std::path::Path;
 
@@ -12,15 +12,21 @@ use std::path::Path;
 /// size.
 const MALFORMED: [u8; 4] = [0xF0, 0x7D, 0x7C, 0xF7];
 const FRAMES: usize = 32;
+/// The parameter whose range is the whole real line.
+const UNBOUNDED: u64 = 2;
 
-fn prepared() -> Plugin {
-    let mut plugin = Plugin::new(
+fn faults() -> Plugin {
+    Plugin::new(
         &Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../target/test-plugins/plughost-test-routing-faults.clap"),
         "com.studio.plughost.test-routing",
         &HostIdentity::default(),
     )
-    .unwrap();
+    .unwrap()
+}
+
+fn prepared() -> Plugin {
+    let mut plugin = faults();
     plugin
         .prepare(&ProcessConfig {
             sample_rate: 48_000.0,
@@ -63,4 +69,20 @@ fn events_whose_header_gives_another_size_than_their_type_are_not_read() {
     let diagnostics = plugin.take_diagnostics().records;
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
     assert!(diagnostics[0].message.ends_with(" 2"), "{diagnostics:?}");
+}
+
+#[test]
+#[ignore = "needs routing CLAP fixture"]
+fn a_parameter_whose_range_is_not_finite_has_no_value_to_send_or_show() {
+    let mut plugin = faults();
+    assert_eq!(
+        plugin.set_parameter(UNBOUNDED, 0.5),
+        Err(Error::Clap(ClapError::ParameterResult))
+    );
+    let (info, value) = plugin
+        .parameters()
+        .into_iter()
+        .find(|(info, _)| info.id == UNBOUNDED)
+        .unwrap();
+    assert_eq!((info.default_value, value), (None, 0.0));
 }

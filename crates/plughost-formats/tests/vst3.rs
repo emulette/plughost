@@ -872,6 +872,26 @@ const TEST_DELAY_GAIN_CONTROLLER: u64 = 2;
 
 #[test]
 #[ignore = "needs scripts/build-test-plugins.sh"]
+fn controller_values_past_the_range_are_clamped_and_those_not_finite_read_as_zero() {
+    let _serial = serial();
+    let mut plugin = plugin("plughost-test-delay");
+    let saved = plugin
+        .save_state(plughost_core::StatePurpose::Project)
+        .unwrap();
+    // The test delay's state is its gain, which its controller takes as the gain's value.
+    for (gain, value) in [(3.0f64, 1.0), (f64::NAN, 0.0)] {
+        let mut state = saved.clone();
+        state.component = gain.to_le_bytes().to_vec();
+        plugin
+            .restore_state(&state, plughost_core::StatePurpose::Project)
+            .unwrap();
+        assert_eq!(plugin.parameter_value(0), value, "{gain}");
+        assert_eq!(HostedPlugin::parameters(&mut plugin)[0].1, value, "{gain}");
+    }
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
 fn restored_state_is_marked_as_project_or_preset() {
     let _serial = serial();
     let state = plugin("plughost-test-delay")

@@ -601,6 +601,21 @@ fn a_restart_requested_while_processing_keeps_the_block_and_fails_the_next() {
 
 #[test]
 #[ignore = "needs scripts/build-test-plugins.sh"]
+fn values_past_the_range_are_clamped_and_those_not_finite_read_as_zero() {
+    let _serial = serial();
+    let mut plugin = plugin();
+    let saved = plugin.save_state(StatePurpose::Project).unwrap();
+    // The test delay's state is its gain, whose range is 0 to 1.
+    for (gain, value) in [(3.0f64, 1.0), (f64::NAN, 0.0)] {
+        let mut state = saved.clone();
+        state.component = gain.to_le_bytes().to_vec();
+        plugin.restore_state(&state, StatePurpose::Project).unwrap();
+        assert_eq!(parameter_value(&mut plugin, GAIN), value, "{gain}");
+    }
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
 fn a_timer_removed_by_another_timer_is_not_called() {
     let _serial = serial();
     // The fixture's first timer removes its second one; it reports calls the removed one gets.

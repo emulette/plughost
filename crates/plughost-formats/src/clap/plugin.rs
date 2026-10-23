@@ -372,8 +372,9 @@ impl Plugin {
         Arc::clone(&self.parameters)
     }
 
-    /// Each parameter with its current value, normalized over its range. Queued host edits
-    /// reach the plugin first.
+    /// Each parameter with its current value, normalized over its range and clamped to it. A
+    /// value the plugin does not give, or that is not finite, reads as 0. Queued host edits reach
+    /// the plugin first.
     pub(crate) fn parameters(&mut self) -> Vec<(ParameterInfo, f64)> {
         if self.shared().has_pending() {
             self.flush();
@@ -388,7 +389,8 @@ impl Plugin {
             .map(|parameter| {
                 let value = params
                     .get_value(&handle, parameter.native)
-                    .map_or(0.0, |plain| parameter.normalized(plain));
+                    .and_then(|plain| parameter.normalized(plain))
+                    .unwrap_or(0.0);
                 (parameter.info.clone(), value)
             })
             .collect()
@@ -409,6 +411,7 @@ impl Plugin {
                 plughost_core::InputError::ReadOnlyParameter { id },
             ));
         }
+        let plain = parameter.plain(value).ok_or(ClapError::ParameterResult)?;
         let mut pending = self
             .shared()
             .pending
@@ -417,7 +420,7 @@ impl Plugin {
         if pending.len() == plughost_core::MAX_BLOCK_EVENTS {
             return Err(ClapError::Input(plughost_core::InputError::EventCapacity));
         }
-        pending.push((parameter.native.get(), parameter.plain(value)));
+        pending.push((parameter.native.get(), plain));
         Ok(())
     }
 

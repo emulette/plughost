@@ -17,7 +17,7 @@ use plughost_core::{
 };
 use vst3::Steinberg::Vst::ParameterInfo_::ParameterFlags_;
 use vst3::Steinberg::Vst::{
-    IComponentHandlerTrait, IComponentTrait, IEditController, IEditControllerTrait,
+    IComponentHandlerTrait, IComponentTrait, IEditController, IEditControllerTrait, ParamID,
     ParameterInfo as Vst3ParameterInfo,
 };
 use vst3::Steinberg::{kNotImplemented, kResultOk};
@@ -123,10 +123,7 @@ impl Plugin {
         let parameters = self.parameter_cache();
         let generation = self.handler.values_generation();
         let values: Vec<f64> = (0..parameters.len())
-            .map(|index| unsafe {
-                self.controller
-                    .getParamNormalized(parameters.native_id(index))
-            })
+            .map(|index| self.controller_value(parameters.native_id(index)))
             .collect();
         if let Some(prepared) = &mut lock(&self.engine).prepared {
             prepared.seed_held_values(&values, generation);
@@ -235,8 +232,9 @@ impl Plugin {
         self.parameter_cache().infos().to_vec()
     }
 
-    /// The controller's normalized value. Some controllers show a restored or host-set value
-    /// late; the processor's value is what [`HostedPlugin::save_state`] stores.
+    /// The controller's normalized value, clamped to `0..=1`; one that is not finite reads as 0,
+    /// as an unknown ID's does. Some controllers show a restored or host-set value late; the
+    /// processor's value is what [`HostedPlugin::save_state`] stores.
     ///
     /// [`HostedPlugin::save_state`]: crate::HostedPlugin::save_state
     pub fn parameter_value(&self, id: u64) -> f64 {
@@ -244,7 +242,13 @@ impl Plugin {
             return 0.0;
         };
         self.sync_controller();
-        unsafe { self.controller.getParamNormalized(id) }
+        self.controller_value(id)
+    }
+
+    /// The controller's value of `id` under the rule [`Plugin::parameter_value`] describes.
+    fn controller_value(&self, id: ParamID) -> f64 {
+        let value = unsafe { self.controller.getParamNormalized(id) };
+        crate::parameter_values::normalized(value, 0.0, 1.0).unwrap_or(0.0)
     }
 
     /// Changes a parameter the way an edit in the plugin's editor does: the controller takes the

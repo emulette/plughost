@@ -67,10 +67,13 @@ impl clack_host::events::io::OutputEventBuffer for ParameterOutput<'_> {
                     queue.record(ParameterEvent::ValuesChanged);
                     return Ok(());
                 };
-                let normalized = parameter.normalized(value.value());
-                if !normalized.is_finite() || !(0.0..=1.0).contains(&normalized) {
+                // A notification outside the parameter's range is not one of its values.
+                let Some(normalized) = parameter
+                    .normalized(value.value())
+                    .filter(|_| (parameter.min..=parameter.max).contains(&value.value()))
+                else {
                     return Ok(());
-                }
+                };
                 ParameterEvent::Value { id, normalized }
             }
             Some(CoreEventSpace::ParamGestureBegin(value)) => {

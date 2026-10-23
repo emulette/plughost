@@ -20,22 +20,21 @@ pub(super) struct Parameter {
 }
 
 impl Parameter {
-    /// The plain value for a normalized one. Stepped parameters take whole values.
-    pub fn plain(&self, normalized: f64) -> f64 {
-        let plain = self.min + normalized * (self.max - self.min);
-        if self.info.flags.discrete {
+    /// The plain value for a normalized one, or `None` when the plugin's range is not finite.
+    /// Stepped parameters take whole values.
+    pub fn plain(&self, normalized: f64) -> Option<f64> {
+        let (min, max) = crate::parameter_values::range(self.min, self.max)?;
+        let plain = min + normalized * (max - min);
+        Some(if self.info.flags.discrete {
             plain.round()
         } else {
             plain
-        }
+        })
     }
 
-    pub fn normalized(&self, plain: f64) -> f64 {
-        if self.max > self.min {
-            (plain - self.min) / (self.max - self.min)
-        } else {
-            0.0
-        }
+    /// `plain` normalized over the range and clamped to it, or `None` when either is not finite.
+    pub fn normalized(&self, plain: f64) -> Option<f64> {
+        crate::parameter_values::normalized(plain, self.min, self.max)
     }
 }
 
@@ -91,7 +90,7 @@ impl ParameterCache {
                     max: info.max_value,
                     module: String::from_utf8_lossy(info.module).into_owned(),
                 };
-                parameter.info.default_value = Some(parameter.normalized(info.default_value));
+                parameter.info.default_value = parameter.normalized(info.default_value);
                 Some(parameter)
             })
             .collect();

@@ -32,6 +32,12 @@ mod errors;
 mod float_mode;
 mod hosted;
 mod parameter_choices;
+#[cfg(any(
+    feature = "clap",
+    feature = "vst3",
+    all(feature = "au", target_os = "macos")
+))]
+mod parameter_values;
 pub mod preset;
 #[cfg(feature = "clap")]
 mod state_stream;

@@ -324,7 +324,8 @@ impl Plugin {
         engine.timing().ok()
     }
 
-    /// Each parameter with its current value, normalized over its range.
+    /// Each parameter with its current value, normalized over its range and clamped to it; one
+    /// that is not finite, or whose range is not, reads as 0.
     pub(crate) fn parameters(&self) -> Vec<(ParameterInfo, f64)> {
         let engine = lock(&self.engine);
         engine
@@ -351,7 +352,7 @@ impl Plugin {
         let info = parameter_info(&parameter);
         info.validate_edit(value).map_err(AuError::Input)?;
         let (min, max) = unsafe { (parameter.minValue(), parameter.maxValue()) };
-        let plain = plain(min, max, &info, value);
+        let plain = plain(min, max, &info, value).ok_or(AuError::ParameterResult)?;
         self.edited = true;
         // For a v2 unit, set the parameter the way v2 hosts do and notify listeners, which is how
         // some plugins keep their own model, and so their saved state, in step. The v3 path
@@ -541,26 +542,26 @@ fn plain_value(unit: &AUAudioUnit, parameter: &AUParameter) -> f32 {
     unsafe { parameter.value() }
 }
 
-/// The plain value of normalized `value` over `min..=max`, whole for a discrete parameter. It is
-/// computed in double precision: in single precision 13 / 22 of 22 is 12.999999, which units that
-/// truncate read as 12.
-fn plain(min: f32, max: f32, info: &ParameterInfo, value: f64) -> f32 {
-    let plain = f64::from(min) + value * (f64::from(max) - f64::from(min));
-    (if info.flags.discrete {
-        plain.round()
-    } else {
-        plain
-    }) as f32
+/// The plain value of normalized `value` over `min..=max`, whole for a discrete parameter, or
+/// `None` when the range is not finite. It is computed in double precision: in single precision
+/// 13 / 22 of 22 is 12.999999, which units that truncate read as 12.
+fn plain(min: f32, max: f32, info: &ParameterInfo, value: f64) -> Option<f32> {
+    let (min, max) = crate::parameter_values::range(f64::from(min), f64::from(max))?;
+    let plain = min + value * (max - min);
+    Some(
+        (if info.flags.discrete {
+            plain.round()
+        } else {
+            plain
+        }) as f32,
+    )
 }
 
-/// `plain` normalized over the parameter's range.
+/// `plain` normalized over the parameter's range and clamped to it; 0 when either is not finite.
 fn normalized(parameter: &AUParameter, plain: f32) -> f64 {
     let (min, max) = unsafe { (parameter.minValue(), parameter.maxValue()) };
-    if max > min {
-        f64::from((plain - min) / (max - min))
-    } else {
-        0.0
-    }
+    crate::parameter_values::normalized(f64::from(plain), f64::from(min), f64::from(max))
+        .unwrap_or(0.0)
 }
 
 fn parameter_info(parameter: &AUParameter) -> ParameterInfo {
@@ -866,9 +867,11 @@ impl Engine {
             let value = info
                 .automation_value(change.value)
                 .map_err(AuError::Input)?;
-            prepared
-                .automation
-                .push((change.id, change.offset, plain(*min, *max, info, value)));
+            prepared.automation.push((
+                change.id,
+                change.offset,
+                plain(*min, *max, info, value).ok_or(AuError::ParameterResult)?,
+            ));
         }
         for &(id, offset, value) in &prepared.automation {
             let _audit = plughost_core::audit::plugin();
@@ -948,7 +951,7 @@ impl Engine {
         if offset >= prepared.config.max_block_size {
             return Err(AuError::Input(plughost_core::InputError::Automation));
         }
-        let plain = plain(*min, *max, info, value);
+        let plain = plain(*min, *max, info, value).ok_or(AuError::ParameterResult)?;
         let _audit = plughost_core::audit::plugin();
         let _floats = crate::float_mode::FlushToZero::enter();
         prepared.schedule.call((

@@ -553,6 +553,10 @@ still allocate or lock; late completions count what that costs.
 
 - `parameters(slot)` returns `ParameterInfo` and current normalized values. A CLAP plugin has
   at most its first 65,536 parameters listed; one that reports more gets a diagnostic.
+- Every format treats the values and ranges a plugin reports alike: a value outside its range is
+  clamped into it, and one that is not finite, or whose range is not, reads as 0. A CLAP
+  parameter whose range is not finite has no default, and edits and automation of a CLAP or
+  Audio Unit parameter with such a range fail with a `FailureKind::Host` error.
 - `parameter_details` returns native range endpoints and group information. Endpoints do
   not imply a linear mapping. A missing default is unavailable, not the current value.
 - `parameter_choices` pages discrete native labels. Respect `PARAMETER_CHOICE_PAGE_SIZE`.
