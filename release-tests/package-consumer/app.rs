@@ -15,11 +15,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let bundle = fixtures.join(format!("plughost-test-routing.{extension}"));
         let scanner = Scanner::new(&helper, &cache);
         let scanned = scanner.retry(&bundle)?;
-        let [(reference, class)] = scanned.plugins()[..] else {
+        let plugins = scanned.plugins();
+        let [(reference, class)] = plugins.as_slice() else {
             panic!("packaged scanner did not find the routing fixture");
         };
         assert_eq!(class.id.format(), format);
-        let mut chain = Chain::spawn(&helper, &[reference.into()], &SpawnOptions::default())?;
+        let mut chain = Chain::spawn(
+            &helper,
+            &[reference.clone().into()],
+            &SpawnOptions::default(),
+        )?;
         let config = chain.main_bus_config(48_000.0, 64, Layout::Stereo, &[Layout::Stereo])?;
         chain.prepare_audio(&config)?;
         chain.set_parameter(0, 0, 0.5)?;
