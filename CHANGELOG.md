@@ -59,9 +59,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - A parameter edit or reset that took effect succeeds when another slot's timing cannot be read
   afterwards; the chain keeps its last latency and tail, and the diagnostics name the slot. It
   failed with that slot's error before, as if the edit had not been made.
-
-### Fixed
-
 - `Transport::advanced` no longer fails with `InputError::Transport` for a beat a few ulps
   below a bar line, where rounding placed the computed bar start after the beat; the beat now
   stays in the earlier bar. A scheduled render or session segment whose blocks reached such a
