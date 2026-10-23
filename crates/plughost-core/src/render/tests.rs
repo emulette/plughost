@@ -367,3 +367,140 @@ fn output_events_keep_processing_offsets_when_audio_latency_is_trimmed() {
         ]
     );
 }
+
+/// A stereo instrument whose output is NaN during its latency, then silent except for one
+/// infinite sample on the right at `infinite_at` and NaN on the left from `nan_from` on, both
+/// counted in processed frames.
+struct NonFinite {
+    latency: u32,
+    infinite_at: usize,
+    nan_from: usize,
+    position: usize,
+}
+
+impl Process<f32> for NonFinite {
+    type Error = RenderError;
+
+    fn sample_rate(&self) -> f64 {
+        RATE
+    }
+
+    fn max_block_size(&self) -> usize {
+        64
+    }
+
+    fn input_channels(&self) -> usize {
+        0
+    }
+
+    fn output_channels(&self) -> usize {
+        2
+    }
+
+    fn latency(&self) -> Result<u32, RenderError> {
+        Ok(self.latency)
+    }
+
+    fn tail(&self) -> Result<Tail, RenderError> {
+        Ok(Tail::Samples(0))
+    }
+
+    fn process(
+        &mut self,
+        context: &crate::BlockContext,
+        _input: &[&[f32]],
+        output: &mut [&mut [f32]],
+        _automation: &[crate::AutomationEvent],
+        _events: &[Event],
+        produced: &mut Vec<Event>,
+    ) -> Result<(), RenderError> {
+        produced.clear();
+        let (left, right) = output.split_at_mut(1);
+        for (frame, (left, right)) in left[0].iter_mut().zip(right[0].iter_mut()).enumerate() {
+            let at = self.position + frame;
+            let latency = at < self.latency as usize;
+            *left = if latency || at >= self.nan_from {
+                f32::NAN
+            } else {
+                0.0
+            };
+            *right = if latency {
+                f32::NAN
+            } else if at == self.infinite_at {
+                f32::INFINITY
+            } else {
+                0.0
+            };
+        }
+        self.position += context.frames;
+        Ok(())
+    }
+}
+
+#[test]
+fn non_finite_samples_are_counted_in_the_delivered_output() {
+    let options = RenderOptions {
+        tail: TailPolicy::UntilSilence {
+            threshold: 1e-6,
+            hold_seconds: 0.01,
+        },
+        max_tail_seconds: 0.01,
+    };
+    let processor = || NonFinite {
+        latency: 100,
+        infinite_at: 110,
+        nan_from: 1100,
+        position: 0,
+    };
+    let rendered = render::<f32, _>(&mut processor(), &[], 1000, &[], &options).unwrap();
+    // NaN is never silent, so the tail runs to the maximum. The NaN in the removed latency is
+    // not delivered and not counted.
+    assert_eq!(rendered.tail, 480);
+    let delivered = rendered
+        .channels
+        .iter()
+        .flatten()
+        .filter(|sample| !sample.is_finite())
+        .count();
+    assert_eq!(delivered, 481);
+    assert_eq!(rendered.non_finite_samples, delivered);
+
+    // A session trims the latency once across segments shorter than it, and counts alike.
+    let mut source = processor();
+    let mut session = RenderSession::new(&mut source).unwrap();
+    let mut channels = vec![Vec::new(); 2];
+    let mut counted = 0;
+    let mut consume = |delivery: Delivery<'_, f32>| {
+        for (channel, samples) in channels.iter_mut().zip(delivery.audio) {
+            channel.extend_from_slice(samples);
+        }
+    };
+    for _ in 0..25 {
+        let progress = session
+            .push(
+                RenderInput {
+                    audio: &[],
+                    frames: 40,
+                    events: &[],
+                    schedule: RenderSchedule::default(),
+                },
+                &mut consume,
+                || false,
+            )
+            .unwrap();
+        counted += progress.non_finite_samples;
+    }
+    counted += session
+        .finish(&options, &mut consume, || false)
+        .unwrap()
+        .non_finite_samples;
+    // NaN is unequal to itself, so compare bit patterns.
+    let bits = |channels: &[Vec<f32>]| -> Vec<Vec<u32>> {
+        channels
+            .iter()
+            .map(|channel| channel.iter().map(|sample| sample.to_bits()).collect())
+            .collect()
+    };
+    assert_eq!(bits(&channels), bits(&rendered.channels));
+    assert_eq!(counted, 481);
+}

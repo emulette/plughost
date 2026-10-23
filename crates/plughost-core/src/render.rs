@@ -184,6 +184,9 @@ pub struct Rendered<S> {
     pub latency: u32,
     /// Samples rendered after the end of the input.
     pub tail: usize,
+    /// Samples in `channels`, over all channels, that are NaN or infinite. They are never at or
+    /// below a silence threshold, so they keep a [`TailPolicy::UntilSilence`] tail going.
+    pub non_finite_samples: usize,
 }
 
 /// Renders `frames` samples of `input` (one slice per input channel, none for an instrument)
@@ -249,6 +252,7 @@ pub fn render_with_schedule<S: Sample, P: Process<S>>(
         events: produced,
         latency: result.latency,
         tail: result.tail,
+        non_finite_samples: result.non_finite_samples,
     })
 }
 
@@ -289,6 +293,9 @@ pub struct RenderProgress {
     pub latency: u32,
     /// Delivered frames after the input, excluding trimmed silence.
     pub tail: usize,
+    /// Delivered audio samples, over all channels, that are NaN or infinite. They are never at
+    /// or below a silence threshold, so they keep a [`TailPolicy::UntilSilence`] tail going.
+    pub non_finite_samples: usize,
 }
 
 /// Delivers aligned output without retaining the whole result. Memory is bounded by the prepared
@@ -525,6 +532,7 @@ fn render_reusing<S: Sample, P: Process<S>>(
         latency,
         // The input ends `body - skip` frames into the delivered output.
         tail: output.emitted.saturating_sub(body.saturating_sub(skip)),
+        non_finite_samples: output.non_finite,
     })
 }
 

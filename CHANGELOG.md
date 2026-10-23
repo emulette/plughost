@@ -19,6 +19,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   exited on its own, plughost terminated it after a timeout, a protocol error or a cancellation,
   or its chain shut it down. The errors after the first one report `Error::Crashed` whatever the
   reason was.
+- `Rendered::non_finite_samples` and `RenderProgress::non_finite_samples` count the NaN and
+  infinite samples a render delivered, over all channels and excluding the removed latency;
+  a render session reports them per `push` and `finish`. Rendering still neither rejects nor
+  replaces them, and they still count as sound for `TailPolicy::UntilSilence`, so a plugin that
+  keeps producing NaN renders up to the maximum tail.
 
 ### Changed
 

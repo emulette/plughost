@@ -11,6 +11,8 @@ pub(super) struct Output<S> {
     silence: Option<(f64, usize)>,
     quiet_frames: usize,
     pub emitted: usize,
+    /// Emitted samples that are NaN or infinite.
+    pub non_finite: usize,
 }
 
 impl<S: Sample> Output<S> {
@@ -23,6 +25,7 @@ impl<S: Sample> Output<S> {
         self.silence = silence;
         self.quiet_frames = 0;
         self.emitted = 0;
+        self.non_finite = 0;
     }
 
     /// Returns true when the silence hold has elapsed. `start` is the raw processing offset;
@@ -82,7 +85,13 @@ impl<S: Sample> Output<S> {
         }
         for ((ready, held), channel) in self.ready.iter_mut().zip(&mut self.quiet).zip(block) {
             ready.append(held);
-            ready.extend_from_slice(&channel[range.clone()]);
+            let samples = &channel[range.clone()];
+            ready.extend_from_slice(samples);
+            // Held frames are quiet, so they are finite.
+            self.non_finite += samples
+                .iter()
+                .filter(|sample| !sample.to_f64().is_finite())
+                .count();
         }
         self.emitted += self.quiet_frames + range.len();
         self.quiet_frames = 0;
