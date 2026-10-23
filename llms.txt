@@ -583,11 +583,22 @@ still allocate or lock; late completions count what that costs.
 - `take_parameter_events` drains bounded value/gesture/metadata notifications. On overflow,
   cancel active gestures and requery metadata and values.
 
-`save_state(slot, purpose)` returns opaque `PluginState`; use `StatePurpose::Project` for
-project persistence. Persist it in application-owned storage. State includes the plugin
-format/class identity; restore only to the matching class with `restore_state(slot, &state,
-purpose)`. `StatePurpose` distinguishes `Project`, `Preset`, and `Duplicate`. Native formats
-can reject unsupported purposes.
+`save_state(slot, purpose)` returns an opaque `PluginState`; use `StatePurpose::Project` for
+project persistence. Persist `state.to_bytes()` in application-owned storage and read it with
+`PluginState::from_bytes`, which reads the bytes of every plughost version from 0.2.0 on (a
+0.1 state serialized with serde cannot be read; save it again), needs no
+plugin (a state of a plugin that is not installed is kept and written again unchanged), and
+fails with `InputError::StateBytes` for bytes it cannot read, or `InputError::StateSize` for a
+payload over `MAX_STATE_BYTES`, before allocating it. These bytes are plughost's own versioned
+container of tagged sections (the identity, a VST3 component and controller kept apart, or the
+single blob of the other formats), independent of the helper protocol; `PluginState` has no
+serde form. `id()` names the class that may restore it, and `name()`, `vendor()` and `version()`
+the plugin that saved it, for display; they always come from the loaded plugin, also for an
+imported preset. Restore only to the matching class with `restore_state(slot, &state,
+purpose)`: the restore checks the `PluginId` and not the plugin version, so a state saved by
+another version of the plugin restores and the plugin decides what to make of it.
+`StatePurpose` distinguishes `Project`, `Preset`, and `Duplicate`. Native formats can reject
+unsupported purposes.
 
 `restore_state` stages a fresh instance, prepares it, and validates timing before replacing
 the slot. Returned native failures preserve the active slot. A crash/timeout can still end

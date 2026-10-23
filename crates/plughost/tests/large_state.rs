@@ -17,9 +17,9 @@ fn large_native_state_crosses_ipc_and_oversized_native_output_is_not_accepted() 
         let state = chain
             .save_state(0, plughost::StatePurpose::Project)
             .unwrap();
-        assert_eq!(state.component.len(), (8 << 20) + 8);
-        assert_eq!(&state.component[..8], &0.25f64.to_le_bytes());
-        for (index, chunk) in state.component[8..]
+        assert_eq!(state.component().len(), (8 << 20) + 8);
+        assert_eq!(&state.component()[..8], &0.25f64.to_le_bytes());
+        for (index, chunk) in state.component()[8..]
             .as_chunks::<65536>()
             .0
             .iter()
@@ -71,12 +71,13 @@ fn recovery_restores_states_that_together_exceed_one_message() {
         .enumerate()
         .map(|(slot, gain)| {
             chain.set_parameter(slot, 0, gain).unwrap();
-            let mut state = chain
+            let saved = chain
                 .save_state(slot, plughost::StatePurpose::Project)
                 .unwrap();
             // The delay reads its gain from the first bytes and ignores the rest.
-            state.component.resize(100 << 20, 0);
-            state
+            let mut component = saved.component().to_vec();
+            component.resize(100 << 20, 0);
+            plughost::PluginState::new(&chain.plugins()[slot], component, None)
         })
         .collect();
     let mut recovered = chain.recover(&states).unwrap();

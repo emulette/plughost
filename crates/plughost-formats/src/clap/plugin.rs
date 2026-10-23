@@ -445,15 +445,7 @@ impl Plugin {
             return Err(ClapError::StateTooLarge);
         }
         result.map_err(|_| ClapError::State)?;
-        Ok(PluginState {
-            format: PluginFormat::Clap,
-            class_id: self.info.id.class_id().to_string(),
-            name: self.info.name.clone(),
-            vendor: self.info.vendor.clone(),
-            version: self.info.version.clone(),
-            component: bytes.into_bytes(),
-            controller: Vec::new(),
-        })
+        Ok(PluginState::new(&self.info, bytes.into_bytes(), None))
     }
 
     pub(crate) fn restore_state(
@@ -467,7 +459,7 @@ impl Plugin {
             return Err(ClapError::StatePurposeUnsupported);
         }
         let context_type = state_context(purpose)?;
-        if PluginId::new(state.format, state.class_id.as_str()) != self.info.id {
+        if state.id() != &self.info.id {
             return Err(ClapError::StateMismatch);
         }
         self.shared().take_pending();
@@ -479,13 +471,13 @@ impl Plugin {
         if let Some(context) = context {
             context.load(
                 &self.instance.plugin_handle(),
-                &mut Cursor::new(&state.component),
+                &mut Cursor::new(state.component()),
                 context_type,
             )
         } else {
             extension.load(
                 &self.instance.plugin_handle(),
-                &mut Cursor::new(&state.component),
+                &mut Cursor::new(state.component()),
             )
         }
         .map_err(|_| ClapError::State)

@@ -70,8 +70,8 @@ fn component_state_and_connection_messages_reach_a_separate_controller() {
     assert_eq!(value(&mut *plugin, 2), 0.03);
     assert_eq!(value(&mut *plugin, 0), 0.75);
     let state = plugin.save_state(StatePurpose::Project).unwrap();
-    assert_eq!(&state.component[..8], &0.75f64.to_le_bytes());
-    assert_eq!(&state.controller[..8], &0.75f64.to_le_bytes());
+    assert_eq!(&state.component()[..8], &0.75f64.to_le_bytes());
+    assert_eq!(&state.controller().unwrap()[..8], &0.75f64.to_le_bytes());
     plugin.set_parameter(0, 0.5).unwrap();
     assert_eq!(block(&[]), [0.5; 8]);
     plugin.restore_state(&state, StatePurpose::Project).unwrap();

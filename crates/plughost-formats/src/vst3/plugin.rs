@@ -338,19 +338,16 @@ impl Plugin {
         if controller.exceeded() {
             return Err(Vst3Error::StateTooLarge);
         }
-        // As on restore, a controller without state of its own may not implement it.
-        if result != kResultOk && result != kNotImplemented {
+        // As on restore, a controller without state of its own may not implement it; it then
+        // has none, which differs from an empty state.
+        let controller = if result == kResultOk {
+            Some(controller.take_bytes())
+        } else if result == kNotImplemented {
+            None
+        } else {
             return Err(Vst3Error::GetState(result));
-        }
-        Ok(PluginState {
-            format: PluginFormat::Vst3,
-            class_id: self.info.id.class_id().to_string(),
-            name: self.info.name.clone(),
-            vendor: self.info.vendor.clone(),
-            version: self.info.version.clone(),
-            component,
-            controller: controller.take_bytes(),
-        })
+        };
+        Ok(PluginState::new(&self.info, component, controller))
     }
 
     /// Restores a state saved from this plugin class. Edits not yet delivered are discarded.
@@ -364,12 +361,12 @@ impl Plugin {
 
     fn restore(&mut self, state: &PluginState, kind: StateKind) -> Result<(), Vst3Error> {
         state.validate().map_err(Vst3Error::Input)?;
-        if plughost_core::PluginId::new(state.format, state.class_id.as_str()) != self.info.id {
+        if state.id() != &self.info.id {
             return Err(Vst3Error::StateMismatch);
         }
         // Values the processing thread handed back predate the state and must not overwrite it.
         self.sync_controller();
-        let component = MemoryStream::from_bytes(&state.component, kind);
+        let component = MemoryStream::from_bytes(state.component(), kind);
         let result = {
             let mut engine = lock(&self.engine);
             let result = {
@@ -389,8 +386,10 @@ impl Plugin {
         // hosts do; some keep their controller-side values only through this call.
         component.rewind();
         controller_result(unsafe { self.controller.setComponentState(stream_ptr(&component)) })?;
-        if !state.controller.is_empty() {
-            let stream = MemoryStream::from_bytes(&state.controller, kind);
+        // An empty controller state is not passed on, as before 0.2.0: some controllers that
+        // write nothing refuse to read nothing.
+        if let Some(controller) = state.controller().filter(|state| !state.is_empty()) {
+            let stream = MemoryStream::from_bytes(controller, kind);
             controller_result(unsafe { self.controller.setState(stream_ptr(&stream)) })?;
         }
         self.seed_held_values();
@@ -399,23 +398,21 @@ impl Plugin {
 
     /// Restores a `.vstpreset` saved for this plugin class, telling the plugin it is a preset.
     pub fn restore_preset(&mut self, preset: &Preset) -> Result<(), crate::Error> {
-        if preset
-            .component
-            .len()
-            .saturating_add(preset.controller.len())
-            > plughost_core::MAX_STATE_BYTES
+        if plughost_core::PluginId::new(PluginFormat::Vst3, preset.class_id.as_str())
+            != self.info.id
         {
+            return Err(Vst3Error::StateMismatch.into());
+        }
+        let controller = preset.controller.as_ref().map_or(0, Vec::len);
+        if preset.component.len().saturating_add(controller) > plughost_core::MAX_STATE_BYTES {
             return Err(plughost_core::InputError::StateSize.into());
         }
-        let state = PluginState {
-            format: PluginFormat::Vst3,
-            class_id: preset.class_id.clone(),
-            name: self.info.name.clone(),
-            vendor: self.info.vendor.clone(),
-            version: self.info.version.clone(),
-            component: preset.component.clone(),
-            controller: preset.controller.clone(),
-        };
+        // The identity is the loaded plugin's: a preset holds none but its class ID.
+        let state = PluginState::new(
+            &self.info,
+            preset.component.clone(),
+            preset.controller.clone(),
+        );
         Ok(self.restore(&state, StateKind::Preset)?)
     }
 

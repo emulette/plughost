@@ -37,7 +37,7 @@ fn factory_programs_reach_the_processor_and_survive_immediate_state_save() {
         .save_state(plughost_core::StatePurpose::Project)
         .unwrap();
     assert_eq!(
-        f64::from_le_bytes(saved.component.clone().try_into().unwrap()),
+        f64::from_le_bytes(saved.component().try_into().unwrap()),
         0.25
     );
     let mut restored = plugin("plughost-test-delay");

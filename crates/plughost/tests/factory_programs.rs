@@ -38,7 +38,7 @@ fn factory_program_selection_is_prepared_and_saved_before_any_audio_block() {
     let saved = chain
         .save_state(0, plughost::StatePurpose::Project)
         .unwrap();
-    assert_eq!(saved.component, 0.25f64.to_le_bytes());
+    assert_eq!(saved.component(), 0.25f64.to_le_bytes());
     let parameters = chain.parameters(0).unwrap();
     assert_eq!(
         parameters.iter().find(|(info, _)| info.id == 0).unwrap().1,

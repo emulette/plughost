@@ -15,15 +15,11 @@ impl Host {
             Ok(preset) => preset,
             Err(error) => return rejected_or_failed(slot, &error),
         };
-        let state = PluginState {
-            format: info.id.format(),
-            class_id: preset.info.class_id,
-            name: info.name.clone(),
-            vendor: info.vendor.clone(),
-            version: info.version.clone(),
-            component: preset.component,
-            controller: preset.controller,
-        };
+        if PluginId::new(info.id.format(), preset.info.class_id) != info.id {
+            return mismatch(slot);
+        }
+        // The identity is the loaded plugin's: a preset holds none but its class ID.
+        let state = PluginState::new(info, preset.component, preset.controller);
         self.restore_state(slot, &state, plughost_core::StatePurpose::Preset)
     }
 
@@ -257,7 +253,7 @@ impl Host {
 
 /// Whether `state` was saved by the plugin class `info` describes.
 pub(super) fn same_class(info: &PluginInfo, state: &PluginState) -> bool {
-    info.id == PluginId::new(state.format, state.class_id.as_str())
+    &info.id == state.id()
 }
 
 pub(super) fn mismatch(slot: usize) -> Response {

@@ -92,6 +92,7 @@ const AUDIO_BUFFERS: &str = "audio buffers must match the bus channel count and 
 const AUDIO_SAMPLE_FORMAT: &str =
     "audio sample precision does not match the prepared configuration";
 const STATE_SIZE: &str = "plugin component and controller state together exceed the maximum size";
+const STATE_BYTES: &str = "the bytes are not a plugin state this plughost version can read";
 const PARAMETER_CHOICE_PAGE: &str =
     "parameter choice pages need a valid start index and a nonzero entry count within the maximum";
 const PRESET_SIZE: &str = "the preset file exceeds the maximum size";
@@ -172,6 +173,9 @@ pub enum InputError {
     AudioSampleFormat,
     /// Aggregate component and controller state exceeds `MAX_STATE_BYTES`.
     StateSize,
+    /// Bytes given to `PluginState::from_bytes` are not a state that plughost wrote, or are one
+    /// of a later format version.
+    StateBytes,
     /// A discrete-choice page has an invalid start index or count.
     ParameterChoicePage,
     /// Native preset bytes exceed `MAX_PRESET_BYTES`.
@@ -280,6 +284,7 @@ impl fmt::Display for InputError {
             Self::AudioBuffers => f.write_str(AUDIO_BUFFERS),
             Self::AudioSampleFormat => f.write_str(AUDIO_SAMPLE_FORMAT),
             Self::StateSize => write!(f, "{STATE_SIZE} ({} MiB)", crate::MAX_STATE_BYTES >> 20),
+            Self::StateBytes => f.write_str(STATE_BYTES),
             Self::ParameterChoicePage => write!(
                 f,
                 "{PARAMETER_CHOICE_PAGE} ({})",

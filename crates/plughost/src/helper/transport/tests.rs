@@ -238,15 +238,15 @@ fn a_request_too_large_for_a_message_is_not_mistaken_for_a_closed_connection() {
     identify(&mut transport, &mut peer);
     let oversized = Request::LoadState {
         slot: 0,
-        state: std::borrow::Cow::Owned(plughost_core::PluginState {
-            format: plughost_core::PluginFormat::Clap,
-            class_id: String::new(),
-            name: String::new(),
-            vendor: String::new(),
-            version: String::new(),
-            component: vec![0; plughost_core::ipc::MAX_MESSAGE_BYTES],
-            controller: Vec::new(),
-        }),
+        state: std::borrow::Cow::Owned(plughost_core::PluginState::new(
+            &plughost_core::PluginInfo::new(
+                plughost_core::PluginId::new(plughost_core::PluginFormat::Clap, ""),
+                "",
+                plughost_core::PluginKind::Effect,
+            ),
+            vec![0; plughost_core::ipc::MAX_MESSAGE_BYTES],
+            None,
+        )),
     };
     assert!(matches!(
         transport.queue(&oversized),

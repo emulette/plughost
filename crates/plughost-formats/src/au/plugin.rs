@@ -430,15 +430,10 @@ impl Plugin {
         let unit = self.shared_unit()?;
         let state = current_state(&unit, purpose)?;
         let component = plist::encode(&state, NSPropertyListFormat::BinaryFormat_v1_0)?;
-        Ok(PluginState {
-            format: PluginFormat::AudioUnit,
-            class_id: self.info.id.class_id().to_string(),
-            name: self.info.name.clone(),
-            vendor: self.info.vendor.clone(),
-            version: self.info.version.clone(),
-            component,
-            controller: Vec::new(),
-        })
+        if component.len() > plughost_core::MAX_STATE_BYTES {
+            return Err(AuError::StateTooLarge);
+        }
+        Ok(PluginState::new(&self.info, component, None))
     }
 
     pub(crate) fn restore_state(
@@ -450,10 +445,10 @@ impl Plugin {
         if purpose == plughost_core::StatePurpose::Duplicate {
             return Err(AuError::StatePurposeUnsupported);
         }
-        if plughost_core::PluginId::new(state.format, state.class_id.as_str()) != self.info.id {
+        if state.id() != &self.info.id {
             return Err(AuError::StateMismatch);
         }
-        let dictionary = plist::decode(&state.component)?;
+        let dictionary = plist::decode(state.component())?;
         let engine = lock(&self.engine);
         let unit = engine.unit()?;
         let before = engine.prepared.is_none().then(|| snapshot(unit, purpose));

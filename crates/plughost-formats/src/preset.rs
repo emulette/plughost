@@ -8,8 +8,8 @@ pub struct DecodedPreset {
     pub info: PresetInfo,
     /// Processor state, or the format's single state blob.
     pub component: Vec<u8>,
-    /// Optional VST3 controller state; empty for formats with one state blob.
-    pub controller: Vec<u8>,
+    /// VST3 controller state, when the preset has one; `None` for formats with one state blob.
+    pub controller: Option<Vec<u8>>,
 }
 
 /// Fails with an unsupported error unless this build can encode and decode the format's native
@@ -46,7 +46,7 @@ pub fn decode(format: PluginFormat, bytes: &[u8]) -> Result<DecodedPreset, Error
         PluginFormat::AudioUnit => Ok(DecodedPreset {
             info: crate::au::inspect_preset(bytes)?,
             component: crate::au::from_preset(bytes)?,
-            controller: Vec::new(),
+            controller: None,
         }),
         _ => Err(Error::new(Repr::PresetUnsupported)),
     }
@@ -55,11 +55,11 @@ pub fn decode(format: PluginFormat, bytes: &[u8]) -> Result<DecodedPreset, Error
 /// Encodes current native state. VST3 XML annotations belong to the caller, not plugin state;
 /// use `vst3::Preset` when writing caller-owned annotations.
 pub fn encode(state: &PluginState) -> Result<Vec<u8>, Error> {
-    match state.format {
+    match state.id().format() {
         #[cfg(feature = "vst3")]
         PluginFormat::Vst3 => bounded(crate::vst3::Preset::from_state(state).to_bytes()?),
         #[cfg(all(feature = "au", target_os = "macos"))]
-        PluginFormat::AudioUnit => bounded(crate::au::to_preset(&state.component)?),
+        PluginFormat::AudioUnit => bounded(crate::au::to_preset(state.component())?),
         _ => Err(Error::new(Repr::PresetUnsupported)),
     }
 }

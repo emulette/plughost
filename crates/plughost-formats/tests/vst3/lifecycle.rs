@@ -18,7 +18,7 @@ fn inactive_flush_provides_a_complete_zero_frame_context() {
     let state = plugin
         .save_state(plughost_core::StatePurpose::Project)
         .unwrap();
-    assert_eq!(&state.component[..8], &0.25f64.to_le_bytes());
+    assert_eq!(&state.component()[..8], &0.25f64.to_le_bytes());
     assert!(plugin.config().is_none());
 }
 

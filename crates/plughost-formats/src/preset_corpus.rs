@@ -7,7 +7,7 @@ fn corpus_vstpreset_keeps_native_chunks_and_rejects_invalid_ranges() {
     let preset = Preset::from_bytes(bytes).unwrap();
     assert_eq!(preset.class_id, "0123456789ABCDEF0123456789ABCDEF");
     assert_eq!(preset.component, [0x10, 0x20, 0x30]);
-    assert_eq!(preset.controller, [0x40, 0x50]);
+    assert_eq!(preset.controller.as_deref(), Some(&[0x40, 0x50][..]));
     assert_eq!(preset.info, b"<Meta/>");
     assert_eq!(preset.to_bytes().unwrap(), bytes);
     for bytes in [

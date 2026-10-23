@@ -65,7 +65,7 @@ pub fn prepare(case: Case, plugin: &PluginRef) -> Result<Prepared> {
         states.push(StateCost {
             save_seconds: save,
             restore_seconds: restore,
-            payload_bytes: saved.component.len() + saved.controller.len(),
+            payload_bytes: saved.component().len() + saved.controller().map_or(0, <[u8]>::len),
         });
     }
     let direct = Direct {

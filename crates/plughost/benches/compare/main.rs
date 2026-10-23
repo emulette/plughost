@@ -289,7 +289,7 @@ fn run(options: &Options) -> Result<()> {
     restored?;
     out!(
         "state ({} bytes): direct save {:.2} ms, restore {:.2} ms | isolated save {:.2} ms, restore into a fresh prepared instance {:.2} ms",
-        state.component.len() + state.controller.len(),
+        state.component().len() + state.controller().map_or(0, <[u8]>::len),
         save * 1e3,
         restore * 1e3,
         chain_save * 1e3,

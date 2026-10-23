@@ -886,8 +886,11 @@ fn controller_values_past_the_range_are_clamped_and_those_not_finite_read_as_zer
         .unwrap();
     // The test delay's state is its gain, which its controller takes as the gain's value.
     for (gain, value) in [(3.0f64, 1.0), (f64::NAN, 0.0)] {
-        let mut state = saved.clone();
-        state.component = gain.to_le_bytes().to_vec();
+        let state = plughost_core::PluginState::new(
+            plugin.info(),
+            gain.to_le_bytes().to_vec(),
+            saved.controller().map(<[u8]>::to_vec),
+        );
         plugin
             .restore_state(&state, plughost_core::StatePurpose::Project)
             .unwrap();
@@ -973,8 +976,11 @@ fn a_cyclic_unit_hierarchy_is_an_error_and_recovers() {
         .save_state(plughost_core::StatePurpose::Project)
         .unwrap();
     // The fixture makes a unit its own parent after a state with a negative gain is restored.
-    let mut broken = good.clone();
-    broken.component = (-1.0f64).to_le_bytes().to_vec();
+    let broken = plughost_core::PluginState::new(
+        plugin.info(),
+        (-1.0f64).to_le_bytes().to_vec(),
+        good.controller().map(<[u8]>::to_vec),
+    );
     assert!(
         plugin
             .restore_state(&broken, plughost_core::StatePurpose::Project)

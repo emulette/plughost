@@ -1,25 +1,27 @@
 use serde::{Deserialize, Serialize};
 
-use crate::plugin::PluginFormat;
+use crate::plugin::{PluginId, PluginInfo};
 
-/// A plugin's saved state with the identity of the class it belongs to. Where it is stored is up
-/// to the application.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+mod encoding;
+
+/// A plugin's saved state with the identity of the class it belongs to. Its contents are opaque:
+/// store it with [`PluginState::to_bytes`] and read it back with [`PluginState::from_bytes`],
+/// which later plughost versions keep reading. Where it is stored is up to the
+/// application.
+///
+/// The name, vendor and version are those of the plugin that saved it, for display: a restore
+/// checks only the [`PluginId`], so a state saved by another version of the plugin restores, and
+/// the plugin decides what to make of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginState {
-    /// Native plugin format owning the state payload.
-    pub format: PluginFormat,
-    /// Native class ID identifying the plugin that may restore this state.
-    pub class_id: String,
-    /// Plugin display name captured with the state.
-    pub name: String,
-    /// Plugin vendor captured with the state.
-    pub vendor: String,
-    /// Plugin version captured with the state.
-    pub version: String,
-    /// The processor's state. Formats with a single state blob store it here.
-    pub component: Vec<u8>,
-    /// The VST3 edit controller's own state; empty for other formats.
-    pub controller: Vec<u8>,
+    pub(crate) id: PluginId,
+    pub(crate) name: String,
+    pub(crate) vendor: String,
+    pub(crate) version: String,
+    /// The processor's state, or the single state blob of formats that have one.
+    pub(crate) component: Vec<u8>,
+    /// The VST3 edit controller's own state, when it has one; `None` for other formats.
+    pub(crate) controller: Option<Vec<u8>>,
 }
 
 /// Maximum aggregate processor and controller payload for one project state (128 MiB).
@@ -27,12 +29,79 @@ pub struct PluginState {
 pub const MAX_STATE_BYTES: usize = 128 << 20;
 
 impl PluginState {
+    /// A state of the loaded plugin `info` describes, which names its identity, with a
+    /// `controller` state only for VST3 and a payload of at most [`MAX_STATE_BYTES`]. Internal to
+    /// the plughost crates; exempt from semver.
+    #[doc(hidden)]
+    pub fn new(info: &PluginInfo, component: Vec<u8>, controller: Option<Vec<u8>>) -> PluginState {
+        PluginState {
+            id: info.id.clone(),
+            name: info.name.clone(),
+            vendor: info.vendor.clone(),
+            version: info.version.clone(),
+            component,
+            controller,
+        }
+    }
+
+    /// The plugin class that may restore this state.
+    pub fn id(&self) -> &PluginId {
+        &self.id
+    }
+
+    /// The display name of the plugin that saved the state.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The vendor of the plugin that saved the state, or empty when it gave none.
+    pub fn vendor(&self) -> &str {
+        &self.vendor
+    }
+
+    /// The version of the plugin that saved the state, or empty when it gave none.
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// The processor's state, or the format's single state blob. Internal to the plughost crates;
+    /// exempt from semver.
+    #[doc(hidden)]
+    pub fn component(&self) -> &[u8] {
+        &self.component
+    }
+
+    /// The VST3 edit controller's state, if it saved one. Internal to the plughost crates; exempt
+    /// from semver.
+    #[doc(hidden)]
+    pub fn controller(&self) -> Option<&[u8]> {
+        self.controller.as_deref()
+    }
+
     /// Checks the opaque payload before it is cloned or handed to a native plugin.
     pub fn validate(&self) -> Result<(), crate::InputError> {
-        if self.component.len().saturating_add(self.controller.len()) > MAX_STATE_BYTES {
+        let controller = self.controller.as_ref().map_or(0, Vec::len);
+        if self.component.len().saturating_add(controller) > MAX_STATE_BYTES {
             return Err(crate::InputError::StateSize);
         }
         Ok(())
+    }
+
+    /// The state in plughost's persisted form: a versioned container of tagged sections for the
+    /// identity and each native payload, independent of the helper protocol. Store these bytes;
+    /// [`PluginState::from_bytes`] reads them in this and later plughost versions.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        encoding::encode(self)
+    }
+
+    /// Reads bytes [`PluginState::to_bytes`] wrote, in this or an earlier plughost version from
+    /// 0.2.0 on,
+    /// without a plugin, so a state of a plugin that is not installed can be kept and written
+    /// again unchanged. Bytes that are not such a state fail with [`crate::InputError::StateBytes`],
+    /// and a payload over [`MAX_STATE_BYTES`] with [`crate::InputError::StateSize`], before
+    /// anything of that size is allocated.
+    pub fn from_bytes(bytes: &[u8]) -> Result<PluginState, crate::InputError> {
+        encoding::decode(bytes)
     }
 }
 

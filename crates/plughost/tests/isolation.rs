@@ -643,8 +643,11 @@ fn editors_open_while_the_chain_processes() {
         .unwrap();
     assert!(chain.editor_open(0).unwrap());
     assert!(max_difference(&process_block(&mut chain, &input), &input, 0.5) < 1e-6);
-    let mut broken = state;
-    broken.component.clear();
+    let broken = plughost::PluginState::new(
+        &chain.plugins()[0],
+        Vec::new(),
+        state.controller().map(<[u8]>::to_vec),
+    );
     assert_eq!(
         chain
             .restore_state(0, &broken, plughost::StatePurpose::Project)

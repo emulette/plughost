@@ -16,8 +16,9 @@ pub struct Preset {
     pub class_id: String,
     /// Opaque component state from the `Comp` chunk.
     pub component: Vec<u8>,
-    /// Opaque optional controller state from the `Cont` chunk.
-    pub controller: Vec<u8>,
+    /// Opaque controller state from the `Cont` chunk, which a plugin whose controller keeps no
+    /// state of its own has none of.
+    pub controller: Option<Vec<u8>>,
     /// Opaque XML metadata. Native/vendor attributes are preserved without reinterpretation.
     pub info: Vec<u8>,
 }
@@ -26,9 +27,9 @@ impl Preset {
     /// Copies native state into a container with no XML annotations.
     pub fn from_state(state: &PluginState) -> Self {
         Self {
-            class_id: state.class_id.clone(),
-            component: state.component.clone(),
-            controller: state.controller.clone(),
+            class_id: state.id().class_id().to_string(),
+            component: state.component().to_vec(),
+            controller: state.controller().map(<[u8]>::to_vec),
             info: Vec::new(),
         }
     }
@@ -43,13 +44,13 @@ impl Preset {
             return Err(Vst3Error::Preset);
         }
         let mut length = HEADER_LENGTH + 8;
-        let chunks: Vec<_> = [
-            (COMPONENT_ID, &self.component),
-            (CONTROLLER_ID, &self.controller),
-            (INFO_ID, &self.info),
+        let chunks: Vec<(&[u8; 4], &[u8])> = [
+            (COMPONENT_ID, Some(&self.component[..])),
+            (CONTROLLER_ID, self.controller.as_deref()),
+            (INFO_ID, (!self.info.is_empty()).then_some(&self.info[..])),
         ]
         .into_iter()
-        .filter(|(id, data)| *id == COMPONENT_ID || !data.is_empty())
+        .filter_map(|(id, data)| Some((id, data?)))
         .collect();
         for (_, data) in &chunks {
             length = length
@@ -159,7 +160,7 @@ impl Preset {
         Ok(Self {
             class_id,
             component: component.ok_or(Vst3Error::Preset)?,
-            controller: controller.unwrap_or_default(),
+            controller,
             info: info.unwrap_or_default(),
         })
     }
@@ -193,15 +194,19 @@ mod tests {
         Preset {
             class_id: "84E8DE5F92554F5396FAE4133C935A18".to_owned(),
             component: vec![1, 2, 3, 4, 5],
-            controller: controller.to_vec(),
+            controller: (!controller.is_empty()).then(|| controller.to_vec()),
             info: Vec::new(),
         }
     }
 
     #[test]
     fn written_files_read_back() {
-        for controller in [&[9u8, 8, 7][..], &[]] {
-            let preset = preset(controller);
+        // An empty controller chunk is kept apart from none.
+        for controller in [Some(vec![9u8, 8, 7]), Some(Vec::new()), None] {
+            let preset = Preset {
+                controller,
+                ..preset(&[])
+            };
             assert_eq!(
                 Preset::from_bytes(&preset.to_bytes().unwrap()).unwrap(),
                 preset

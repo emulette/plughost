@@ -47,7 +47,7 @@ fn native_and_helper_clap_state_contexts_reach_the_plugin() {
         chain
             .save_state(0, plughost::StatePurpose::Project)
             .unwrap()
-            .component,
+            .component(),
         0.25f64.to_le_bytes()
     );
 }
@@ -97,7 +97,7 @@ fn vst3_preset_file_roundtrip_validates_class_and_preserves_output_on_failure() 
     for controller in [false, true] {
         let mut rejected = preset.clone();
         if controller {
-            rejected.controller = (-1.0f64).to_le_bytes().to_vec();
+            rejected.controller = Some((-1.0f64).to_le_bytes().to_vec());
         } else {
             rejected.component = (-1.0f64).to_le_bytes().to_vec();
         }

@@ -152,7 +152,7 @@ fn isolated(
         states.push(lifecycle::StateCost {
             save_seconds: save,
             restore_seconds: restore,
-            payload_bytes: saved.component.len() + saved.controller.len(),
+            payload_bytes: saved.component().len() + saved.controller().map_or(0, <[u8]>::len),
         });
     }
     if chain.latency() != 0 || chain.tail() != plughost::Tail::Samples(0) {

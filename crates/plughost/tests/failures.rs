@@ -97,7 +97,7 @@ fn overflowing_chain_latency_is_reported_without_losing_the_helper() {
         !chain
             .save_state(0, plughost::StatePurpose::Project)
             .unwrap()
-            .component
+            .component()
             .is_empty()
     );
 }
@@ -143,11 +143,19 @@ fn format_errors_keep_their_category_and_slot_through_ipc() {
             1,
         );
         prepare(&mut chain);
-        let mut state = chain
+        let original = chain
             .save_state(1, plughost::StatePurpose::Project)
             .unwrap();
-        let original = state.clone();
-        state.class_id = "different-plugin".to_owned();
+        let other = plughost::PluginInfo::new(
+            plughost::PluginId::new(original.id().format(), "different-plugin"),
+            "",
+            plughost::PluginKind::Effect,
+        );
+        let state = plughost::PluginState::new(
+            &other,
+            original.component().to_vec(),
+            original.controller().map(<[u8]>::to_vec),
+        );
         check(
             chain
                 .restore_state(1, &state, plughost::StatePurpose::Project)

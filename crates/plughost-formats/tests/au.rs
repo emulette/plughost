@@ -142,12 +142,12 @@ fn an_effect_processes_and_its_state_survives_a_fresh_instance() {
         .unwrap();
     let edited = value(&mut plugin, DELAY_TIME);
     assert!((edited - 0.25).abs() < 1e-4);
-    let preset = au::to_preset(&state.component).unwrap();
+    let preset = au::to_preset(state.component()).unwrap();
     assert!(preset.starts_with(b"<?xml"));
 
     let mut fresh = Plugin::new(AU_DELAY).unwrap();
-    let mut restored = state.clone();
-    restored.component = au::from_preset(&preset).unwrap();
+    let restored =
+        plughost_core::PluginState::new(fresh.info(), au::from_preset(&preset).unwrap(), None);
     fresh
         .restore_state(&restored, plughost_core::StatePurpose::Project)
         .unwrap();

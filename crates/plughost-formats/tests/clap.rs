@@ -623,8 +623,11 @@ fn values_past_the_range_are_clamped_and_those_not_finite_read_as_zero() {
     let saved = plugin.save_state(StatePurpose::Project).unwrap();
     // The test delay's state is its gain, whose range is 0 to 1.
     for (gain, value) in [(3.0f64, 1.0), (f64::NAN, 0.0)] {
-        let mut state = saved.clone();
-        state.component = gain.to_le_bytes().to_vec();
+        let state = plughost_core::PluginState::new(
+            HostedPlugin::info(&plugin),
+            gain.to_le_bytes().to_vec(),
+            saved.controller().map(<[u8]>::to_vec),
+        );
         plugin.restore_state(&state, StatePurpose::Project).unwrap();
         assert_eq!(parameter_value(&mut plugin, GAIN), value, "{gain}");
     }

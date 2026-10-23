@@ -41,12 +41,14 @@ fn oversized_direct_restore_is_rejected_before_discarding_pending_edits() {
                 mode: ProcessMode::Offline,
             })
             .unwrap();
-        let mut state = plugin
+        let saved = plugin
             .save_state(plughost_core::StatePurpose::Project)
             .unwrap();
-        state
-            .controller
-            .resize(MAX_STATE_BYTES - state.component.len() + 1, 0);
+        let state = plughost_core::PluginState::new(
+            plugin.info(),
+            saved.component().to_vec(),
+            Some(vec![0; MAX_STATE_BYTES - saved.component().len() + 1]),
+        );
         plugin.set_parameter(0, 0.5).unwrap();
         assert_eq!(
             plugin
@@ -59,6 +61,6 @@ fn oversized_direct_restore_is_rejected_before_discarding_pending_edits() {
         let saved = plugin
             .save_state(plughost_core::StatePurpose::Project)
             .unwrap();
-        assert_eq!(&saved.component[..8], &0.5f64.to_le_bytes());
+        assert_eq!(&saved.component()[..8], &0.5f64.to_le_bytes());
     }
 }

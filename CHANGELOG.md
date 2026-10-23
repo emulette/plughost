@@ -15,9 +15,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   `"vst3"`, `"audio-unit"` and `"clap"`, for storing with the work that uses the plugin.
   `Catalog::resolve(&id)` finds the installed class as a `PluginRef`, from the highest priority
   directory, and `BundleScan::plugins()` gives the references of one scanned bundle.
+- `PluginState::to_bytes` and `PluginState::from_bytes` store a state in plughost's own
+  versioned format, which later versions keep reading and which does not depend on the helper
+  protocol; 0.1 states, which had only a serde form, cannot be read and are saved again. It is
+  a container of tagged sections for the identity and the native payloads, with a VST3
+  controller state kept apart from its component and absent, not empty, when the controller
+  has none. Reading needs no plugin, writes a state back unchanged, and checks every
+  length against `MAX_STATE_BYTES` before allocating; bytes it cannot read fail with the new
+  `InputError::StateBytes`.
 
 ### Changed
 
+- `PluginState`'s fields are private and it has no serde form: store `to_bytes()` instead of
+  serializing it. `id()` replaces `format` and `class_id`, and `name()`, `vendor()` and
+  `version()` the fields of those names. A restore checks only the `PluginId`, not the plugin
+  version. `vst3::Preset::controller` and `DecodedPreset::controller` are an `Option`, `None`
+  for a preset without a `Cont` chunk; an empty `Cont` chunk is kept when a preset is written
+  again, where it was dropped. An empty VST3 controller state is still not passed to the
+  controller when restoring.
+- An Audio Unit state over `MAX_STATE_BYTES` fails to save, as one of the other formats does.
 - `PluginRef` holds a `PluginId` and the bundle, both private: build it with
   `PluginRef::vst3(bundle, class_id)`, `PluginRef::clap(bundle, class_id)` or
   `PluginRef::audio_unit(class_id)` and read it with `id()` and `bundle()`, so a VST3 or CLAP

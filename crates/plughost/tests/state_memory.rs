@@ -83,9 +83,11 @@ fn measure<T>(action: impl FnOnce() -> T) -> (T, Measurement) {
 fn transfer(payload: usize) -> [Measurement; 2] {
     let mut chain = support::spawn(&[support::delay(PluginFormat::Clap)]);
     chain.set_parameter(0, 0, 0.375).unwrap();
-    let mut state = chain.save_state(0, StatePurpose::Project).unwrap();
+    let saved = chain.save_state(0, StatePurpose::Project).unwrap();
     // This fixture reads the initial gain and ignores the remaining native state bytes.
-    state.component.resize(payload, 42);
+    let mut component = saved.component().to_vec();
+    component.resize(payload, 42);
+    let state = plughost::PluginState::new(&chain.plugins()[0], component, None);
     let (_, restore) = measure(|| {
         chain
             .restore_state(0, &state, StatePurpose::Project)

@@ -47,7 +47,7 @@ fn provider_declarations_and_metadata_preserve_native_load_identity() {
             plugin
                 .save_state(plughost_core::StatePurpose::Project)
                 .unwrap()
-                .component,
+                .component(),
             gain.to_le_bytes()
         );
     }
@@ -150,7 +150,7 @@ fn load_observes_return_status_and_error_callbacks() {
         plugin
             .save_state(plughost_core::StatePurpose::Project)
             .unwrap()
-            .component,
+            .component(),
         0.25f32.to_le_bytes()
     );
 }

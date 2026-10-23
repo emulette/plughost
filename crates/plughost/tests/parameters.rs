@@ -118,10 +118,14 @@ fn rejected_partial_state_preserves_pending_edits_and_dsp_history() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let mut candidate = chain(format);
         let mut control = chain(format);
-        let mut broken = candidate
+        let saved = candidate
             .save_state(0, plughost::StatePurpose::Project)
             .unwrap();
-        broken.component = (-1.0f64).to_le_bytes().to_vec();
+        let broken = PluginState::new(
+            &candidate.plugins()[0],
+            (-1.0f64).to_le_bytes().to_vec(),
+            saved.controller().map(<[u8]>::to_vec),
+        );
         // Prove this payload reaches a native loader that mutates before returning an error.
         let mut native =
             plughost_formats::load(&reference(format), &HostIdentity::default()).unwrap();
@@ -136,8 +140,8 @@ fn rejected_partial_state_preserves_pending_edits_and_dsp_history() {
             native
                 .save_state(plughost::StatePurpose::Project)
                 .unwrap()
-                .component,
-            broken.component
+                .component(),
+            broken.component()
         );
         for c in [&mut candidate, &mut control] {
             c.set_parameter(0, 0, 0.75).unwrap();
@@ -166,8 +170,11 @@ fn rejected_partial_state_preserves_pending_edits_and_dsp_history() {
         let good = control
             .save_state(0, plughost::StatePurpose::Project)
             .unwrap();
-        let mut wrong = good.clone();
-        wrong.class_id = "wrong class".into();
+        let wrong = PluginState::new(
+            &PluginInfo::new(PluginId::new(format, "wrong class"), "", PluginKind::Effect),
+            good.component().to_vec(),
+            good.controller().map(<[u8]>::to_vec),
+        );
         assert_eq!(
             candidate
                 .restore_state(0, &wrong, plughost::StatePurpose::Project)
@@ -183,9 +190,11 @@ fn rejected_partial_state_preserves_pending_edits_and_dsp_history() {
         );
         if format == PluginFormat::Vst3 {
             // A rejection by the edit controller is not reported as a successful restore either.
-            let mut rejected = good.clone();
-            rejected.component = 0.75f64.to_le_bytes().to_vec();
-            rejected.controller = (-1.0f64).to_le_bytes().to_vec();
+            let rejected = PluginState::new(
+                &candidate.plugins()[0],
+                0.75f64.to_le_bytes().to_vec(),
+                Some((-1.0f64).to_le_bytes().to_vec()),
+            );
             assert_eq!(
                 candidate
                     .restore_state(0, &rejected, plughost::StatePurpose::Project)
@@ -221,8 +230,11 @@ fn candidate_prepare_failure_preserves_original_output() {
         let original = chain
             .save_state(0, plughost::StatePurpose::Project)
             .unwrap();
-        let mut rejected = original.clone();
-        rejected.component = 42.0f64.to_le_bytes().to_vec();
+        let rejected = PluginState::new(
+            &chain.plugins()[0],
+            42.0f64.to_le_bytes().to_vec(),
+            original.controller().map(<[u8]>::to_vec),
+        );
         assert_eq!(
             chain
                 .restore_state(0, &rejected, plughost::StatePurpose::Project)

@@ -108,6 +108,10 @@ pub enum Request<'a> {
     /// one message.
     LoadState {
         slot: usize,
+        #[serde(
+            serialize_with = "state::serialize",
+            deserialize_with = "state::deserialize_cow"
+        )]
         state: Cow<'a, PluginState>,
     },
     /// One block through the chain, with events on the chain's external event inputs.
@@ -167,6 +171,10 @@ pub enum Request<'a> {
     },
     RestoreState {
         slot: usize,
+        #[serde(
+            serialize_with = "state::serialize",
+            deserialize_with = "state::deserialize_cow"
+        )]
         state: Cow<'a, PluginState>,
         purpose: StatePurpose,
     },
@@ -295,7 +303,7 @@ pub enum Response {
     ParameterChoices(crate::ParameterChoicePage),
     ParameterText(String),
     ParameterValue(f64),
-    State(PluginState),
+    State(#[serde(with = "state")] PluginState),
     PresetInfo(PresetInfo),
     Preset(Vec<u8>),
     StateRestored {
@@ -328,6 +336,7 @@ pub enum AudioSamples {
 }
 
 mod framing;
+mod state;
 pub use framing::{FrameDecoder, MessageReader, MessageWriter, encode_message, write_message};
 
 pub mod shared;
