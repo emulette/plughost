@@ -1,12 +1,11 @@
 //! Serial, explicitly routed audio. Preparation resolves native bus identities to channel ranges.
 //! Each block is validated here, at the helper's IPC boundary, before any slot or delay advances.
 use super::*;
+use plughost_core::internal::events_fit;
 use plughost_core::ipc::AudioSamples;
 use plughost_core::ipc::shared::Caller;
 use plughost_core::messages::CHAIN_NOT_PREPARED;
-use plughost_core::{
-    Events, Failure, FailureKind, InputError, RoutedChainConfig, Sample, events_fit,
-};
+use plughost_core::{Events, Failure, FailureKind, InputError, RoutedChainConfig, Sample};
 use std::io;
 use std::ops::{Add, Mul};
 
@@ -175,7 +174,7 @@ fn validate<S: WireSample>(
     events: &Events,
 ) -> Result<(), InputError> {
     context.validate()?;
-    plughost_core::validate_event_budget(automation.len(), events)?;
+    plughost_core::internal::validate_event_budget(automation.len(), events)?;
     if let Some(event) = events
         .iter()
         .find(|event| event.port >= config.event_inputs)
@@ -199,7 +198,7 @@ fn validate<S: WireSample>(
     }
     if automation.iter().any(|event| {
         event.slot >= config.slots.len()
-            || !plughost_core::changes_fit(&[event.change], context.frames)
+            || !plughost_core::internal::changes_fit(&[event.change], context.frames)
     }) || automation
         .windows(2)
         .any(|events| events[0].change.offset > events[1].change.offset)

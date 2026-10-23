@@ -38,9 +38,8 @@ use clack_extensions::tail::{HostTail, HostTailImpl, PluginTail};
 use clack_extensions::thread_check::{HostThreadCheck, HostThreadCheckImpl};
 use clack_extensions::timer::{HostTimer, HostTimerImpl, PluginTimer, TimerId};
 use clack_host::prelude::*;
-use plughost_core::PluginId;
-use plughost_core::{DiagnosticBuffer, DiagnosticSeverity};
-use plughost_core::{ParameterEvent, ParameterEventBuffer};
+use plughost_core::internal::{DiagnosticBuffer, ParameterEventBuffer};
+use plughost_core::{DiagnosticSeverity, ParameterEvent, PluginId};
 
 thread_local! {
     /// Set while this thread calls into the plugin's audio processor under the engine lock, which

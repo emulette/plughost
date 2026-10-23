@@ -213,12 +213,13 @@ impl Chain {
                 .validate_at_rate(config.sample_rate)
                 .map_err(|error| Error::Input { slot: None, error })?;
         }
-        plughost_core::validate_event_budget(automation.len(), events)
+        plughost_core::internal::validate_event_budget(automation.len(), events)
             .map_err(|error| Error::Input { slot: None, error })?;
         self.validate_render_events(events)?;
         let frames = context.frames;
         if automation.iter().any(|event| {
-            event.slot >= self.plugins.len() || !plughost_core::changes_fit(&[event.change], frames)
+            event.slot >= self.plugins.len()
+                || !plughost_core::internal::changes_fit(&[event.change], frames)
         }) || automation
             .windows(2)
             .any(|pair| pair[0].change.offset > pair[1].change.offset)

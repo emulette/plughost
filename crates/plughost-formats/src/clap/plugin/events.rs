@@ -6,7 +6,8 @@ use clack_host::events::event_types::{
 };
 use clack_host::events::spaces::CoreEventSpace;
 use clack_host::events::{Event as _, UnknownEvent};
-use plughost_core::{ParameterEvent, ParameterEventBatch, ParameterEventBuffer};
+use plughost_core::internal::ParameterEventBuffer;
+use plughost_core::{ParameterEvent, ParameterEventBatch};
 
 /// The core event a plugin's output `event` is, when its header gives the size of its type.
 /// `UnknownEvent::as_core_event` reads the type alone, so an event the plugin declared shorter

@@ -1,5 +1,6 @@
 use crate::{Error, HostedPlugin};
-use plughost_core::{InputError, ParameterChoice, ParameterChoicePage, validate_choice_page};
+use plughost_core::internal::validate_choice_page;
+use plughost_core::{InputError, ParameterChoice, ParameterChoicePage};
 
 pub(crate) fn read<P: HostedPlugin + ?Sized>(
     plugin: &mut P,

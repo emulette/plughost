@@ -35,7 +35,8 @@ impl Processor {
                 .validate_at_rate(prepared.config.sample_rate)
                 .map_err(ClapError::Input)?;
         }
-        plughost_core::validate_event_budget(automation.len(), events).map_err(ClapError::Input)?;
+        plughost_core::internal::validate_event_budget(automation.len(), events)
+            .map_err(ClapError::Input)?;
         if let Some(event) = events.iter().find(|event| {
             prepared
                 .event_inputs
@@ -76,7 +77,7 @@ impl Processor {
         {
             return Err(ClapError::Input(plughost_core::InputError::AudioBuffers));
         }
-        if !plughost_core::changes_fit(automation, frames) {
+        if !plughost_core::internal::changes_fit(automation, frames) {
             return Err(ClapError::Input(plughost_core::InputError::Automation));
         }
         if frames == 0 {

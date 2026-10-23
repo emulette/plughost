@@ -33,11 +33,12 @@ use std::time::{Duration, Instant};
 
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::{GenericNamespaced, SendHalf, Stream};
+use plughost_core::internal::DiagnosticBuffer;
 use plughost_core::ipc::shared::transfer;
 use plughost_core::ipc::{
     Hello, MessageReader, MessageWriter, PROTOCOL_VERSION, Request, Response,
 };
-use plughost_core::{DiagnosticBuffer, Failure, FailureKind};
+use plughost_core::{Failure, FailureKind};
 
 use crate::errors::{CONNECT, USAGE};
 

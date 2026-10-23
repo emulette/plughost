@@ -223,7 +223,8 @@ mod tests {
     use clack_host::events::event_types::{
         NoteChokeEvent, NoteEndEvent, NoteExpressionEvent, NoteExpressionType,
     };
-    use plughost_core::{Events, ParameterEventBuffer};
+    use plughost_core::Events;
+    use plughost_core::internal::ParameterEventBuffer;
 
     /// What the plugin's `events` become in one block, and how many had no portable form.
     fn block(sounding: &mut Sounding, events: &[&UnknownEvent]) -> (Events, u64) {

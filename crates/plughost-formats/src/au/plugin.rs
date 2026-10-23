@@ -34,11 +34,12 @@ use objc2_audio_toolbox::{
 use objc2_core_audio_types::{AudioBufferList, AudioTimeStamp};
 use objc2_core_foundation::CFString;
 use objc2_foundation::{NSError, NSInteger, NSPropertyListFormat, NSString};
+use plughost_core::internal::events_fit;
 use plughost_core::render::Tail;
 use plughost_core::{Capabilities, Support};
 use plughost_core::{
     Event, EventData, ParameterInfo, PluginFormat, PluginInfo, PluginState, PluginTiming,
-    ProcessConfig, ProcessMode, SampleFormat, events_fit,
+    ProcessConfig, ProcessMode, SampleFormat,
 };
 
 use super::components::{component, parse_class_id};
@@ -844,7 +845,8 @@ impl Engine {
                 .validate_at_rate(prepared.config.sample_rate)
                 .map_err(AuError::Input)?;
         }
-        plughost_core::validate_event_budget(automation.len(), events).map_err(AuError::Input)?;
+        plughost_core::internal::validate_event_budget(automation.len(), events)
+            .map_err(AuError::Input)?;
         // An AU MIDI event carries at most 65,535 bytes; longer messages fail before any part of
         // the block is scheduled.
         let native = |event: Event<'_>| match event.data {
@@ -872,7 +874,7 @@ impl Engine {
         {
             return Err(AuError::Input(plughost_core::InputError::AudioBuffers));
         }
-        if !plughost_core::changes_fit(automation, frames) {
+        if !plughost_core::internal::changes_fit(automation, frames) {
             return Err(AuError::Input(plughost_core::InputError::Automation));
         }
         if frames == 0 {

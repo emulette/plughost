@@ -9,7 +9,8 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::thread::ThreadId;
 
-use plughost_core::{ParameterEvent, ParameterEventBuffer};
+use plughost_core::ParameterEvent;
+use plughost_core::internal::ParameterEventBuffer;
 use vst3::Steinberg::Vst::IAttributeList_::AttrID;
 use vst3::Steinberg::Vst::{
     Event, IAttributeList, IAttributeListTrait, IComponentHandler, IComponentHandlerTrait,

@@ -86,7 +86,7 @@ impl SharedAudio {
         events: &Events,
     ) -> io::Result<Submission> {
         self.check_source(input, self.descriptor.config.input_channels, frames)?;
-        if crate::validate_event_budget(automation.len(), events).is_err() {
+        if crate::event::validate_event_budget(automation.len(), events).is_err() {
             return Err(invalid(BLOCK));
         }
         self.write_pcm(self.layout.input, input);
@@ -131,7 +131,7 @@ impl SharedAudio {
             self.descriptor.config.output_channels,
             submission.frames,
         )?;
-        if crate::validate_event_budget(0, events).is_err() {
+        if crate::event::validate_event_budget(0, events).is_err() {
             return Err(invalid(BLOCK));
         }
         self.write_pcm(self.layout.output, output);
@@ -183,7 +183,7 @@ impl SharedAudio {
     ) -> io::Result<()> {
         self.check_submission(submission)?;
         self.read_events(self.layout.output_events, event_count, events, skipped)?;
-        if !crate::events_fit(events, submission.frames)
+        if !crate::event::events_fit(events, submission.frames)
             || events.iter().any(|event| event.port >= event_ports)
         {
             return Err(invalid(EVENTS));

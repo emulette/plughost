@@ -1,9 +1,8 @@
 use super::{AUParameter, AuError, Plugin, Retained, lock, parameter_info};
 use objc2::msg_send;
 use objc2_foundation::NSString;
-use plughost_core::{
-    InputError, PARAMETER_TEXT_BYTES, validate_normalized, validate_parameter_text,
-};
+use plughost_core::internal::{validate_normalized, validate_parameter_text};
+use plughost_core::{InputError, PARAMETER_TEXT_BYTES};
 
 impl Plugin {
     pub(crate) fn parameter_details(

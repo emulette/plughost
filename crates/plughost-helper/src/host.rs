@@ -10,10 +10,11 @@ mod timing;
 
 use std::sync::Arc;
 
+use plughost_core::internal::{DiagnosticBuffer, ParameterEventBuffer};
 use plughost_core::ipc::shared::{Caller, transfer};
 use plughost_core::ipc::{Request, Response};
 use plughost_core::render::Tail;
-use plughost_core::{AudioConfig, Capabilities, CapabilityReport, DiagnosticBuffer, Support};
+use plughost_core::{AudioConfig, Capabilities, CapabilityReport, Support};
 use plughost_core::{Failure, FailureKind, HostIdentity, InputError, RoutedChainConfig};
 use plughost_core::{PluginRef, PluginState, StatePurpose};
 use plughost_formats::{EditorRequest, Error, HostedPlugin};
@@ -26,7 +27,7 @@ use crate::process::{AudioThread, Command, Pipeline, Processing};
 
 pub struct Host {
     slots: Vec<Box<dyn HostedPlugin>>,
-    parameter_events: Vec<plughost_core::ParameterEventBuffer>,
+    parameter_events: Vec<ParameterEventBuffer>,
     references: Vec<PluginRef>,
     identity: HostIdentity,
     retired_diagnostics: plughost_core::DiagnosticBatch,

@@ -304,7 +304,7 @@ impl Plugin {
         let parameters = Arc::clone(&self.parameters.borrow());
         parameters.take_controller_values(|id, value, from_processor| {
             unsafe { self.controller.setParamNormalized(id, value) };
-            if from_processor && plughost_core::validate_normalized(value).is_ok() {
+            if from_processor && plughost_core::internal::validate_normalized(value).is_ok() {
                 self.handler.events.record(ParameterEvent::Value {
                     id: u64::from(id),
                     normalized: value,

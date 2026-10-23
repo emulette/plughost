@@ -118,7 +118,7 @@ impl RenderSchedule<'_> {
             || self
                 .automation
                 .iter()
-                .any(|p| !crate::changes_fit(&[p.change], frames))
+                .any(|p| !crate::parameter::changes_fit(&[p.change], frames))
         {
             return Err(InputError::Automation);
         }
@@ -273,11 +273,11 @@ impl<'a> Timeline<'a> {
                 ..midi.partition_point(|offset| offset <= time);
             let ramps = starts.partition_point(|&index| self.ramps[index].start <= time)
                 - ends.partition_point(|&index| self.ramps[index].end < time);
-            crate::validate_event_count(points, notes.len())?;
+            crate::event::validate_event_count(points, notes.len())?;
             if midi.sysex_bytes_in(notes.clone()) > crate::MAX_BLOCK_SYSEX_BYTES {
                 return Err(InputError::EventCapacity);
             }
-            crate::validate_event_count(points + notes.len(), ramps)?;
+            crate::event::validate_event_count(points + notes.len(), ramps)?;
         }
         Ok(())
     }

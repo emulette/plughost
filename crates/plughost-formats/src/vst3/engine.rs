@@ -13,10 +13,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use plughost_core::internal::events_fit;
 use plughost_core::render::Tail;
 use plughost_core::{
     AudioBusInfo, AudioConfig, AudioDirection, EventData, ExpressionKind, Layout, Message,
-    ParameterChange, PluginTiming, ProcessConfig, ProcessMode, Sample, SampleFormat, events_fit,
+    ParameterChange, PluginTiming, ProcessConfig, ProcessMode, Sample, SampleFormat,
 };
 use vst3::Steinberg::Vst::ControllerNumbers_::{kAfterTouch, kCtrlProgramChange, kPitchBend};
 use vst3::Steinberg::Vst::DataEvent_::DataTypes_;
@@ -337,7 +338,8 @@ impl Engine {
                 .validate_at_rate(prepared.config.sample_rate)
                 .map_err(Vst3Error::Input)?;
         }
-        plughost_core::validate_event_budget(changes.len(), events).map_err(Vst3Error::Input)?;
+        plughost_core::internal::validate_event_budget(changes.len(), events)
+            .map_err(Vst3Error::Input)?;
         if let Some(event) = events.iter().find(|event| {
             !prepared
                 .event_inputs
@@ -362,7 +364,7 @@ impl Engine {
         {
             return Err(Vst3Error::Input(plughost_core::InputError::AudioBuffers));
         }
-        if !plughost_core::changes_fit(changes, frames) {
+        if !plughost_core::internal::changes_fit(changes, frames) {
             return Err(Vst3Error::Input(plughost_core::InputError::Automation));
         }
         if frames == 0 {

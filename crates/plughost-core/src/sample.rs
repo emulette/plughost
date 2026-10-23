@@ -36,10 +36,9 @@ impl Sample for f64 {
 }
 
 /// What a block of audio holds, as rendering checks each block it delivers, and realtime
-/// processing is to. Internal to the plughost crates; exempt from semver.
-#[doc(hidden)]
+/// processing is to.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Level {
+pub(crate) struct Level {
     /// The largest magnitude among the finite samples, 0 without any.
     pub peak: f64,
     /// The first frame at which a channel holds a NaN or infinite sample, as an index into the
@@ -48,8 +47,7 @@ pub struct Level {
 }
 
 /// Measures `frames` of each channel.
-#[doc(hidden)]
-pub fn level<S: Sample, C: AsRef<[S]>>(channels: &[C], frames: Range<usize>) -> Level {
+pub(crate) fn level<S: Sample, C: AsRef<[S]>>(channels: &[C], frames: Range<usize>) -> Level {
     let mut level = Level {
         peak: 0.0,
         non_finite: None,

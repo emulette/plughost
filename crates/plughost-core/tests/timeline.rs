@@ -59,8 +59,9 @@ impl Process<f32> for Instrument {
         _produced: &mut Events,
     ) -> Result<(), RenderError> {
         self.contexts.push(*context);
-        plughost_core::validate_event_count(automation.len(), midi.len())
-            .map_err(RenderError::Input)?;
+        if automation.len() + midi.len() > plughost_core::MAX_BLOCK_EVENTS {
+            return Err(RenderError::Input(InputError::EventCapacity));
+        }
         for event in midi {
             self.midi
                 .push(event.at(event.offset + self.processed))

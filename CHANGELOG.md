@@ -52,11 +52,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Events are passed as `&Events` and produced into `&mut Events` instead of `&[Event]` and
   `&mut Vec<Event>`: in `Chain::process_audio_*`, `RealtimeEndpoint::process_audio_*`,
   `render`, `render_with_schedule`, `RenderInput`, `Delivery`, the `Process` trait,
-  `events_fit`, `validate_event_budget`, `BlockProcessor` and the format plugins' processing
-  calls, and `Rendered::events` is an `Events`. `plughost_core::sysex_bytes` is removed; read
-  `Events::sysex_bytes()`. Write `&Events::new()` for no events and
-  `&Events::from_iter([Event::note_on(0, 0, 60, 100)])` for a literal list, and reuse an
-  `Events::for_block()` for `produced`. `Event` and `EventData` are `Copy` with a lifetime:
+  `BlockProcessor` and the format plugins' processing calls, and `Rendered::events` is an
+  `Events`. `plughost_core::sysex_bytes` is removed; read `Events::sysex_bytes()`. Write
+  `&Events::new()` for no events and `&Events::from_iter([Event::note_on(0, 0, 60, 100)])` for a
+  literal list, and reuse an `Events::for_block()` for `produced`. `Event` and `EventData` are `Copy` with a lifetime:
   `EventData::SysEx` borrows its bytes, from the `Events` it was read from or from the caller,
   so `Event::sysex(offset, &bytes)` takes a slice and `.clone()` calls become copies.
 - A realtime endpoint delivers the output's system exclusive events into `produced`, which it
@@ -149,6 +148,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   as are the enums `Message`, `AudioBusRole`, `AudioDirection`, `AudioSource`, `EventSource`,
   `ChannelAdaptation`, `Support`, `SampleFormat`, `ProcessMode`, `Tail`, `SessionState`,
   `PresetLocation`, `EditorRequest` and `EditorView`, which need a wildcard arm in a `match`.
+- plughost-core no longer exports from its root the buffers and checks the plughost crates
+  share among themselves: `DiagnosticBuffer`, `ChangeBuffer`, `ParameterEventBuffer`,
+  `events_fit`, `validate_event_budget`, `changes_fit`, `validate_normalized`,
+  `validate_parameter_text` and `validate_choice_page` are internal, and `validate_event_count`
+  is no longer public.
 - `HostedPlugin`, `BlockProcessor` and `Sample` are sealed: the format plugins and processors
   and `f32` and `f64` implement them, and other crates cannot. `render::Process` and
   `AudioThread` remain for applications to implement. With `Sample` sealed, processing no longer

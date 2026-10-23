@@ -1,7 +1,7 @@
 //! Parameter delivery between blocks on the thread assigned by CLAP.
 
 use super::*;
-use plughost_core::ParameterEventBuffer;
+use plughost_core::internal::ParameterEventBuffer;
 
 impl Plugin {
     /// Delivers queued host edits and any changes the plugin asked to flush.

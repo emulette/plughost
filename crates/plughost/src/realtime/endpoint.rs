@@ -202,15 +202,16 @@ impl RealtimeEndpoint {
         if let Some(transport) = context.transport {
             transport.validate_at_rate(self.sample_rate)?;
         }
-        plughost_core::validate_event_budget(automation.len(), events)?;
+        plughost_core::internal::validate_event_budget(automation.len(), events)?;
         if let Some(event) = events.iter().find(|event| event.port >= self.event_inputs) {
             return Err(InputError::EventPort { port: event.port });
         }
-        if !plughost_core::events_fit(events, context.frames) {
+        if !plughost_core::internal::events_fit(events, context.frames) {
             return Err(InputError::Events);
         }
         if automation.iter().any(|event| {
-            event.slot >= self.slots || !plughost_core::changes_fit(&[event.change], context.frames)
+            event.slot >= self.slots
+                || !plughost_core::internal::changes_fit(&[event.change], context.frames)
         }) || automation
             .windows(2)
             .any(|pair| pair[0].change.offset > pair[1].change.offset)

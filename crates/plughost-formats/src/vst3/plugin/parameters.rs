@@ -1,5 +1,6 @@
 use super::{Plugin, Vst3Error, wide_string};
-use plughost_core::{InputError, validate_normalized, validate_parameter_text};
+use plughost_core::InputError;
+use plughost_core::internal::{validate_normalized, validate_parameter_text};
 use vst3::Steinberg::Vst::{IEditControllerTrait, String128};
 use vst3::Steinberg::kResultOk;
 

@@ -33,8 +33,7 @@ mod transport;
 pub use capabilities::{Capabilities, CapabilityReport, Support};
 pub use config::{Layout, ProcessConfig, ProcessMode, SampleFormat};
 pub use diagnostics::{
-    DIAGNOSTIC_CAPACITY, DIAGNOSTIC_MESSAGE_BYTES, Diagnostic, DiagnosticBatch, DiagnosticBuffer,
-    DiagnosticSeverity,
+    DIAGNOSTIC_CAPACITY, DIAGNOSTIC_MESSAGE_BYTES, Diagnostic, DiagnosticBatch, DiagnosticSeverity,
 };
 pub use errors::{Failure, FailureKind, InputError, RenderError};
 
@@ -51,36 +50,48 @@ pub mod messages {
 /// exempt from semver.
 #[doc(hidden)]
 pub mod audit;
+/// Buffers and checks the plughost crates share. Internal to plughost, plughost-formats, and
+/// plughost-helper; exempt from semver.
+#[doc(hidden)]
+pub mod internal {
+    pub use crate::changes::ChangeBuffer;
+    pub use crate::diagnostics::DiagnosticBuffer;
+    pub use crate::event::{events_fit, validate_event_budget};
+    pub use crate::parameter::{
+        changes_fit, validate_choice_page, validate_normalized, validate_parameter_text,
+    };
+    pub use crate::parameter_events::ParameterEventBuffer;
+}
 pub use event::{
     Event, EventData, Events, ExpressionKind, Iter as EventsIter, MAX_BLOCK_EVENTS,
-    MAX_BLOCK_SYSEX_BYTES, MAX_NOTE_ID, Message, Note, NoteExpression, events_fit,
-    validate_event_budget, validate_event_count,
+    MAX_BLOCK_SYSEX_BYTES, MAX_NOTE_ID, Message, Note, NoteExpression,
 };
 pub use event_routing::{
     EventConfig, EventInputRoute, EventPortInfo, EventSource, MAX_EVENT_PORTS, SlotEventConfig,
 };
 pub use host::HostIdentity;
-pub use parameter::{AutomationEvent, ParameterChange, ParameterFlags, ParameterInfo, changes_fit};
-pub use parameter::{PARAMETER_TEXT_BYTES, validate_normalized, validate_parameter_text};
-pub use parameter_events::{
-    PARAMETER_EVENT_CAPACITY, ParameterEvent, ParameterEventBatch, ParameterEventBuffer,
+pub use parameter::{
+    AutomationEvent, PARAMETER_TEXT_BYTES, ParameterChange, ParameterFlags, ParameterInfo,
 };
+pub use parameter_events::{PARAMETER_EVENT_CAPACITY, ParameterEvent, ParameterEventBatch};
 pub use plugin::{ClassId, PluginFormat, PluginId, PluginInfo, PluginKind, PluginRef};
 pub use sample::Sample;
-#[doc(hidden)]
-pub use sample::{Level, level};
 pub use state::{MAX_STATE_BYTES, PluginState};
 pub use transport::{BarPosition, BlockContext, LoopRegion, TimeSignature, Transport};
 
 mod changes;
-pub use changes::{CHANGE_CAPACITY, ChangeBatch, ChangeBuffer, PluginTiming, SlotChange};
+pub use changes::{CHANGE_CAPACITY, ChangeBatch, PluginTiming, SlotChange};
 
 pub use state::{MAX_PRESET_BYTES, PresetInfo, PresetMetadata, StatePurpose};
 
 pub use parameter::{
     PARAMETER_CHOICE_PAGE_SIZE, ParameterChoice, ParameterChoicePage, ParameterDetails,
-    ParameterGroup, validate_choice_page,
+    ParameterGroup,
 };
 
 mod preset_discovery;
-pub use preset_discovery::*;
+pub use preset_discovery::{
+    DiscoveredPreset, PRESET_DISCOVERY_TEXT_BYTES, PresetDiscovery, PresetDiscoveryTarget,
+    PresetFileFailure, PresetFileType, PresetFlags, PresetLocation, PresetLocationInfo,
+    PresetPluginId, PresetProviderInfo, PresetSoundpack,
+};

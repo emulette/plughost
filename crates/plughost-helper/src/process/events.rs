@@ -1,9 +1,9 @@
 //! Event routing between the chain's event inputs, its slots and its event outputs. The plan
 //! resolves native port IDs to the indices processors use, on the control thread; blocks reuse
 //! storage reserved with it.
+use plughost_core::internal::validate_event_budget;
 use plughost_core::{
     AudioDirection, EventPortInfo, EventSource, Events, InputError, RoutedChainConfig,
-    validate_event_budget,
 };
 
 use crate::errors::EVENT_PORT_PLAN;

@@ -36,12 +36,12 @@ use clack_host::events::event_types::{
 use clack_host::events::{Match, Pckn};
 use clack_host::plugin::PluginDescriptor;
 use clack_host::prelude::*;
-use plughost_core::PluginId;
+use plughost_core::internal::{DiagnosticBuffer, events_fit};
 use plughost_core::render::Tail;
-use plughost_core::{DiagnosticBatch, DiagnosticBuffer};
+use plughost_core::{DiagnosticBatch, PluginId};
 use plughost_core::{
     HostIdentity, Layout, Message, ParameterInfo, PluginFormat, PluginInfo, PluginKind,
-    PluginState, PluginTiming, ProcessConfig, ProcessMode, SampleFormat, events_fit,
+    PluginState, PluginTiming, ProcessConfig, ProcessMode, SampleFormat,
 };
 
 use super::errors::ClapError;

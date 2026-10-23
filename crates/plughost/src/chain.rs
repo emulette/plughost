@@ -9,11 +9,12 @@ mod state;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use plughost_core::CapabilityReport;
-use plughost_core::PluginRef;
+use plughost_core::internal::{events_fit, validate_choice_page, validate_parameter_text};
 use plughost_core::ipc::{Request, Response};
 use plughost_core::render::Tail;
-use plughost_core::{Events, HostIdentity, ParameterInfo, PluginInfo, PluginState, events_fit};
+use plughost_core::{
+    CapabilityReport, Events, HostIdentity, ParameterInfo, PluginInfo, PluginRef, PluginState,
+};
 
 use crate::errors::Error;
 use crate::helper::{Helper, Mode};
@@ -287,7 +288,7 @@ impl Chain {
         start: u64,
         count: u32,
     ) -> Result<plughost_core::ParameterChoicePage, Error> {
-        plughost_core::validate_choice_page(start, count).map_err(|error| Error::Input {
+        validate_choice_page(start, count).map_err(|error| Error::Input {
             slot: Some(slot),
             error,
         })?;
@@ -323,7 +324,7 @@ impl Chain {
 
     /// Parses and edits in one helper operation; rejected text does not queue an edit.
     pub fn set_parameter_text(&mut self, slot: usize, id: u64, text: &str) -> Result<(), Error> {
-        plughost_core::validate_parameter_text(text).map_err(|error| Error::Input {
+        validate_parameter_text(text).map_err(|error| Error::Input {
             slot: Some(slot),
             error,
         })?;
@@ -336,7 +337,7 @@ impl Chain {
 
     /// Parses native display text into a normalized value without editing the parameter.
     pub fn parameter_from_text(&mut self, slot: usize, id: u64, text: &str) -> Result<f64, Error> {
-        plughost_core::validate_parameter_text(text).map_err(|error| Error::Input {
+        validate_parameter_text(text).map_err(|error| Error::Input {
             slot: Some(slot),
             error,
         })?;

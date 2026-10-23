@@ -239,7 +239,7 @@ impl SharedAudio {
             return Err(invalid(GENERATION));
         }
         if submission.frames > self.descriptor.config.max_frames
-            || crate::validate_event_count(submission.automation, submission.events).is_err()
+            || crate::event::validate_event_count(submission.automation, submission.events).is_err()
         {
             return Err(invalid(BLOCK));
         }

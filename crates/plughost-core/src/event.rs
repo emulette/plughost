@@ -23,7 +23,10 @@ pub const MAX_BLOCK_SYSEX_BYTES: usize = 64 << 10;
 pub const MAX_NOTE_ID: u32 = i32::MAX as u32;
 
 /// Checks the combined input count without overflowing while adding untrusted lengths.
-pub fn validate_event_count(automation: usize, events: usize) -> Result<(), crate::InputError> {
+pub(crate) fn validate_event_count(
+    automation: usize,
+    events: usize,
+) -> Result<(), crate::InputError> {
     if automation > MAX_BLOCK_EVENTS || events > MAX_BLOCK_EVENTS - automation {
         return Err(crate::InputError::EventCapacity);
     }

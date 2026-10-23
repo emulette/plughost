@@ -1,8 +1,7 @@
 use super::{CString, ClapError, Plugin};
 use clack_host::prelude::ClapId;
-use plughost_core::{
-    InputError, PARAMETER_TEXT_BYTES, validate_normalized, validate_parameter_text,
-};
+use plughost_core::internal::{validate_normalized, validate_parameter_text};
+use plughost_core::{InputError, PARAMETER_TEXT_BYTES};
 
 impl Plugin {
     pub(crate) fn parameter_details(
@@ -53,7 +52,7 @@ impl Plugin {
         start: u64,
         count: u32,
     ) -> Result<plughost_core::ParameterChoicePage, crate::Error> {
-        plughost_core::validate_choice_page(start, count).map_err(crate::Error::from)?;
+        plughost_core::internal::validate_choice_page(start, count).map_err(crate::Error::from)?;
         let details = self.parameter_details(id)?;
         let (total, indices) = crate::parameter_choices::indices(&details, start, count)?;
         let (native, min, _) = self.parameter_range(id)?;

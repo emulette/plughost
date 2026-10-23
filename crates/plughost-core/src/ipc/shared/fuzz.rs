@@ -108,9 +108,9 @@ pub fn output(bytes: &[u8]) -> bool {
     };
     if accepted {
         assert_eq!(events.len(), count);
-        assert!(crate::events_fit(&events, frames));
+        assert!(crate::event::events_fit(&events, frames));
         assert!(events.iter().all(|event| event.port < ports));
-        assert!(crate::validate_event_budget(0, &events).is_ok());
+        assert!(crate::event::validate_event_budget(0, &events).is_ok());
     }
     accepted
 }

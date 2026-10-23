@@ -1,7 +1,8 @@
 //! The worker's notifications and the latest observation admitted to its queue.
 use std::sync::{Arc, Mutex};
 
-use plughost_core::{ChangeBatch, ChangeBuffer, PluginTiming};
+use plughost_core::internal::ChangeBuffer;
+use plughost_core::{ChangeBatch, PluginTiming};
 
 pub(super) type Observations = Arc<Mutex<Vec<Option<PluginTiming>>>>;
 

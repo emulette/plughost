@@ -552,7 +552,7 @@ fn render_reusing<S: Sample, P: Process<S>>(
         // Frames before `skip` are latency, and those after the silence hold are never output.
         let first = skip.saturating_sub(position).min(count);
         let last = silenced.unwrap_or(count);
-        if let Some(frame) = crate::level(output_block, first..last).non_finite {
+        if let Some(frame) = crate::sample::level(output_block, first..last).non_finite {
             return Err(RenderError::NonFiniteOutput {
                 frame: position + frame - skip,
             }
