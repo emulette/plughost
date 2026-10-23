@@ -62,5 +62,5 @@ fn state_restores_when_the_controller_is_the_component() {
     restored
         .restore_state(&saved, StatePurpose::Project)
         .unwrap();
-    assert!((restored.parameter_value(AGAIN_GAIN) - 0.25).abs() < 1e-6);
+    assert!((restored.parameter_value(AGAIN_GAIN).unwrap() - 0.25).abs() < 1e-6);
 }

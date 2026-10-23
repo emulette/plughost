@@ -20,6 +20,7 @@ fn tail_reads(plugin: &mut Plugin) -> f64 {
         .find(|(info, _)| info.id == 15)
         .unwrap()
         .1
+        .unwrap()
         * 1_000_000.0
 }
 

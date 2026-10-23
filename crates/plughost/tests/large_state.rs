@@ -88,7 +88,7 @@ fn recovery_restores_states_that_together_exceed_one_message() {
     let mut recovered = chain.recover(&slots).unwrap();
     for (slot, gain) in [0.25, 0.5, 0.75].into_iter().enumerate() {
         let (_, value) = recovered.parameters(slot).unwrap()[0].clone();
-        assert_eq!(value, gain);
+        assert_eq!(value, Some(gain));
     }
 }
 

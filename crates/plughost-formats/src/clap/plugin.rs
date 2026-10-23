@@ -368,10 +368,10 @@ impl Plugin {
         Arc::clone(&self.parameters)
     }
 
-    /// Each parameter with its current value, normalized over its range and clamped to it. A
-    /// value the plugin does not give, or that is not finite, reads as 0. Queued host edits reach
-    /// the plugin first.
-    pub(crate) fn parameters(&mut self) -> Vec<(ParameterInfo, f64)> {
+    /// Each parameter with its current value, normalized over its range and clamped to it, or
+    /// `None` when the plugin does not give one, or it or its range is not finite. Queued host
+    /// edits reach the plugin first.
+    pub(crate) fn parameters(&mut self) -> Vec<(ParameterInfo, Option<f64>)> {
         if self.shared().has_pending() {
             self.flush();
         }
@@ -385,8 +385,7 @@ impl Plugin {
             .map(|parameter| {
                 let value = params
                     .get_value(&handle, parameter.native)
-                    .and_then(|plain| parameter.normalized(plain))
-                    .unwrap_or(0.0);
+                    .and_then(|plain| parameter.normalized(plain));
                 (parameter.info.clone(), value)
             })
             .collect()

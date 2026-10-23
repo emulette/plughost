@@ -141,7 +141,7 @@ fn an_opened_editor_window_gives_the_editor_keyboard_focus() {
                 .into_iter()
                 .find(|(info, _)| info.id == FOCUS)
                 .unwrap();
-            chain.parameter_to_plain(0, FOCUS, value).unwrap() == 2.0
+            chain.parameter_to_plain(0, FOCUS, value.unwrap()).unwrap() == 2.0
         },
         "keys never reached the editor's view",
     );
@@ -162,7 +162,9 @@ fn a_window_size_the_editor_refuses_returns_to_the_size_it_accepted() {
             .into_iter()
             .find(|(info, _)| info.id == REFUSED_SIZES)
             .unwrap();
-        chain.parameter_to_plain(0, REFUSED_SIZES, value).unwrap()
+        chain
+            .parameter_to_plain(0, REFUSED_SIZES, value.unwrap())
+            .unwrap()
     };
     let mut chain = spawn(&[delay_variant(PluginFormat::Clap, "editor", 0xB)]);
     let pid = chain.helper_monitor().process_id();

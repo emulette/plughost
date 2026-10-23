@@ -338,9 +338,9 @@ impl Plugin {
         engine.timing().ok()
     }
 
-    /// Each parameter with its current value, normalized over its range and clamped to it; one
-    /// that is not finite, or whose range is not, reads as 0.
-    pub(crate) fn parameters(&self) -> Vec<(ParameterInfo, f64)> {
+    /// Each parameter with its current value, normalized over its range and clamped to it, or
+    /// `None` when a v2 unit refuses it or it or its range is not finite.
+    pub(crate) fn parameters(&self) -> Vec<(ParameterInfo, Option<f64>)> {
         let engine = lock(&self.engine);
         engine
             .unit()
@@ -348,7 +348,10 @@ impl Plugin {
             .map(|unit| {
                 all_parameters(unit)
                     .iter()
-                    .map(|p| (parameter_info(p), normalized(p, plain_value(unit, p))))
+                    .map(|p| {
+                        let value = plain_value(unit, p).and_then(|plain| normalized(p, plain));
+                        (parameter_info(p), value)
+                    })
                     .collect()
             })
             .unwrap_or_default()
@@ -530,10 +533,11 @@ fn ranges(unit: &AUAudioUnit) -> HashMap<u64, (f32, f32, ParameterInfo)> {
         .collect()
 }
 
-/// A parameter's current plain value. A v2 unit's own value is read the way
-/// [`Plugin::set_parameter`] writes it: the bridge's parameter tree catches up with edits
-/// asynchronously, and a tree it rebuilds after allocation can hold values from before them.
-fn plain_value(unit: &AUAudioUnit, parameter: &AUParameter) -> f32 {
+/// A parameter's current plain value, or `None` when a v2 unit refuses it. A v2 unit's own value
+/// is read the way [`Plugin::set_parameter`] writes it: the bridge's parameter tree catches up
+/// with edits asynchronously, and a tree it rebuilds after allocation can hold values from before
+/// them.
+fn plain_value(unit: &AUAudioUnit, parameter: &AUParameter) -> Option<f32> {
     let address = unsafe { parameter.address() };
     if let (Some(bridge), Ok(id)) = (
         unit.downcast_ref::<AUAudioUnitV2Bridge>(),
@@ -549,11 +553,9 @@ fn plain_value(unit: &AUAudioUnit, parameter: &AUParameter) -> f32 {
                 NonNull::from(&mut value),
             )
         };
-        if status == 0 {
-            return value;
-        }
+        return (status == 0).then_some(value);
     }
-    unsafe { parameter.value() }
+    Some(unsafe { parameter.value() })
 }
 
 /// The plain value of normalized `value` over `min..=max`, whole for a discrete parameter, or
@@ -571,11 +573,11 @@ fn plain(min: f32, max: f32, info: &ParameterInfo, value: f64) -> Option<f32> {
     )
 }
 
-/// `plain` normalized over the parameter's range and clamped to it; 0 when either is not finite.
-fn normalized(parameter: &AUParameter, plain: f32) -> f64 {
+/// `plain` normalized over the parameter's range and clamped to it, or `None` when either is not
+/// finite.
+fn normalized(parameter: &AUParameter, plain: f32) -> Option<f64> {
     let (min, max) = unsafe { (parameter.minValue(), parameter.maxValue()) };
     crate::parameter_values::normalized(f64::from(plain), f64::from(min), f64::from(max))
-        .unwrap_or(0.0)
 }
 
 fn parameter_info(parameter: &AUParameter) -> ParameterInfo {

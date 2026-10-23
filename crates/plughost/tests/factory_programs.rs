@@ -42,7 +42,7 @@ fn factory_program_selection_is_prepared_and_saved_before_any_audio_block() {
     let parameters = chain.parameters(0).unwrap();
     assert_eq!(
         parameters.iter().find(|(info, _)| info.id == 0).unwrap().1,
-        0.25
+        Some(0.25)
     );
     let mut restored = spawn_delay();
     restored

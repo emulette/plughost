@@ -57,10 +57,10 @@ impl Plugin {
             });
         };
         self.sync_controller();
-        let value = unsafe { self.controller.getParamNormalized(id) };
+        // A value that is not finite leaves the state unknown.
         Ok(BypassState {
             support: Support::Supported,
-            enabled: Some(value >= 0.5),
+            enabled: self.controller_value(id).map(|value| value >= 0.5),
         })
     }
     /// Uses the plugin's native bypass parameter; no host dry path is substituted.

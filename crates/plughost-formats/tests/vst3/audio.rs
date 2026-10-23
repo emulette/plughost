@@ -194,7 +194,7 @@ fn multibus_f64_surround_and_bypass_survive_state_and_reset() {
         .unwrap();
     assert_eq!(restored.bypass().unwrap().enabled, Some(true));
     restored.set_bypass(false).unwrap();
-    assert_eq!(restored.parameter_value(0), 0.5);
+    assert_eq!(restored.parameter_value(0), Some(0.5));
     assert_eq!(
         restored.audio_config(),
         Some(buses(SampleFormat::F64, Layout::Surround51))
@@ -410,7 +410,7 @@ fn custom_sample_implementations_are_rejected_before_native_pointer_casts() {
         );
         assert_eq!(left, [marker; 4]);
         assert_eq!(right, [marker; 4]);
-        assert_eq!(plugin.parameter_value(5), 0.0);
+        assert_eq!(plugin.parameter_value(5), Some(0.0));
     }
     let _serial = serial();
     rejected(ClaimedF32(3.0f32.to_bits()));
@@ -448,7 +448,8 @@ fn gain_points(plugin: &mut Plugin) -> f64 {
         .into_iter()
         .find(|(info, _)| info.id == 2)
         .unwrap()
-        .1;
+        .1
+        .unwrap();
     (value * 100.0).round()
 }
 

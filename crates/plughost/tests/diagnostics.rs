@@ -44,7 +44,10 @@ fn plugin_severity_identity_overflow_and_reset_survive_ipc() {
     // The rejected GUI visibility requests were not accepted by the host.
     let parameters = chain.parameters(0).unwrap();
     for id in [5, 6] {
-        assert_eq!(parameters.iter().find(|(p, _)| p.id == id).unwrap().1, 0.0);
+        assert_eq!(
+            parameters.iter().find(|(p, _)| p.id == id).unwrap().1,
+            Some(0.0)
+        );
     }
     prepare(&mut chain);
     let input = [1.0; 512];

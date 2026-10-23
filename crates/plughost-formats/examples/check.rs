@@ -319,7 +319,7 @@ fn check(plugin: &PluginRef, info: &PluginInfo) -> Result<bool, Error> {
 fn edit_round_trip(plugin: &PluginRef, driver: &mut Driver, buses: Buses) -> Result<bool, Error> {
     let (input, output) = buses;
     let parameters = driver.plugin.parameters();
-    let mut editable: Vec<&(ParameterInfo, f64)> = parameters
+    let mut editable: Vec<&(ParameterInfo, Option<f64>)> = parameters
         .iter()
         .filter(|(p, _)| {
             p.flags.automatable
@@ -335,7 +335,11 @@ fn edit_round_trip(plugin: &PluginRef, driver: &mut Driver, buses: Buses) -> Res
         return Ok(true);
     }
     for (parameter, before) in editable.into_iter().take(5) {
-        let requested = if *before > 0.5 { 0.2 } else { 0.8 };
+        let requested = if before.is_some_and(|before| before > 0.5) {
+            0.2
+        } else {
+            0.8
+        };
         let expected = match parameter.step_count {
             0 => requested,
             steps => (requested * f64::from(steps)).round() / f64::from(steps),
@@ -366,7 +370,7 @@ fn edit_round_trip(plugin: &PluginRef, driver: &mut Driver, buses: Buses) -> Res
         let unedited_output = render_signal(&mut baseline, RATE, 1.0)?;
         let audible = difference(&again, &unedited_output, 0) > 0.0;
         out!(
-            "edit: \"{}\" {before:.3} -> {expected:.3} | fresh instance value {} | output difference {:.3e} (last half {:.3e}) | {}",
+            "edit: \"{}\" {before:.3?} -> {expected:.3} | fresh instance value {} | output difference {:.3e} (last half {:.3e}) | {}",
             parameter.title,
             if kept { "kept" } else { "differs" },
             difference(&original, &again, 0),
@@ -392,7 +396,8 @@ fn value(plugin: &mut dyn HostedPlugin, id: u64) -> f64 {
         .parameters()
         .into_iter()
         .find(|(p, _)| p.id == id)
-        .map_or(f64::NAN, |(_, value)| value)
+        .and_then(|(_, value)| value)
+        .unwrap_or(f64::NAN)
 }
 
 fn render_signal(driver: &mut Driver, rate: f64, seconds: f64) -> Result<Vec<Vec<f32>>, Error> {

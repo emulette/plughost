@@ -86,7 +86,7 @@ fn overlapping_slot_ramps_discrete_points_and_duplicate_edits_preserve_samples()
                     .find(|(p, _)| p.id == 0)
                     .unwrap()
                     .1,
-                0.75
+                Some(0.75)
             );
             assert_eq!(
                 chain
@@ -96,7 +96,7 @@ fn overlapping_slot_ramps_discrete_points_and_duplicate_edits_preserve_samples()
                     .find(|(p, _)| p.id == 0)
                     .unwrap()
                     .1,
-                0.8
+                Some(0.8)
             );
         }
     }

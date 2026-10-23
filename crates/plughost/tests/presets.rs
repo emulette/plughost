@@ -4,8 +4,13 @@ mod support;
 
 use support::{block, delay as reference, prepared_delay as chain};
 
-fn value(parameters: &[(ParameterInfo, f64)], id: u64) -> f64 {
-    parameters.iter().find(|(info, _)| info.id == id).unwrap().1
+fn value(parameters: &[(ParameterInfo, Option<f64>)], id: u64) -> f64 {
+    parameters
+        .iter()
+        .find(|(info, _)| info.id == id)
+        .unwrap()
+        .1
+        .unwrap()
 }
 
 #[test]

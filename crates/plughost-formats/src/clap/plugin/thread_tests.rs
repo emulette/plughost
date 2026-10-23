@@ -15,10 +15,10 @@ fn a_native_call_on_the_wrong_thread_is_counted_and_logged() {
     let reports = |plugin: &mut Plugin| {
         let parameters = plugin.parameters();
         let value = |id| parameters.iter().find(|(info, _)| info.id == id).unwrap().1;
-        assert_eq!(value(16), 1.0);
-        assert_eq!(value(17), 1.0);
-        assert!(value(18) > 0.0);
-        (value(19) * 1_000_000.0).round() as u32
+        assert_eq!(value(16), Some(1.0));
+        assert_eq!(value(17), Some(1.0));
+        assert!(value(18) > Some(0.0));
+        (value(19).unwrap() * 1_000_000.0).round() as u32
     };
     plugin.reset().unwrap();
     assert_eq!(reports(&mut plugin), 0, "{:?}", plugin.take_diagnostics());

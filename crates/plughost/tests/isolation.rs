@@ -556,6 +556,7 @@ fn an_edit_saved_right_away_is_restored_in_a_new_helper() {
                 .find(|(p, _)| p.id == case.parameter)
                 .unwrap()
                 .1
+                .unwrap()
         };
         let mut original = spawn(std::slice::from_ref(&case.plugin));
         prepare(&mut original);

@@ -178,5 +178,5 @@ fn vst3_callbacks_and_processor_output_reach_the_consumer() {
                 normalized: 0.375
             })
     );
-    assert_eq!(plugin.parameter_value(0), 0.375);
+    assert_eq!(plugin.parameter_value(0), Some(0.375));
 }

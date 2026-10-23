@@ -15,6 +15,7 @@ fn value(plugin: &mut dyn HostedPlugin, id: u64) -> f64 {
         .find(|(p, _)| p.id == id)
         .unwrap()
         .1
+        .unwrap()
 }
 
 #[test]

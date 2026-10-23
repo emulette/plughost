@@ -91,7 +91,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   `FailureKind::StateMismatch`).
 - The scan cache schema is 3: caches written by 0.1 are read as empty and their bundles
   inspected again.
-- The internal helper protocol is now 32. Applications and helpers with different protocol
+- The internal helper protocol is now 33. Applications and helpers with different protocol
   versions fail the handshake; rebuild and distribute the helper with the application.
 - `plughost_formats::Error` is one opaque struct for every format instead of an enum with a
   variant per format, and `Vst3Error`, `ClapError` and `AuError` are no longer public; the
@@ -124,6 +124,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   buffer error (or, for a VST3 value, `InputError::ParameterValue`).
 - `plughost_formats::preset::supports(format)` is `supported(format)`, which returns the
   unsupported error instead of `false`.
+- `Chain::parameters` and `HostedPlugin::parameters` give each value as an `Option<f64>`, and
+  `vst3::Plugin::parameter_value` returns one: a value the plugin does not give, that is not
+  finite, or whose range is not, is `None` where it read as 0, and so is a VST3 ID the plugin
+  does not have. A CLAP `get_value` that fails and an `AudioUnitGetParameter` that a v2 unit
+  refuses are no longer read as 0 or, for the Audio Unit, as the `AUParameter`'s value. A CLAP
+  or VST3 bypass whose value is unavailable or not finite reads as unknown rather than off, so
+  recovery and slot replacement no longer switch such a bypass off. Values a little outside
+  their range are still clamped into it.
 - A NaN or infinite output sample fails a render with `RenderError::NonFiniteOutput { frame }`,
   the first output frame holding one, whatever the tail policy. Such samples were delivered
   and counted in `Rendered::non_finite_samples` and `RenderProgress::non_finite_samples`, which

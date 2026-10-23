@@ -527,7 +527,7 @@ fn a_slot_prepared_again_drops_its_restart_request() {
     assert!(!restart_required(&mut chain));
     block(&mut chain, &[]).unwrap();
     let gain = chain.parameters(0).unwrap()[0].1;
-    assert_eq!(gain, 0.375);
+    assert_eq!(gain, Some(0.375));
 
     // While the endpoint runs, the stream goes on through the request and the replacement, and
     // a request of the new instance waits too.

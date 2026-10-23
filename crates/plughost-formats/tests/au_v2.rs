@@ -830,7 +830,7 @@ fn non_realtime_parameters_allow_edits_but_reject_block_automation() {
         .into_iter()
         .find(|(info, _)| info.id == u64::from(MODE))
         .unwrap();
-    assert_eq!(value, 1.0);
+    assert_eq!(value, Some(1.0));
     let mut output = [[7.0f32; 512]; 2];
     let mut channels: Vec<_> = output
         .iter_mut()
@@ -869,5 +869,9 @@ fn non_realtime_parameters_allow_edits_but_reject_block_automation() {
         .find(|(info, _)| info.id == u64::from(STEPS))
         .unwrap()
         .1;
-    assert_eq!(steps, 0.0, "the valid prefix must not have been scheduled");
+    assert_eq!(
+        steps,
+        Some(0.0),
+        "the valid prefix must not have been scheduled"
+    );
 }

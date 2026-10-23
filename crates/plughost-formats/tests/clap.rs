@@ -87,7 +87,7 @@ fn render_preflight_rejects_unprepared_and_late_invalid_ports() {
             .find(|(p, _)| p.id == 8)
             .unwrap()
             .1,
-        0.0
+        Some(0.0)
     );
 }
 
@@ -105,7 +105,7 @@ fn unhandled_gui_requests_are_rejected_through_native_callbacks() {
     for id in [5, 6] {
         let (info, value) = parameters.iter().find(|(p, _)| p.id == id).unwrap();
         assert!(info.flags.read_only);
-        assert_eq!(*value, 0.0);
+        assert_eq!(*value, Some(0.0));
     }
 }
 
@@ -231,7 +231,7 @@ fn invalid_parameter_edits_preserve_pending_value_and_state() {
             .find(|(p, _)| p.id == GAIN)
             .unwrap()
             .1,
-        0.25
+        Some(0.25)
     );
     assert_eq!(
         plugin
@@ -305,6 +305,7 @@ fn parameter_value(plugin: &mut Plugin, id: u64) -> f64 {
         .into_iter()
         .find(|(parameter, _)| parameter.id == id)
         .map(|(_, value)| value)
+        .unwrap()
         .unwrap()
 }
 
@@ -624,19 +625,21 @@ fn a_restart_requested_while_processing_keeps_the_block_and_fails_the_next() {
 
 #[test]
 #[ignore = "needs scripts/build-test-plugins.sh"]
-fn values_past_the_range_are_clamped_and_those_not_finite_read_as_zero() {
+fn values_past_the_range_are_clamped_and_those_not_finite_are_absent() {
     let _serial = serial();
     let mut plugin = plugin();
     let saved = plugin.save_state(StatePurpose::Project).unwrap();
     // The test delay's state is its gain, whose range is 0 to 1.
-    for (gain, value) in [(3.0f64, 1.0), (f64::NAN, 0.0)] {
+    for (gain, value) in [(3.0f64, Some(1.0)), (f64::NAN, None)] {
         let state = plughost_core::PluginState::new(
             HostedPlugin::info(&plugin),
             gain.to_le_bytes().to_vec(),
             saved.controller().map(<[u8]>::to_vec),
         );
         plugin.restore_state(&state, StatePurpose::Project).unwrap();
-        assert_eq!(parameter_value(&mut plugin, GAIN), value, "{gain}");
+        let parameters = plugin.parameters();
+        let (_, read) = parameters.iter().find(|(info, _)| info.id == GAIN).unwrap();
+        assert_eq!(*read, value, "{gain}");
     }
 }
 

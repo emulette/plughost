@@ -33,12 +33,15 @@ fn block(chain: &mut Chain, automation: &[AutomationEvent]) {
 fn wrong_threads(chain: &mut Chain) -> Vec<String> {
     let parameters = chain.parameters(0).unwrap();
     let value = |id| parameters.iter().find(|(info, _)| info.id == id).unwrap().1;
-    assert_eq!(value(16), 1.0, "the host must provide thread-check");
-    assert_eq!(value(17), 1.0, "the host must provide logging");
-    assert!(value(18) > 0.0, "the fixture must have performed checks");
+    assert_eq!(value(16), Some(1.0), "the host must provide thread-check");
+    assert_eq!(value(17), Some(1.0), "the host must provide logging");
+    assert!(
+        value(18) > Some(0.0),
+        "the fixture must have performed checks"
+    );
     assert_eq!(
         value(19),
-        0.0,
+        Some(0.0),
         "the fixture found a call on the wrong thread"
     );
     chain
@@ -120,7 +123,7 @@ fn the_helper_scans_clap_ports_only_while_the_plugin_is_inactive() {
         .1;
     assert_eq!(
         chain
-            .parameter_to_plain(0, ACTIVE_PORT_SCANS, scans)
+            .parameter_to_plain(0, ACTIVE_PORT_SCANS, scans.unwrap())
             .unwrap(),
         0.0
     );

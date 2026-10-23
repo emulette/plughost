@@ -17,6 +17,7 @@ fn gain(chain: &mut Chain) -> f64 {
         .find(|(info, _)| info.id == GAIN)
         .unwrap()
         .1
+        .unwrap()
 }
 
 fn snapshot(chain: &mut Chain) -> Vec<plughost::ChainSlot> {

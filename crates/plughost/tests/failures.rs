@@ -49,7 +49,7 @@ fn a_reset_that_fails_partway_leaves_the_chain_to_be_prepared_again() {
     }
     // An edit of the first slot takes effect even though the second one's timing cannot be read.
     chain.set_parameter(0, 0, 0.5).unwrap();
-    assert_eq!(chain.parameters(0).unwrap()[0].1, 0.5);
+    assert_eq!(chain.parameters(0).unwrap()[0].1, Some(0.5));
     chain.reprepare().unwrap();
     support::block(&mut chain, 512, 0.25);
 }

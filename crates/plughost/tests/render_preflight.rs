@@ -114,7 +114,7 @@ fn late_invalid_event_port_leaves_dsp_untouched_in_render_and_session() {
                 .find(|(p, _)| p.id == clock)
                 .unwrap()
                 .1,
-            0.0,
+            Some(0.0),
             "invalid render must not advance the fixture's processing clock"
         );
         // A rejected render must leave the chain ready for a valid block.

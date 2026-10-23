@@ -27,6 +27,7 @@ fn timing_poll_benchmark() {
                     .find(|(info, _)| info.id == 15)
                     .unwrap()
                     .1
+                    .unwrap()
                     * 1_000_000.0
             } else {
                 0.0

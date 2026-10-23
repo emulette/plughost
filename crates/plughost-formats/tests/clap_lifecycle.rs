@@ -55,6 +55,7 @@ fn value(plugin: &mut Plugin, id: u64) -> f64 {
         .find(|(info, _)| info.id == id)
         .unwrap()
         .1
+        .unwrap()
 }
 
 #[test]

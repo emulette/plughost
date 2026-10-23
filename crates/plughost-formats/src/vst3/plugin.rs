@@ -240,17 +240,16 @@ impl Plugin {
         self.parameter_cache().infos().to_vec()
     }
 
-    /// The controller's normalized value, clamped to `0..=1`; one that is not finite reads as 0,
-    /// as an unknown ID's does. Some controllers show a restored or host-set value late; the
-    /// processor's value is what [`HostedPlugin::save_state`] stores.
+    /// The controller's normalized value, clamped to `0..=1`, or `None` for an ID the plugin
+    /// does not have or a value that is not finite. Some controllers show a restored or host-set
+    /// value late; the processor's value is what [`HostedPlugin::save_state`] stores.
     ///
     /// [`HostedPlugin::save_state`]: crate::HostedPlugin::save_state
-    pub fn parameter_value(&self, id: u64) -> f64 {
-        let Ok(id) = u32::try_from(id) else {
-            return 0.0;
-        };
+    pub fn parameter_value(&self, id: u64) -> Option<f64> {
+        let parameters = self.parameter_cache();
+        let id = parameters.native_id(parameters.index(id)?);
         self.sync_controller();
-        self.controller_value(id).unwrap_or(0.0)
+        self.controller_value(id)
     }
 
     /// The controller's value of `id`, clamped, or `None` when it has no normalized form.

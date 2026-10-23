@@ -84,5 +84,5 @@ fn a_parameter_whose_range_is_not_finite_has_no_value_to_send_or_show() {
         .into_iter()
         .find(|(info, _)| info.id == UNBOUNDED)
         .unwrap();
-    assert_eq!((info.default_value, value), (None, 0.0));
+    assert_eq!((info.default_value, value), (None, None));
 }

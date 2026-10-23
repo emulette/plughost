@@ -53,7 +53,7 @@ fn late_invalid_render_targets_leave_earlier_plugin_state_untouched() {
                 .find(|(p, _)| p.id == 0)
                 .unwrap()
                 .1;
-            assert_eq!(gain, 1.0, "preflight advanced an earlier block");
+            assert_eq!(gain, Some(1.0), "preflight advanced an earlier block");
         }
     }
 }
@@ -73,7 +73,7 @@ fn writable_nonautomatable_parameters_reject_block_and_render_automation() {
             .find(|(p, _)| p.id == 1)
             .unwrap()
             .1,
-        1.0
+        Some(1.0)
     );
     let config = chain
         .main_bus_config(48_000.0, 16, Layout::Stereo, &[Layout::Stereo])
@@ -121,8 +121,12 @@ fn writable_nonautomatable_parameters_reject_block_and_render_automation() {
     assert_eq!(right, left);
     let parameters = chain.parameters(0).unwrap();
     let value = |id| parameters.iter().find(|(info, _)| info.id == id).unwrap().1;
-    assert_eq!(value(0), 0.5, "the earlier gain edit must not be applied");
-    assert_eq!(value(8), 0.0, "no native sample may be processed");
+    assert_eq!(
+        value(0),
+        Some(0.5),
+        "the earlier gain edit must not be applied"
+    );
+    assert_eq!(value(8), Some(0.0), "no native sample may be processed");
 }
 
 #[test]
@@ -154,7 +158,7 @@ fn render_validation_benchmark() {
                 .find(|(p, _)| p.id == 0)
                 .unwrap()
                 .1,
-            1.0
+            Some(1.0)
         );
     }
 }

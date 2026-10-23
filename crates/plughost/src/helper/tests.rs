@@ -198,6 +198,7 @@ fn main_thread_ticks_during_queued_requests() {
             .find(|(info, _)| info.id == id)
             .unwrap()
             .1
+            .unwrap()
     };
     let before = value(helper.receive(timeout).unwrap(), 17);
     for _ in 0..REQUESTS {

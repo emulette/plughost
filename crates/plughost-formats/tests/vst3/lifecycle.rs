@@ -35,7 +35,7 @@ fn inactive_flush_delivers_processor_output_to_the_controller() {
     .unwrap();
     plugin.set_parameter(7, 1.0).unwrap();
     plugin.flush().unwrap();
-    assert_eq!(plugin.parameter_value(0), 0.375);
+    assert_eq!(plugin.parameter_value(0), Some(0.375));
     assert!(plugin.config().is_none());
 }
 
@@ -50,7 +50,7 @@ fn inactive_flush_runs_with_subnormal_numbers_flushed_to_zero() {
     let mut plugin = plugin("plughost-test-float-mode");
     plugin.set_parameter(0, 0.25).unwrap();
     plugin.flush().unwrap();
-    assert_eq!(plugin.parameter_value(FLOAT_MODE_UNFLUSHED), 0.0);
+    assert_eq!(plugin.parameter_value(FLOAT_MODE_UNFLUSHED), Some(0.0));
 }
 
 #[test]
@@ -101,5 +101,5 @@ fn midi_assignment_queries_allow_the_processing_thread_to_advance() {
     plugin.idle();
     done.store(true, Ordering::Release);
     worker.join().unwrap();
-    assert_eq!(plugin.parameter_value(10), 1.0);
+    assert_eq!(plugin.parameter_value(10), Some(1.0));
 }

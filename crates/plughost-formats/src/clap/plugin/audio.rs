@@ -498,15 +498,15 @@ impl Plugin {
                 enabled: None,
             });
         };
-        let enabled = self
+        let (_, value) = self
             .parameters()
-            .iter()
+            .into_iter()
             .find(|(info, _)| info.id == id)
-            .map(|(_, value)| *value >= 0.5)
             .ok_or(ClapError::AudioMetadata)?;
+        // A value the plugin does not give leaves the state unknown.
         Ok(BypassState {
             support: Support::Supported,
-            enabled: Some(enabled),
+            enabled: value.map(|value| value >= 0.5),
         })
     }
     pub(crate) fn set_bypass(&mut self, enabled: bool) -> Result<(), ClapError> {

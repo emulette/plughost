@@ -185,7 +185,9 @@ fn a_window_the_system_widens_past_the_editor_is_not_offered_to_it() {
         .find(|(info, _)| info.id == REFUSED_SIZES)
         .unwrap();
     assert_eq!(
-        chain.parameter_to_plain(0, REFUSED_SIZES, value).unwrap(),
+        chain
+            .parameter_to_plain(0, REFUSED_SIZES, value.unwrap())
+            .unwrap(),
         0.0
     );
     chain.close_editor(0).unwrap();

@@ -254,8 +254,10 @@ impl Chain {
         self.tail
     }
 
-    /// Each parameter of the plugin in `slot`, with its current normalized value.
-    pub fn parameters(&mut self, slot: usize) -> Result<Vec<(ParameterInfo, f64)>, Error> {
+    /// Each parameter of the plugin in `slot`, with its current normalized value, clamped to
+    /// `0..=1`, or `None` when the plugin does not give one, or gives one or a range that is not
+    /// finite.
+    pub fn parameters(&mut self, slot: usize) -> Result<Vec<(ParameterInfo, Option<f64>)>, Error> {
         match self.request(Request::Parameters { slot }, self.timeouts.control)? {
             Response::Parameters(parameters) => Ok(parameters),
             _ => Err(self.protocol_error()),

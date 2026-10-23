@@ -116,8 +116,9 @@ pub trait HostedPlugin {
     fn poll_timing(&self) -> Option<PluginTiming> {
         None
     }
-    /// Each parameter with its current normalized value.
-    fn parameters(&mut self) -> Vec<(ParameterInfo, f64)>;
+    /// Each parameter with its current normalized value, clamped to `0..=1`, or `None` when the
+    /// plugin does not give one, or gives one or a range that is not finite.
+    fn parameters(&mut self) -> Vec<(ParameterInfo, Option<f64>)>;
     /// Reads native units, grouping, flags, and value-range metadata for a parameter.
     fn parameter_details(&mut self, id: u64) -> Result<plughost_core::ParameterDetails, Error>;
     /// Reads a bounded page of native labels and values; does not edit the parameter.
@@ -320,7 +321,7 @@ impl HostedPlugin for vst3::Plugin {
         vst3::Plugin::poll_timing(self)
     }
 
-    fn parameters(&mut self) -> Vec<(ParameterInfo, f64)> {
+    fn parameters(&mut self) -> Vec<(ParameterInfo, Option<f64>)> {
         vst3::Plugin::parameters(self)
             .into_iter()
             .map(|info| {
@@ -507,7 +508,7 @@ impl HostedPlugin for au::Plugin {
         au::Plugin::poll_timing(self)
     }
 
-    fn parameters(&mut self) -> Vec<(ParameterInfo, f64)> {
+    fn parameters(&mut self) -> Vec<(ParameterInfo, Option<f64>)> {
         au::Plugin::parameters(self)
     }
 
@@ -671,7 +672,7 @@ impl HostedPlugin for clap::Plugin {
         clap::Plugin::poll_timing(self)
     }
 
-    fn parameters(&mut self) -> Vec<(ParameterInfo, f64)> {
+    fn parameters(&mut self) -> Vec<(ParameterInfo, Option<f64>)> {
         clap::Plugin::parameters(self)
     }
 

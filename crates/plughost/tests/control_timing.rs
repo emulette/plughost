@@ -26,7 +26,7 @@ fn control_timing_benchmark() {
         assert_eq!(chain.latency(), 480);
         assert_eq!(chain.tail(), Tail::Samples(0));
         let expected = if operation == "reset" { 1.0 } else { 0.75 };
-        assert_eq!(chain.parameters(0).unwrap()[0].1, expected);
+        assert_eq!(chain.parameters(0).unwrap()[0].1, Some(expected));
         writeln!(
             std::io::stdout(),
             "operation={operation} requests=1000 ms={:.3}",

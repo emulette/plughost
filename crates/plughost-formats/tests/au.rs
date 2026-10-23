@@ -68,6 +68,7 @@ fn value(plugin: &mut Plugin, id: u64) -> f64 {
         .find(|(p, _)| p.id == id)
         .unwrap()
         .1
+        .unwrap()
 }
 
 #[test]
@@ -385,6 +386,11 @@ fn a_discrete_parameter_converts_to_the_whole_value_an_edit_selects() {
         .find(|(info, _)| info.id == FILTER_TYPE)
         .unwrap()
         .1;
-    assert_eq!(plugin.parameter_to_plain(FILTER_TYPE, edited).unwrap(), 1.0);
+    assert_eq!(
+        plugin
+            .parameter_to_plain(FILTER_TYPE, edited.unwrap())
+            .unwrap(),
+        1.0
+    );
     assert_eq!(plugin.parameter_to_plain(FILTER_TYPE, 0.06).unwrap(), 1.0);
 }

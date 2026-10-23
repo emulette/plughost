@@ -153,7 +153,7 @@ fn render_preflight_rejects_unprepared_and_late_invalid_ports() {
             .find(|(p, _)| p.id == 5)
             .unwrap()
             .1,
-        0.0
+        Some(0.0)
     );
 }
 
@@ -262,7 +262,7 @@ fn invalid_parameter_edits_preserve_pending_value_and_state() {
     let state = plugin
         .save_state(plughost_core::StatePurpose::Project)
         .unwrap();
-    assert_eq!(plugin.parameter_value(AGAIN_GAIN), 0.25);
+    assert_eq!(plugin.parameter_value(AGAIN_GAIN), Some(0.25));
     assert_eq!(
         plugin
             .save_state(plughost_core::StatePurpose::Project)
@@ -435,7 +435,7 @@ fn edit_saved_right_after_it_is_made_survives_in_a_fresh_instance() {
         .restore_state(&state, plughost_core::StatePurpose::Project)
         .unwrap();
     fresh.prepare(&config(48_000.0, SampleFormat::F32)).unwrap();
-    assert!((fresh.parameter_value(AGAIN_GAIN) - 0.25).abs() < 1e-6);
+    assert!((fresh.parameter_value(AGAIN_GAIN).unwrap() - 0.25).abs() < 1e-6);
     let output = run(&mut fresh, &input);
     assert!(max_difference(&output, &input, 0.25) < 1e-6);
 }
@@ -476,7 +476,7 @@ fn reset_keeps_the_state_and_clears_internal_audio() {
     plugin.set_parameter(ADELAY_DELAY, 0.1).unwrap();
     run(&mut plugin, &signal(24_000, |v| v as f32));
     plugin.reset().unwrap();
-    assert!((plugin.parameter_value(ADELAY_DELAY) - 0.1).abs() < 1e-6);
+    assert!((plugin.parameter_value(ADELAY_DELAY).unwrap() - 0.1).abs() < 1e-6);
     let silence = vec![vec![0.0f32; 12_000]; 2];
     assert_eq!(run(&mut plugin, &silence), silence);
 }
@@ -502,7 +502,7 @@ fn vstpreset_files_restore_the_state() {
     assert_eq!(preset.class_id, AGAIN_CLASS);
     let mut fresh = plugin("again");
     fresh.restore_preset(&preset).unwrap();
-    assert!((fresh.parameter_value(AGAIN_GAIN) - 0.4).abs() < 1e-6);
+    assert!((fresh.parameter_value(AGAIN_GAIN).unwrap() - 0.4).abs() < 1e-6);
 }
 
 #[test]
@@ -689,7 +689,7 @@ fn automation_reaches_the_controller_on_the_owning_thread_only() {
     })
     .join()
     .unwrap();
-    assert_eq!(plugin.parameter_value(0), 0.25);
+    assert_eq!(plugin.parameter_value(0), Some(0.25));
     assert!(!plugin.processor().restart_required());
 }
 
@@ -815,7 +815,7 @@ fn midi_controllers_reach_the_parameters_the_controller_maps() {
         &Events::from_iter([Event::control_change(0, 0, 7, 32)]),
     );
     assert!(max_difference(&output, &input, 32.0 / 127.0) < 1e-6);
-    assert!((plugin.parameter_value(AGAIN_GAIN) - 32.0 / 127.0).abs() < 1e-6);
+    assert!((plugin.parameter_value(AGAIN_GAIN).unwrap() - 32.0 / 127.0).abs() < 1e-6);
 }
 
 #[test]
@@ -890,14 +890,14 @@ const TEST_DELAY_GAIN_CONTROLLER: u64 = 2;
 
 #[test]
 #[ignore = "needs scripts/build-test-plugins.sh"]
-fn controller_values_past_the_range_are_clamped_and_those_not_finite_read_as_zero() {
+fn controller_values_past_the_range_are_clamped_and_those_not_finite_are_absent() {
     let _serial = serial();
     let mut plugin = plugin("plughost-test-delay");
     let saved = plugin
         .save_state(plughost_core::StatePurpose::Project)
         .unwrap();
     // The test delay's state is its gain, which its controller takes as the gain's value.
-    for (gain, value) in [(3.0f64, 1.0), (f64::NAN, 0.0)] {
+    for (gain, value) in [(3.0f64, Some(1.0)), (f64::NAN, None)] {
         let state = plughost_core::PluginState::new(
             plugin.info(),
             gain.to_le_bytes().to_vec(),
@@ -909,6 +909,8 @@ fn controller_values_past_the_range_are_clamped_and_those_not_finite_read_as_zer
         assert_eq!(plugin.parameter_value(0), value, "{gain}");
         assert_eq!(HostedPlugin::parameters(&mut plugin)[0].1, value, "{gain}");
     }
+    // An ID the plugin does not have has no value either.
+    assert_eq!(plugin.parameter_value(999), None);
 }
 
 #[test]
@@ -922,9 +924,9 @@ fn restored_state_is_marked_as_project_or_preset() {
     target
         .restore_state(&state, plughost_core::StatePurpose::Project)
         .unwrap();
-    assert_eq!(target.parameter_value(TEST_DELAY_PROJECT_STATE), 1.0);
+    assert_eq!(target.parameter_value(TEST_DELAY_PROJECT_STATE), Some(1.0));
     target.restore_preset(&Preset::from_state(&state)).unwrap();
-    assert_eq!(target.parameter_value(TEST_DELAY_PROJECT_STATE), 0.0);
+    assert_eq!(target.parameter_value(TEST_DELAY_PROJECT_STATE), Some(0.0));
 }
 
 #[test]

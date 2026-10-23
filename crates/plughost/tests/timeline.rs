@@ -238,7 +238,8 @@ fn native_and_helper_transport_automation_and_audio_less_clock_match() {
             .into_iter()
             .find(|(p, _)| p.id == clock)
             .unwrap()
-            .1;
+            .1
+            .unwrap();
         assert!((elapsed * 1_000_000.0 - 411.0).abs() < 1e-6);
     }
 }
@@ -350,7 +351,7 @@ fn slot_automation_rejection_does_not_advance_earlier_plugins() {
             .find(|(p, _)| p.id == 5)
             .unwrap()
             .1,
-        0.0
+        Some(0.0)
     );
     let points = [AutomationEvent {
         slot: 1,
@@ -496,7 +497,7 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
                 .find(|(info, _)| info.id == 10)
                 .unwrap()
                 .1,
-            mode
+            Some(mode)
         );
         chain.reprepare().unwrap();
         let snapshot = chain.take_changes().unwrap().snapshot[0].unwrap();
@@ -507,11 +508,11 @@ fn timing_callbacks_coalesce_and_restart_requests_never_loop_automatically() {
         let parameters = chain.parameters(0).unwrap();
         assert_eq!(
             parameters.iter().find(|(info, _)| info.id == 0).unwrap().1,
-            0.375
+            Some(0.375)
         );
         assert_eq!(
             parameters.iter().find(|(info, _)| info.id == 10).unwrap().1,
-            0.0
+            Some(0.0)
         );
         chain
             .process_audio_f32(
@@ -630,7 +631,7 @@ fn absent_time_stays_absent_and_discrete_automation_is_quantized() {
                 .find(|(p, _)| p.id == probe)
                 .unwrap()
                 .1,
-            1.0
+            Some(1.0)
         );
         // Quantized back to zero, the ordinary delay reads the actual audio input again.
         let automation = [AutomationEvent {

@@ -93,10 +93,10 @@ fn transfer(payload: usize) -> [Measurement; 2] {
             .restore_state(0, &state, StatePurpose::Project)
             .unwrap()
     });
-    assert_eq!(chain.parameters(0).unwrap()[0].1, 0.375);
+    assert_eq!(chain.parameters(0).unwrap()[0].1, Some(0.375));
     let slot = plughost::ChainSlot::new(support::delay(PluginFormat::Clap)).with_state(state);
     let (mut recovered, recover) = measure(|| chain.recover(std::slice::from_ref(&slot)).unwrap());
-    assert_eq!(recovered.parameters(0).unwrap()[0].1, 0.375);
+    assert_eq!(recovered.parameters(0).unwrap()[0].1, Some(0.375));
     [restore, recover]
 }
 

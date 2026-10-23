@@ -253,7 +253,7 @@ fn config() -> ProcessConfig {
     }
 }
 
-fn values(plugin: &mut Plugin) -> Vec<f64> {
+fn values(plugin: &mut Plugin) -> Vec<Option<f64>> {
     plugin
         .parameters()
         .into_iter()
@@ -290,7 +290,7 @@ fn prepare_preserves_current_state_after_restore_or_factory_preset() {
         plugin.prepare(&config()).unwrap();
         let values = values(&mut plugin);
         assert_eq!(values.len(), 2);
-        assert_eq!(values[0], 0.25, "{purpose:?}");
+        assert_eq!(values[0], Some(0.25), "{purpose:?}");
         assert_eq!(plugin.bypass().unwrap().enabled, Some(true));
         let timing = plugin.timing().unwrap();
         assert_eq!(timing.latency, 8);

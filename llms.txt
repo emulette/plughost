@@ -25,7 +25,7 @@ The application depends on `plughost = "=0.1.6"`. A separate executable depends 
 `std::process::ExitCode`. Ship that executable with the application and pass its path to
 `Scanner::new` and `Chain::spawn`. The library supplies the helper's command-line arguments
 and IPC handshake. Keep application and helper versions matched; the internal helper protocol
-is 32, and an application and a helper with different protocol versions fail the handshake with
+is 33, and an application and a helper with different protocol versions fail the handshake with
 `Error::ProtocolVersion`, which carries both versions.
 
 Supported targets are `aarch64-apple-darwin`, on macOS 15 or newer, and
@@ -585,13 +585,15 @@ still allocate or lock; late completions count what that costs.
 
 ## Parameters, state, and presets
 
-- `parameters(slot)` returns `ParameterInfo` and current normalized values. A CLAP plugin has
-  at most its first 65,536 parameters listed; one that reports more gets a diagnostic.
-- Every format treats the parameter values that `parameters` and `parameter_details` read, and
-  the ranges they come with, alike: a value outside its range is clamped into it, and one that is
-  not finite, or whose range is not, reads as 0, which looks like a real 0. Values a plugin
-  reports through its own edits and notifications outside their range are dropped, as before.
-  A CLAP
+- `parameters(slot)` returns each `ParameterInfo` with its current normalized value as an
+  `Option<f64>`. A CLAP plugin has at most its first 65,536 parameters listed; one that reports
+  more gets a diagnostic.
+- Every format treats the parameter values that `parameters` reads, and the ranges they come
+  with, alike: a value outside its range is clamped into it, and one the plugin does not give (a
+  CLAP `get_value` that fails, an `AudioUnitGetParameter` a v2 unit refuses), that is not finite,
+  or whose range is not, is `None` rather than a value that looks like a real 0.
+  `vst3::Plugin::parameter_value` is `None` for an unknown ID too. Values a plugin reports
+  through its own edits and notifications outside their range are dropped, as before. A CLAP
   parameter whose range is not finite has no default, and edits and automation of a CLAP or
   Audio Unit parameter with such a range fail with a `FailureKind::Host` error.
 - `parameter_details` returns native range endpoints and group information. Endpoints do

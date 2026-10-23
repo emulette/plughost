@@ -36,7 +36,7 @@ fn native_edit_notifications_survive_helper_transport_and_overflow() {
             .find(|(info, _)| info.id == 0)
             .unwrap()
             .1,
-        0.5
+        Some(0.5)
     );
 }
 

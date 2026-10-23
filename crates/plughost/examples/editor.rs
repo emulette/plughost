@@ -181,8 +181,10 @@ fn run(helper: &Path, target: &Path, index: usize) -> Result<bool, Error> {
     let mismatched: Vec<String> = before
         .iter()
         .zip(&after)
-        .filter(|((info, a), (_, b))| !info.flags.read_only && (a - b).abs() > 1e-3)
-        .map(|((info, a), (_, b))| format!("{} {a:.4} -> {b:.4}", info.title))
+        .filter(|((info, a), (_, b))| {
+            !info.flags.read_only && a.zip(*b).map_or(a != b, |(a, b)| (a - b).abs() > 1e-3)
+        })
+        .map(|((info, a), (_, b))| format!("{} {a:.4?} -> {b:.4?}", info.title))
         .collect();
     out!(
         "fresh helper parameters: {} mismatched {mismatched:?}",

@@ -32,7 +32,7 @@ fn factory_programs_reach_the_processor_and_survive_immediate_state_save() {
         .unwrap();
     original.set_parameter(0, 0.75).unwrap();
     original.select_factory_preset(&presets[1].id).unwrap();
-    assert_eq!(original.parameter_value(0), 0.25);
+    assert_eq!(original.parameter_value(0), Some(0.25));
     let saved = original
         .save_state(plughost_core::StatePurpose::Project)
         .unwrap();
