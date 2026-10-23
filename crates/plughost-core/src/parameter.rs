@@ -67,7 +67,9 @@ impl ParameterInfo {
         })
     }
 
-    /// Rejects a host edit before a controller or processing queue is changed.
+    /// Rejects a host edit before a controller or processing queue is changed. Internal to the
+    /// plughost crates; exempt from semver.
+    #[doc(hidden)]
     pub fn validate_edit(&self, value: f64) -> Result<(), crate::InputError> {
         if !value.is_finite() || !(0.0..=1.0).contains(&value) {
             return Err(crate::InputError::ParameterValue);

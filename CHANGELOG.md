@@ -198,7 +198,8 @@ allocation per message. Upgrading from 0.1:
   share among themselves: `DiagnosticBuffer`, `ChangeBuffer`, `ParameterEventBuffer`,
   `events_fit`, `validate_event_budget`, `changes_fit`, `validate_normalized`,
   `validate_parameter_text` and `validate_choice_page` are internal, and `validate_event_count`
-  is no longer public.
+  is no longer public. The methods `RoutedChainConfig::slot_config`, `SlotEventConfig::native`
+  and `ParameterInfo::validate_edit`, which only those crates call, are internal too.
 - The plughost-formats functions that load a plugin's code into the calling process are
   `unsafe fn`, since that code can do anything the process can and nothing checks it:
   `plughost_formats::load`, `vst3::Module::load` and `load_with_host`, `au::Plugin::new` and

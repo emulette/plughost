@@ -482,6 +482,8 @@ impl RoutedChainConfig {
     }
 
     /// The selected slot's native request, retaining the chain's shared processing precision.
+    /// Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
     pub fn slot_config(&self, slot: usize) -> Result<AudioConfig, InputError> {
         let config = self.slots.get(slot).ok_or(InputError::Slot)?;
         Ok(AudioConfig {

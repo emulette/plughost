@@ -122,7 +122,9 @@ impl SlotEventConfig {
         SlotEventConfig { inputs, outputs }
     }
 
-    /// The native input ports routes deliver to, each once, in route order.
+    /// The native input ports routes deliver to, each once, in route order. Internal to the
+    /// plughost crates; exempt from semver.
+    #[doc(hidden)]
     pub fn native(&self) -> EventConfig {
         let mut inputs: Vec<u64> = Vec::new();
         for route in &self.inputs {
