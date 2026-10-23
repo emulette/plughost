@@ -233,18 +233,21 @@ pub trait BlockProcessor: Send {
 /// Loads the plugin class `plugin` names, in this process.
 pub fn load(plugin: &PluginRef, host: &HostIdentity) -> Result<Box<dyn HostedPlugin>, Error> {
     host.validate()?;
-    let class_id = plugin.id().class_id().as_str();
     // A VST3 or CLAP reference always has a bundle and an Audio Unit one none.
     match (plugin.id().format(), plugin.bundle()) {
         #[cfg(feature = "vst3")]
         (plughost_core::PluginFormat::Vst3, Some(bundle)) => {
             let module = vst3::Module::load_with_host(bundle, host)?;
+            let class_id = plugin.id().class_id().as_str();
             Ok(Box::new(vst3::Plugin::new(&module, class_id, host)?))
         }
         #[cfg(all(feature = "au", target_os = "macos"))]
-        (plughost_core::PluginFormat::AudioUnit, _) => Ok(Box::new(au::Plugin::new(class_id)?)),
+        (plughost_core::PluginFormat::AudioUnit, _) => {
+            Ok(Box::new(au::Plugin::new(plugin.id().class_id().as_str())?))
+        }
         #[cfg(feature = "clap")]
         (plughost_core::PluginFormat::Clap, Some(bundle)) => {
+            let class_id = plugin.id().class_id().as_str();
             Ok(Box::new(clap::Plugin::new(bundle, class_id, host)?))
         }
         (format, _) => Err(Error::new(Repr::UnsupportedFormat(format))),

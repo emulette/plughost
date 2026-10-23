@@ -210,7 +210,7 @@ fn the_realtime_callback_allocates_nothing_across_a_recovery() {
     call(&mut endpoint, 2, QUANTUM, &[], &[]);
     assert_eq!(call(&mut endpoint, 2, QUANTUM, &[], &[]), processed);
     let snapshot = chain.snapshot().unwrap();
-    let mut recovered = chain.recover_realtime(&snapshot).unwrap();
+    let mut recovered = chain.recover_realtime(&snapshot.slots).unwrap();
     assert_eq!(
         call(&mut endpoint, 2, QUANTUM, &[], &[]),
         fallback(FallbackReason::Priming)
