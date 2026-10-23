@@ -250,7 +250,8 @@ mod tests {
     #[test]
     fn host_edits_are_not_reported_back_as_edits_of_the_unit() {
         // AUDelay is a v2 unit; its bridge reports listener notifications some 50 ms later.
-        let mut plugin = Plugin::new("6175667864656C796170706C").unwrap();
+        // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+        let mut plugin = unsafe { Plugin::new("6175667864656C796170706C") }.unwrap();
         plugin.take_parameter_events();
         plugin.set_parameter(0, 0.3).unwrap();
         crate::au::wait::run_loop_for(std::time::Duration::from_millis(200));
@@ -264,7 +265,10 @@ mod tests {
             .map(|_| {
                 std::thread::spawn(|| {
                     for _ in 0..2 {
-                        let mut plugin = Plugin::new("6175667864656C796170706C").unwrap();
+                        // SAFETY: the tests load only the repository's fixture and SDK sample
+                        // plugins.
+                        let mut plugin =
+                            unsafe { Plugin::new("6175667864656C796170706C") }.unwrap();
                         plugin.set_parameter(0, 0.75).unwrap();
                     }
                 })

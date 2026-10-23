@@ -20,7 +20,6 @@ mod timing_tests;
 use std::ffi::{CString, c_void};
 mod capabilities;
 use std::io::Cursor;
-use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
@@ -53,35 +52,13 @@ use parameter_cache::ParameterCache;
 
 const INSTRUMENT: &str = "instrument";
 
-/// The plugin classes in a `.clap` module.
-pub fn classes(bundle: &Path) -> Result<Vec<PluginInfo>, crate::Error> {
-    classes_once_loaded(bundle, || {})
-}
-
-/// The plugin classes in a `.clap` module, calling `loaded` once its entry has initialized,
-/// before the classes are read and the entry is deinitialized.
-pub fn classes_once_loaded(
-    bundle: &Path,
-    loaded: impl FnOnce(),
-) -> Result<Vec<PluginInfo>, crate::Error> {
-    let entry = load_entry(bundle)?;
-    loaded();
-    let factory = entry.get_plugin_factory().ok_or(ClapError::NoFactory)?;
-    Ok(factory.plugin_descriptors().filter_map(info).collect())
-}
-
-fn load_entry(bundle: &Path) -> Result<PluginEntry, ClapError> {
-    // SAFETY: running the module's code is the purpose of loading it.
-    unsafe { PluginEntry::load(bundle) }.map_err(ClapError::Load)
-}
-
 fn text(value: Option<&std::ffi::CStr>) -> String {
     value
         .map(|v| v.to_string_lossy().into_owned())
         .unwrap_or_default()
 }
 
-fn info(descriptor: &PluginDescriptor) -> Option<PluginInfo> {
+pub(super) fn info(descriptor: &PluginDescriptor) -> Option<PluginInfo> {
     let categories: Vec<String> = descriptor
         .features()
         .map(|feature| feature.to_string_lossy().into_owned())
@@ -170,15 +147,15 @@ impl std::fmt::Debug for Plugin {
 }
 
 impl Plugin {
-    /// Loads the CLAP bundle and creates the named class with the supplied host identity.
+    /// Creates the named class of a loaded module with the supplied host identity.
     pub fn new(
-        bundle: &Path,
+        entry: &super::Entry,
         class_id: &str,
         identity: &HostIdentity,
     ) -> Result<Plugin, crate::Error> {
         let diagnostics = DiagnosticBuffer::default();
         identity.validate().map_err(ClapError::Input)?;
-        let entry = load_entry(bundle)?;
+        let entry = entry.native();
         let factory = entry.get_plugin_factory().ok_or(ClapError::NoFactory)?;
         let info = factory
             .plugin_descriptors()
@@ -202,7 +179,7 @@ impl Plugin {
                 )
             },
             |shared| MainThread::new(shared),
-            &entry,
+            entry,
             &id,
             &host_info,
         )

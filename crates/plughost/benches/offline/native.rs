@@ -25,7 +25,8 @@ pub struct Prepared {
 pub fn prepare(case: Case, plugin: &PluginRef) -> Result<Prepared> {
     let (mut owners, load) = lifecycle::timed(|| {
         (0..case.plugins)
-            .map(|_| plughost_formats::load(plugin, &HostIdentity::default()))
+            // SAFETY: the benchmark loads only the repository's fixture plugins.
+            .map(|_| unsafe { plughost_formats::load(plugin, &HostIdentity::default()) })
             .collect::<std::result::Result<Vec<_>, _>>()
     })?;
     let ((), prepare) = lifecycle::timed(|| -> Result<()> {

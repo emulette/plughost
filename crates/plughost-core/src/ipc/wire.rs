@@ -398,6 +398,7 @@ pub(super) enum InputErrorDef {
         id: u64,
     },
     HostIdentity,
+    PresetDiscoveryTarget,
     EmptyChain,
     SampleRate,
     BlockSize,

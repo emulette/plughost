@@ -18,7 +18,8 @@ use processing::ProcessSample;
 fn prepared_native_audio_reuses_storage_across_blocks_and_reconfiguration() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/test-plugins/plughost-test-routing.vst3");
-    let module = Module::load(&path).unwrap();
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    let module = unsafe { Module::load(&path) }.unwrap();
     let mut plugin = Plugin::new(
         &module,
         module.classes()[0].id.class_id().as_str(),

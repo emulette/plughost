@@ -27,8 +27,7 @@ struct Native {
 }
 impl Native {
     fn new(format: PluginFormat, block: usize) -> Self {
-        let mut plugin =
-            plughost_formats::load(&reference(format), &HostIdentity::default()).unwrap();
+        let mut plugin = support::native(&reference(format));
         let config = ProcessConfig::new(
             48_000.0,
             block,

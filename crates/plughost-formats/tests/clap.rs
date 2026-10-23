@@ -12,8 +12,14 @@ use plughost_core::{
     Event, Events, FailureKind, InputError, Layout, PluginKind, ProcessConfig, SampleFormat,
     StatePurpose,
 };
-use plughost_formats::clap::{self, Plugin};
+use plughost_formats::clap::Plugin;
 use plughost_formats::{BlockProcessor, HostedPlugin};
+
+/// Loads a fixture's CLAP module.
+fn entry(bundle: &std::path::Path) -> plughost_formats::clap::Entry {
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    unsafe { plughost_formats::clap::Entry::load(bundle) }.unwrap()
+}
 
 const CLASS: &str = "com.studio.plughost.test-delay.79000001";
 const SYNTH: &str = "com.studio.plughost.test-synth";
@@ -47,8 +53,12 @@ fn test_plugin(name: &str) -> PathBuf {
 }
 
 fn plugin() -> Plugin {
-    Plugin::new(&bundle(), CLASS, &plughost_core::HostIdentity::default())
-        .unwrap_or_else(|error| panic!("{}: {error}", bundle().display()))
+    Plugin::new(
+        &entry(&bundle()),
+        CLASS,
+        &plughost_core::HostIdentity::default(),
+    )
+    .unwrap_or_else(|error| panic!("{}: {error}", bundle().display()))
 }
 
 #[test]
@@ -145,7 +155,7 @@ fn native_logs_can_be_drained_without_an_application_callback() {
 
 fn synth() -> Plugin {
     let mut synth = Plugin::new(
-        &test_plugin("plughost-test-synth"),
+        &entry(&test_plugin("plughost-test-synth")),
         SYNTH,
         &plughost_core::HostIdentity::default(),
     )
@@ -331,7 +341,10 @@ fn reset_before_preparation_succeeds_as_in_the_other_formats() {
 #[ignore = "needs scripts/build-test-plugins.sh"]
 fn classes_are_listed_with_their_plugin_ids() {
     let _serial = serial();
-    let classes = clap::classes(&bundle()).unwrap();
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    let classes = unsafe { plughost_formats::clap::Entry::load(&bundle()) }
+        .and_then(|entry| entry.classes())
+        .unwrap();
     assert_eq!(classes.len(), 1);
     assert_eq!(classes[0].id.class_id().as_str(), CLASS);
     assert_eq!(classes[0].name, "plughost test delay");
@@ -453,7 +466,7 @@ fn reset_without_state_extension_stops_notes_and_keeps_controls() {
 fn a_plugin_without_state_contexts_saves_project_state_and_refuses_the_others() {
     let _serial = serial();
     let mut plugin = Plugin::new(
-        &test_plugin("plughost-test-noop-reset"),
+        &entry(&test_plugin("plughost-test-noop-reset")),
         "com.studio.plughost.test-delay.79000006",
         &plughost_core::HostIdentity::default(),
     )
@@ -497,7 +510,11 @@ fn layouts_the_plugin_refuses_are_errors() {
 #[ignore = "needs scripts/build-test-plugins.sh"]
 fn instruments_are_listed_as_instruments() {
     let _serial = serial();
-    let classes = clap::classes(&test_plugin("plughost-test-synth")).unwrap();
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    let classes =
+        unsafe { plughost_formats::clap::Entry::load(&test_plugin("plughost-test-synth")) }
+            .and_then(|entry| entry.classes())
+            .unwrap();
     assert_eq!(classes[0].kind, PluginKind::Instrument);
 }
 
@@ -649,7 +666,7 @@ fn a_timer_removed_by_another_timer_is_not_called() {
     const REMOVED_TIMER_CALLS: u64 = 15;
     let bundle = test_plugin("plughost-test-timers");
     let mut plugin = Plugin::new(
-        &bundle,
+        &entry(&bundle),
         "com.studio.plughost.test-delay.7900000d",
         &plughost_core::HostIdentity::default(),
     )
@@ -670,7 +687,7 @@ fn timer_calls_off_the_main_thread_are_refused_and_reported() {
     // reports how many of the two calls the host accepted.
     const ACCEPTED_OFF_MAIN_THREAD: u64 = 18;
     let mut plugin = Plugin::new(
-        &test_plugin("plughost-test-timers"),
+        &entry(&test_plugin("plughost-test-timers")),
         "com.studio.plughost.test-delay.7900000d",
         &plughost_core::HostIdentity::default(),
     )

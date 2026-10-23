@@ -8,12 +8,18 @@ use plughost_core::{
 use plughost_formats::clap::Plugin;
 use plughost_formats::{Error, HostedPlugin};
 
+/// Loads a fixture's CLAP module.
+fn entry(bundle: &std::path::Path) -> plughost_formats::clap::Entry {
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    unsafe { plughost_formats::clap::Entry::load(bundle) }.unwrap()
+}
+
 fn plugin(variant: &str, suffix: u32) -> Plugin {
     let bundle = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/test-plugins")
         .join(format!("plughost-test-{variant}.clap"));
     Plugin::new(
-        &bundle,
+        &entry(&bundle),
         &format!("com.studio.plughost.test-delay.{:x}", 0x79000000 + suffix),
         &HostIdentity::default(),
     )

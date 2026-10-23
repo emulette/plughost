@@ -16,19 +16,25 @@ pub fn scan(bundle: &Path, host: &HostIdentity, responder: &Responder) -> io::Re
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("clap"));
     if is_clap {
-        let mut loaded = Ok(());
-        let classes = plughost_formats::clap::classes_once_loaded(bundle, || {
-            loaded = responder.send(&Response::ModuleLoaded);
-        });
-        loaded?;
-        match classes {
+        // SAFETY: plugin code runs only in this helper process, so whatever it does stays in it.
+        let entry = match unsafe { plughost_formats::clap::Entry::load(bundle) } {
+            Ok(entry) => entry,
+            Err(error) => {
+                return responder.fail(None, error.failure());
+            }
+        };
+        responder.send(&Response::ModuleLoaded)?;
+        match entry.classes() {
             Ok(classes) => send(classes, responder)?,
             Err(error) => {
                 return responder.fail(None, error.failure());
             }
         }
+        // The entry deinitializes after its classes are reported.
+        drop(entry);
     } else {
-        let module = match Module::load_with_host(bundle, host) {
+        // SAFETY: plugin code runs only in this helper process, so whatever it does stays in it.
+        let module = match unsafe { Module::load_with_host(bundle, host) } {
             Ok(module) => module,
             Err(error) => {
                 return responder.fail(None, error.failure());

@@ -27,7 +27,9 @@ fn routing(format: PluginFormat) -> PluginRef {
 }
 
 fn prepared(reference: &PluginRef) -> Box<dyn HostedPlugin> {
-    let mut plugin = plughost_formats::load(reference, &HostIdentity::default()).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin =
+        unsafe { plughost_formats::load(reference, &HostIdentity::default()) }.unwrap();
     plugin
         .prepare(&ProcessConfig::new(
             48_000.0,

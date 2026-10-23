@@ -48,6 +48,9 @@ pub fn discover_presets(
     if bundle.to_str().is_none() || !encodable(&target.location) {
         return Err(path_encoding());
     }
+    target
+        .validate()
+        .map_err(|error| Error::Input { slot: None, error })?;
     let mut helper = Helper::spawn(helper, Mode::Scan)?;
     match helper.request(
         Request::DiscoverPresets {

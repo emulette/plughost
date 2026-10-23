@@ -26,7 +26,9 @@ fn component_state_and_connection_messages_reach_a_separate_controller() {
             .join("../../target/test-plugins/plughost-test-routing.vst3"),
         "706C7567686F7374526F7574696E6701",
     );
-    let mut plugin = plughost_formats::load(&reference, &HostIdentity::default()).unwrap();
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    let mut plugin =
+        unsafe { plughost_formats::load(&reference, &HostIdentity::default()) }.unwrap();
     // The controller starts with opposite defaults until setComponentState copies the DSP state.
     assert_eq!(value(&mut *plugin, 0), 1.0);
     assert_eq!(value(&mut *plugin, 1), 0.0);

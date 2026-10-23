@@ -178,7 +178,8 @@ mod unit {
 
     pub fn the_window_follows_the_size_the_view_takes() {
         let mtm = MainThreadMarker::new().unwrap();
-        let mut plugin = Plugin::new(&class_id()).unwrap();
+        // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+        let mut plugin = unsafe { Plugin::new(&class_id()) }.unwrap();
         let parent = NSView::new(mtm);
         let requests = Rc::new(RefCell::new(Vec::new()));
         let record = Rc::clone(&requests);

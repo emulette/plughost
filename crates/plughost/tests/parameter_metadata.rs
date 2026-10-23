@@ -8,8 +8,7 @@ use support::{block, delay as reference, prepared_delay as chain, spawn};
 #[ignore = "needs helper and test plugins"]
 fn native_metadata_and_helper_metadata_preserve_ranges_defaults_and_groups() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
-        let mut native =
-            plughost_formats::load(&reference(format), &HostIdentity::default()).unwrap();
+        let mut native = support::native(&reference(format));
         let mut chain = chain(format);
         let details = native.parameter_details(0).unwrap();
         assert_eq!(chain.parameter_details(0, 0).unwrap(), details);
@@ -53,8 +52,7 @@ fn paged_native_choice_labels_do_not_edit_parameters() {
         (PluginFormat::Vst3, 2, ["Volume", "Expression"]),
         (PluginFormat::Clap, 1, ["Normal", "Double"]),
     ] {
-        let mut native =
-            plughost_formats::load(&reference(format), &HostIdentity::default()).unwrap();
+        let mut native = support::native(&reference(format));
         let mut chain = chain(format);
         let original = chain
             .save_state(0, plughost::StatePurpose::Project)
@@ -152,8 +150,7 @@ fn constant_discrete_and_large_choice_lists_are_bounded_without_losing_values() 
 #[test]
 #[ignore = "needs helper and CLAP test plugin"]
 fn clap_metadata_refresh_reads_the_new_native_range_and_default() {
-    let mut native =
-        plughost_formats::load(&reference(PluginFormat::Clap), &HostIdentity::default()).unwrap();
+    let mut native = support::native(&reference(PluginFormat::Clap));
     assert_eq!(native.parameter_details(0).unwrap().plain_at_one, 1.0);
     native.set_parameter(1, 1.0).unwrap();
     native.save_state(plughost::StatePurpose::Project).unwrap();

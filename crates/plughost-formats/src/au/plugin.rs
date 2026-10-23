@@ -194,7 +194,14 @@ impl std::fmt::Debug for Plugin {
 impl Plugin {
     /// Instantiates the registered Audio Unit with `class_id`. AUv3 units run in their extension
     /// process, as macOS does by default.
-    pub fn new(class_id: &str) -> Result<Plugin, crate::Error> {
+    ///
+    /// # Safety
+    ///
+    /// Instantiating a v2 unit, or a v3 unit macOS runs in this process, runs its own code here,
+    /// with everything the process may do, and nothing checks that code: a unit that is not sound
+    /// can corrupt or end the process. Instantiate only units trusted to behave, or do it in a
+    /// process of their own, as `plughost`'s helper does.
+    pub unsafe fn new(class_id: &str) -> Result<Plugin, crate::Error> {
         let description = parse_class_id(class_id)?;
         // Zero codes match any component, so the found one must have the requested ID.
         let id = plughost_core::PluginId::new(PluginFormat::AudioUnit, class_id);

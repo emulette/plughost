@@ -9,7 +9,8 @@ use plughost_formats::au::Plugin;
 
 #[test]
 fn prepared_apple_audio_reuses_storage_across_blocks_and_reconfiguration() {
-    let mut plugin = Plugin::new("6175667864656C796170706C").unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new("6175667864656C796170706C") }.unwrap();
     for (rate, maximum) in [(48_000.0, 512), (96_000.0, 128), (48_000.0, 512)] {
         plugin
             .prepare(&ProcessConfig::new(

@@ -13,13 +13,19 @@ use plughost_formats::clap::Plugin;
 use plughost_formats::{BlockProcessor, HostedPlugin};
 use processing::ProcessSample;
 
+/// Loads a fixture's CLAP module.
+fn entry(bundle: &std::path::Path) -> plughost_formats::clap::Entry {
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    unsafe { plughost_formats::clap::Entry::load(bundle) }.unwrap()
+}
+
 #[test]
 #[ignore = "needs routing test plugin"]
 fn prepared_native_audio_reuses_storage_across_blocks_and_reconfiguration() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/test-plugins/plughost-test-routing.clap");
     let mut plugin = Plugin::new(
-        &path,
+        &entry(&path),
         "com.studio.plughost.test-routing",
         &HostIdentity::default(),
     )

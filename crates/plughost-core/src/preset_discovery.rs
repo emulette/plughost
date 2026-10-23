@@ -51,6 +51,24 @@ impl PresetDiscoveryTarget {
             location,
         }
     }
+
+    /// Checks the target before any provider code runs: a provider ID and, for a file location,
+    /// an absolute Unicode path, each non-empty, without NUL and within
+    /// [`PRESET_DISCOVERY_TEXT_BYTES`].
+    pub fn validate(&self) -> Result<(), crate::InputError> {
+        let text = |value: &str| {
+            !value.is_empty() && value.len() <= PRESET_DISCOVERY_TEXT_BYTES && !value.contains('\0')
+        };
+        let location = match &self.location {
+            PresetLocation::Plugin => true,
+            PresetLocation::File { path } => path.is_absolute() && path.to_str().is_some_and(text),
+        };
+        if text(&self.provider_id) && location {
+            Ok(())
+        } else {
+            Err(crate::InputError::PresetDiscoveryTarget)
+        }
+    }
 }
 
 /// File type advertised by a CLAP preset provider.
@@ -288,5 +306,38 @@ impl PresetFileFailure {
     #[doc(hidden)]
     pub fn new(path: PathBuf, failure: crate::Failure) -> PresetFileFailure {
         PresetFileFailure { path, failure }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_target_takes_a_provider_id_and_an_absolute_unicode_path_within_the_text_limit() {
+        let file = |path: PathBuf| PresetLocation::File { path };
+        let absolute = std::env::temp_dir().join("preset.phcp");
+        for (provider, location) in [
+            ("provider", PresetLocation::Plugin),
+            ("provider", file(absolute.clone())),
+        ] {
+            assert_eq!(
+                PresetDiscoveryTarget::new(provider, location).validate(),
+                Ok(())
+            );
+        }
+        let long = "x".repeat(PRESET_DISCOVERY_TEXT_BYTES + 1);
+        for (provider, location) in [
+            ("", PresetLocation::Plugin),
+            ("pro\0vider", PresetLocation::Plugin),
+            (long.as_str(), PresetLocation::Plugin),
+            ("provider", file("relative.phcp".into())),
+            ("provider", file(std::env::temp_dir().join("pre\0set.phcp"))),
+        ] {
+            assert_eq!(
+                PresetDiscoveryTarget::new(provider, location).validate(),
+                Err(crate::InputError::PresetDiscoveryTarget)
+            );
+        }
     }
 }

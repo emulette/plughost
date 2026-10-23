@@ -14,8 +14,17 @@ use plughost_formats::HostedPlugin;
 #[cfg(any(feature = "vst3", feature = "clap"))]
 use std::path::Path;
 
+/// Loads a fixture's CLAP module.
+#[cfg(feature = "clap")]
+fn entry(bundle: &std::path::Path) -> plughost_formats::clap::Entry {
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    unsafe { plughost_formats::clap::Entry::load(bundle) }.unwrap()
+}
+
 fn check(reference: PluginRef) {
-    let mut plugin = plughost_formats::load(&reference, &HostIdentity::default()).unwrap();
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    let mut plugin =
+        unsafe { plughost_formats::load(&reference, &HostIdentity::default()) }.unwrap();
     plugin
         .prepare(&ProcessConfig::new(
             48_000.0,
@@ -118,7 +127,7 @@ fn clap_pending_edits_are_bounded_and_survive_a_rejected_audio_block() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/test-plugins/plughost-test-routing.clap");
     let mut plugin = plughost_formats::clap::Plugin::new(
-        &path,
+        &entry(&path),
         "com.studio.plughost.test-routing",
         &HostIdentity::default(),
     )
@@ -192,7 +201,7 @@ fn clap_pending_edits_survive_a_block_the_plugin_fails() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/test-plugins/plughost-test-routing-faults.clap");
     let mut plugin = plughost_formats::clap::Plugin::new(
-        &path,
+        &entry(&path),
         "com.studio.plughost.test-routing",
         &HostIdentity::default(),
     )

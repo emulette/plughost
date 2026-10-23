@@ -29,7 +29,9 @@ fn oversized_direct_restore_is_rejected_before_discarding_pending_edits() {
             PluginFormat::Vst3 => PluginRef::vst3(bundle, class_id),
             _ => PluginRef::clap(bundle, class_id),
         };
-        let mut plugin = plughost_formats::load(&reference, &HostIdentity::default()).unwrap();
+        // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+        let mut plugin =
+            unsafe { plughost_formats::load(&reference, &HostIdentity::default()) }.unwrap();
         plugin
             .prepare(&ProcessConfig::new(
                 48_000.0,

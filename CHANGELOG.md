@@ -26,6 +26,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   configuration, events, event inputs, channel adaptation, render schedule) and
   `RenderSchedule::with_transport`, `with_automation` and `with_ramps`.
 - `PresetFlags` names the CLAP preset discovery flags.
+- `PresetDiscoveryTarget::validate` checks a target's provider ID and location, failing with the
+  new `InputError::PresetDiscoveryTarget`. `plughost::discover_presets` calls it before starting
+  a helper, and the helper before loading the module, so invalid input never runs plugin code.
+- `plughost_formats::clap::Entry` is a loaded CLAP module, as `vst3::Module` is for VST3:
+  `Entry::load(bundle)` loads it once, and `classes()`, `clap::Plugin::new`,
+  `clap::preset_providers` and `clap::discover_presets` use it instead of loading the module
+  again on each call.
 - `PluginState::to_bytes` and `PluginState::from_bytes` store a state in plughost's own
   versioned format, which later versions keep reading and which does not depend on the helper
   protocol; 0.1 states, which had only a serde form, cannot be read and are saved again. It is
@@ -101,11 +108,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   `FailureKind::StateMismatch`).
 - The scan cache schema is 3: caches written by 0.1 are read as empty and their bundles
   inspected again.
-- The internal helper protocol is now 33. Applications and helpers with different protocol
+- The internal helper protocol is now 34. Applications and helpers with different protocol
   versions fail the handshake; rebuild and distribute the helper with the application.
 - `plughost_formats::Error` is one opaque struct for every format instead of an enum with a
   variant per format, and `Vst3Error`, `ClapError` and `AuError` are no longer public; the
-  format modules' functions, such as `vst3::Module::load` and `clap::classes`, return
+  format modules' functions, such as `vst3::Module::load` and `clap::Entry::load`, return
   `plughost_formats::Error`. Match `kind()` for the `FailureKind` and `input_error()` for
   rejected caller input instead of variants; `format()` names the format whose host failed
   (none for rejected caller input), `native_code()` gives the VST3 `tresult` or the Audio Unit `OSStatus` (or `NSError` code), and
@@ -153,6 +160,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   `events_fit`, `validate_event_budget`, `changes_fit`, `validate_normalized`,
   `validate_parameter_text` and `validate_choice_page` are internal, and `validate_event_count`
   is no longer public.
+- The plughost-formats functions that load a plugin's code into the calling process are
+  `unsafe fn`, since that code can do anything the process can and nothing checks it:
+  `plughost_formats::load`, `vst3::Module::load` and `load_with_host`, `au::Plugin::new` and
+  `clap::Entry::load`. The functions that use a loaded plugin stay safe, as does all of the
+  `plughost` crate, which loads plugins in its helper processes. `clap::Plugin::new`,
+  `clap::preset_providers` and `clap::discover_presets` take a `clap::Entry` instead of a bundle
+  path, `clap::classes(bundle)` is `Entry::classes`, and `clap::classes_once_loaded` is removed:
+  load the `Entry`, then read its classes.
 - `HostedPlugin`, `BlockProcessor` and `Sample` are sealed: the format plugins and processors
   and `f32` and `f64` implement them, and other crates cannot. `render::Process` and
   `AudioThread` remain for applications to implement. With `Sample` sealed, processing no longer

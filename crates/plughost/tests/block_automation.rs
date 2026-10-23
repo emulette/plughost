@@ -92,7 +92,7 @@ fn apple_ramp_matches_independent_control_edits() {
     let input = vec![0.25f32; 257];
     // An independent oracle: explicit native control edits, one sample at a time. This path
     // never constructs a ramp, submits block automation, or calls the render scheduler.
-    let mut control = plughost_formats::load(&reference, &HostIdentity::default()).unwrap();
+    let mut control = support::native(&reference);
     control
         .prepare(&plughost_core::ProcessConfig::new(
             48_000.0,

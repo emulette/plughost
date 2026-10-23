@@ -674,7 +674,8 @@ fn class_id() -> String {
 }
 
 fn prepared() -> Plugin {
-    let mut plugin = Plugin::new(&class_id()).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new(&class_id()) }.unwrap();
     let output = plugin
         .audio_buses()
         .unwrap()
@@ -738,7 +739,8 @@ fn reset_runs_with_subnormal_numbers_flushed_to_zero() {
 
 #[test]
 fn renamed_parameter_values_are_reported_as_changed_metadata() {
-    let mut plugin = Plugin::new(&class_id()).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new(&class_id()) }.unwrap();
     assert_eq!(plugin.parameter_text(u64::from(MODE), 1.0).unwrap(), "On");
     assert!(plugin.take_parameter_events().events.is_empty());
 

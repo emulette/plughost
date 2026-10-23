@@ -39,13 +39,28 @@ impl std::fmt::Debug for Module {
 
 impl Module {
     /// Loads the module at `path`: a `.vst3` bundle, or on Windows also a single-file `.vst3`.
-    pub fn load(path: &Path) -> Result<Rc<Module>, crate::Error> {
-        Self::load_with_host(path, &HostIdentity::default())
+    ///
+    /// # Safety
+    ///
+    /// Loading runs the module's own code in this process, with everything the process may do,
+    /// and nothing checks that code: one that is not a sound VST3 plugin can corrupt or end the
+    /// process. Load only modules trusted to behave, or load them in a process of their own, as
+    /// `plughost`'s helper does.
+    pub unsafe fn load(path: &Path) -> Result<Rc<Module>, crate::Error> {
+        // SAFETY: the caller accepts running the module's code.
+        unsafe { Self::load_with_host(path, &HostIdentity::default()) }
     }
 
     /// Loads a module with a factory-scoped host identity, supplied before class enumeration.
     /// Optional IPluginFactory3 host-context support does not replace per-instance initialization.
-    pub fn load_with_host(
+    ///
+    /// # Safety
+    ///
+    /// Loading runs the module's own code in this process, with everything the process may do,
+    /// and nothing checks that code: one that is not a sound VST3 plugin can corrupt or end the
+    /// process. Load only modules trusted to behave, or load them in a process of their own, as
+    /// `plughost`'s helper does.
+    pub unsafe fn load_with_host(
         path: &Path,
         identity: &HostIdentity,
     ) -> Result<Rc<Module>, crate::Error> {

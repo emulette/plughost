@@ -6,6 +6,13 @@ use plughost_core::{
 };
 use plughost_formats::HostedPlugin;
 
+/// Loads a fixture's CLAP module.
+#[cfg(feature = "clap")]
+fn entry(bundle: &std::path::Path) -> plughost_formats::clap::Entry {
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    unsafe { plughost_formats::clap::Entry::load(bundle) }.unwrap()
+}
+
 fn serial() -> MutexGuard<'static, ()> {
     static SERIAL: Mutex<()> = Mutex::new(());
     SERIAL.lock().unwrap_or_else(|error| error.into_inner())
@@ -33,7 +40,7 @@ fn config() -> ProcessConfig {
 fn clap_flush_reports_native_gestures_dirty_and_parameter_rescans() {
     let _serial = serial();
     let mut plugin = plughost_formats::clap::Plugin::new(
-        &bundle("clap"),
+        &entry(&bundle("clap")),
         "com.studio.plughost.test-delay.79000001",
         &HostIdentity::default(),
     )
@@ -85,7 +92,7 @@ fn clap_flush_reports_native_gestures_dirty_and_parameter_rescans() {
 fn clap_process_events_preserve_order_and_bound_overflow() {
     let _serial = serial();
     let mut plugin = plughost_formats::clap::Plugin::new(
-        &bundle("clap"),
+        &entry(&bundle("clap")),
         "com.studio.plughost.test-delay.79000001",
         &HostIdentity::default(),
     )
@@ -130,7 +137,8 @@ fn clap_process_events_preserve_order_and_bound_overflow() {
 #[ignore = "needs scripts/build-test-plugins.ps1 (or .sh)"]
 fn vst3_callbacks_and_processor_output_reach_the_consumer() {
     let _serial = serial();
-    let module = plughost_formats::vst3::Module::load(&bundle("vst3")).unwrap();
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    let module = unsafe { plughost_formats::vst3::Module::load(&bundle("vst3")) }.unwrap();
     let mut plugin = plughost_formats::vst3::Plugin::new(
         &module,
         module.classes()[0].id.class_id().as_str(),

@@ -482,7 +482,8 @@ impl Host {
         plugin: &PluginRef,
         host: &HostIdentity,
     ) -> Result<Box<dyn HostedPlugin>, Error> {
-        let mut loaded = plughost_formats::load(plugin, host)?;
+        // SAFETY: plugin code runs only in this helper process, so whatever it does stays in it.
+        let mut loaded = unsafe { plughost_formats::load(plugin, host) }?;
         loaded.set_audio_thread(AudioThread::new(&self.processing, slot));
         Ok(loaded)
     }

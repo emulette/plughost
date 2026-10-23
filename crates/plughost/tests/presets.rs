@@ -16,8 +16,7 @@ fn value(parameters: &[(ParameterInfo, Option<f64>)], id: u64) -> f64 {
 #[test]
 #[ignore = "needs helper and test plugins"]
 fn native_and_helper_clap_state_contexts_reach_the_plugin() {
-    let mut native =
-        plughost_formats::load(&reference(PluginFormat::Clap), &HostIdentity::default()).unwrap();
+    let mut native = support::native(&reference(PluginFormat::Clap));
     let mut chain = chain(PluginFormat::Clap);
     for (purpose, code) in [
         (StatePurpose::Project, 3.0),

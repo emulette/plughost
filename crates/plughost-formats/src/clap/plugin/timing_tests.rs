@@ -1,10 +1,13 @@
 use super::*;
+use std::path::Path;
 
 fn plugin() -> Plugin {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/test-plugins/plughost-test-thread-check.clap");
+    // SAFETY: the tests load only the repository's fixture plugins.
+    let entry = unsafe { super::super::Entry::load(&path) }.unwrap();
     let mut plugin = Plugin::new(
-        &path,
+        &entry,
         "com.studio.plughost.test-delay.7900000f",
         &HostIdentity::default(),
     )

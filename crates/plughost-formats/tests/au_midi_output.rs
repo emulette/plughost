@@ -282,7 +282,8 @@ fn config(plugin: &mut Plugin, outputs: Vec<u64>) -> AudioConfig {
 }
 
 fn prepared(outputs: Vec<u64>) -> Plugin {
-    let mut plugin = Plugin::new(&class_id()).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new(&class_id()) }.unwrap();
     let config = config(&mut plugin, outputs);
     plugin.prepare_audio(&config).unwrap();
     plugin
@@ -305,7 +306,8 @@ fn block(plugin: &mut Plugin, events: &Events) -> Result<Events, Error> {
 
 #[test]
 fn midi_outputs_are_listed_as_event_ports_by_cable() {
-    let mut plugin = Plugin::new(&class_id()).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new(&class_id()) }.unwrap();
     let outputs: Vec<_> = plugin
         .event_ports()
         .unwrap()
@@ -368,7 +370,8 @@ fn only_prepared_outputs_deliver_their_messages() {
         [Event::control_change(10, 0, 126, 42).on_port(1)]
     );
 
-    let mut plugin = Plugin::new(&class_id()).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new(&class_id()) }.unwrap();
     let config = config(&mut plugin, vec![2]);
     let error = plugin.prepare_audio(&config).unwrap_err();
     assert_eq!(error.kind(), plughost_core::FailureKind::InvalidInput);
@@ -451,7 +454,8 @@ fn clocks_do_not_hide_system_exclusive_byte_overflow() {
 
 #[test]
 fn the_main_configuration_prepares_the_first_output() {
-    let mut plugin = Plugin::new(&class_id()).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new(&class_id()) }.unwrap();
     plugin
         .prepare(&plughost_core::ProcessConfig::new(
             48_000.0,

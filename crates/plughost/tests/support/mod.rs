@@ -101,6 +101,12 @@ pub fn initial(chain: &Chain) -> Vec<plughost::ChainSlot> {
         .collect()
 }
 
+/// Loads a fixture in this process, to compare with the helper's.
+pub fn native(plugin: &PluginRef) -> Box<dyn plughost_formats::HostedPlugin> {
+    // SAFETY: the tests load only the repository's fixture plugins.
+    unsafe { plughost_formats::load(plugin, &HostIdentity::default()) }.unwrap()
+}
+
 pub fn spawn(plugins: &[PluginRef]) -> Chain {
     spawn_with(plugins, &HostIdentity::default(), Timeouts::default())
 }

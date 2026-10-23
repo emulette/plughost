@@ -8,8 +8,7 @@ use support::{block, delay as reference, prepared_delay as chain};
 #[ignore = "needs helper and test plugins"]
 fn native_and_helper_parameter_conversions_reach_output_and_saved_state() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
-        let mut native =
-            plughost_formats::load(&reference(format), &HostIdentity::default()).unwrap();
+        let mut native = support::native(&reference(format));
         let mut chain = chain(format);
         let expected_plain = if format == PluginFormat::Vst3 {
             25.0
@@ -55,8 +54,7 @@ fn native_and_helper_parameter_conversions_reach_output_and_saved_state() {
 #[ignore = "needs helper and test plugins"]
 fn invalid_parameter_text_and_values_preserve_state() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
-        let mut native =
-            plughost_formats::load(&reference(format), &HostIdentity::default()).unwrap();
+        let mut native = support::native(&reference(format));
         let mut chain = chain(format);
         chain.set_parameter(0, 0, 0.75).unwrap();
         let state = chain
@@ -127,8 +125,7 @@ fn rejected_partial_state_preserves_pending_edits_and_dsp_history() {
             saved.controller().map(<[u8]>::to_vec),
         );
         // Prove this payload reaches a native loader that mutates before returning an error.
-        let mut native =
-            plughost_formats::load(&reference(format), &HostIdentity::default()).unwrap();
+        let mut native = support::native(&reference(format));
         assert_eq!(
             native
                 .restore_state(&broken, plughost::StatePurpose::Project)

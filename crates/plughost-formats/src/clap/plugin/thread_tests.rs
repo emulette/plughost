@@ -1,12 +1,15 @@
 use super::*;
+use std::path::Path;
 
 #[test]
 #[ignore = "needs CLAP thread-check fixture"]
 fn a_native_call_on_the_wrong_thread_is_counted_and_logged() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/test-plugins/plughost-test-thread-check.clap");
+    // SAFETY: the tests load only the repository's fixture plugins.
+    let entry = unsafe { super::super::Entry::load(&path) }.unwrap();
     let mut plugin = Plugin::new(
-        &path,
+        &entry,
         "com.studio.plughost.test-delay.7900000f",
         &HostIdentity::default(),
     )

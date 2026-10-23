@@ -237,7 +237,8 @@ fn plugin() -> Plugin {
         .id
         .class_id()
         .to_string();
-    Plugin::new(&id).unwrap()
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    unsafe { Plugin::new(&id) }.unwrap()
 }
 
 fn config() -> ProcessConfig {
@@ -324,7 +325,8 @@ fn au_instantiation_benchmark() {
     drop(first);
     let started = std::time::Instant::now();
     for _ in 0..300 {
-        let mut unit = Plugin::new(expected.id.class_id().as_str()).unwrap();
+        // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+        let mut unit = unsafe { Plugin::new(expected.id.class_id().as_str()) }.unwrap();
         assert_eq!(unit.info().name, expected.name);
         assert_eq!(unit.info().vendor, expected.vendor);
         assert_eq!(unit.info().sdk_version, expected.sdk_version);

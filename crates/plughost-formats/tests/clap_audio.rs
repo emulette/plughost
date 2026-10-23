@@ -8,8 +8,14 @@ fn plugin() -> Plugin {
 }
 fn bundle(name: &str) -> Plugin {
     Plugin::new(
-        &Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("../../target/test-plugins/{name}.clap")),
+        // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+        &unsafe {
+            plughost_formats::clap::Entry::load(
+                &Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join(format!("../../target/test-plugins/{name}.clap")),
+            )
+        }
+        .unwrap(),
         "com.studio.plughost.test-routing",
         &HostIdentity::default(),
     )

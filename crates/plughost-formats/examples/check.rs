@@ -98,10 +98,16 @@ fn classes(bundle: &str) -> Option<(PluginFormat, Vec<PluginInfo>)> {
     Some(if bundle.ends_with(".clap") {
         (
             PluginFormat::Clap,
-            plughost_formats::clap::classes(path).ok()?,
+            // SAFETY: this tool checks plugins in its own process; it is run on plugins its user
+            // trusts.
+            unsafe { plughost_formats::clap::Entry::load(path) }
+                .and_then(|entry| entry.classes())
+                .ok()?,
         )
     } else {
-        let module = plughost_formats::vst3::Module::load(path).ok()?;
+        // SAFETY: this tool checks plugins in its own process; it is run on plugins its user
+        // trusts.
+        let module = unsafe { plughost_formats::vst3::Module::load(path) }.ok()?;
         (PluginFormat::Vst3, module.classes())
     })
 }
@@ -140,7 +146,10 @@ struct Driver {
 
 impl Driver {
     fn load(plugin: &PluginRef) -> Result<Driver, Error> {
-        let plugin = plughost_formats::load(plugin, &plughost_core::HostIdentity::default())?;
+        // SAFETY: this tool checks plugins in its own process; it is run on plugins its user
+        // trusts.
+        let plugin =
+            unsafe { plughost_formats::load(plugin, &plughost_core::HostIdentity::default()) }?;
         let processor = plugin.processor();
         Ok(Driver {
             plugin,

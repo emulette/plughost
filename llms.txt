@@ -39,14 +39,22 @@ Pass the executable inside `Contents/MacOS`, not the `.app` directory. The repos
 uses ad-hoc signing for local development; the distributing application owns its production
 signing and notarization. On Windows pass the helper `.exe` path.
 
-`plughost-formats` loads native code in the calling process. Its default features are
-`vst3`, `au`, and `clap`; direct users can disable defaults and select formats. `HostedPlugin`
-and `BlockProcessor` are sealed: the format plugins and their processors implement them, and an
-application calls them; `render::Process` and `AudioThread` stay open for applications to
-implement. `Sample` is sealed too, implemented by `f32` and `f64` alone.
+`plughost-formats` loads native code in the calling process, so its loaders are `unsafe fn`:
+`plughost_formats::load(&plugin_ref, &host)`, `vst3::Module::load` and `load_with_host`,
+`clap::Entry::load(bundle)` and `au::Plugin::new(class_id)`. Their safety condition is trusting
+the plugin's code with the whole process, or running it in a process of its own, as plughost's
+helper does. Using a loaded plugin is safe, apart from `open_editor`, which takes a raw parent
+view: `vst3::Plugin::new(&module, ..)`, `clap::Plugin::new(&entry, ..)`, `entry.classes()`,
+`clap::preset_providers(&entry, ..)` and `clap::discover_presets(&entry, ..)` take the loaded
+module, which stays loaded while they or a plugin created from it need it. Its default features
+are `vst3`, `au`, and `clap`; direct users can disable defaults and select formats.
+`HostedPlugin` and `BlockProcessor` are sealed: the format plugins and their processors
+implement them, and an application calls them; `render::Process` and `AudioThread` stay open for
+applications to implement. `Sample` is sealed too, implemented by `f32` and `f64` alone.
 `HostedPlugin::set_editor_scale` exists on every platform and returns `None` where an editor
 takes no explicit scale (outside Windows, always). Native lifecycle/controller/editor calls
-normally belong on the main thread, with the OS event loop running. A plugin's `BlockProcessor` processes it from another thread; an owner that
+normally belong on the main thread, with the OS event loop running. A plugin's
+`BlockProcessor` processes it from another thread; an owner that
 does gives the plugin an `AudioThread` with `HostedPlugin::set_audio_thread`, and the
 audio-thread calls the plugin needs between blocks (delivering edits to a prepared VST3
 processor, CLAP `params.flush` while active, `reset` and `stop_processing`) run there instead
@@ -108,7 +116,9 @@ A `PluginRef` is the identity and the location: build it with `PluginRef::vst3(b
 values; Audio Units are found in the system registry, without a bundle.
 Bundle and preset paths must be valid Unicode. `Chain::spawn`, `load_discovered_preset`,
 `preset_providers` and `discover_presets` reject unrepresentable paths with
-`InputError::PathEncoding` before sending them to a helper. Scans report only that bundle as
+`InputError::PathEncoding` before sending them to a helper, and `discover_presets` rejects a
+target `PresetDiscoveryTarget::validate` refuses (an empty, NUL-containing or oversized provider
+ID, or a relative or oversized file location) with `InputError::PresetDiscoveryTarget`. Scans report only that bundle as
 `Failed(InvalidInput)`, leave it uncached and continue with the other bundles.
 
 Neither metadata discovery nor native class inspection proves that instantiation,

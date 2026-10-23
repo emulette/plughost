@@ -256,24 +256,39 @@ pub trait BlockProcessor: sealed::Sealed + Send {
 }
 
 /// Loads the plugin class `plugin` names, in this process.
-pub fn load(plugin: &PluginRef, host: &HostIdentity) -> Result<Box<dyn HostedPlugin>, Error> {
+///
+/// # Safety
+///
+/// Loading runs the plugin's own code, in this process unless it is an Audio Unit macOS runs in
+/// its extension process, with everything the process may do, and nothing checks that code: a
+/// plugin that is not sound can corrupt or end the process. Load only plugins trusted to behave,
+/// or load them in a process of their own, as `plughost`'s helper does.
+pub unsafe fn load(
+    plugin: &PluginRef,
+    host: &HostIdentity,
+) -> Result<Box<dyn HostedPlugin>, Error> {
     host.validate()?;
     // A VST3 or CLAP reference always has a bundle and an Audio Unit one none.
     match (plugin.id().format(), plugin.bundle()) {
         #[cfg(feature = "vst3")]
         (plughost_core::PluginFormat::Vst3, Some(bundle)) => {
-            let module = vst3::Module::load_with_host(bundle, host)?;
+            // SAFETY: the caller accepts running the plugin's code.
+            let module = unsafe { vst3::Module::load_with_host(bundle, host) }?;
             let class_id = plugin.id().class_id().as_str();
             Ok(Box::new(vst3::Plugin::new(&module, class_id, host)?))
         }
         #[cfg(all(feature = "au", target_os = "macos"))]
         (plughost_core::PluginFormat::AudioUnit, _) => {
-            Ok(Box::new(au::Plugin::new(plugin.id().class_id().as_str())?))
+            // SAFETY: the caller accepts running the plugin's code.
+            let plugin = unsafe { au::Plugin::new(plugin.id().class_id().as_str()) }?;
+            Ok(Box::new(plugin))
         }
         #[cfg(feature = "clap")]
         (plughost_core::PluginFormat::Clap, Some(bundle)) => {
+            // SAFETY: the caller accepts running the plugin's code.
+            let entry = unsafe { clap::Entry::load(bundle) }?;
             let class_id = plugin.id().class_id().as_str();
-            Ok(Box::new(clap::Plugin::new(bundle, class_id, host)?))
+            Ok(Box::new(clap::Plugin::new(&entry, class_id, host)?))
         }
         (format, _) => Err(Error::new(Repr::UnsupportedFormat(format))),
     }

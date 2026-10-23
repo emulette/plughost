@@ -6,8 +6,11 @@
 //! crate, which runs these hosts in helper processes.
 //!
 //! [`load`] creates a plugin of any enabled format from a `PluginRef`; each format's `Plugin` can
-//! also be created directly. Every plugin is used through [`HostedPlugin`] and processed from
-//! another thread through the [`BlockProcessor`] it hands out. Every format fails with one
+//! also be created directly, from a loaded `vst3::Module` or `clap::Entry`, or from an Audio Unit
+//! class ID. Loading is the step that runs the plugin's own code, which nothing can check:
+//! [`load`], `vst3::Module::load`, `clap::Entry::load` and `au::Plugin::new` are `unsafe fn`, and
+//! reading a loaded plugin afterwards is safe. Every plugin is used through [`HostedPlugin`] and
+//! processed from another thread through the [`BlockProcessor`] it hands out. Every format fails with one
 //! [`Error`], which tells the [`FailureKind`](plughost_core::FailureKind), the format, the native
 //! result code and the cause. An owner that processes plugins on a thread of its own gives them an
 //! [`AudioThread`], so the audio-thread calls they need between blocks run there too. Plugins

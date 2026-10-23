@@ -16,6 +16,31 @@ fn bundle() -> PathBuf {
 fn query(location: PresetLocation) -> PresetDiscoveryTarget {
     PresetDiscoveryTarget::new("com.studio.plughost.presets", location)
 }
+#[test]
+fn an_invalid_target_is_refused_before_a_helper_starts() {
+    // No helper exists at this path: reaching it would fail differently.
+    let missing = PathBuf::from("no-such-helper");
+    for target in [
+        query(PresetLocation::File {
+            path: "relative.phcp".into(),
+        }),
+        PresetDiscoveryTarget::new("bad\0id", PresetLocation::Plugin),
+    ] {
+        assert!(matches!(
+            discover_presets(
+                &missing,
+                &bundle(),
+                &HostIdentity::default(),
+                &target,
+                TIMEOUT
+            ),
+            Err(Error::Input {
+                slot: None,
+                error: InputError::PresetDiscoveryTarget,
+            })
+        ));
+    }
+}
 fn make_chain() -> Chain {
     let mut chain = spawn_with(
         &[fixture(

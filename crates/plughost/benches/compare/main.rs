@@ -263,7 +263,8 @@ fn isolated_render(
 fn run(options: &Options) -> Result<()> {
     let plugin = plugin_ref(options)?;
     let identity = HostIdentity::default();
-    let (direct, load) = timed(|| plughost_formats::load(&plugin, &identity));
+    // SAFETY: the benchmark loads only the repository's fixture plugins.
+    let (direct, load) = timed(|| unsafe { plughost_formats::load(&plugin, &identity) });
     let mut direct = direct?;
     let (chain, spawn) = timed(|| {
         Chain::spawn(

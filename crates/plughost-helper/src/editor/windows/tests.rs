@@ -16,7 +16,8 @@ fn client_size(hwnd: HWND) -> (i32, i32) {
 fn native_editor_scales_minimizes_closes_and_reopens() {
     let _runtime = crate::events::init(true).unwrap();
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-plugins/again.vst3");
-    let module = Module::load(&path).unwrap();
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    let module = unsafe { Module::load(&path) }.unwrap();
     let mut plugin = Plugin::new(
         &module,
         module.classes()[0].id.class_id().as_str(),

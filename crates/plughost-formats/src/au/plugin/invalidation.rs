@@ -72,7 +72,8 @@ mod tests {
         };
     }
     fn plugin() -> Plugin {
-        let mut plugin = Plugin::new("6175667864656C796170706C").unwrap();
+        // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+        let mut plugin = unsafe { Plugin::new("6175667864656C796170706C") }.unwrap();
         plugin
             .prepare(&ProcessConfig::new(
                 48_000.0,

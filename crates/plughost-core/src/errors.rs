@@ -115,6 +115,8 @@ const UNKNOWN_PARAMETER: &str = "the parameter does not exist";
 const READ_ONLY_PARAMETER: &str = "the parameter is read-only";
 const HOST_IDENTITY: &str =
     "host identity must be NUL-free, with a non-empty name of at most 127 UTF-16 code units";
+const PRESET_DISCOVERY_TARGET: &str = "a preset discovery target needs a non-empty, NUL-free provider \
+     ID and, for a file location, an absolute, NUL-free Unicode path, each within the text limit";
 
 /// Messages shared by several plughost crates.
 pub const MAIN_BUS: &str = "the plugin has no main audio bus for the requested layout";
@@ -190,6 +192,10 @@ pub enum InputError {
     },
     /// Host text contains NUL, or its name is empty or exceeds 127 UTF-16 code units.
     HostIdentity,
+    /// A preset discovery provider ID is empty, contains NUL or exceeds
+    /// [`PRESET_DISCOVERY_TEXT_BYTES`](crate::PRESET_DISCOVERY_TEXT_BYTES), or its file location
+    /// is not an absolute Unicode path within that size and without NUL.
+    PresetDiscoveryTarget,
     /// A chain was created or configured without a plugin.
     EmptyChain,
     /// The sample rate is not finite and greater than zero.
@@ -292,6 +298,7 @@ impl fmt::Display for InputError {
             Self::NotAutomatable { id } => write!(f, "{NOT_AUTOMATABLE} ({id})"),
             Self::Transport => f.write_str(TRANSPORT),
             Self::HostIdentity => f.write_str(HOST_IDENTITY),
+            Self::PresetDiscoveryTarget => f.write_str(PRESET_DISCOVERY_TARGET),
             Self::EmptyChain => f.write_str(EMPTY_CHAIN),
             Self::SampleRate => f.write_str(SAMPLE_RATE),
             Self::BlockSize => f.write_str(BLOCK_SIZE),

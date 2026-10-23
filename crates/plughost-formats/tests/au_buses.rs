@@ -167,7 +167,8 @@ fn class_id(kind: u32) -> String {
 }
 
 fn prepare(kind: u32, input: Layout) -> Result<(), plughost_formats::Error> {
-    Plugin::new(&class_id(kind))
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    unsafe { Plugin::new(&class_id(kind)) }
         .unwrap()
         .prepare(&ProcessConfig::new(
             48_000.0,

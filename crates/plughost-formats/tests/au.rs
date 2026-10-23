@@ -85,7 +85,8 @@ fn apple_units_are_listed_from_the_registry() {
 
 #[test]
 fn standard_units_and_unavailable_factory_ids_are_explicit() {
-    let mut plugin = Plugin::new(AU_DELAY).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new(AU_DELAY) }.unwrap();
     let details = plugin.parameter_details(DELAY_TIME).unwrap();
     assert_eq!(
         details.native_unit,
@@ -116,7 +117,8 @@ fn standard_units_and_unavailable_factory_ids_are_explicit() {
 
 #[test]
 fn an_effect_processes_and_its_state_survives_a_fresh_instance() {
-    let mut plugin = Plugin::new(AU_DELAY).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new(AU_DELAY) }.unwrap();
     plugin.prepare(&config(Layout::Stereo)).unwrap();
     // Fully dry: the delay passes its input through.
     plugin.set_parameter(WET_DRY_MIX, 0.0).unwrap();
@@ -139,7 +141,8 @@ fn an_effect_processes_and_its_state_survives_a_fresh_instance() {
     let preset = au::to_preset(state.component()).unwrap();
     assert!(preset.starts_with(b"<?xml"));
 
-    let mut fresh = Plugin::new(AU_DELAY).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut fresh = unsafe { Plugin::new(AU_DELAY) }.unwrap();
     let restored =
         plughost_core::PluginState::new(fresh.info(), au::from_preset(&preset).unwrap(), None);
     fresh
@@ -150,7 +153,8 @@ fn an_effect_processes_and_its_state_survives_a_fresh_instance() {
 
 #[test]
 fn reset_clears_the_delay_line() {
-    let mut plugin = Plugin::new(AU_DELAY).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new(AU_DELAY) }.unwrap();
     plugin.prepare(&config(Layout::Stereo)).unwrap();
     plugin.set_parameter(WET_DRY_MIX, 1.0).unwrap();
     run(&mut plugin, &signal(512 * 8), 8);
@@ -172,7 +176,8 @@ fn an_instrument_plays_notes_from_their_offset() {
         .id
         .class_id()
         .to_string();
-    let mut plugin = Plugin::new(&class).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new(&class) }.unwrap();
     plugin.prepare(&config(Layout::None)).unwrap();
     let mut block = |events: &Events| {
         let mut output = vec![vec![1.0f32; 512]; 2];
@@ -211,7 +216,8 @@ fn surround_layouts_pass_each_channel_through() {
         .into_iter()
         .filter(|layout| layout.channels() > 2)
     {
-        let mut plugin = Plugin::new(AU_DELAY).unwrap();
+        // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+        let mut plugin = unsafe { Plugin::new(AU_DELAY) }.unwrap();
         plugin
             .prepare(&{
                 let mut value = config(layout);
@@ -261,7 +267,8 @@ fn explicit_bus_api_preserves_speaker_order_and_rejects_f64_without_unpreparing(
         .into_iter()
         .filter(|&layout| layout != Layout::None)
     {
-        let mut plugin = Plugin::new(AU_DELAY).unwrap();
+        // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+        let mut plugin = unsafe { Plugin::new(AU_DELAY) }.unwrap();
         let config = audio_config(layout);
         let buses = plugin.prepare_audio(&config).unwrap();
         assert_eq!(plugin.audio_buses().unwrap(), buses);
@@ -316,7 +323,8 @@ fn explicit_bus_api_preserves_speaker_order_and_rejects_f64_without_unpreparing(
 
 #[test]
 fn native_bypass_keeps_parameter_state_and_survives_reset() {
-    let mut plugin = Plugin::new(AU_DELAY).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new(AU_DELAY) }.unwrap();
     plugin.prepare_audio(&audio_config(Layout::Stereo)).unwrap();
     plugin.set_parameter(WET_DRY_MIX, 0.75).unwrap();
     // The AUv2 bridge updates its parameter tree through the run loop. Saving settles
@@ -348,10 +356,12 @@ fn native_bypass_keeps_parameter_state_and_survives_reset() {
 
 #[test]
 fn class_ids_are_matched_without_regard_to_case() {
-    let plugin = Plugin::new(&AU_DELAY.to_ascii_lowercase()).unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let plugin = unsafe { Plugin::new(&AU_DELAY.to_ascii_lowercase()) }.unwrap();
     assert_eq!(plugin.info().id.class_id().as_str(), AU_DELAY);
     // A well-formed ID that no registered unit has.
-    let error = Plugin::new("6175667800000000000000AA").unwrap_err();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let error = unsafe { Plugin::new("6175667800000000000000AA") }.unwrap_err();
     assert_eq!(error.kind(), plughost_core::FailureKind::NotFound);
     assert_eq!(error.format(), Some(plughost_core::PluginFormat::AudioUnit));
 }
@@ -360,7 +370,8 @@ fn class_ids_are_matched_without_regard_to_case() {
 fn a_discrete_parameter_converts_to_the_whole_value_an_edit_selects() {
     // AUNBandEQ, 'aufx' 'nbeq' 'appl', and its first band's filter type, indexed 0..=10.
     const FILTER_TYPE: u64 = 2000;
-    let mut plugin = Plugin::new("617566786E6265716170706C").unwrap();
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let mut plugin = unsafe { Plugin::new("617566786E6265716170706C") }.unwrap();
     plugin.set_parameter(FILTER_TYPE, 0.06).unwrap();
     let edited = plugin
         .parameters()

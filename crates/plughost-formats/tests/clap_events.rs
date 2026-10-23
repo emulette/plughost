@@ -17,8 +17,14 @@ const UNBOUNDED: u64 = 2;
 
 fn faults() -> Plugin {
     Plugin::new(
-        &Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/test-plugins/plughost-test-routing-faults.clap"),
+        // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+        &unsafe {
+            plughost_formats::clap::Entry::load(
+                &Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../target/test-plugins/plughost-test-routing-faults.clap"),
+            )
+        }
+        .unwrap(),
         "com.studio.plughost.test-routing",
         &HostIdentity::default(),
     )

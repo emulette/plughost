@@ -3,7 +3,7 @@ mod indexer;
 mod receiver;
 use super::ClapError;
 use clack_extensions::preset_discovery::prelude::*;
-use clack_host::prelude::{HostInfo, PluginEntry};
+use clack_host::prelude::HostInfo;
 use indexer::Indexer;
 use plughost_core::*;
 use std::ffi::{CStr, CString};
@@ -18,24 +18,26 @@ pub(super) fn text(value: &CStr) -> Result<String, ClapError> {
 pub(super) fn optional(value: Option<&CStr>) -> Result<Option<String>, ClapError> {
     value.map(text).transpose()
 }
-fn entry(bundle: &Path, identity: &HostIdentity) -> Result<(PluginEntry, HostInfo), ClapError> {
+fn host(identity: &HostIdentity) -> Result<HostInfo, ClapError> {
     identity.validate().map_err(ClapError::Input)?;
-    // SAFETY: loading native provider code is this operation's explicit purpose.
-    let entry = unsafe { PluginEntry::load(bundle) }.map_err(ClapError::Load)?;
-    let host = HostInfo::new(&identity.name, &identity.vendor, "", &identity.version)
-        .map_err(|_| ClapError::PresetInput)?;
-    Ok((entry, host))
+    HostInfo::new(&identity.name, &identity.vendor, "", &identity.version)
+        .map_err(|_| ClapError::PresetInput)
 }
-/// Enumerates providers and their declarations without walking the filesystem.
+/// Enumerates a loaded module's providers and their declarations without walking the
+/// filesystem.
 pub fn preset_providers(
-    bundle: &Path,
+    entry: &super::Entry,
     identity: &HostIdentity,
 ) -> Result<Vec<PresetProviderInfo>, crate::Error> {
-    Ok(providers(bundle, identity)?)
+    Ok(providers(entry, identity)?)
 }
 
-fn providers(bundle: &Path, identity: &HostIdentity) -> Result<Vec<PresetProviderInfo>, ClapError> {
-    let (entry, host) = entry(bundle, identity)?;
+fn providers(
+    entry: &super::Entry,
+    identity: &HostIdentity,
+) -> Result<Vec<PresetProviderInfo>, ClapError> {
+    let host = host(identity)?;
+    let entry = entry.native();
     let factory = entry
         .get_factory::<PresetDiscoveryFactory>()
         .ok_or(ClapError::PresetUnsupported)?;
@@ -51,7 +53,7 @@ fn providers(bundle: &Path, identity: &HostIdentity) -> Result<Vec<PresetProvide
         }
         let name = text(desc.name().ok_or(ClapError::PresetMetadata)?)?;
         let vendor = optional(desc.vendor())?;
-        let mut provider = Provider::instantiate(Indexer::new(), &entry, id, &host)
+        let mut provider = Provider::instantiate(Indexer::new(), entry, id, &host)
             .map_err(|_| ClapError::PresetDiscovery)?;
         let declarations = provider.indexer_mut().take()?;
         result.push(PresetProviderInfo::new(
@@ -65,31 +67,32 @@ fn providers(bundle: &Path, identity: &HostIdentity) -> Result<Vec<PresetProvide
     }
     Ok(result)
 }
-/// Queries one provider at a plugin location, a preset/container file, or a directory. A
-/// directory is crawled like the preset roots of other formats: recursively, following links
+/// Queries one provider of a loaded module at a plugin location, a preset/container file, or a
+/// directory. A directory is crawled like the preset roots of other formats: recursively, following links
 /// without revisiting a link loop, skipping unreadable entries, in path order. Its files matching
 /// the provider's declared file types are queried one by one; a file the provider refuses is
 /// reported without failing the others.
 pub fn discover_presets(
-    bundle: &Path,
+    entry: &super::Entry,
     identity: &HostIdentity,
     target: &PresetDiscoveryTarget,
 ) -> Result<PresetDiscovery, crate::Error> {
-    Ok(discover(bundle, identity, target)?)
+    Ok(discover(entry, identity, target)?)
 }
 
 fn discover(
-    bundle: &Path,
+    entry: &super::Entry,
     identity: &HostIdentity,
     target: &PresetDiscoveryTarget,
 ) -> Result<PresetDiscovery, ClapError> {
+    target.validate().map_err(ClapError::Input)?;
     let id = input_string(&target.provider_id)?;
-    location_path(&target.location)?;
-    let (entry, host) = entry(bundle, identity)?;
+    let host = host(identity)?;
+    let entry = entry.native();
     if entry.get_factory::<PresetDiscoveryFactory>().is_none() {
         return Err(ClapError::PresetUnsupported);
     }
-    let mut provider = Provider::instantiate(Indexer::new(), &entry, &id, &host)
+    let mut provider = Provider::instantiate(Indexer::new(), entry, &id, &host)
         .map_err(|_| ClapError::PresetDiscovery)?;
     if let Some(error) = provider.indexer_mut().error.take() {
         return Err(error);

@@ -45,7 +45,8 @@ fn module(name: &str) -> Rc<Module> {
     let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/test-plugins")
         .join(format!("{name}.vst3"));
-    Module::load(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    unsafe { Module::load(&path) }.unwrap_or_else(|error| panic!("{}: {error}", path.display()))
 }
 
 /// Where the `no-factory` fixture marks that its module was exited.
@@ -74,7 +75,11 @@ fn load_a_module_without_a_factory() {
     }
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/test-plugins/plughost-test-no-factory.vst3");
-    assert_eq!(Module::load(&path).unwrap_err().kind(), FailureKind::Load);
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    assert_eq!(
+        unsafe { Module::load(&path) }.unwrap_err().kind(),
+        FailureKind::Load
+    );
 }
 
 #[test]
@@ -104,10 +109,13 @@ fn hosted_factory_uses_the_callers_identity() {
         value.name = "Factory identity fixture".into();
         value
     };
-    let plugin = plughost_formats::load(
-        &plughost_core::PluginRef::vst3(path, "706C7567686F7374526F7574696E6701"),
-        &identity,
-    )
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    let plugin = unsafe {
+        plughost_formats::load(
+            &plughost_core::PluginRef::vst3(path, "706C7567686F7374526F7574696E6701"),
+            &identity,
+        )
+    }
     .unwrap();
     assert_eq!(plugin.info().vendor, identity.name);
 }
