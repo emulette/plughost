@@ -69,6 +69,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - A CLAP plugin's output event whose header gives another size than its type's is counted in
   diagnostics as an event with no portable form. It was read as its type, past the end of an
   event the plugin declared shorter, and became a note or a parameter notification.
+- VST3 and CLAP output system exclusive data is copied only once the size the plugin declares
+  fits what is left of the block's budget; a larger one fails the block as more output than a
+  block allows, before anything is read. It was copied at the declared size on the processing
+  thread first, so a size past the plugin's buffer crashed the helper.
 
 ## [0.1.5] - 2026-10-23
 

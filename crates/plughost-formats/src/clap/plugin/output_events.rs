@@ -111,6 +111,12 @@ impl ProcessOutput<'_> {
         });
     }
 
+    /// Refuses an event that does not fit the block's budgets, which fails the block.
+    fn overflowed(&mut self) -> Result<(), TryPushError> {
+        self.overflow = true;
+        Err(TryPushError::new())
+    }
+
     fn push(&mut self, event: &UnknownEvent) -> Result<(), TryPushError> {
         let converted = match events::core_event(event) {
             Some(CoreEventSpace::NoteOn(event)) => self
@@ -134,11 +140,17 @@ impl ProcessOutput<'_> {
                 usize::from(event.port_index()),
                 EventData::Midi(event.data()),
             )),
-            // SAFETY: the plugin's buffer is valid during this call; it is copied now.
-            Some(CoreEventSpace::MidiSysEx(event)) => Some((
-                usize::from(event.port_index()),
-                EventData::SysEx(unsafe { event.data() }.to_vec()),
-            )),
+            Some(CoreEventSpace::MidiSysEx(event)) => {
+                // The bytes are read only once the size the plugin declares fits the block.
+                if self.sysex.saturating_add(event.buffer_size() as usize) > MAX_BLOCK_SYSEX_BYTES {
+                    return self.overflowed();
+                }
+                // SAFETY: the plugin's buffer is valid during this call; it is copied now.
+                Some((
+                    usize::from(event.port_index()),
+                    EventData::SysEx(unsafe { event.data() }.to_vec()),
+                ))
+            }
             Some(
                 CoreEventSpace::ParamValue(_)
                 | CoreEventSpace::ParamMod(_)
@@ -163,11 +175,8 @@ impl ProcessOutput<'_> {
             EventData::SysEx(bytes) => bytes.len(),
             _ => 0,
         };
-        if self.events.len() == MAX_BLOCK_EVENTS
-            || self.sysex.saturating_add(sysex) > MAX_BLOCK_SYSEX_BYTES
-        {
-            self.overflow = true;
-            return Err(TryPushError::new());
+        if self.events.len() == MAX_BLOCK_EVENTS {
+            return self.overflowed();
         }
         self.sysex += sysex;
         if let EventData::NoteOn(note) = &event.data

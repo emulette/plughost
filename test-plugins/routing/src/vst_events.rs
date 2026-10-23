@@ -69,6 +69,9 @@ impl Routing {
                         for _ in 0..crate::FLOOD_EVENTS {
                             unsafe { output.addEvent(&mut event) };
                         }
+                    } else if bytes == crate::OVERSIZED {
+                        event.__field0.data.size = u32::MAX;
+                        unsafe { output.addEvent(&mut event) };
                     } else {
                         unsafe { output.addEvent(&mut event) };
                     }

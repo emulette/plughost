@@ -35,6 +35,15 @@ struct Output {
     sounding: Sounding,
 }
 
+impl Output {
+    /// Refuses `event`, which does not fit the block's budgets, and fails the block.
+    fn overflowed(&mut self, event: &Event) -> tresult {
+        follow(&mut self.sounding, event, None);
+        self.overflow = true;
+        kResultFalse
+    }
+}
+
 pub(crate) struct OutputEventList {
     output: Mutex<Output>,
 }
@@ -217,6 +226,21 @@ fn convert(event: &Event, sounding: &Sounding) -> Option<(usize, EventData, Opti
     Some((port, data, tuning))
 }
 
+/// The system exclusive bytes an output event declares, which are read only once they are known to
+/// fit the block.
+fn declared_sysex(event: &Event) -> usize {
+    if u32::from(event.r#type) != DATA {
+        return 0;
+    }
+    // SAFETY: the union field read matches the event type the plugin declared.
+    let data = unsafe { event.__field0.data };
+    if data.r#type == SYSEX && !data.bytes.is_null() {
+        data.size as usize
+    } else {
+        0
+    }
+}
+
 /// Follows the plugin's notes with IDs: a note on it delivered starts one, and a note off ends
 /// the note it names, or without an ID the notes on its key, whether or not it converts.
 fn follow(sounding: &mut Sounding, event: &Event, delivered: Option<&EventData>) {
@@ -269,6 +293,9 @@ impl IEventListTrait for OutputEventList {
             output.unconvertible += 1;
             return kResultOk;
         };
+        if output.sysex.saturating_add(declared_sysex(event)) > MAX_BLOCK_SYSEX_BYTES {
+            return output.overflowed(event);
+        }
         let converted = convert(event, &output.sounding).and_then(|(port, data, tuning)| {
             let event = PortEvent::new(offset, data).on_port(port);
             let tuning = tuning.map(|data| PortEvent::new(offset, data).on_port(port));
@@ -285,12 +312,8 @@ impl IEventListTrait for OutputEventList {
             _ => 0,
         };
         let count = 1 + usize::from(tuning.is_some());
-        if output.events.len() + count > MAX_BLOCK_EVENTS
-            || output.sysex.saturating_add(sysex) > MAX_BLOCK_SYSEX_BYTES
-        {
-            follow(&mut output.sounding, event, None);
-            output.overflow = true;
-            return kResultFalse;
+        if output.events.len() + count > MAX_BLOCK_EVENTS {
+            return output.overflowed(event);
         }
         follow(&mut output.sounding, event, Some(&converted.data));
         output.sysex += sysex;

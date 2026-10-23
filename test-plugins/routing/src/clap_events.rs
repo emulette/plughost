@@ -99,7 +99,12 @@ pub(super) fn route(input: &InputEvents, output: &mut OutputEvents, frames: u32)
                     malformed(output, sysex.header().time());
                     continue;
                 }
-                let echo = unsafe { MidiSysExEvent::new(sysex.header().time(), 0, bytes) };
+                let mut echo = unsafe { MidiSysExEvent::new(sysex.header().time(), 0, bytes) };
+                if bytes == crate::OVERSIZED && FAULTS.load(std::sync::atomic::Ordering::Relaxed) {
+                    // SAFETY: a size past the buffer is the fault; a host that compares it with
+                    // the block's budget first does not read it.
+                    unsafe { echo.as_raw_mut() }.size = u32::MAX;
+                }
                 let copies =
                     if bytes == crate::FLOOD && FAULTS.load(std::sync::atomic::Ordering::Relaxed) {
                         crate::FLOOD_EVENTS

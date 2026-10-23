@@ -416,6 +416,28 @@ fn exceeding_the_output_budget_stops_processing_until_reset() {
 }
 
 #[test]
+#[ignore = "needs helper and routing fixtures (.ps1 or .sh build scripts)"]
+fn system_exclusive_output_declared_past_the_budget_fails_the_block_unread() {
+    // The fixture echoes this message declaring 4 GiB of bytes; it holds four.
+    const OVERSIZED: [u8; 4] = [0xF0, 0x7D, 0x7E, 0xF7];
+    for format in [PluginFormat::Vst3, PluginFormat::Clap] {
+        let (mut chain, config) = routing_chain(format, true);
+        let error = run(
+            &mut chain,
+            &config,
+            64,
+            &[Event::sysex(0, OVERSIZED.to_vec())],
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, Error::Operation { slot: Some(0), .. }),
+            "{format:?}: {error:?}"
+        );
+        assert_eq!(error.kind(), FailureKind::Processing, "{format:?}");
+    }
+}
+
+#[test]
 #[ignore = "needs helper and routing fixtures"]
 fn first_slot_route_expansion_is_rejected_without_requiring_reset() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {

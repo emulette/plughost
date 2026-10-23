@@ -3,8 +3,8 @@
 //! configurations or configurable ports. Three
 //! event inputs feed one event output: notes from input port `p` of the first two leave
 //! transposed up by 12 × (p + 1) semitones with controller `KEY_CONTROLLER` carrying the input
-//! key, system exclusive messages are echoed, and `FLOOD` makes the fixture exceed any block's
-//! event budget. A note off on `LATE_KEY` leaves at the block's length, past its last frame, and
+//! key, system exclusive messages are echoed, `FLOOD` makes the fixture exceed any block's
+//! event budget, and `OVERSIZED` is echoed declaring 4 GiB of bytes. A note off on `LATE_KEY` leaves at the block's length, past its last frame, and
 //! the CLAP side also reports the note's end. On the CLAP side, `MALFORMED` makes the fixture send
 //! a note on and a parameter value whose headers give only the header's size. CLAP enables these
 //! faults only in the `routing-faults` bundle, where restoring a state whose gain is `PORTS_GAIN`
@@ -23,6 +23,7 @@ const LATE_KEY: u8 = 0;
 const FLOOD: [u8; 4] = [0xF0, 0x7D, 0x7F, 0xF7];
 const FLOOD_EVENTS: usize = 5000;
 const MALFORMED: [u8; 4] = [0xF0, 0x7D, 0x7C, 0xF7];
+const OVERSIZED: [u8; 4] = [0xF0, 0x7D, 0x7E, 0xF7];
 const EVENT_INPUTS: u32 = 3;
 const EXPRESSION_PORT: usize = 2;
 const PORTS_GAIN: f64 = 0.125;
