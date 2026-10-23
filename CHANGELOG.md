@@ -48,17 +48,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   disconnected volume, so they are cache hits again when it returns instead of loading again,
   and a bundle that crashed stays excluded. Bundles removed from a directory that exists are
   still forgotten, except that an entry with failures keeps its count and exclusion until a
-  retry. A retry no longer drops entries of removed bundles.
+  retry, and a link to a bundle or folder on a disconnected volume keeps its entries. A retry no
+  longer drops the entries of other removed bundles.
 - In a prepared chain, `restore_state`, presets, factory presets and `reprepare_slot` fail with
-  `FailureKind::Configuration` and keep the active slot when the fresh instance reports other
-  audio buses or event ports than the slot was prepared with. The slot was replaced before, and
-  processing went on routing by the replaced instance's native ports.
+  `FailureKind::Configuration` and keep the active slot when the fresh instance has other active
+  audio buses or event ports than the slot was prepared with; `reprepare` routes them. The slot
+  was replaced before, and processing went on routing by the replaced instance's native ports.
 - A `reset` that fails at one slot after earlier slots were reset leaves the chain to be prepared
   again: blocks fail with `FailureKind::NotPrepared`. They went on with alignment delays that no
   longer matched the reset slots.
-- A parameter edit or reset that took effect succeeds when another slot's timing cannot be read
-  afterwards; the chain keeps its last latency and tail, and the diagnostics name the slot. It
-  failed with that slot's error before, as if the edit had not been made.
+- A parameter edit or reset that took effect succeeds when the chain's timing cannot be read or
+  planned afterwards; the chain keeps its last latency and tail, and the diagnostics record the
+  failure. It failed with that error before, as if the edit had not been made.
 - `Transport::advanced` no longer fails with `InputError::Transport` for a beat a few ulps
   below a bar line, where rounding placed the computed bar start after the beat; the beat now
   stays in the earlier bar. A scheduled render or session segment whose blocks reached such a

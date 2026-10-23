@@ -109,17 +109,25 @@ impl Writer {
     /// Forgets the results of bundles removed from those of the scanned `roots` that exist. A
     /// missing root, such as a disconnected volume, keeps the entries under it for when it
     /// returns. An entry with failures keeps its count and exclusion, which only a retry clears.
-    /// An inaccessible bundle may still exist, so only confirmed removals are forgotten.
+    /// An inaccessible bundle may still exist, so only confirmed removals are forgotten: the
+    /// bundle itself is gone from a directory that is there. A link to a bundle or folder on a
+    /// disconnected volume is still there, and keeps its entry.
     pub fn prune(&mut self, roots: &[PathBuf]) -> io::Result<()> {
         let present: Vec<&PathBuf> = roots
             .iter()
             .filter(|root| matches!(root.try_exists(), Ok(true)))
             .collect();
+        let removed = |bundle: &Path| {
+            matches!(fs::symlink_metadata(bundle), Err(error) if error.kind() == io::ErrorKind::NotFound)
+                && bundle
+                    .parent()
+                    .is_some_and(|parent| matches!(parent.try_exists(), Ok(true)))
+        };
         let cached = self.cache.bundles.len();
         self.cache.bundles.retain(|bundle, entry| {
             entry.failures > 0
                 || !present.iter().any(|root| bundle.starts_with(root))
-                || !matches!(bundle.try_exists(), Ok(false))
+                || !removed(bundle)
         });
         if self.cache.bundles.len() != cached {
             self.publish()?;

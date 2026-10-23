@@ -154,7 +154,8 @@ been saved, cancellation need not create a cache JSON file. Use `retry_controlle
 paths after cancellation; it preserves other entries. A native scan first drops the entries of
 bundles that are no longer on disk under a scanned directory that exists. A directory that is
 missing, such as one on a disconnected volume, keeps its entries for when it returns, and an
-entry with failures keeps its count and exclusion until a retry; a retry drops nothing.
+entry with failures keeps its count and exclusion until a retry; a retry changes only the
+retried path's entry. A link to a bundle or folder on a disconnected volume keeps its entries.
 ClassFound notifications are provisional
 until the bundle finishes. No failure or timeout is interpreted as a license diagnosis.
 
@@ -536,7 +537,8 @@ bus and capability queries, editors, bypass, `save_state`, `snapshot`, `export_p
 fresh instance in between quanta (see below). Edits reach the plugins between quanta, and timing
 changes arrive through `take_changes` instead of each edit's reply. A VST3 or CLAP restart
 request is reported there while processing goes on with the current activation; call
-`reprepare_slot(slot)` for that slot, or prepare the chain again after stopping. `recover` is
+`reprepare_slot(slot)` for that slot, or prepare the chain again after stopping, which a restart
+that changes the slot's buses or event ports needs. `recover` is
 allowed, but the new helper competes for the CPU.
 
 The helper's worker runs with the time-constraint policy for the quantum in an audio workgroup
@@ -554,8 +556,8 @@ still allocate or lock; late completions count what that costs.
   `parameter_to_normalized` use the native conversion. Unsupported conversions return errors.
 - `set_parameter` and `set_parameter_text` edit through native APIs and refresh prepared
   chain timing. An edit, or a `reset()`, that took effect succeeds even when a slot's timing
-  cannot be read afterwards: the chain keeps its last latency and tail, and diagnostics name
-  the slot. `bypass` / `set_bypass` use native bypass without host dry/wet substitution.
+  cannot be read or planned afterwards: the chain keeps its last latency and tail, and the
+  diagnostics record the failure. `bypass` / `set_bypass` use native bypass without host dry/wet substitution.
 - `take_parameter_events` drains bounded value/gesture/metadata notifications. On overflow,
   cancel active gestures and requery metadata and values.
 
@@ -584,7 +586,10 @@ rejects its state fails the restore; a controller without state support does not
 project state, replacing the slot as `restore_state` does. Use it for a restart request: the new
 instance has no pending request, DSP history or notes of the replaced one. A plugin that cannot
 save its state, such as an invalidated Audio Unit, fails the call and stays as it is; restore a
-state the application saved instead. It requires a prepared chain.
+state the application saved instead. It requires a prepared chain. A restart that changes the
+slot's active audio buses or event ports, as a VST3 `kIoChanged` can, fails it with
+`FailureKind::Configuration` like any replacement; `reprepare()` (after stopping a realtime
+endpoint) routes the new ones.
 
 All of these replacements work while a realtime endpoint runs, and use the load timeout. The
 helper stages the fresh instance on its main thread as it does offline, and the worker swaps it
@@ -652,7 +657,8 @@ recovered chain has its own canceller; cancelling a helper that already ended do
 
 `reset()` clears DSP history while retaining settings. A reset that fails at one slot, after
 earlier slots were reset, returns that slot's error and leaves the chain to be prepared again:
-blocks fail with `FailureKind::NotPrepared` until `reprepare()` or `prepare_audio`. `recover(&states)` starts a separate
+blocks fail with `FailureKind::NotPrepared` until `reprepare()` or `prepare_audio`. The reset of a
+`resync_realtime` does the same, and the endpoint then plays its fallback. `recover(&states)` starts a separate
 chain in a new helper with the same plugin list, host identity and timeouts, restores `states`
 (one `StatePurpose::Project` state per slot, or none for initial states) as each plugin loads,
 and prepares it with the saved audio configuration. The original chain is not modified, so the

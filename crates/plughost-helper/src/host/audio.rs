@@ -10,22 +10,28 @@ use plughost_core::AudioDirection;
 use plughost_core::ipc::shared::Descriptor;
 use plughost_formats::BlockProcessor;
 
-/// The native audio buses and event ports a slot was prepared with, which the processing
-/// thread routes by. Display names are left out: they do not route anything.
+/// What the processing thread routes a slot by: the active audio buses with their native
+/// positions and layouts, and the native positions of the event ports. What else an instance
+/// reports, such as names, inactive buses or the kinds of events a port takes, routes nothing.
 #[derive(PartialEq)]
 pub(super) struct Routes {
-    buses: Vec<AudioBusInfo>,
-    ports: Vec<plughost_core::EventPortInfo>,
+    buses: Vec<(AudioDirection, u64, u32, Option<plughost_core::Layout>, u32)>,
+    ports: Vec<(AudioDirection, u64, u32)>,
 }
 
 impl Routes {
-    pub(super) fn new(
-        mut buses: Vec<AudioBusInfo>,
-        mut ports: Vec<plughost_core::EventPortInfo>,
-    ) -> Self {
-        buses.iter_mut().for_each(|bus| bus.name.clear());
-        ports.iter_mut().for_each(|port| port.name.clear());
-        Self { buses, ports }
+    pub(super) fn new(buses: &[AudioBusInfo], ports: &[plughost_core::EventPortInfo]) -> Self {
+        Self {
+            buses: buses
+                .iter()
+                .filter(|bus| bus.active == Some(true))
+                .map(|bus| (bus.direction, bus.id, bus.index, bus.layout, bus.channels))
+                .collect(),
+            ports: ports
+                .iter()
+                .map(|port| (port.direction, port.id, port.index))
+                .collect(),
+        }
     }
 }
 
@@ -300,7 +306,7 @@ impl Host {
         self.routes = reports
             .iter()
             .zip(&event_ports)
-            .map(|(buses, ports)| Routes::new(buses.clone(), ports.clone()))
+            .map(|(buses, ports)| Routes::new(buses, ports))
             .collect();
         // An installed ring has the previous configuration's shape.
         self.remove_realtime();

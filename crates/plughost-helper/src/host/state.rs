@@ -122,7 +122,7 @@ impl Host {
         // was prepared with.
         if let Some(buses) = report {
             let routes = match candidate.event_ports() {
-                Ok(ports) => Routes::new(buses, ports),
+                Ok(ports) => Routes::new(&buses, &ports),
                 Err(error) => {
                     return self.reject_candidate(slot, candidate.as_ref(), slot, error.failure());
                 }
