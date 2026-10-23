@@ -404,13 +404,16 @@ fn the_load_timeout_applies_to_each_plugin_of_a_chain() {
     // Each plugin takes 400 ms to load, well within the timeout; all of them take longer.
     let timeouts = {
         let mut timeouts = Timeouts::default();
-        timeouts.load = Duration::from_millis(1_000);
+        timeouts.load = Duration::from_millis(1_500);
         timeouts
     };
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let slow = delay_variant(format, "slow-load", 0x1B);
+        // macOS checks a newly built module the first time any process loads it, which takes
+        // seconds while parallel tests load others; load it once so no slot's deadline pays that.
+        drop(spawn(std::slice::from_ref(&slow)));
         let mut chain = spawn_with(
-            &[slow.clone(), slow.clone(), slow.clone(), slow],
+            &[slow.clone(), slow.clone(), slow.clone(), slow.clone(), slow],
             &HostIdentity::default(),
             timeouts,
         );
