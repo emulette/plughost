@@ -47,7 +47,9 @@ use std::sync::mpsc::channel;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use plughost::{Chain, HostIdentity, Layout, PluginRef, RealtimeConfig, StatePurpose, Timeouts};
+use plughost::{
+    Chain, HostIdentity, Layout, PluginRef, RealtimeConfig, SpawnOptions, StatePurpose, Timeouts,
+};
 use plughost_core::ipc::shared::clock;
 
 use callback::{Feed, Handover, Inputs, Profile, Shared};
@@ -293,7 +295,11 @@ fn run(options: &Options) -> Result<()> {
             None,
         ),
     };
-    let mut chain = Chain::spawn(&options.helper, &[plugin], &identity, Timeouts::default())?;
+    let mut chain = Chain::spawn(
+        &options.helper,
+        &[plugin.into()],
+        &SpawnOptions::new(identity.clone(), Timeouts::default()),
+    )?;
     let config = chain.main_bus_config(RATE, options.quantum, Layout::Stereo, &[Layout::Stereo])?;
     chain.prepare_audio(&config)?;
     // What a crash or a hang is recovered from, taken before the stall fixture can hang.

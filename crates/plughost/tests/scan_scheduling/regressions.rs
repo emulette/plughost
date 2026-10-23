@@ -116,7 +116,7 @@ fn audio_unit_registry_overlaps_a_blocked_bundle_within_the_job_budget() {
 }
 
 fn helpers_of_another_version_report_both_protocol_versions() {
-    use plughost::{Chain, Error, HostIdentity, PluginRef, Timeouts};
+    use plughost::{Chain, Error, PluginRef};
     let directory = Directory::new();
     let root = directory.path();
     let path = bundle(root, "a");
@@ -137,9 +137,8 @@ fn helpers_of_another_version_report_both_protocol_versions() {
     });
     let result = Chain::spawn(
         &helper,
-        &[plugin],
-        &HostIdentity::default(),
-        Timeouts::default(),
+        &[plugin.into()],
+        &plughost::SpawnOptions::default(),
     );
     assert!(
         matches!(
@@ -152,7 +151,7 @@ fn helpers_of_another_version_report_both_protocol_versions() {
 }
 
 fn unsupported_bundle_paths_do_not_poison_other_scans_or_start_a_chain() {
-    use plughost::{Chain, Error, HostIdentity, InputError, PluginRef, Timeouts};
+    use plughost::{Chain, Error, InputError, PluginRef};
     let directory = Directory::new();
     let root = directory.path();
     #[cfg(unix)]
@@ -179,9 +178,12 @@ fn unsupported_bundle_paths_do_not_poison_other_scans_or_start_a_chain() {
     assert!(matches!(
         Chain::spawn(
             &root.join("missing-helper"),
-            &plugins,
-            &HostIdentity::default(),
-            Timeouts::default()
+            &plugins
+                .iter()
+                .cloned()
+                .map(plughost::ChainSlot::from)
+                .collect::<Vec<_>>(),
+            &plughost::SpawnOptions::default()
         ),
         Err(Error::Input {
             slot: Some(1),

@@ -230,7 +230,7 @@ fn preset_load_crash_and_timeout_are_reported_and_chain_can_recover() {
                 .kind(),
             kind
         );
-        chain = chain.recover(&[]).unwrap();
+        chain = chain.recover(&support::initial(&chain)).unwrap();
         assert_eq!(output(&mut chain), vec![1.0; 32]);
     }
 }

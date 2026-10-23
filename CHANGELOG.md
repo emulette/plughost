@@ -26,6 +26,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Changed
 
+- `Chain::spawn(helper, slots, &options)` takes a `ChainSlot` per plugin, a `PluginRef` with an
+  optional project state and native bypass, and a `SpawnOptions` with the host identity and the
+  timeouts: write `Chain::spawn(helper, &[plugin.into()], &SpawnOptions::default())`, or
+  `SpawnOptions::new(host, timeouts)`. Each plugin restores its state on the instance it loaded,
+  which loads it once instead of twice as a `restore_state` after spawning does, and then takes
+  its bypass. `recover` and `recover_realtime` take the same slots, which `ChainSnapshot::slots`
+  holds in place of `states` and `bypass`, and `recover` now applies the recorded bypass too;
+  recovering from states alone pairs each with its slot's plugin in a `ChainSlot`, and
+  `recover(&[])` for the initial states is a slot per `Chain::references()`, the new accessor
+  for the references a chain loaded.
+  `InputError::StateCount` is removed, since a slot carries its own state.
 - `PluginState`'s fields are private and it has no serde form: store `to_bytes()` instead of
   serializing it. `id()` replaces `format` and `class_id`, and `name()`, `vendor()` and
   `version()` the fields of those names. A restore checks only the `PluginId`, not the plugin

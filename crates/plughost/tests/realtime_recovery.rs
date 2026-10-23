@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use plughost::{
-    BlockContext, Chain, Error, FallbackReason, InputError, PluginFormat, PluginRef, PluginState,
+    BlockContext, Chain, Error, FallbackReason, InputError, PluginFormat, PluginRef,
     RealtimeConfig, RealtimeEndpoint, RealtimeOutput, RealtimeStatus, Timeouts,
 };
 
@@ -65,15 +65,11 @@ fn callback(endpoint: &mut RealtimeEndpoint, index: usize) -> (RealtimeOutput, S
 
 /// The output of a chain recovered from `states` for `callbacks` sine quanta from callback
 /// `first`'s on, processed offline, one block each.
-fn offline(
-    plugin: &PluginRef,
-    states: &[PluginState],
-    first: usize,
-    callbacks: usize,
-) -> Vec<Stereo> {
-    let mut base = spawn(std::slice::from_ref(plugin));
+fn offline(slots: &[plughost::ChainSlot], first: usize, callbacks: usize) -> Vec<Stereo> {
+    let plugins: Vec<PluginRef> = slots.iter().map(|slot| slot.plugin.clone()).collect();
+    let mut base = spawn(&plugins);
     prepare(&mut base);
-    let mut chain = base.recover(states).unwrap();
+    let mut chain = base.recover(slots).unwrap();
     (first..first + callbacks)
         .map(|index| {
             let input = sine(index);
@@ -148,7 +144,7 @@ fn crash_recovery(plugin: PluginRef) {
         callback(&mut endpoint, index);
     }
     let snapshot = chain.snapshot().unwrap();
-    assert_eq!((snapshot.states.len(), snapshot.bypass.len()), (1, 1));
+    assert_eq!(snapshot.slots.len(), 1);
     // The snapshot does not hold up the endpoint, and an edit after it is not recovered.
     chain.set_parameter(0, GAIN, 0.75).unwrap();
     for index in 4..6 {
@@ -188,14 +184,14 @@ fn crash_recovery(plugin: PluginRef) {
             }
             played
         });
-        let recovered = chain.recover_realtime(&snapshot).unwrap();
+        let recovered = chain.recover_realtime(&snapshot.slots).unwrap();
         (recovered, driver.join().unwrap())
     });
     let mut recovered = recovered;
     // The endpoint moved: the old chain no longer has it.
     assert_eq!(chain.realtime_status(), None);
     assert!(matches!(
-        chain.recover_realtime(&snapshot),
+        chain.recover_realtime(&snapshot.slots),
         Err(Error::NotPrepared)
     ));
     drop(chain);
@@ -211,7 +207,7 @@ fn crash_recovery(plugin: PluginRef) {
             .all(|&(_, output, _)| output == RESYNC)
     );
     assert_eq!(played[start].2, silence());
-    let expected = offline(&plugin, &snapshot.states, played[start].0, PROCESSED);
+    let expected = offline(&snapshot.slots, played[start].0, PROCESSED);
     for (offset, (index, output, samples)) in played[start + 1..].iter().enumerate() {
         assert_eq!(*output, RealtimeOutput::Processed, "callback {index}");
         assert_eq!(*samples, expected[offset], "callback {index}");
@@ -279,10 +275,10 @@ fn a_hung_helper_shows_as_stalled_and_is_recovered_while_it_still_runs() {
 
     // Recovery does not need the hung helper, which goes on stalling.
     let old = chain.helper_monitor();
-    let mut recovered = chain.recover_realtime(&snapshot).unwrap();
+    let mut recovered = chain.recover_realtime(&snapshot.slots).unwrap();
     assert_eq!(old.exit_status(), None);
     let first = index;
-    let expected = offline(&plugin, &snapshot.states, first, 4);
+    let expected = offline(&snapshot.slots, first, 4);
     let check = |index: usize, endpoint: &mut RealtimeEndpoint| {
         let (output, samples) = callback(endpoint, index);
         if index == first {
@@ -314,7 +310,7 @@ fn a_failed_recovery_leaves_the_endpoint_with_its_chain() {
     let snapshot = chain.snapshot().unwrap();
     // Recovery needs the chain's endpoint.
     assert!(matches!(
-        chain.recover_realtime(&snapshot),
+        chain.recover_realtime(&snapshot.slots),
         Err(Error::NotPrepared)
     ));
     let mut endpoint = chain
@@ -324,13 +320,14 @@ fn a_failed_recovery_leaves_the_endpoint_with_its_chain() {
     for index in 0..3 {
         callback(&mut endpoint, index);
     }
-    let mut wrong = snapshot.clone();
-    wrong.states.push(snapshot.states[0].clone());
+    // One slot more than the chain's configuration routes.
+    let mut wrong = snapshot.slots.clone();
+    wrong.push(snapshot.slots[0].clone());
     assert!(matches!(
         chain.recover_realtime(&wrong),
         Err(Error::Input {
-            slot: None,
-            error: InputError::StateCount
+            error: InputError::AudioSlotCount,
+            ..
         })
     ));
     // The endpoint plays its fallback with its chain, which restarts it as after a resync.
@@ -344,7 +341,7 @@ fn a_failed_recovery_leaves_the_endpoint_with_its_chain() {
     assert_eq!(callback(&mut endpoint, 5).0, RealtimeOutput::Processed);
 
     // The application may try again.
-    let mut recovered = chain.recover_realtime(&snapshot).unwrap();
+    let mut recovered = chain.recover_realtime(&snapshot.slots).unwrap();
     assert_eq!(callback(&mut endpoint, 6).0, PRIMING);
     assert_eq!(callback(&mut endpoint, 7).0, RealtimeOutput::Processed);
     recovered.stop_realtime().unwrap();
@@ -362,8 +359,8 @@ fn recovery_applies_the_snapshot_bypass() {
         chain.start_realtime().unwrap();
         chain.set_bypass(0, true).unwrap();
         let snapshot = chain.snapshot().unwrap();
-        assert_eq!(snapshot.bypass, [Some(true)], "{format:?}");
-        let mut recovered = chain.recover_realtime(&snapshot).unwrap();
+        assert_eq!(snapshot.slots[0].bypass, Some(true), "{format:?}");
+        let mut recovered = chain.recover_realtime(&snapshot.slots).unwrap();
         assert_eq!(
             recovered.bypass(0).unwrap().enabled,
             Some(true),

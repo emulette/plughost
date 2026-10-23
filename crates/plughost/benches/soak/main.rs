@@ -9,8 +9,8 @@ use std::process::Command;
 use std::time::Instant;
 
 use plughost::{
-    Chain, HostIdentity, Layout, PluginFormat, PluginRef, RenderOptions, ScanOutcome, Scanner,
-    StatePurpose, TailPolicy, Timeouts, render,
+    Chain, ChainSlot, Layout, PluginFormat, PluginRef, RenderOptions, ScanOutcome, Scanner,
+    SpawnOptions, StatePurpose, TailPolicy, render,
 };
 
 use errors::Result;
@@ -152,9 +152,12 @@ fn run(options: &Options) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
     let mut chain = Chain::spawn(
         &options.helper,
-        &plugins,
-        &HostIdentity::default(),
-        Timeouts::default(),
+        &plugins
+            .iter()
+            .cloned()
+            .map(ChainSlot::from)
+            .collect::<Vec<_>>(),
+        &SpawnOptions::default(),
     )?;
     let config = chain.main_bus_config(
         RATE,

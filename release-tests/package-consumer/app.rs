@@ -2,8 +2,8 @@
 use std::path::PathBuf;
 
 use plughost::{
-    Chain, HostIdentity, Layout, PluginFormat, PluginRef, RenderOptions, ScanOutcome, Scanner,
-    StatePurpose, TailPolicy, Timeouts, render,
+    Chain, Layout, PluginFormat, RenderOptions, Scanner, SpawnOptions, StatePurpose, TailPolicy,
+    render,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -14,21 +14,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (format, extension) in [(PluginFormat::Vst3, "vst3"), (PluginFormat::Clap, "clap")] {
         let bundle = fixtures.join(format!("plughost-test-routing.{extension}"));
         let scanner = Scanner::new(&helper, &cache);
-        let ScanOutcome::Found(classes) = scanner.retry(&bundle)?.outcome else {
+        let scanned = scanner.retry(&bundle)?;
+        let [(reference, class)] = scanned.plugins()[..] else {
             panic!("packaged scanner did not find the routing fixture");
         };
-        assert_eq!(classes.len(), 1);
-        let reference = PluginRef {
-            format,
-            bundle: Some(bundle),
-            class_id: classes[0].class_id.clone(),
-        };
-        let mut chain = Chain::spawn(
-            &helper,
-            &[reference],
-            &HostIdentity::default(),
-            Timeouts::default(),
-        )?;
+        assert_eq!(class.id.format(), format);
+        let mut chain = Chain::spawn(&helper, &[reference.into()], &SpawnOptions::default())?;
         let config = chain.main_bus_config(48_000.0, 64, Layout::Stereo, &[Layout::Stereo])?;
         chain.prepare_audio(&config)?;
         chain.set_parameter(0, 0, 0.5)?;

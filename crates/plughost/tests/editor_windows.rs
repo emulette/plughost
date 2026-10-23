@@ -196,11 +196,12 @@ fn a_window_the_system_widens_past_the_editor_is_not_offered_to_it() {
 fn edits_and_saves_with_the_editor_open_survive_until_a_crash_and_recovery_reopens_it() {
     let _serial = support::editor_test();
     const GAIN: u64 = 0;
-    let mut chain = spawn(&[fixture(
+    let plugin = fixture(
         PluginFormat::Vst3,
         "again",
         "84E8DE5F92554F5396FAE4133C935A18",
-    )]);
+    );
+    let mut chain = spawn(std::slice::from_ref(&plugin));
     prepare(&mut chain);
     chain.open_editor(0).unwrap();
     let input = [0.5f32; 512];
@@ -253,7 +254,9 @@ fn edits_and_saves_with_the_editor_open_survive_until_a_crash_and_recovery_reope
         chain.editor_open(0),
         Err(plughost::Error::Crashed { .. })
     ));
-    let mut recovered = chain.recover(std::slice::from_ref(&snapshot)).unwrap();
+    let mut recovered = chain
+        .recover(&[plughost::ChainSlot::new(plugin.clone()).with_state(snapshot.clone())])
+        .unwrap();
     // Editors start closed after recovery; the application reopens them.
     assert!(!recovered.editor_open(0).unwrap());
     assert_eq!(

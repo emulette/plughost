@@ -262,9 +262,8 @@ fn caller(fault: &str) {
     };
     let result = Chain::spawn(
         &std::env::current_exe().unwrap(),
-        &[PluginRef::clap("fault.clap", fault)],
-        &HostIdentity::default(),
-        timeout,
+        &[PluginRef::clap("fault.clap", fault).into()],
+        &plughost::SpawnOptions::new(HostIdentity::default(), timeout),
     );
     if fault == "loaded-count" {
         assert!(matches!(result, Err(plughost::Error::Protocol)));
@@ -438,7 +437,13 @@ fn caller(fault: &str) {
             FailureKind::Crashed,
             "{fault}"
         );
-        chain = chain.recover(&[]).unwrap();
+        let initial: Vec<plughost::ChainSlot> = chain
+            .references()
+            .iter()
+            .cloned()
+            .map(plughost::ChainSlot::from)
+            .collect();
+        chain = chain.recover(&initial).unwrap();
         assert_ne!(chain.plugins()[0].sdk_version.parse::<u32>().unwrap(), pid);
         chain
             .process_audio_f32(

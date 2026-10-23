@@ -22,8 +22,8 @@ use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use plughost::{
-    BlockContext, Chain, Error, Event, HostIdentity, Layout, MAX_BLOCK_EVENTS, PluginFormat,
-    PluginId, PluginKind, PluginRef, RealtimeConfig, RealtimeEndpoint, Scanner, Timeouts,
+    BlockContext, Chain, Error, Event, Layout, MAX_BLOCK_EVENTS, PluginFormat, PluginId,
+    PluginKind, PluginRef, RealtimeConfig, RealtimeEndpoint, Scanner, SpawnOptions,
 };
 
 const USAGE: &str = "usage: realtime <helper executable> <bundle.vst3 | bundle.clap | Audio Unit class ID> [class index] [seconds] [quantum]";
@@ -177,12 +177,7 @@ fn run(
         stream_config.buffer_size = cpal::BufferSize::Fixed(quantum as u32);
     }
 
-    let mut chain = Chain::spawn(
-        helper,
-        &[plugin],
-        &HostIdentity::default(),
-        Timeouts::default(),
-    )?;
+    let mut chain = Chain::spawn(helper, &[plugin.into()], &SpawnOptions::default())?;
     let input = if instrument {
         Layout::None
     } else {
@@ -257,7 +252,7 @@ fn run(
             );
             // The endpoint moves to the new chain; the callback keeps it. The old chain, whose
             // helper may hang on, is dropped as the new one replaces it.
-            match chain.recover_realtime(&snapshot) {
+            match chain.recover_realtime(&snapshot.slots) {
                 Ok(recovered) => chain = recovered,
                 Err(error) => {
                     out!("recovery failed: {}", describe(&error));

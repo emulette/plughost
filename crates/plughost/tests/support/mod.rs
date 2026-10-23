@@ -90,12 +90,31 @@ pub fn synth(format: PluginFormat) -> PluginRef {
     fixture(format, "plughost-test-synth", class_id)
 }
 
+/// The chain's plugins in their initial states, to recover it from.
+pub fn initial(chain: &Chain) -> Vec<plughost::ChainSlot> {
+    chain
+        .references()
+        .iter()
+        .cloned()
+        .map(plughost::ChainSlot::from)
+        .collect()
+}
+
 pub fn spawn(plugins: &[PluginRef]) -> Chain {
     spawn_with(plugins, &HostIdentity::default(), Timeouts::default())
 }
 
 pub fn spawn_with(plugins: &[PluginRef], identity: &HostIdentity, timeouts: Timeouts) -> Chain {
-    Chain::spawn(&helper(), plugins, identity, timeouts).unwrap()
+    Chain::spawn(
+        &helper(),
+        &plugins
+            .iter()
+            .cloned()
+            .map(plughost::ChainSlot::from)
+            .collect::<Vec<_>>(),
+        &plughost::SpawnOptions::new(identity.clone(), timeouts),
+    )
+    .unwrap()
 }
 
 /// A stereo-in, stereo-out configuration at 48 kHz with 512-frame blocks.

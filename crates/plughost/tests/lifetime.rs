@@ -263,7 +263,7 @@ fn idle_exit_and_recovery_are_observed_without_requests() {
         .expect("idle helper exit not reported");
     assert!(!status.success());
     assert_eq!(first.clone().exit_status(), Some(status));
-    chain = chain.recover(&[]).unwrap();
+    chain = chain.recover(&support::initial(&chain)).unwrap();
     let second = chain.helper_monitor();
     assert_ne!(first.process_id(), second.process_id());
     assert!(second.exit_status().is_none());

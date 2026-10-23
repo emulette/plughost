@@ -104,7 +104,6 @@ const TRANSPORT: &str =
 const SAMPLE_RATE: &str = "sample rate must be finite and greater than zero";
 const BLOCK_SIZE: &str = "maximum block size must be between 1 and i32::MAX";
 const OUTPUT_COUNT: &str = "the configuration needs one output layout per plugin";
-const STATE_COUNT: &str = "recovery needs no states or one state per plugin";
 const EMPTY_CHAIN: &str = "a chain must contain at least one plugin";
 const INVALID_SLOT: &str = "the slot does not contain a loaded plugin";
 const PARAMETER_VALUE: &str = "parameter value must be finite and normalized to 0..=1";
@@ -193,8 +192,6 @@ pub enum InputError {
     HostIdentity,
     /// A chain was created or configured without a plugin.
     EmptyChain,
-    /// Recovery states neither empty nor one per plugin.
-    StateCount,
     /// The sample rate is not finite and greater than zero.
     SampleRate,
     /// Maximum block size is outside `1..=i32::MAX`.
@@ -296,7 +293,6 @@ impl fmt::Display for InputError {
             Self::Transport => f.write_str(TRANSPORT),
             Self::HostIdentity => f.write_str(HOST_IDENTITY),
             Self::EmptyChain => f.write_str(EMPTY_CHAIN),
-            Self::StateCount => f.write_str(STATE_COUNT),
             Self::SampleRate => f.write_str(SAMPLE_RATE),
             Self::BlockSize => f.write_str(BLOCK_SIZE),
             Self::OutputCount => f.write_str(OUTPUT_COUNT),

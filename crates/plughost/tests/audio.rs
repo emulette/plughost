@@ -180,7 +180,7 @@ fn routed_state_reset_recovery_and_failed_reprepare_preserve_contract() {
             .restore_state(0, &state, plughost::StatePurpose::Project)
             .unwrap();
         assert_audio(format, &run(&mut chain, &audio), &expected);
-        chain = chain.recover(&[]).unwrap();
+        chain = chain.recover(&support::initial(&chain)).unwrap();
         assert_audio(
             format,
             &run(&mut chain, &audio),

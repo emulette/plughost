@@ -192,9 +192,15 @@ is independent of scan cancellation.
 
 ## Chains and capability queries
 
-`Chain::spawn(helper, plugins, host_identity, timeouts)` starts one helper for a nonempty
-slice of `PluginRef`, in chain order. Slots are zero-based indices in that slice.
-`HostIdentity` is the calling application's identity; recovered chains keep it.
+`Chain::spawn(helper, slots, &options)` starts one helper for a nonempty slice of `ChainSlot`,
+in chain order. Slots are zero-based indices in that slice. A `ChainSlot` is a `PluginRef`
+(`ChainSlot::new(plugin)` or `plugin.into()`) with an optional `StatePurpose::Project` state
+(`.with_state(state)`) and native bypass (`.with_bypass(enabled)`): each plugin loads, restores
+its state in place on that instance, which loads it once, and takes its bypass before the call
+returns. A state of another plugin class fails with `FailureKind::StateMismatch` for its slot.
+`SpawnOptions` (`SpawnOptions::default()` or `SpawnOptions::new(host, timeouts)`) holds the
+`HostIdentity`, the calling application's identity, which recovered chains keep, and the
+`Timeouts`.
 `Timeouts` separates load, control, and block-processing operations. Defaults are 300,
 60, and 10 seconds respectively; start from `Timeouts::default()` and set the fields to change.
 A duration too long to end at a representable instant, such as `Duration::MAX`, waits without a
@@ -529,18 +535,18 @@ control timeout fails the resync with `Error::TimedOut`.
 endpoint started or was recovered), while quanta the callback submitted are outstanding; it is
 zero otherwise. It grows while a plugin hangs in its processing, and how long counts as a hang
 is the application's choice. A crashed helper shows through `helper_monitor()` instead.
-`chain.snapshot()` returns a `ChainSnapshot` with each slot's `StatePurpose::Project` state
-(`states`) and native bypass (`bypass`, `None` where unavailable); it also works while the
-endpoint runs, and plughost takes none by itself. After a crash or hang, call
-`chain.recover_realtime(&snapshot)`: it prepares a chain from the snapshot in a new helper as
-`recover` does, applies each recorded bypass, installs a new ring there and moves the same
+`chain.snapshot()` returns a `ChainSnapshot` whose `slots` hold each slot's plugin,
+`StatePurpose::Project` state and native bypass (`None` where unavailable); it also works while
+the endpoint runs, and plughost takes none by itself. After a crash or hang, call
+`chain.recover_realtime(&snapshot.slots)`: it prepares a chain of those slots in a new helper as
+`recover` does, installs a new ring there and moves the same
 endpoint to the new chain, which starts the next generation (the callback goes on with the
 `RealtimeEndpoint` it has, plays `Resync` from the call on and takes the new ring on its first
 call of that generation). The application need not stop the endpoint first. Switch to the
 returned chain and drop the old one; the old helper is not contacted, and a hung one only ever
 sees the old shared memory. A failed recovery leaves the endpoint with the old chain, playing its
 fallback with `resync` set, and retries nothing; without an endpoint the call returns
-`Error::NotPrepared`. A new chain holds only what the snapshot holds.
+`Error::NotPrepared`. A new chain holds only what the slots hold.
 
 While the endpoint runs, `reset`, `prepare_audio`, `reprepare`, `realtime_endpoint`,
 `process_audio_*` and rendering fail with `Error::RealtimeRunning`; after `stop_realtime` they
@@ -703,19 +709,19 @@ recovered chain has its own canceller; cancelling a helper that already ended do
 `reset()` clears DSP history while retaining settings. A reset that fails at one slot, after
 earlier slots were reset, returns that slot's error and leaves the chain to be prepared again:
 blocks fail with `FailureKind::NotPrepared` until `reprepare()` or `prepare_audio`. The reset of a
-`resync_realtime` does the same, and the endpoint then plays its fallback. `recover(&states)` starts a separate
-chain in a new helper with the same plugin list, host identity and timeouts, restores `states`
-(one `StatePurpose::Project` state per slot, or none for initial states) as each plugin loads,
-and prepares it with the saved audio configuration. The original chain is not modified, so the
-application keeps a last known good snapshot from `save_state`, recovers from it, and replaces
-its chain only once recovery succeeds; after a failure the original remains available for
-another attempt. Edits after the snapshot, DSP history, open editors and unread diagnostics are
-not recovered. Native bypass returns only when a state holds it (a VST3 or CLAP bypass parameter;
-never Audio Unit bypass), so the application records each slot's bypass with its snapshot and
-applies it with `set_bypass` before switching to the recovered chain. `snapshot()` saves the
-states and bypass together as a `ChainSnapshot`, which `recover_realtime` applies for a chain
-with a realtime endpoint (see Realtime processing); `recover(&snapshot.states)` leaves the
-endpoint with the old chain, and the bypass to the application.
+`resync_realtime` does the same, and the endpoint then plays its fallback.
+`recover(&slots)` starts a separate chain of `slots` in a new helper with this chain's host
+identity and timeouts, as `Chain::spawn` does, and prepares it with the saved audio
+configuration. The original chain is not modified, so the application keeps a last known good
+`snapshot()`, recovers from its `slots`, and replaces its chain only once recovery succeeds
+(for the plugins' initial states, a `ChainSlot::from` each of `chain.references()`, the
+references the chain loaded; the slots are not checked against them);
+after a failure the original remains available for another attempt. Edits after the snapshot,
+DSP history, open editors and unread diagnostics are not recovered. The snapshot records each
+slot's native bypass, which a state holds only for a VST3 or CLAP bypass parameter and never for
+an Audio Unit, and the recovered chain takes it. `recover_realtime` does the same for a chain
+with a realtime endpoint (see Realtime processing); `recover` leaves the endpoint with the old
+chain.
 `reprepare()` reactivates the saved configuration once, and `reprepare_slot(slot)` one slot,
 also while a realtime endpoint runs; repeated native restart requests remain visible to the
 caller.

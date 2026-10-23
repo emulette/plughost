@@ -265,7 +265,7 @@ impl Faults<'_> {
             .snapshot
             .as_ref()
             .ok_or_else(|| errors::fail(errors::SNAPSHOT))?;
-        let recovered = chain.recover_realtime(snapshot)?;
+        let recovered = chain.recover_realtime(&snapshot.slots)?;
         let old = std::mem::replace(chain, recovered);
         let processed = self.shared.processed();
         let came_back = self.await_processed(chain, processed);

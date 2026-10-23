@@ -1,7 +1,7 @@
 //! Recovering a chain in a new helper from the application's last saved states. Build the helper
 //! and the test plugins first (see `support`).
 
-use plughost::{Chain, Error, FailureKind, InputError, PluginFormat, PluginState, StatePurpose};
+use plughost::{Chain, Error, FailureKind, PluginFormat, StatePurpose};
 
 mod support;
 
@@ -19,10 +19,8 @@ fn gain(chain: &mut Chain) -> f64 {
         .1
 }
 
-fn snapshot(chain: &mut Chain) -> Vec<PluginState> {
-    (0..chain.plugins().len())
-        .map(|slot| chain.save_state(slot, StatePurpose::Project).unwrap())
-        .collect()
+fn snapshot(chain: &mut Chain) -> Vec<plughost::ChainSlot> {
+    chain.snapshot().unwrap().slots
 }
 
 #[test]
@@ -79,21 +77,58 @@ fn a_crashed_chain_recovers_from_its_last_snapshot() {
 fn recovery_rejects_states_that_do_not_belong_to_the_chain() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {
         let mut chain = prepared_delay(format);
-        let state = chain.save_state(0, StatePurpose::Project).unwrap();
-        assert!(matches!(
-            chain.recover(&[state.clone(), state]),
-            Err(Error::Input {
-                slot: None,
-                error: InputError::StateCount
-            })
-        ));
         let mut other = spawn(&[routing(format)]);
         let foreign = other.save_state(0, StatePurpose::Project).unwrap();
-        let Err(error) = chain.recover(&[foreign]) else {
+        let Err(error) =
+            chain.recover(&[plughost::ChainSlot::new(delay(format)).with_state(foreign)])
+        else {
             panic!("{format:?}: a foreign state was restored");
         };
         assert_eq!(error.kind(), FailureKind::StateMismatch, "{format:?}");
         assert!(matches!(error, Error::Operation { slot: Some(0), .. }));
         block(&mut chain, 512, 1.0);
+    }
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures (.ps1 or .sh build scripts)"]
+fn a_new_chain_restores_each_slot_state_on_the_instance_it_loads() {
+    for format in [PluginFormat::Vst3, PluginFormat::Clap] {
+        let mut source = prepared_delay(format);
+        source.set_parameter(0, GAIN, 0.25).unwrap();
+        let state = source.save_state(0, StatePurpose::Project).unwrap();
+        let slots = [
+            plughost::ChainSlot::new(delay(format)).with_state(state.clone()),
+            delay(format).into(),
+        ];
+        let mut chain = Chain::spawn(
+            &support::helper(),
+            &slots,
+            &plughost::SpawnOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(gain(&mut chain), 0.25, "{format:?}");
+        // The second slot keeps its initial state.
+        assert_ne!(
+            chain.save_state(1, StatePurpose::Project).unwrap(),
+            state,
+            "{format:?}"
+        );
+        // A state of another class fails for its slot.
+        let foreign = spawn(&[routing(format)])
+            .save_state(0, StatePurpose::Project)
+            .unwrap();
+        let Err(error) = Chain::spawn(
+            &support::helper(),
+            &[
+                delay(format).into(),
+                plughost::ChainSlot::new(delay(format)).with_state(foreign),
+            ],
+            &plughost::SpawnOptions::default(),
+        ) else {
+            panic!("{format:?}: a foreign state was restored");
+        };
+        assert_eq!(error.kind(), FailureKind::StateMismatch, "{format:?}");
+        assert!(matches!(error, Error::Operation { slot: Some(1), .. }));
     }
 }

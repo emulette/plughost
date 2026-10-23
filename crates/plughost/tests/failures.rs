@@ -1,6 +1,4 @@
-use plughost::{
-    Chain, Error, FailureKind, HostIdentity, Layout, PluginFormat, PluginRef, Timeouts,
-};
+use plughost::{Chain, Error, FailureKind, Layout, PluginFormat, PluginRef};
 
 mod support;
 
@@ -115,9 +113,8 @@ fn format_errors_keep_their_category_and_slot_through_ipc() {
         };
         let error = match Chain::spawn(
             &helper(),
-            &[wrong],
-            &HostIdentity::default(),
-            Timeouts::default(),
+            &[wrong.into()],
+            &plughost::SpawnOptions::default(),
         ) {
             Ok(_) => panic!("unexpected successful load"),
             Err(error) => error,

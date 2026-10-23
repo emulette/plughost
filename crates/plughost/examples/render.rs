@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use plughost::{
-    Chain, Error, Event, FailureKind, HostIdentity, Layout, PluginFormat, PluginId, PluginInfo,
-    PluginKind, PluginRef, RenderOptions, Rendered, Scanner, StatePurpose, Timeouts, render,
+    Chain, ChainSlot, Error, Event, FailureKind, Layout, PluginFormat, PluginId, PluginInfo,
+    PluginKind, PluginRef, RenderOptions, Rendered, Scanner, SpawnOptions, StatePurpose, render,
 };
 
 const USAGE: &str = "usage: render <helper executable> <bundle.vst3 | bundle.clap | Audio Unit class ID> [class index]";
@@ -110,21 +110,16 @@ fn run(helper: &Path, target: &Path, index: usize) -> Result<bool, Error> {
     } else {
         Layout::Stereo
     };
-    let mut chain = Chain::spawn(
-        helper,
-        &[plugin],
-        &HostIdentity::default(),
-        Timeouts::default(),
-    )?;
+    let mut chain = Chain::spawn(helper, &[plugin.clone().into()], &SpawnOptions::default())?;
     let config = chain.main_bus_config(RATE, BLOCK, input, &[Layout::Stereo])?;
     chain.prepare_audio(&config)?;
     // The last known good state. An application refreshes it after the user changes settings.
     // A plugin without saved state recovers in its initial state.
     let snapshot = match chain.save_state(0, StatePurpose::Project) {
-        Ok(state) => vec![state],
+        Ok(state) => vec![ChainSlot::new(plugin.clone()).with_state(state)],
         Err(error) if error.kind() == FailureKind::Unsupported => {
             out!("no state snapshot: {}", describe(&error));
-            Vec::new()
+            vec![ChainSlot::new(plugin.clone())]
         }
         Err(error) => return Err(error),
     };

@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use plughost::{
     Chain, HostIdentity, Layout, PluginFormat, PluginRef, ProcessMode, RenderOptions, SampleFormat,
-    ScanOutcome, Scanner, StatePurpose, TailPolicy, Timeouts, render,
+    ScanOutcome, Scanner, SpawnOptions, StatePurpose, TailPolicy, Timeouts, render,
 };
 use plughost_core::render::{Process, Tail};
 use plughost_core::{AutomationEvent, BlockContext, Event, ProcessConfig};
@@ -254,9 +254,8 @@ fn run(options: &Options) -> Result<()> {
     let (chain, spawn) = timed(|| {
         Chain::spawn(
             &options.helper,
-            std::slice::from_ref(&plugin),
-            &identity,
-            Timeouts::default(),
+            &[plugin.clone().into()],
+            &SpawnOptions::new(identity.clone(), Timeouts::default()),
         )
     });
     let mut chain = chain?;

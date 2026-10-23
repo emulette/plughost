@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use plughost::{Chain, HostIdentity, Layout, PluginRef, Timeouts};
+use plughost::{Chain, ChainSlot, Layout, PluginRef, SpawnOptions};
 
 use cases::Case;
 use errors::Result;
@@ -119,9 +119,11 @@ fn isolated(
     let (mut chain, load) = lifecycle::timed(|| {
         Chain::spawn(
             &options.helper,
-            &vec![plugin.clone(); case.plugins],
-            &HostIdentity::default(),
-            Timeouts::default(),
+            &vec![plugin.clone(); case.plugins]
+                .into_iter()
+                .map(ChainSlot::from)
+                .collect::<Vec<_>>(),
+            &SpawnOptions::default(),
         )
     })?;
     let config = if case.multiple() {

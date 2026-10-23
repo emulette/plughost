@@ -26,8 +26,7 @@ fn empty_chain_is_rejected_before_starting_a_helper() {
     let result = Chain::spawn(
         Path::new("missing-helper.exe"),
         &[],
-        &HostIdentity::default(),
-        Timeouts::default(),
+        &plughost::SpawnOptions::default(),
     );
     assert!(matches!(
         result,
@@ -326,7 +325,7 @@ fn a_crash_names_the_slot_and_the_chain_can_recover() {
             chain.helper_monitor().end_reason(),
             Some(FailureKind::Crashed)
         );
-        chain = chain.recover(&[]).unwrap();
+        chain = chain.recover(&support::initial(&chain)).unwrap();
         assert!(!chain.parameters(0).unwrap().is_empty());
     }
 }
@@ -392,7 +391,7 @@ fn a_call_held_up_by_a_plugin_is_cancelled_from_another_thread() {
         );
         // Like a timeout, the cancellation is reported once; the helper is gone after it.
         assert!(matches!(chain.parameters(0), Err(Error::Crashed { .. })));
-        chain = chain.recover(&[]).unwrap();
+        chain = chain.recover(&support::initial(&chain)).unwrap();
         assert!(!chain.parameters(0).unwrap().is_empty());
         let monitor = chain.helper_monitor();
         drop(chain);
@@ -597,9 +596,8 @@ fn an_edit_saved_right_away_is_restored_in_a_new_helper() {
 fn a_missing_helper_is_a_start_error() {
     let result = Chain::spawn(
         Path::new("/nonexistent/plughost-helper"),
-        &[delay(PluginFormat::Vst3)],
-        &HostIdentity::default(),
-        Timeouts::default(),
+        &[delay(PluginFormat::Vst3).into()],
+        &plughost::SpawnOptions::default(),
     );
     assert!(matches!(result, Err(Error::HelperStart(_))));
 }

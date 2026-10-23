@@ -80,7 +80,12 @@ fn recovery_restores_states_that_together_exceed_one_message() {
             plughost::PluginState::new(&chain.plugins()[slot], component, None)
         })
         .collect();
-    let mut recovered = chain.recover(&states).unwrap();
+    let slots: Vec<_> = plugins
+        .iter()
+        .zip(states)
+        .map(|(plugin, state)| plughost::ChainSlot::new(plugin.clone()).with_state(state))
+        .collect();
+    let mut recovered = chain.recover(&slots).unwrap();
     for (slot, gain) in [0.25, 0.5, 0.75].into_iter().enumerate() {
         let (_, value) = recovered.parameters(slot).unwrap()[0].clone();
         assert_eq!(value, gain);
@@ -120,7 +125,7 @@ fn native_state_save_timeout_terminates_the_helper_and_explicit_recovery_replace
         );
         assert_eq!(left, [42.0; 512]);
         assert_eq!(right, [42.0; 512]);
-        chain = chain.recover(&[]).unwrap();
+        chain = chain.recover(&support::initial(&chain)).unwrap();
         chain
             .process_audio_f32(
                 &plughost::BlockContext::new(512),

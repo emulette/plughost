@@ -48,6 +48,69 @@ impl Default for Timeouts {
     }
 }
 
+/// One plugin of a chain to start, with what its fresh instance takes before the chain is
+/// returned. Build it with [`ChainSlot::new`] (or from a [`PluginRef`]) and the `with_` methods.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ChainSlot {
+    /// The plugin class to load.
+    pub plugin: PluginRef,
+    /// A state saved with [`plughost_core::StatePurpose::Project`] that the loaded instance
+    /// restores in place, before anything else, or `None` for its initial state.
+    pub state: Option<PluginState>,
+    /// The native bypass to set once the state is restored, or `None` to leave it as the plugin
+    /// has it.
+    pub bypass: Option<bool>,
+}
+
+impl ChainSlot {
+    /// `plugin` with its initial state and bypass.
+    pub fn new(plugin: PluginRef) -> ChainSlot {
+        ChainSlot {
+            plugin,
+            state: None,
+            bypass: None,
+        }
+    }
+
+    /// Restores `state` into the loaded instance.
+    pub fn with_state(mut self, state: PluginState) -> ChainSlot {
+        self.state = Some(state);
+        self
+    }
+
+    /// Sets the native bypass after the state.
+    pub fn with_bypass(mut self, enabled: bool) -> ChainSlot {
+        self.bypass = Some(enabled);
+        self
+    }
+}
+
+impl From<PluginRef> for ChainSlot {
+    fn from(plugin: PluginRef) -> ChainSlot {
+        ChainSlot::new(plugin)
+    }
+}
+
+/// How [`Chain::spawn`] starts a chain: the host identity it presents to plugins, which
+/// recovered chains keep, and its timeouts. Start from [`SpawnOptions::default`] and set the
+/// fields to change.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SpawnOptions {
+    /// The calling application's identity.
+    pub host: HostIdentity,
+    /// How long the chain's operations may go without a response from the helper.
+    pub timeouts: Timeouts,
+}
+
+impl SpawnOptions {
+    /// Starts chains that present `host` to plugins, with `timeouts`.
+    pub fn new(host: HostIdentity, timeouts: Timeouts) -> SpawnOptions {
+        SpawnOptions { host, timeouts }
+    }
+}
+
 /// Plugins processed in order, isolated in their own helper process. If a plugin crashes or
 /// hangs, the chain's methods return [`Error::Crashed`] or [`Error::TimedOut`] (or
 /// [`Error::Cancelled`] after a [`Chain::canceller`] ended the hang), and the application
@@ -82,57 +145,37 @@ impl std::fmt::Debug for Chain {
 }
 
 impl Chain {
-    /// Starts a helper and loads `plugins` into it, in chain order. `host` identifies the calling
-    /// application to plugins and is retained across resets and recovery.
+    /// Starts a helper and loads the `slots`' plugins into it, in chain order. Each loaded
+    /// instance restores its slot's state in place and then takes its bypass, before the chain is
+    /// returned; a state of another plugin class fails with `FailureKind::StateMismatch` for its
+    /// slot. `options.host` identifies the calling application to plugins and is retained across
+    /// resets and recovery.
     pub fn spawn(
         helper: &Path,
-        plugins: &[PluginRef],
-        host: &HostIdentity,
-        timeouts: Timeouts,
+        slots: &[ChainSlot],
+        options: &SpawnOptions,
     ) -> Result<Chain, Error> {
-        host.validate()
+        options
+            .host
+            .validate()
             .map_err(|error| Error::Input { slot: None, error })?;
-        if plugins.is_empty() {
-            return Err(Error::Input {
-                slot: None,
-                error: plughost_core::InputError::EmptyChain,
-            });
-        }
-        start(helper, plugins, &[], host, timeouts)
+        start(helper, slots, &options.host, options.timeouts)
     }
 
-    /// Starts a separate chain with this chain's helper, plugins, host identity and timeouts,
-    /// restores `states` (saved with [`plughost_core::StatePurpose::Project`], one per plugin in chain order, or
-    /// none for initial states) as each plugin loads, and prepares it with this chain's
-    /// configuration when this chain has one. This chain is left as it is, crashed or not: the
-    /// application switches to the returned chain when it is ready, and keeps this one to retry
-    /// after a failure. The recovered chain holds only what the states hold: edits made after
-    /// they were saved and DSP history such as tails are not recovered, and editors are closed.
-    /// Native bypass returns only when a state holds it, as a VST3 or CLAP bypass parameter does;
-    /// Audio Unit bypass never does. [`Chain::snapshot`] saves the states and the bypass together;
-    /// apply the bypass with [`Chain::set_bypass`] before switching to the recovered chain, or let
-    /// [`Chain::recover_realtime`] do it. The realtime endpoint stays with this chain: it is not
-    /// moved to the recovered one.
-    pub fn recover(&self, states: &[PluginState]) -> Result<Chain, Error> {
-        if !states.is_empty() && states.len() != self.plugins.len() {
-            return Err(Error::Input {
-                slot: None,
-                error: plughost_core::InputError::StateCount,
-            });
-        }
-        for (slot, state) in states.iter().enumerate() {
-            state.validate().map_err(|error| Error::Input {
-                slot: Some(slot),
-                error,
-            })?;
-        }
-        let mut chain = start(
-            &self.helper_path,
-            &self.plugins,
-            states,
-            &self.identity,
-            self.timeouts,
-        )?;
+    /// Starts a separate chain of `slots` with this chain's helper, host identity and timeouts,
+    /// as [`Chain::spawn`] does, and prepares it with this chain's configuration when this chain
+    /// has one. Take the slots from [`Chain::snapshot`]: each holds the slot's plugin, its state
+    /// saved with [`plughost_core::StatePurpose::Project`] and its native bypass; for the plugins'
+    /// initial states, take [`Chain::references`]. The slots are not checked against this chain's
+    /// plugins: other plugins are prepared with this chain's configuration, which can fail or
+    /// route them differently. This chain is
+    /// left as it is, crashed or not: the application switches to the returned chain when it is
+    /// ready, and keeps this one to retry after a failure. The recovered chain holds only what
+    /// the slots hold: edits made after the states were saved and DSP history such as tails are
+    /// not recovered, and editors are closed. The realtime endpoint stays with this chain: it is
+    /// not moved to the recovered one, as [`Chain::recover_realtime`] does.
+    pub fn recover(&self, slots: &[ChainSlot]) -> Result<Chain, Error> {
+        let mut chain = start(&self.helper_path, slots, &self.identity, self.timeouts)?;
         if let Some(config) = &self.config {
             chain.prepare_audio(config)?;
         }
@@ -142,6 +185,12 @@ impl Chain {
     /// Loaded plugin metadata in zero-based chain slot order.
     pub fn plugins(&self) -> &[PluginInfo] {
         &self.infos
+    }
+
+    /// The references this chain loaded its plugins from, in slot order: for example to recover
+    /// it in the plugins' initial states, with `ChainSlot::from` for each.
+    pub fn references(&self) -> &[PluginRef] {
+        &self.plugins
     }
 
     /// Observes this helper's exit without issuing IPC requests, including while the chain is
@@ -431,35 +480,55 @@ impl Chain {
     }
 }
 
-/// Starts a helper and loads `plugins`, restoring `states` as they load.
+/// Starts a helper and loads the slots' plugins, restoring each state as its plugin loads and
+/// then setting the bypass.
 fn start(
     helper: &Path,
-    plugins: &[PluginRef],
-    states: &[PluginState],
+    slots: &[ChainSlot],
     host: &HostIdentity,
     timeouts: Timeouts,
 ) -> Result<Chain, Error> {
-    for (slot, plugin) in plugins.iter().enumerate() {
-        if plugin.bundle().is_some_and(|path| path.to_str().is_none()) {
+    if slots.is_empty() {
+        return Err(Error::Input {
+            slot: None,
+            error: plughost_core::InputError::EmptyChain,
+        });
+    }
+    for (slot, spec) in slots.iter().enumerate() {
+        if spec
+            .plugin
+            .bundle()
+            .is_some_and(|path| path.to_str().is_none())
+        {
             return Err(Error::Input {
                 slot: Some(slot),
                 error: plughost_core::InputError::PathEncoding,
             });
         }
+        if let Some(state) = &spec.state {
+            state.validate().map_err(|error| Error::Input {
+                slot: Some(slot),
+                error,
+            })?;
+        }
     }
+    let plugins: Vec<PluginRef> = slots.iter().map(|spec| spec.plugin.clone()).collect();
+    let plugins = plugins.as_slice();
     let mut process = Helper::spawn(helper, Mode::Host)?;
     let infos = match process.load(host, plugins, timeouts.load)? {
         Response::Loaded(infos) if infos.len() == plugins.len() => infos,
         _ => return Err(Error::Protocol),
     };
-    for (slot, state) in states.iter().enumerate() {
-        let request = Request::LoadState {
-            slot,
-            state: std::borrow::Cow::Borrowed(state),
-        };
-        expect_done(process.request(request, timeouts.load)?)?;
+    for (slot, spec) in slots.iter().enumerate() {
+        if let Some(state) = &spec.state {
+            let request = Request::LoadState {
+                slot,
+                state: std::borrow::Cow::Borrowed(state),
+            };
+            expect_done(process.request(request, timeouts.load)?)?;
+        }
     }
-    Ok(Chain {
+    let mut chain = Chain {
         identity: host.clone(),
         helper_path: helper.to_path_buf(),
         helper: process,
@@ -472,7 +541,13 @@ fn start(
         latency: 0,
         tail: Tail::Samples(0),
         realtime: None,
-    })
+    };
+    for (slot, spec) in slots.iter().enumerate() {
+        if let Some(enabled) = spec.bypass {
+            chain.set_bypass(slot, enabled)?;
+        }
+    }
+    Ok(chain)
 }
 
 fn expect_done(response: Response) -> Result<(), Error> {

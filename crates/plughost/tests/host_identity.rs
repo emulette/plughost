@@ -25,7 +25,7 @@ fn check_lifecycle(format: PluginFormat, first_parameter: u64) {
         for stage in 0..3 {
             match stage {
                 1 => chain.reset().unwrap(),
-                2 => chain = chain.recover(&[]).unwrap(),
+                2 => chain = chain.recover(&support::initial(&chain)).unwrap(),
                 _ => {}
             }
             let parameters = chain.parameters(0).unwrap();
@@ -119,8 +119,7 @@ fn invalid_host_identity_is_rejected_before_starting_a_helper() {
             Chain::spawn(
                 Path::new("/nonexistent/helper"),
                 &[],
-                &host,
-                Timeouts::default()
+                &plughost::SpawnOptions::new(host.clone(), Timeouts::default())
             ),
             Err(Error::Input {
                 slot: None,

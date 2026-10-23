@@ -34,7 +34,7 @@ fn native_and_helper_parameter_conversions_reach_output_and_saved_state() {
         let state = chain
             .save_state(0, plughost::StatePurpose::Project)
             .unwrap();
-        chain = chain.recover(&[]).unwrap();
+        chain = chain.recover(&support::initial(&chain)).unwrap();
         chain
             .restore_state(0, &state, plughost::StatePurpose::Project)
             .unwrap();

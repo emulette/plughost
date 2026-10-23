@@ -5,42 +5,42 @@ use plughost_core::StatePurpose;
 
 use super::*;
 
-/// What recovery restores of a chain's plugins, from [`Chain::snapshot`]: each slot's project
-/// state and native bypass, in chain order.
+/// What recovery restores of a chain's plugins, from [`Chain::snapshot`], in chain order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ChainSnapshot {
-    /// Each slot's state, saved with [`StatePurpose::Project`].
-    pub states: Vec<PluginState>,
-    /// Each slot's native bypass as [`Chain::bypass`] reported it, or `None` where unavailable.
-    pub bypass: Vec<Option<bool>>,
+    /// Each slot's plugin, its state saved with [`StatePurpose::Project`], and its native
+    /// bypass as [`Chain::bypass`] reported it, or `None` where unavailable.
+    pub slots: Vec<ChainSlot>,
 }
 
 impl Chain {
-    /// Saves each slot's project state and native bypass for [`Chain::recover_realtime`], or for
-    /// [`Chain::recover`] with its states. It works while the realtime endpoint runs, as
+    /// Saves each slot's plugin, project state and native bypass for [`Chain::recover`] and
+    /// [`Chain::recover_realtime`], or for [`Chain::spawn`] in another helper. It works while the realtime endpoint runs, as
     /// [`Chain::save_state`] and [`Chain::bypass`] do; plughost never takes one by itself. Take
     /// snapshots while the helper is well: a plugin hanging in its processing may also hold up
     /// saving its state.
     pub fn snapshot(&mut self) -> Result<ChainSnapshot, Error> {
-        let mut states = Vec::with_capacity(self.plugins.len());
-        let mut bypass = Vec::with_capacity(self.plugins.len());
+        let mut slots = Vec::with_capacity(self.plugins.len());
         for slot in 0..self.plugins.len() {
-            states.push(self.save_state(slot, StatePurpose::Project)?);
-            bypass.push(self.bypass(slot)?.enabled);
+            slots.push(ChainSlot {
+                plugin: self.plugins[slot].clone(),
+                state: Some(self.save_state(slot, StatePurpose::Project)?),
+                bypass: self.bypass(slot)?.enabled,
+            });
         }
-        Ok(ChainSnapshot { states, bypass })
+        Ok(ChainSnapshot { slots })
     }
 
     /// Recovers this chain's realtime endpoint in a new helper, typically after its helper
     /// crashed (see [`Chain::helper_monitor`]) or hung (see
     /// [`crate::RealtimeStatus::stalled`]), while the audio callback keeps the same
     /// [`crate::RealtimeEndpoint`]. The endpoint plays its fallback from the call on, as in a
-    /// resync. A new chain is prepared from `snapshot.states` as by [`Chain::recover`], and each
-    /// slot whose `snapshot.bypass` is `Some` gets that native bypass. The endpoint then moves to
+    /// resync. A new chain of `slots`, normally the [`ChainSnapshot::slots`] of
+    /// [`Chain::snapshot`], is prepared as by [`Chain::recover`]. The endpoint then moves to
     /// the new chain with its configuration and counters and starts again there: after `latency`
     /// priming callbacks it plays the new chain's output, as after [`Chain::start_realtime`].
-    /// The new chain holds only what the snapshot holds; see [`Chain::recover`].
+    /// The new chain holds only what the slots hold; see [`Chain::recover`].
     ///
     /// This chain's helper is not contacted. A hung one may go on until this chain is dropped,
     /// but only with this chain's shared memory, never the new chain's. Switch to the returned
@@ -52,16 +52,11 @@ impl Chain {
     /// stays with this chain, playing its fallback with `resync` set, and nothing is retried: the
     /// application recovers again, or stops the endpoint, resets this chain and starts it again
     /// when its helper is well.
-    pub fn recover_realtime(&mut self, snapshot: &ChainSnapshot) -> Result<Chain, Error> {
+    pub fn recover_realtime(&mut self, slots: &[ChainSlot]) -> Result<Chain, Error> {
         let realtime = self.realtime.as_ref().ok_or(Error::NotPrepared)?;
         realtime.state.suspend();
         let config = realtime.config;
-        let mut chain = self.recover(&snapshot.states)?;
-        for (slot, enabled) in snapshot.bypass.iter().enumerate() {
-            if let Some(enabled) = *enabled {
-                chain.set_bypass(slot, enabled)?;
-            }
-        }
+        let mut chain = self.recover(slots)?;
         let ring = chain.install_ring(&config)?;
         let mut realtime = self.realtime.take().ok_or(Error::NotPrepared)?;
         let control = std::mem::replace(&mut realtime.control, ring.control());

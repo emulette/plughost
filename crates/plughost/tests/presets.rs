@@ -71,7 +71,7 @@ fn vst3_preset_file_roundtrip_validates_class_and_preserves_output_on_failure() 
             info: preset.info.clone()
         }
     );
-    chain = chain.recover(&[]).unwrap();
+    chain = chain.recover(&support::initial(&chain)).unwrap();
     chain.import_preset(0, &bytes).unwrap();
     assert_eq!(value(&chain.parameters(0).unwrap(), 1), 0.0);
     assert_eq!(&block(&mut chain, 512, 1.0)[480..], &[0.25; 32]);

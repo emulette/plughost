@@ -25,7 +25,7 @@
 //! ```no_run
 //! use std::path::Path;
 //! use plughost::{
-//!     Chain, HostIdentity, Layout, PluginRef, RenderOptions, Timeouts, render,
+//!     Chain, Layout, PluginRef, RenderOptions, SpawnOptions, render,
 //! };
 //!
 //! fn render_effect(
@@ -34,7 +34,7 @@
 //!     left: &[f32],
 //!     right: &[f32],
 //! ) -> Result<Vec<Vec<f32>>, plughost::Error> {
-//!     let mut chain = Chain::spawn(helper, &[plugin], &HostIdentity::default(), Timeouts::default())?;
+//!     let mut chain = Chain::spawn(helper, &[plugin.into()], &SpawnOptions::default())?;
 //!     let config = chain.main_bus_config(48_000.0, 512, Layout::Stereo, &[Layout::Stereo])?;
 //!     chain.prepare_audio(&config)?;
 //!     let output = render(&mut chain, &[left, right], left.len(), &[], &RenderOptions::default())?;
@@ -52,7 +52,7 @@ mod presets;
 mod realtime;
 mod scan;
 
-pub use chain::{Chain, ChainSnapshot, Timeouts};
+pub use chain::{Chain, ChainSlot, ChainSnapshot, SpawnOptions, Timeouts};
 pub use errors::Error;
 pub use helper::{ChainCanceller, HelperMonitor};
 pub use plughost_core::render::{

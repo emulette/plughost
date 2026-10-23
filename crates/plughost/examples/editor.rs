@@ -10,8 +10,8 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use plughost::{
-    Chain, Error, Event, Layout, PluginFormat, PluginId, PluginInfo, PluginKind, PluginRef,
-    Scanner, Timeouts,
+    Chain, ChainSlot, Error, Event, Layout, PluginFormat, PluginId, PluginInfo, PluginKind,
+    PluginRef, Scanner, SpawnOptions,
 };
 
 const USAGE: &str = "usage: editor <helper executable> <bundle.vst3 | bundle.clap | Audio Unit class ID> [class index]";
@@ -131,12 +131,7 @@ fn run(helper: &Path, target: &Path, index: usize) -> Result<bool, Error> {
     };
     let channels = input.channels();
 
-    let mut chain = Chain::spawn(
-        helper,
-        std::slice::from_ref(&plugin),
-        &plughost::HostIdentity::default(),
-        Timeouts::default(),
-    )?;
+    let mut chain = Chain::spawn(helper, &[plugin.clone().into()], &SpawnOptions::default())?;
     let config = chain.main_bus_config(RATE, BLOCK, input, &[Layout::Stereo])?;
     chain.prepare_audio(&config)?;
     out!("capabilities: {:?}", chain.capabilities(0)?);
@@ -178,12 +173,10 @@ fn run(helper: &Path, target: &Path, index: usize) -> Result<bool, Error> {
     let before = chain.parameters(0)?;
     let mut fresh = Chain::spawn(
         helper,
-        &[plugin],
-        &plughost::HostIdentity::default(),
-        Timeouts::default(),
+        &[ChainSlot::new(plugin).with_state(state)],
+        &SpawnOptions::default(),
     )?;
     fresh.prepare_audio(&config)?;
-    fresh.restore_state(0, &state, plughost::StatePurpose::Project)?;
     let after = fresh.parameters(0)?;
     let mismatched: Vec<String> = before
         .iter()

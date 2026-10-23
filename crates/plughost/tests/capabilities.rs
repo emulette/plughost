@@ -73,7 +73,7 @@ fn native_support_is_distinct_from_chain_support_and_unknown() {
     assert_eq!(left[..448], [0.0; 448]);
     assert_eq!(left[448..], [0.25; 64]);
     assert_eq!(left, right);
-    chain = chain.recover(&[]).unwrap();
+    chain = chain.recover(&support::initial(&chain)).unwrap();
     assert_eq!(chain.capabilities(0).unwrap(), vst3);
     assert_eq!(chain.capabilities(1).unwrap(), clap);
 }
