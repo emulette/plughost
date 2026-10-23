@@ -12,6 +12,9 @@ use plughost_core::{
     BypassState, Support,
 };
 
+/// More port configurations than a plugin offers; a plugin that reports more fails to list them,
+/// as one with more ports than callers receive does.
+const MAX_AUDIO_CONFIGURATIONS: u32 = 1024;
 /// The ambisonic format of the portable ambisonic layouts.
 const ACN_SN3D: AmbisonicConfig =
     AmbisonicConfig::new(AmbisonicOrdering::ACN, AmbisonicNormalization::SN3D);
@@ -107,13 +110,21 @@ impl Plugin {
             .audio_config_info
             .ok_or(ClapError::AudioUnsupported)?;
         let handle = self.instance.plugin_handle();
+        let count = extension.count(&handle);
+        if count > MAX_AUDIO_CONFIGURATIONS {
+            return Err(ClapError::AudioMetadata);
+        }
         let mut buffer = AudioPortsConfigBuffer::new();
         let mut result = Vec::new();
-        for index in 0..extension.count(&handle) {
+        for index in 0..count {
             let config = extension
                 .get(&handle, index, &mut buffer)
                 .ok_or(ClapError::AudioMetadata)?;
             let buses = |input: bool, count: u32| -> Result<Vec<AudioBusInfo>, ClapError> {
+                // As for the active configuration's ports.
+                if count as usize > plughost_core::MAX_AUDIO_BUSES {
+                    return Err(ClapError::AudioMetadata);
+                }
                 let mut buffer = AudioPortInfoBuffer::new();
                 let mut result = Vec::new();
                 for index in 0..count {

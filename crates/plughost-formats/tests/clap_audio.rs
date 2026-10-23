@@ -378,3 +378,25 @@ fn full_bus_calls_of_varying_length_do_not_reuse_old_sidechain_audio() {
         assert!(output[1][..frames].iter().all(|sample| *sample == 3.0));
     }
 }
+
+#[test]
+#[ignore = "needs native routing fixture"]
+fn counts_past_the_hosts_bounds_are_neither_followed_nor_stored() {
+    // The bundle reports u32::MAX parameters, note outputs that take no dialect and port
+    // configurations, and describes every one.
+    let mut plugin = bundle("plughost-test-routing-counts");
+    // At most 65,536 parameters are read.
+    assert_eq!(plugin.parameters().len(), 1 << 16);
+    let diagnostics = plugin.take_diagnostics().records;
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(
+        diagnostics[0].severity,
+        DiagnosticSeverity::PluginMisbehaving
+    );
+    // A note output taking a dialect may be past the ones looked at.
+    assert_eq!(plugin.capabilities().unwrap().note_output, Support::Unknown);
+    assert_eq!(
+        plugin.audio_configurations(),
+        Err(Error::Clap(ClapError::AudioMetadata))
+    );
+}

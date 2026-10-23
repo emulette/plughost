@@ -7,6 +7,10 @@ use clack_extensions::params::{ParamInfoBuffer, ParamInfoFlags, PluginParams};
 use clack_host::prelude::{ClapId, PluginMainThreadHandle};
 use plughost_core::{ParameterFlags, ParameterInfo};
 
+/// More parameters than a plugin has. A plugin that reports more has only the first ones read,
+/// so that its count bounds neither the host's memory nor its time.
+pub(super) const MAX_PARAMETERS: u32 = 1 << 16;
+
 pub(super) struct Parameter {
     pub info: ParameterInfo,
     pub native: ClapId,
@@ -42,13 +46,18 @@ pub(super) struct ParameterCache {
 }
 
 impl ParameterCache {
-    /// Reads every parameter the plugin describes. Call on the main thread.
-    pub fn read(params: Option<PluginParams>, handle: &PluginMainThreadHandle) -> ParameterCache {
+    /// Reads every parameter the plugin describes, up to [`MAX_PARAMETERS`], with the count it
+    /// reported. Call on the main thread.
+    pub fn read(
+        params: Option<PluginParams>,
+        handle: &PluginMainThreadHandle,
+    ) -> (ParameterCache, u32) {
         let Some(params) = params else {
-            return ParameterCache::default();
+            return (ParameterCache::default(), 0);
         };
+        let count = params.count(handle);
         let mut buffer = ParamInfoBuffer::new();
-        let parameters: Vec<Parameter> = (0..params.count(handle))
+        let parameters: Vec<Parameter> = (0..count.min(MAX_PARAMETERS))
             .filter_map(|index| {
                 let info = params.get_info(handle, index, &mut buffer)?;
                 let flags = info.flags;
@@ -91,7 +100,7 @@ impl ParameterCache {
             .enumerate()
             .map(|(index, parameter)| (parameter.info.id, index))
             .collect();
-        ParameterCache { parameters, index }
+        (ParameterCache { parameters, index }, count)
     }
 
     pub fn get(&self, id: u64) -> Option<&Parameter> {

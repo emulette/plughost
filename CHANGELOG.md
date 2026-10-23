@@ -73,6 +73,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   fits what is left of the block's budget; a larger one fails the block as more output than a
   block allows, before anything is read. It was copied at the declared size on the processing
   thread first, so a size past the plugin's buffer crashed the helper.
+- The counts a CLAP plugin reports are bounded before they are followed. A plugin's first 65,536
+  parameters are read, with a `PluginMisbehaving` diagnostic when it reports more;
+  `audio_configurations` fails with the audio metadata error for more than 1,024 configurations
+  or more than `MAX_AUDIO_BUSES` ports in a direction of one, as `audio_buses` does for the active
+  ports; and capabilities are `Support::Unknown` where more note ports (beyond 65,535), audio ports
+  or parameters would have to be looked at. A plugin reporting billions made the helper allocate
+  without bound or run until the control timeout.
 
 ## [0.1.5] - 2026-10-23
 

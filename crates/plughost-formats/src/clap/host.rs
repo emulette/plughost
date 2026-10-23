@@ -236,6 +236,17 @@ impl Shared {
             None,
         );
     }
+
+    /// Reports something the plugin did against CLAP's rules, which the host did not follow.
+    pub fn plugin_misbehaving(&self, message: &str) {
+        self.diagnostics.record(
+            DiagnosticSeverity::PluginMisbehaving,
+            message,
+            Some(&self.plugin),
+            None,
+            None,
+        );
+    }
 }
 
 impl HostLogImpl for Shared {

@@ -83,9 +83,19 @@ impl PluginAudioPortsImpl for MainThread<'_> {
 }
 impl PluginAudioPortsConfigImpl for MainThread<'_> {
     fn count(&self) -> u32 {
-        4
+        if COUNTS.load(std::sync::atomic::Ordering::Relaxed) {
+            u32::MAX
+        } else {
+            4
+        }
     }
     fn get(&self, index: u32, writer: &mut AudioPortConfigWriter) {
+        // The `routing-counts` bundle repeats its four configurations.
+        let index = if COUNTS.load(std::sync::atomic::Ordering::Relaxed) {
+            index % 4
+        } else {
+            index
+        };
         let Some(count) = channels(index + 100) else {
             return;
         };

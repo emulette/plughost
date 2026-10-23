@@ -37,9 +37,16 @@ const STATE: &str = "the plugin failed to save or load its state";
 const STATE_UNSUPPORTED: &str = "the plugin does not provide the CLAP state extension";
 const EDITOR: &str = "the plugin's editor failed to open";
 
+const TOO_MANY_PARAMETERS: &str = "the CLAP plugin reported more parameters than are read";
+
 /// The diagnostic for output events with no MIDI form in one block.
 pub(crate) fn unconvertible_output_events(count: u64) -> String {
     format!("{UNCONVERTIBLE_OUTPUT_EVENTS} {count}")
+}
+
+/// The diagnostic for a parameter count past the `read` the host lists.
+pub(crate) fn too_many_parameters(count: u32, read: u32) -> String {
+    format!("{TOO_MANY_PARAMETERS} ({count}; the first {read} are listed)")
 }
 
 /// CLAP loading, extensions, processing, state, and editor failures.

@@ -238,7 +238,9 @@ Realtime processing), which does not change the mode itself.
 Call `audio_buses(slot)` and `audio_configurations(slot)` for native bus information.
 An empty configuration list does not mean individually configurable buses are unavailable.
 A CLAP plugin with configurations it cannot describe port by port (`audio-ports-config`
-without `audio-ports-config-info`) fails `audio_configurations` with an unsupported error.
+without `audio-ports-config-info`) fails `audio_configurations` with an unsupported error, and
+one with more than 1,024 configurations, or more than `MAX_AUDIO_BUSES` ports in a direction of
+one, with an audio metadata error.
 An unknown speaker layout must not be inferred from its channel count.
 
 `RoutedChainConfig` configures explicit routing and f32/f64 precision.
@@ -549,7 +551,8 @@ still allocate or lock; late completions count what that costs.
 
 ## Parameters, state, and presets
 
-- `parameters(slot)` returns `ParameterInfo` and current normalized values.
+- `parameters(slot)` returns `ParameterInfo` and current normalized values. A CLAP plugin has
+  at most its first 65,536 parameters listed; one that reports more gets a diagnostic.
 - `parameter_details` returns native range endpoints and group information. Endpoints do
   not imply a linear mapping. A missing default is unavailable, not the current value.
 - `parameter_choices` pages discrete native labels. Respect `PARAMETER_CHOICE_PAGE_SIZE`.

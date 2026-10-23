@@ -103,10 +103,25 @@ impl DefaultPluginFactory for Fixture {
 }
 impl PluginMainThreadParams for MainThread<'_> {
     fn count(&self) -> u32 {
-        2
+        if COUNTS.load(std::sync::atomic::Ordering::Relaxed) {
+            u32::MAX
+        } else {
+            2
+        }
     }
     fn get_info(&self, index: u32, writer: &mut ParamInfoWriter) {
-        if index < 2 {
+        if index >= 2 && COUNTS.load(std::sync::atomic::Ordering::Relaxed) {
+            writer.set(&ParamInfo {
+                id: ClapId::new(index),
+                flags: ParamInfoFlags::IS_READONLY,
+                cookie: Cookie::empty(),
+                name: b"Count",
+                module: b"",
+                min_value: 0.0,
+                max_value: 1.0,
+                default_value: 0.0,
+            });
+        } else if index < 2 {
             writer.set(&ParamInfo {
                 id: ClapId::new(index),
                 flags: ParamInfoFlags::IS_AUTOMATABLE
@@ -183,6 +198,9 @@ impl PluginStateImpl for MainThread<'_> {
 static FAULTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// The `routing-fixed-ports` bundle leaves out audio port activation, so every port stays active.
 static FIXED_PORTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The `routing-counts` bundle reports `u32::MAX` parameters, note outputs that take no dialect
+/// and audio port configurations, and describes each of them.
+static COUNTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub struct RoutingEntry(SinglePluginEntry<Fixture>);
 impl Entry for RoutingEntry {
@@ -196,6 +214,10 @@ impl Entry for RoutingEntry {
         );
         FIXED_PORTS.store(
             named(b"routing-fixed-ports"),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        COUNTS.store(
+            named(b"routing-counts"),
             std::sync::atomic::Ordering::Relaxed,
         );
         SinglePluginEntry::new(path).map(Self)

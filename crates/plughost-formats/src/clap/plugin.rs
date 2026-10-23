@@ -356,8 +356,15 @@ impl Plugin {
             .swap(false, Ordering::Relaxed)
         {
             let params = self.shared().extensions().params;
-            self.parameters =
-                Arc::new(ParameterCache::read(params, &self.instance.plugin_handle()));
+            let (parameters, count) = ParameterCache::read(params, &self.instance.plugin_handle());
+            if count > parameter_cache::MAX_PARAMETERS {
+                self.shared()
+                    .plugin_misbehaving(&super::errors::too_many_parameters(
+                        count,
+                        parameter_cache::MAX_PARAMETERS,
+                    ));
+            }
+            self.parameters = Arc::new(parameters);
             if let Some(prepared) = &mut lock(&self.engine).prepared {
                 prepared.parameters = Arc::clone(&self.parameters);
             }

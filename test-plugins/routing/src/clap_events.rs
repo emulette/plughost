@@ -9,6 +9,8 @@ impl PluginNotePortsImpl for MainThread<'_> {
     fn count(&self, input: bool) -> u32 {
         if input {
             crate::EVENT_INPUTS
+        } else if COUNTS.load(std::sync::atomic::Ordering::Relaxed) {
+            u32::MAX
         } else {
             1 + u32::from(
                 self.shared
@@ -18,6 +20,15 @@ impl PluginNotePortsImpl for MainThread<'_> {
         }
     }
     fn get(&self, index: u32, input: bool, writer: &mut NotePortInfoWriter) {
+        if !input && COUNTS.load(std::sync::atomic::Ordering::Relaxed) {
+            writer.set(&NotePortInfo {
+                id: ClapId::new(index),
+                name: b"Count",
+                supported_dialects: NoteDialects::empty(),
+                preferred_dialect: None,
+            });
+            return;
+        }
         let name: &[u8] = match (input, index) {
             (false, 0) => b"Notes out",
             (false, 1)

@@ -5,6 +5,7 @@ use clack_extensions::params::{ParamInfoBuffer, ParamInfoFlags};
 use plughost_core::{Capabilities, Support};
 
 use super::Plugin;
+use super::parameter_cache::MAX_PARAMETERS;
 
 /// What the plugin's audio and note ports support, scanned while it is inactive.
 #[derive(Clone, Copy)]
@@ -48,7 +49,12 @@ impl Plugin {
         let mut automation = Support::Unsupported;
         if let Some(params) = params {
             let mut buffer = ParamInfoBuffer::new();
-            for index in 0..params.count(&handle) {
+            let count = params.count(&handle);
+            // Parameters past those the host reads are not looked at.
+            if count > MAX_PARAMETERS {
+                automation = Support::Unknown;
+            }
+            for index in 0..count.min(MAX_PARAMETERS) {
                 match params.get_info(&handle, index, &mut buffer) {
                     Some(info) if info.flags.contains(ParamInfoFlags::IS_AUTOMATABLE) => {
                         automation = Support::Supported;
@@ -84,9 +90,14 @@ impl Plugin {
             let Some(notes) = notes else {
                 return Support::Unsupported;
             };
+            let count = notes.count(&handle, is_input);
+            // Events address ports by a 16-bit index; the port list fails for more.
+            if count > u32::from(u16::MAX) {
+                return Support::Unknown;
+            }
             let mut buffer = NotePortInfoBuffer::new();
             let mut support = Support::Unsupported;
-            for index in 0..notes.count(&handle, is_input) {
+            for index in 0..count {
                 match notes.get(&handle, index, is_input, &mut buffer) {
                     Some(port)
                         if [NoteDialect::Clap, NoteDialect::Midi, NoteDialect::MidiMpe]
@@ -108,7 +119,14 @@ impl Plugin {
             let mut missing = false;
             let mut all_f64 = true;
             for is_input in [true, false] {
-                for index in 0..audio.count(&handle, is_input) {
+                let count = audio.count(&handle, is_input);
+                // The bus list fails for more.
+                if count as usize > plughost_core::MAX_AUDIO_BUSES {
+                    seen = true;
+                    missing = true;
+                    continue;
+                }
+                for index in 0..count {
                     seen = true;
                     match audio.get(&handle, index, is_input, &mut buffer) {
                         Some(port) => {
