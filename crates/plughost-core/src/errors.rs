@@ -328,6 +328,7 @@ const SILENCE_HOLD: &str = "silence hold seconds must be finite and non-negative
 const RENDER_LENGTH: &str =
     "render duration or sample buffer length exceeds the representable range";
 const SESSION_CLOSED: &str = "the render session is no longer active";
+const NON_FINITE_OUTPUT: &str = "the processor output a NaN or infinite sample";
 pub(crate) const MESSAGE_TOO_LARGE: &str = "the message exceeds the maximum size";
 pub(crate) const MALFORMED_MESSAGE: &str = "the message could not be decoded";
 
@@ -362,6 +363,13 @@ pub enum RenderError {
     /// A plugin announced a new latency before the render started, and the processor has not
     /// applied it yet.
     LatencyNotApplied,
+    /// The processor output a NaN or infinite sample, first at `frame` of the output after the
+    /// removed latency (for a session, of the `push` or `finish` call), whatever the tail policy.
+    /// Output from the start of the failing block on is not delivered.
+    NonFiniteOutput {
+        /// The first output frame holding one, in any channel.
+        frame: usize,
+    },
 }
 
 impl RenderError {
@@ -376,6 +384,7 @@ impl RenderError {
             | Self::LengthOverflow => FailureKind::InvalidInput,
             Self::LatencyChanged { .. } => FailureKind::Configuration,
             Self::LatencyNotApplied => FailureKind::RestartRequired,
+            Self::NonFiniteOutput { .. } => FailureKind::Processing,
         }
     }
 }
@@ -393,6 +402,9 @@ impl fmt::Display for RenderError {
                 write!(f, "{LATENCY_CHANGED} ({before} to {after} samples)")
             }
             RenderError::LatencyNotApplied => f.write_str(LATENCY_NOT_APPLIED),
+            RenderError::NonFiniteOutput { frame } => {
+                write!(f, "{NON_FINITE_OUTPUT} (at output frame {frame})")
+            }
         }
     }
 }

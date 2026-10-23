@@ -11,8 +11,6 @@ pub(super) struct Output<S> {
     silence: Option<(f64, usize)>,
     quiet_frames: usize,
     pub emitted: usize,
-    /// Emitted samples that are NaN or infinite.
-    pub non_finite: usize,
 }
 
 impl<S: Sample> Output<S> {
@@ -25,11 +23,10 @@ impl<S: Sample> Output<S> {
         self.silence = silence;
         self.quiet_frames = 0;
         self.emitted = 0;
-        self.non_finite = 0;
     }
 
-    /// Returns true when the silence hold has elapsed. `start` is the raw processing offset;
-    /// frames before `skip` are dropped.
+    /// Returns the frame of `block` at which the silence hold elapsed, after which the render
+    /// ends. `start` is the raw processing offset; frames before `skip` are dropped.
     pub fn accept(
         &mut self,
         block: &[Vec<S>],
@@ -37,11 +34,11 @@ impl<S: Sample> Output<S> {
         start: usize,
         skip: usize,
         body: usize,
-    ) -> bool {
+    ) -> Option<usize> {
         let first = skip.saturating_sub(start).min(count);
         let Some((threshold, hold)) = self.silence else {
             self.emit(block, first..count);
-            return false;
+            return None;
         };
         // Output before the end of the body is never trimmed, so nothing is held yet.
         let tail = body.saturating_sub(start).clamp(first, count);
@@ -68,14 +65,14 @@ impl<S: Sample> Output<S> {
                 }
                 self.quiet_frames += end - index;
                 if self.quiet_frames >= hold {
-                    return true;
+                    return Some(end);
                 }
             } else {
                 self.emit(block, index..run);
             }
             index = run;
         }
-        false
+        None
     }
 
     /// Emits held quiet frames followed by the non-empty `range` of loud frames.
@@ -85,13 +82,7 @@ impl<S: Sample> Output<S> {
         }
         for ((ready, held), channel) in self.ready.iter_mut().zip(&mut self.quiet).zip(block) {
             ready.append(held);
-            let samples = &channel[range.clone()];
-            ready.extend_from_slice(samples);
-            // Held frames are quiet, so they are finite.
-            self.non_finite += samples
-                .iter()
-                .filter(|sample| !sample.to_f64().is_finite())
-                .count();
+            ready.extend_from_slice(&channel[range.clone()]);
         }
         self.emitted += self.quiet_frames + range.len();
         self.quiet_frames = 0;

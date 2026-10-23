@@ -31,6 +31,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   instead of aborting; `Events::new()` grows without that limit. It is built with `push` or by
   collecting `Event`s, read with `iter`, `get` and `len`, and compares equal to a slice or array
   of `Event`. A clone of a block's `Events` reserves a block's room again.
+- `RenderStatus::TailLimit` and `Rendered::status` tell a `TailPolicy::UntilSilence` tail that
+  reached `max_tail_seconds` before the output stayed silent apart from one that ended in
+  silence. `RenderProgress::status` from `render_stream` and `RenderSession::finish` reports it
+  too, where such a render reported `Complete`; `Rendered` had no status.
 
 ### Changed
 
@@ -120,6 +124,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   buffer error (or, for a VST3 value, `InputError::ParameterValue`).
 - `plughost_formats::preset::supports(format)` is `supported(format)`, which returns the
   unsupported error instead of `false`.
+- A NaN or infinite output sample fails a render with `RenderError::NonFiniteOutput { frame }`,
+  the first output frame holding one, whatever the tail policy. Such samples were delivered
+  and counted in `Rendered::non_finite_samples` and `RenderProgress::non_finite_samples`, which
+  are removed, and as they are never silent they kept an `UntilSilence` tail going to its
+  maximum.
 
 ### Fixed
 

@@ -67,6 +67,8 @@ pub use parameter_events::{
 };
 pub use plugin::{ClassId, PluginFormat, PluginId, PluginInfo, PluginKind, PluginRef};
 pub use sample::Sample;
+#[doc(hidden)]
+pub use sample::{Level, level};
 pub use state::{MAX_STATE_BYTES, PluginState};
 pub use transport::{BarPosition, BlockContext, LoopRegion, TimeSignature, Transport};
 

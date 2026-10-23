@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use super::*;
-use crate::Event;
+use crate::{Event, FailureKind};
 
 const RATE: f64 = 48_000.0;
 
@@ -181,6 +181,8 @@ fn infinite_tail_stops_at_the_maximum() {
     let rendered = run(&mut Echo::new(0, 0, Tail::Infinite), &input, reported(0.01)).unwrap();
     assert_eq!(rendered.tail, 480);
     assert_eq!(rendered.channels[0].len(), 1480);
+    // Only a tail waiting for silence ends at a limit; a reported one is planned to it.
+    assert_eq!(rendered.status, RenderStatus::Complete);
 }
 
 #[test]
@@ -197,6 +199,7 @@ fn until_silence_waits_through_gaps_shorter_than_the_hold() {
     let rendered = run(&mut Echo::new(10, 3000, Tail::Samples(0)), &input, options).unwrap();
     assert_eq!(rendered.tail, 3000);
     assert_eq!(rendered.channels[1][3999], 0.5 * input[1][999]);
+    assert_eq!(rendered.status, RenderStatus::Complete);
 }
 
 #[test]
@@ -230,6 +233,7 @@ fn until_silence_stops_at_the_maximum_tail() {
     let rendered = run(&mut Echo::new(0, 3000, Tail::Samples(0)), &input, options).unwrap();
     assert_eq!(rendered.tail, 0);
     assert_eq!(rendered.channels[0].len(), 1000);
+    assert_eq!(rendered.status, RenderStatus::TailLimit);
 }
 
 #[test]
@@ -437,6 +441,44 @@ impl Process<f32> for NonFinite {
 }
 
 #[test]
+fn output_after_the_silence_hold_is_not_checked() {
+    // Silence from the start ends the tail 5 frames after the input, in the block whose later
+    // frames are NaN; those are never output.
+    let options = RenderOptions {
+        tail: TailPolicy::UntilSilence {
+            threshold: 1e-6,
+            hold_seconds: 0.0001,
+        },
+        max_tail_seconds: 1.0,
+    };
+    let mut processor = NonFinite {
+        latency: 0,
+        infinite_at: usize::MAX,
+        nan_from: 30,
+        position: 0,
+    };
+    let rendered = render::<f32, _>(&mut processor, &[], 10, &Events::new(), &options).unwrap();
+    assert_eq!(rendered.status, RenderStatus::Complete);
+    assert_eq!(rendered.channels[0], [0.0; 10]);
+}
+
+#[test]
+fn a_tail_still_sounding_at_the_maximum_ends_at_the_limit() {
+    let input = signal(1000);
+    let options = RenderOptions {
+        tail: TailPolicy::UntilSilence {
+            threshold: 1e-6,
+            hold_seconds: 0.0005,
+        },
+        max_tail_seconds: 0.001,
+    };
+    // The echo sounds for 300 frames after the input, past the 48-frame maximum.
+    let rendered = run(&mut Echo::new(0, 300, Tail::Samples(0)), &input, options).unwrap();
+    assert_eq!(rendered.tail, 48);
+    assert_eq!(rendered.status, RenderStatus::TailLimit);
+}
+
+#[test]
 fn a_session_of_segments_shorter_than_the_latency_renders_like_one_render() {
     let input = signal(1000);
     let processor = || Echo::new(300, 50, Tail::Samples(100));
@@ -478,69 +520,53 @@ fn a_session_of_segments_shorter_than_the_latency_renders_like_one_render() {
 }
 
 #[test]
-fn non_finite_samples_are_counted_in_the_delivered_output() {
-    let options = RenderOptions {
-        tail: TailPolicy::UntilSilence {
-            threshold: 1e-6,
-            hold_seconds: 0.01,
-        },
-        max_tail_seconds: 0.01,
-    };
+fn the_first_non_finite_output_sample_fails_the_render_at_its_frame() {
     let processor = || NonFinite {
         latency: 100,
         infinite_at: 110,
         nan_from: 1100,
         position: 0,
     };
-    let rendered = render::<f32, _>(&mut processor(), &[], 1000, &Events::new(), &options).unwrap();
-    // NaN is never silent, so the tail runs to the maximum. The NaN in the removed latency is
-    // not delivered and not counted.
-    assert_eq!(rendered.tail, 480);
-    let delivered = rendered
-        .channels
-        .iter()
-        .flatten()
-        .filter(|sample| !sample.is_finite())
-        .count();
-    assert_eq!(delivered, 481);
-    assert_eq!(rendered.non_finite_samples, delivered);
+    // The NaN in the removed latency is not output; the infinity 10 frames into the output is,
+    // whatever the tail policy.
+    for options in [reported(0.01), RenderOptions::default()] {
+        let error =
+            render::<f32, _>(&mut processor(), &[], 1000, &Events::new(), &options).unwrap_err();
+        assert_eq!(error, RenderError::NonFiniteOutput { frame: 10 });
+        assert_eq!(error.kind(), FailureKind::Processing);
+    }
 
-    // A session trims the latency once across segments shorter than it, and counts alike.
+    // A NaN in the tail fails a render whose tail waits for silence, which it would keep from.
+    let in_tail = || NonFinite {
+        infinite_at: usize::MAX,
+        ..processor()
+    };
+    let error = render::<f32, _>(
+        &mut in_tail(),
+        &[],
+        1000,
+        &Events::new(),
+        &RenderOptions::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error, RenderError::NonFiniteOutput { frame: 1000 });
+
+    // A session trims the latency once across segments shorter than it, and counts the frame
+    // in the output of the call that reaches it: the third, after 20 more frames of latency.
     let mut source = processor();
     let mut session = RenderSession::new(&mut source).unwrap();
-    let mut channels = vec![Vec::new(); 2];
-    let mut counted = 0;
-    let mut consume = |delivery: Delivery<'_, f32>| {
-        for (channel, samples) in channels.iter_mut().zip(delivery.audio) {
-            channel.extend_from_slice(samples);
-        }
+    let segment = RenderInput {
+        audio: &[],
+        frames: 40,
+        events: &Events::new(),
+        schedule: RenderSchedule::default(),
     };
-    for _ in 0..25 {
-        let progress = session
-            .push(
-                RenderInput {
-                    audio: &[],
-                    frames: 40,
-                    events: &Events::new(),
-                    schedule: RenderSchedule::default(),
-                },
-                &mut consume,
-                || false,
-            )
-            .unwrap();
-        counted += progress.non_finite_samples;
+    for _ in 0..2 {
+        session.push(segment, |_| {}, || false).unwrap();
     }
-    counted += session
-        .finish(&options, &mut consume, || false)
-        .unwrap()
-        .non_finite_samples;
-    // NaN is unequal to itself, so compare bit patterns.
-    let bits = |channels: &[Vec<f32>]| -> Vec<Vec<u32>> {
-        channels
-            .iter()
-            .map(|channel| channel.iter().map(|sample| sample.to_bits()).collect())
-            .collect()
-    };
-    assert_eq!(bits(&channels), bits(&rendered.channels));
-    assert_eq!(counted, 481);
+    assert_eq!(
+        session.push(segment, |_| {}, || false).unwrap_err(),
+        RenderError::NonFiniteOutput { frame: 10 }
+    );
+    assert_eq!(session.state(), SessionState::Failed);
 }

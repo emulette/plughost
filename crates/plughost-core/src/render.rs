@@ -183,9 +183,9 @@ pub struct Rendered<S> {
     pub latency: u32,
     /// Samples rendered after the end of the input.
     pub tail: usize,
-    /// Samples in `channels`, over all channels, that are NaN or infinite. They are never at or
-    /// below a silence threshold, so they keep a [`TailPolicy::UntilSilence`] tail going.
-    pub non_finite_samples: usize,
+    /// Why the render ended: [`RenderStatus::Complete`], or [`RenderStatus::TailLimit`] when a
+    /// [`TailPolicy::UntilSilence`] tail reached the maximum before the output fell silent.
+    pub status: RenderStatus,
 }
 
 /// Renders `frames` samples of `input` (one slice per input channel, none for an instrument)
@@ -197,7 +197,8 @@ pub struct Rendered<S> {
 /// reported when the render starts; [`TailPolicy::UntilSilence`] ignores the reported tail.
 /// Options, processor timing, sample conversion and buffer lengths are validated before calling
 /// `process`. Durations round to the nearest sample. Invalid or unrepresentable values are errors,
-/// not clamped limits. Representable lengths do not guarantee enough memory is available.
+/// not clamped limits. Representable lengths do not guarantee enough memory is available. A NaN
+/// or infinite output sample fails the render ([`RenderError::NonFiniteOutput`]).
 pub fn render<S: Sample, P: Process<S>>(
     processor: &mut P,
     input: &[&[S]],
@@ -251,7 +252,7 @@ pub fn render_with_schedule<S: Sample, P: Process<S>>(
         events: produced,
         latency: result.latency,
         tail: result.tail,
-        non_finite_samples: result.non_finite_samples,
+        status: result.status,
     })
 }
 
@@ -268,7 +269,8 @@ pub struct RenderInput<'a, S> {
     pub schedule: RenderSchedule<'a>,
 }
 
-/// Whether rendering completed or stopped at a caller cancellation boundary.
+/// Whether rendering completed, stopped at a caller cancellation boundary, or ended a tail at its
+/// maximum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RenderStatus {
@@ -276,13 +278,17 @@ pub enum RenderStatus {
     Complete,
     /// The caller cancelled before the next processing block.
     Cancelled,
+    /// All planned audio has been processed, but a [`TailPolicy::UntilSilence`] tail reached
+    /// [`RenderOptions::max_tail_seconds`] before the output stayed silent for the hold: also
+    /// when the maximum is shorter than the hold, however quiet the output was.
+    TailLimit,
 }
 
 /// Output-only report of work completed and audio delivered by a streaming render.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RenderProgress {
-    /// Completion or cancellation status.
+    /// Completion, cancellation, or a tail ended at its maximum.
     pub status: RenderStatus,
     /// Native frames processed, including latency and tail. Cancellation never interrupts a call.
     pub processed_frames: usize,
@@ -292,9 +298,6 @@ pub struct RenderProgress {
     pub latency: u32,
     /// Delivered frames after the input, excluding trimmed silence.
     pub tail: usize,
-    /// Delivered audio samples, over all channels, that are NaN or infinite. They are never at
-    /// or below a silence threshold, so they keep a [`TailPolicy::UntilSilence`] tail going.
-    pub non_finite_samples: usize,
 }
 
 /// Delivers aligned output without retaining the whole result. Memory is bounded by the prepared
@@ -458,6 +461,8 @@ fn render_reusing<S: Sample, P: Process<S>>(
     size(output_block, processor.output_channels(), block);
     output.start(output_block.len(), silence);
     let mut status = RenderStatus::Complete;
+    // Whether the silence hold ended the tail.
+    let mut silent = false;
     let mut position = 0;
     // The first input event not yet submitted.
     let mut pending = 0;
@@ -523,14 +528,27 @@ fn render_reusing<S: Sample, P: Process<S>>(
             }
             .into());
         }
-        let done = output.accept(output_block, count, position, skip, body);
+        let silenced = output.accept(output_block, count, position, skip, body);
+        // Frames before `skip` are latency, and those after the silence hold are never output.
+        let first = skip.saturating_sub(position).min(count);
+        let last = silenced.unwrap_or(count);
+        if let Some(frame) = crate::level(output_block, first..last).non_finite {
+            return Err(RenderError::NonFiniteOutput {
+                frame: position + frame - skip,
+            }
+            .into());
+        }
         position += count;
         output.deliver(produced_since, &mut consume);
-        if done {
+        if silenced.is_some() {
+            silent = true;
             break;
         }
     }
     output.deliver(produced_since, &mut consume);
+    if status == RenderStatus::Complete && silence.is_some() && !silent {
+        status = RenderStatus::TailLimit;
+    }
     Ok(RenderProgress {
         status,
         processed_frames: position,
@@ -538,7 +556,6 @@ fn render_reusing<S: Sample, P: Process<S>>(
         latency,
         // The input ends `body - skip` frames into the delivered output.
         tail: output.emitted.saturating_sub(body.saturating_sub(skip)),
-        non_finite_samples: output.non_finite,
     })
 }
 

@@ -280,15 +280,13 @@ fn check(plugin: &PluginRef, info: &PluginInfo) -> Result<bool, Error> {
             .prepare(config(rate, input, output))
             .and_then(|()| render_signal(&mut driver, rate, 1.0));
         match outcome {
+            // Rendering fails on NaN or infinite output, so what it returns is finite.
             Ok(output) => {
-                let finite = output.iter().flatten().all(|s| s.is_finite());
-                passed &= finite;
                 out!(
-                    "rate {rate}: ok | latency {} | tail {:?} | peak {:.4}{}",
+                    "rate {rate}: ok | latency {} | tail {:?} | peak {:.4}",
                     driver.plugin.timing()?.latency,
                     driver.plugin.timing()?.tail,
                     peak(&output),
-                    if finite { "" } else { " | NON-FINITE" }
                 );
             }
             Err(error) => {

@@ -427,10 +427,14 @@ Silence is judged on audio output only: output events do not count, and a chain 
 outputs is silent from the end of the input, so its render stops one hold later.
 `TailPolicy::Reported` uses the tail the chain reports when the render starts, capped by that
 maximum; a tail reported during the render does not change its length.
-Rendering neither checks nor replaces NaN or infinite output samples. `Rendered::non_finite_samples`
-and `RenderProgress::non_finite_samples` count those the render delivered, over all channels and
-excluding the removed latency (for a session, per `push` or `finish`). They are never at or below
-the silence threshold, so a plugin that keeps producing them renders up to the maximum tail.
+`Rendered::status` says why a render ended: `RenderStatus::Complete`, or
+`RenderStatus::TailLimit` when an `UntilSilence` tail reached the maximum before the output stayed
+silent for the hold; a `RenderProgress` reports the same. A NaN or infinite output sample fails
+the render with `RenderError::NonFiniteOutput { frame }` (`FailureKind::Processing`) at the first
+output frame holding one, in any channel and whatever the tail policy; the failing block's output
+is not delivered, and samples in the removed latency or after the silence hold are not checked.
+For a session the frame counts from the output of that `push` or `finish`, and the session fails.
+A maximum tail shorter than the hold always ends at `TailLimit`.
 
 A chain's latency holds from one preparation or reset to the next, so rendering removes one
 latency throughout. Each plugin's latency is read as it activates, on the helper's main thread.

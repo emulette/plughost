@@ -77,7 +77,8 @@ pub enum Error {
         /// The violated input contract.
         error: InputError,
     },
-    /// The render scheduler rejected its options or timing, or could not complete delivery.
+    /// The render scheduler rejected its options or timing, could not complete delivery, or
+    /// the chain output a NaN or infinite sample ([`RenderError::NonFiniteOutput`]).
     /// Input it rejects is [`Error::Input`].
     Render(RenderError),
     /// A scan writer could not lock, read, publish, or flush its cache. Discovery reads
