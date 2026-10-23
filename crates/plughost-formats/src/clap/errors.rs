@@ -240,6 +240,8 @@ pub(super) const GUI_REQUEST_WITHOUT_EDITOR: &str =
     "the plugin asked to show or hide an editor that is not open";
 
 pub(super) const PRESET_LOADED: &str = "the CLAP plugin reported a loaded preset";
+pub(super) const TIMER_OFF_MAIN_THREAD: &str =
+    "the CLAP plugin registered or unregistered a timer off the main thread, which was refused";
 
 impl From<plughost_core::RenderError> for ClapError {
     fn from(error: plughost_core::RenderError) -> Self {

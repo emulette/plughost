@@ -90,6 +90,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   value text and error descriptions) is converted with U+FFFD in place of what is not valid
   UTF-16, such as an unpaired surrogate, as component names already were. Such text aborted the
   helper in debug builds and was undefined behaviour in release builds.
+- A CLAP plugin that registers or unregisters a timer off the main thread is refused, with a
+  `PluginMisbehaving` diagnostic. The host's timer list, which only the main thread may use, was
+  changed from that thread.
 
 ## [0.1.5] - 2026-10-23
 

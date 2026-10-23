@@ -634,3 +634,29 @@ fn a_timer_removed_by_another_timer_is_not_called() {
     assert!(parameter_value(&mut plugin, 16) > 0.0);
     assert_eq!(parameter_value(&mut plugin, REMOVED_TIMER_CALLS), 0.0);
 }
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
+fn timer_calls_off_the_main_thread_are_refused_and_reported() {
+    let _serial = serial();
+    // As it is created, the fixture registers and unregisters a timer from another thread; it
+    // reports how many of the two calls the host accepted.
+    const ACCEPTED_OFF_MAIN_THREAD: u64 = 18;
+    let mut plugin = Plugin::new(
+        &test_plugin("plughost-test-timers"),
+        "com.studio.plughost.test-delay.7900000d",
+        &plughost_core::HostIdentity::default(),
+    )
+    .unwrap();
+    assert_eq!(parameter_value(&mut plugin, ACCEPTED_OFF_MAIN_THREAD), 0.0);
+    let refusals = plugin
+        .take_diagnostics()
+        .records
+        .into_iter()
+        .filter(|record| {
+            record.severity == plughost_core::DiagnosticSeverity::PluginMisbehaving
+                && record.message.contains("timer")
+        })
+        .count();
+    assert_eq!(refusals, 2);
+}

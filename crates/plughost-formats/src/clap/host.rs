@@ -354,8 +354,22 @@ impl<'a> MainThread<'a> {
 
 impl<'a> MainThreadHandler<'a> for MainThread<'a> {}
 
+impl MainThread<'_> {
+    /// Refuses and reports a timer call made off the main thread, before it touches the timer
+    /// list, which only the main thread may use. CLAP allows the calls on the main thread only.
+    fn timer_call(&self) -> Result<(), HostError> {
+        if std::thread::current().id() == self.shared.main_thread {
+            return Ok(());
+        }
+        self.shared
+            .plugin_misbehaving(super::errors::TIMER_OFF_MAIN_THREAD);
+        Err(HostError::Message(super::errors::TIMER_OFF_MAIN_THREAD))
+    }
+}
+
 impl HostTimerImpl for MainThread<'_> {
     fn register_timer(&self, period_ms: u32) -> Result<TimerId, HostError> {
+        self.timer_call()?;
         let id = TimerId(self.next_timer.get());
         self.next_timer.set(id.0 + 1);
         let period = Duration::from_millis(u64::from(period_ms.max(1)));
@@ -368,6 +382,7 @@ impl HostTimerImpl for MainThread<'_> {
     }
 
     fn unregister_timer(&self, timer_id: TimerId) -> Result<(), HostError> {
+        self.timer_call()?;
         self.timers
             .borrow_mut()
             .retain(|timer| timer.id != timer_id);

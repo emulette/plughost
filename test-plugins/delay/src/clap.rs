@@ -382,7 +382,7 @@ impl PluginMainThreadParams for MainThread<'_> {
             variant(),
             Variant::Editor | Variant::Timers | Variant::FlushRequest | Variant::ThreadCheck
         )) + u32::from(variant() == Variant::Editor)
-            + 2 * u32::from(variant() == Variant::Timers)
+            + 3 * u32::from(variant() == Variant::Timers)
             + 5 * u32::from(variant() == Variant::ThreadCheck)
     }
 
@@ -415,14 +415,14 @@ impl PluginMainThreadParams for MainThread<'_> {
                 max_value: 1_000_000.0,
                 default_value: 0.0,
             }),
-            16 | 17 if variant() == Variant::Timers => info.set(&ParamInfo {
+            16..=18 if variant() == Variant::Timers => info.set(&ParamInfo {
                 id: ClapId::new(index),
                 flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
                 cookie: Cookie::empty(),
-                name: if index == 16 {
-                    b"Timer calls"
-                } else {
-                    b"System timer calls"
+                name: match index {
+                    16 => b"Timer calls",
+                    17 => b"System timer calls",
+                    _ => b"Timer calls accepted off the main thread",
                 },
                 module: b"",
                 min_value: 0.0,
@@ -605,6 +605,11 @@ impl PluginMainThreadParams for MainThread<'_> {
             return Some(f64::from(
                 self.shared.system_timer_calls.load(Ordering::Relaxed),
             ));
+        }
+        if id.get() == 18
+            && let Some(timers) = &self.timers
+        {
+            return Some(f64::from(timers.accepted_off_main_thread));
         }
         if id.get() == 16 && variant() == Variant::Timers {
             return Some(f64::from(self.shared.timer_calls.load(Ordering::Relaxed)));
