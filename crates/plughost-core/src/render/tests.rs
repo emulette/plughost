@@ -438,6 +438,47 @@ impl Process<f32> for NonFinite {
 }
 
 #[test]
+fn a_session_of_segments_shorter_than_the_latency_renders_like_one_render() {
+    let input = signal(1000);
+    let processor = || Echo::new(300, 50, Tail::Samples(100));
+    let rendered = run(&mut processor(), &input, reported(1.0)).unwrap();
+
+    let mut source = processor();
+    let mut session = RenderSession::new(&mut source).unwrap();
+    let mut channels = vec![Vec::new(); 2];
+    let mut consume = |delivery: Delivery<'_, f32>| {
+        for (channel, samples) in channels.iter_mut().zip(delivery.audio) {
+            channel.extend_from_slice(samples);
+        }
+    };
+    let mut output_frames = 0;
+    for start in (0..1000).step_by(64) {
+        let end = (start + 64).min(1000);
+        let segment: Vec<&[f32]> = input.iter().map(|channel| &channel[start..end]).collect();
+        let progress = session
+            .push(
+                RenderInput {
+                    audio: &segment,
+                    frames: end - start,
+                    events: &[],
+                    schedule: RenderSchedule::default(),
+                },
+                &mut consume,
+                || false,
+            )
+            .unwrap();
+        output_frames += progress.output_frames;
+    }
+    let flushed = session
+        .finish(&reported(1.0), &mut consume, || false)
+        .unwrap();
+    output_frames += flushed.output_frames;
+    assert_eq!(flushed.tail, rendered.tail);
+    assert_eq!(output_frames, rendered.channels[0].len());
+    assert_eq!(channels, rendered.channels);
+}
+
+#[test]
 fn non_finite_samples_are_counted_in_the_delivered_output() {
     let options = RenderOptions {
         tail: TailPolicy::UntilSilence {

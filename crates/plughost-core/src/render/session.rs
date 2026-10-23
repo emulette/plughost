@@ -75,7 +75,7 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
             tail: TailPolicy::Reported,
             max_tail_seconds: 0.0,
         };
-        self.run(request, &options, consume, cancelled)
+        self.run(request, &options, false, consume, cancelled)
     }
 
     /// Flushes the remaining latency and tail once, then closes the session.
@@ -86,16 +86,15 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
         consume: impl FnMut(Delivery<'_, S>),
         cancelled: impl FnMut() -> bool,
     ) -> Result<RenderProgress, P::Error> {
-        // Silent input as long as the latency; the tail after it is silent too.
-        let zeros = vec![S::default(); self.latency as usize];
-        let audio = vec![zeros.as_slice(); self.processor.input_channels()];
+        // No input frames: the renderer plays silence through the latency and the tail.
+        let audio = vec![&[][..]; self.processor.input_channels()];
         let request = RenderInput {
             audio: &audio,
-            frames: self.latency as usize,
+            frames: 0,
             events: &[],
             schedule: RenderSchedule::default(),
         };
-        let result = self.run(request, options, consume, cancelled)?;
+        let result = self.run(request, options, true, consume, cancelled)?;
         if self.state == SessionState::Active {
             self.state = SessionState::Finished;
         }
@@ -106,6 +105,7 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
         &mut self,
         request: RenderInput<'_, S>,
         options: &RenderOptions,
+        flush: bool,
         consume: impl FnMut(Delivery<'_, S>),
         cancelled: impl FnMut() -> bool,
     ) -> Result<RenderProgress, P::Error> {
@@ -134,6 +134,7 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
         let mut adapter = Segment {
             processor: self.processor,
             latency: self.latency,
+            flush,
         };
         // The latency is trimmed once, from the start of the session's output.
         let result = render_reusing(
@@ -169,10 +170,12 @@ impl<'a, S: Sample, P: Process<S>> RenderSession<'a, S, P> {
 }
 
 /// Remove per-call alignment from the shared renderer; the session trims only once, and this
-/// adapter checks the real native latency before any samples reach the output consumer.
+/// adapter checks the real native latency before any samples reach the output consumer. The
+/// final flush reports the latency, so the renderer processes it after its empty input.
 struct Segment<'a, P> {
     processor: &'a mut P,
     latency: u32,
+    flush: bool,
 }
 
 impl<S: Sample, P: Process<S>> Process<S> for Segment<'_, P> {
@@ -198,7 +201,7 @@ impl<S: Sample, P: Process<S>> Process<S> for Segment<'_, P> {
             }
             .into());
         }
-        Ok(0)
+        Ok(if self.flush { self.latency } else { 0 })
     }
     fn tail(&self) -> Result<Tail, Self::Error> {
         self.processor.tail()
