@@ -85,6 +85,10 @@ name = "clap_buffers"
 required-features = ["clap"]
 
 [[test]]
+name = "clap_events"
+required-features = ["clap"]
+
+[[test]]
 name = "clap_lifecycle"
 required-features = ["clap"]
 

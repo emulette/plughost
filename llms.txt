@@ -374,7 +374,8 @@ an ID the plugin's own note on gave). A CLAP note off or expression may name its
 alone, and a VST3 note in the ID range VST3 reserves for plugins arrives, with its expressions,
 without an ID. A VST3 note on with a tuning is followed by a tuning expression. MIDI output, legacy VST3 controller output and system exclusive data stay MIDI.
 Events with no portable form are counted in diagnostics, not delivered (a CLAP note end, which
-only reports a voice that ended, is neither). Output events a plugin places past the end of the
+only reports a voice that ended, is neither); so are CLAP events whose header gives another size
+than their type's. Output events a plugin places past the end of the
 block land on its last frame. Audio Units send MIDI on one output port per MIDI output cable they
 name. When a plugin produces more than one block's event budget, the block fails and
 the chain refuses to process until `reset`, since events already delivered may be lost.

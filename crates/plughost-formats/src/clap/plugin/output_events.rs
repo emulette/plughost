@@ -38,8 +38,9 @@ pub(super) struct ProcessOutput<'a> {
     pub sysex: usize,
     /// The plugin pushed more events or system exclusive bytes than the block allows.
     pub overflow: bool,
-    /// Events with no portable form (choke, MIDI 2.0, notes for any key that no ID names); a
-    /// note end only reports a voice that ended and is not counted.
+    /// Events with no portable form (choke, MIDI 2.0, notes for any key that no ID names, events
+    /// whose header gives another size than their type's); a note end only reports a voice that
+    /// ended and is not counted.
     pub unconvertible: u64,
 }
 
@@ -111,7 +112,7 @@ impl ProcessOutput<'_> {
     }
 
     fn push(&mut self, event: &UnknownEvent) -> Result<(), TryPushError> {
-        let converted = match event.as_core_event() {
+        let converted = match events::core_event(event) {
             Some(CoreEventSpace::NoteOn(event)) => self
                 .note(event.pckn(), event.velocity())
                 .map(|(port, note)| (port, EventData::NoteOn(note))),
@@ -186,7 +187,7 @@ impl OutputEventBuffer for ProcessOutput<'_> {
         let _audit = plughost_core::audit::callback();
         let pushed = self.push(event);
         // A note off ends the notes it names whether or not it is delivered.
-        if let Some(CoreEventSpace::NoteOff(off)) = event.as_core_event() {
+        if let Some(CoreEventSpace::NoteOff(off)) = events::core_event(event) {
             self.end(off.pckn());
         }
         pushed

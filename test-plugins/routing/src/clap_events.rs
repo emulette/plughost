@@ -1,6 +1,8 @@
 use super::*;
 use clack_extensions::note_ports::*;
-use clack_plugin::events::event_types::{MidiEvent, MidiSysExEvent, NoteEndEvent};
+use clack_plugin::events::event_types::{
+    MidiEvent, MidiSysExEvent, NoteEndEvent, NoteOnEvent, ParamValueEvent,
+};
 use clack_plugin::events::{Match, Pckn};
 
 impl PluginNotePortsImpl for MainThread<'_> {
@@ -93,6 +95,10 @@ pub(super) fn route(input: &InputEvents, output: &mut OutputEvents, frames: u32)
                 // SAFETY: the host's buffer is valid during this process call, and the host
                 // copies it as it takes the output event.
                 let bytes = unsafe { sysex.data() };
+                if bytes == crate::MALFORMED && FAULTS.load(std::sync::atomic::Ordering::Relaxed) {
+                    malformed(output, sysex.header().time());
+                    continue;
+                }
                 let echo = unsafe { MidiSysExEvent::new(sysex.header().time(), 0, bytes) };
                 let copies =
                     if bytes == crate::FLOOD && FAULTS.load(std::sync::atomic::Ordering::Relaxed) {
@@ -107,4 +113,19 @@ pub(super) fn route(input: &InputEvents, output: &mut OutputEvents, frames: u32)
             _ => {}
         }
     }
+}
+
+/// A note on and a parameter value whose headers give only the header's size, as a plugin that
+/// fills in the size wrongly sends them.
+fn malformed(output: &mut OutputEvents, time: u32) {
+    let header = size_of::<clack_plugin::events::EventHeader>() as u32;
+    let mut on = NoteOnEvent::new(time, Pckn::new(0u16, 0u16, 60u16, 1u32), 1.0);
+    let mut value = ParamValueEvent::new(time, ClapId::new(0), Pckn::match_all(), 0.5);
+    // SAFETY: the events stay whole; only the size the host reads from them is wrong.
+    unsafe {
+        on.raw_header_mut().size = header;
+        value.raw_header_mut().size = header;
+    }
+    let _ = output.try_push(on);
+    let _ = output.try_push(value);
 }

@@ -66,6 +66,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   beat failed partway through after the schedule had been accepted, and a session segment that
   stopped at one, by cancellation or at the end of a silent tail, returned the error while the
   session stayed `Active`.
+- A CLAP plugin's output event whose header gives another size than its type's is counted in
+  diagnostics as an event with no portable form. It was read as its type, past the end of an
+  event the plugin declared shorter, and became a note or a parameter notification.
 
 ## [0.1.5] - 2026-10-23
 
