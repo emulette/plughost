@@ -25,7 +25,7 @@ The application depends on `plughost = "=0.2.0"`. A separate executable depends 
 `std::process::ExitCode`. Ship that executable with the application and pass its path to
 `Scanner::new` and `Chain::spawn`. The library supplies the helper's command-line arguments
 and IPC handshake. Keep application and helper versions matched; the internal helper protocol
-is 33, and an application and a helper with different protocol versions fail the handshake with
+is 34, and an application and a helper with different protocol versions fail the handshake with
 `Error::ProtocolVersion`, which carries both versions.
 
 Supported targets are `aarch64-apple-darwin`, on macOS 15 or newer, and
@@ -649,7 +649,7 @@ still allocate or lock; late completions count what that costs.
 `save_state(slot, purpose)` returns an opaque `PluginState`; use `StatePurpose::Project` for
 project persistence. Persist `state.to_bytes()` in application-owned storage and read it with
 `PluginState::from_bytes`, which reads the bytes of every plughost version from 0.2.0 on (a
-0.1 state serialized with serde cannot be read; save it again), needs no
+0.2 cannot read a state 0.1 serialized with serde; re-create it), needs no
 plugin (a state of a plugin that is not installed is kept and written again unchanged), and
 fails with `InputError::StateBytes` for bytes it cannot read, or `InputError::StateSize` for a
 payload over `MAX_STATE_BYTES`, before allocating it. These bytes are plughost's own versioned

@@ -14,21 +14,34 @@ allocation per message. Upgrading from 0.1:
 - Rebuild and ship the helper with the application; the helper protocol is 34. Scan caches
   written by 0.1 are read as empty and their bundles scanned again.
 - Store plugins as `PluginId` and states as `PluginState::to_bytes()`; the public types have no
-  serde form, and 0.1 states, which had only that form, are saved again. Build references with
-  `PluginRef::vst3`, `PluginRef::clap` or `PluginRef::audio_unit`, and read `PluginInfo::id`.
+  serde form, and 0.2 cannot read states 0.1 serialized with it, so re-create those. Read a
+  state through `id()`, `component()` and the other accessors. Build references with
+  `PluginRef::vst3`, `PluginRef::clap` or `PluginRef::audio_unit`, read `PluginInfo::id`, and
+  read `Diagnostic::plugin` as an `Option<PluginId>`.
 - Spawn chains with `Chain::spawn(helper, &[plugin.into()], &SpawnOptions::default())`, and
-  recover them from `ChainSnapshot::slots`.
+  recover them from `ChainSnapshot::slots`. `recover(&[])` no longer means the initial states:
+  it fails with `InputError::EmptyChain`, so pass a `ChainSlot` per `chain.references()`.
 - Pass events as `&Events` and produce them into a reused `Events::for_block()`;
-  `Event::sysex` takes a slice.
+  `Event::sysex` takes a slice, and an `Event` borrows its system exclusive bytes from the
+  `Events` it was read from, so keep the `Events` to keep the events.
 - Build routing, processing, render and preset types with their constructors instead of struct
-  literals, and add a wildcard arm to matches on the enums that are now non-exhaustive.
+  literals, and add a wildcard arm to matches on the enums that are now non-exhaustive. CLAP
+  preset flags are a `PresetFlags`.
 - Read parameter values as `Option<f64>`; `None` is a value the plugin does not give.
 - Expect `RenderError::NonFiniteOutput` instead of `non_finite_samples`, and
   `RenderStatus::TailLimit` for a tail that reached its maximum.
-- Match `plughost_formats::Error` by `kind()` and `input_error()`, and buffer mismatches as
-  `InputError::AudioBuffers`.
+- Match rejected render input as `Error::Input { error, .. }`, which plughost now reports
+  instead of `Error::Render(RenderError::Input(..))`, and buffer mismatches as
+  `InputError::AudioBuffers`: `Error::Buffers`, `RenderError::Events`, `InputChannels` and
+  `InputLength` are removed.
+- Match `plughost_formats::Error` by `kind()` and `input_error()`. Errors display only their own
+  context; walk `source()` (or use `failure()`) to show their causes.
 - Wrap the plughost-formats loaders in `unsafe` with the reason the plugin is trusted, and load a
-  CLAP module as a `clap::Entry`.
+  CLAP module as a `clap::Entry`. `HostedPlugin`, `BlockProcessor` and `Sample` are sealed, so
+  implement `render::Process` for a processor of your own. `preset::supports` is `supported`,
+  and `vst3::Preset::controller` and `DecodedPreset::controller` are an `Option`.
+- Stop using the buffers and checks plughost-core exported for its own crates
+  (`DiagnosticBuffer`, `events_fit`, `validate_normalized` and the like) and `sysex_bytes`.
 - Write `let _ =` where a `take_*` drain discards its batch.
 
 ### Added
@@ -49,6 +62,9 @@ allocation per message. Upgrading from 0.1:
   `DiscoveredPreset::new`, with `with_*` methods for their optional parts (mode, named
   configuration, events, event inputs, channel adaptation, render schedule) and
   `RenderSchedule::with_transport`, `with_automation` and `with_ramps`.
+- `ChainSlot` (a `PluginRef` with an optional state and native bypass) and `SpawnOptions` (host
+  identity and timeouts) describe what `Chain::spawn` loads, and `Chain::references()` gives the
+  references a chain loaded.
 - `PresetFlags` names the CLAP preset discovery flags.
 - `PresetDiscoveryTarget::validate` checks a target's provider ID and location, failing with the
   new `InputError::PresetDiscoveryTarget`. `plughost::discover_presets` calls it before starting
@@ -59,7 +75,7 @@ allocation per message. Upgrading from 0.1:
   again on each call.
 - `PluginState::to_bytes` and `PluginState::from_bytes` store a state in plughost's own
   versioned format, which later versions keep reading and which does not depend on the helper
-  protocol; 0.1 states, which had only a serde form, cannot be read and are saved again. It is
+  protocol; 0.2 cannot read 0.1 states, which had only a serde form. It is
   a container of tagged sections for the identity and the native payloads, with a VST3
   controller state kept apart from its component and absent, not empty, when the controller
   has none. Reading needs no plugin, writes a state back unchanged, and checks every
@@ -71,8 +87,8 @@ allocation per message. Upgrading from 0.1:
   `MAX_BLOCK_SYSEX_BYTES` bytes, within which `push` never allocates and beyond which it fails
   with `InputError::EventCapacity`, and `Events::try_for_block()` reports a failed reservation
   instead of aborting; `Events::new()` grows without that limit. It is built with `push` or by
-  collecting `Event`s, read with `iter`, `get` and `len`, and compares equal to a slice or array
-  of `Event`. A clone of a block's `Events` reserves a block's room again.
+  collecting `Event`s, read with `iter` (an `EventsIter`), `get` and `len`, and compares equal
+  to a slice or array of `Event`. A clone of a block's `Events` reserves a block's room again.
 - `RenderStatus::TailLimit` and `Rendered::status` tell a `TailPolicy::UntilSilence` tail that
   reached `max_tail_seconds` before the output stayed silent apart from one that ended in
   silence. `RenderProgress::status` from `render_stream` and `RenderSession::finish` reports it
@@ -80,21 +96,20 @@ allocation per message. Upgrading from 0.1:
 
 ### Changed
 
-- Events are passed as `&Events` and produced into `&mut Events` instead of `&[Event]` and
-  `&mut Vec<Event>`: in `Chain::process_audio_*`, `RealtimeEndpoint::process_audio_*`,
-  `render`, `render_with_schedule`, `RenderInput`, `Delivery`, the `Process` trait,
-  `BlockProcessor` and the format plugins' processing calls, and `Rendered::events` is an
-  `Events`. `plughost_core::sysex_bytes` is removed; read `Events::sysex_bytes()`. Write
-  `&Events::new()` for no events and `&Events::from_iter([Event::note_on(0, 0, 60, 100)])` for a
-  literal list, and reuse an `Events::for_block()` for `produced`. `Event` and `EventData` are `Copy` with a lifetime:
-  `EventData::SysEx` borrows its bytes, from the `Events` it was read from or from the caller,
-  so `Event::sysex(offset, &bytes)` takes a slice and `.clone()` calls become copies.
+- Events are passed as `&Events` and produced into `&mut Events` instead of `&[Event]` and `&mut
+  Vec<Event>`: in `Chain::process_audio_*`, `RealtimeEndpoint::process_audio_*`, `render`,
+  `render_with_schedule`, `RenderInput`, `Delivery`, the `Process` trait, `BlockProcessor` and the
+  format plugins' processing calls, and `Rendered::events` is an `Events`.
+  `plughost_core::sysex_bytes` is removed; read `Events::sysex_bytes()`. Write `&Events::new()` for
+  no events and `&Events::from_iter([Event::note_on(0, 0, 60, 100)])` for a literal list, and reuse
+  an `Events::for_block()` for `produced`. `Event` and `EventData` are `Copy` with a lifetime:
+  `EventData::SysEx` borrows its bytes, from the `Events` it was read from or from the caller, so
+  `Event::sysex(offset, &bytes)` takes a slice and `.clone()` calls become copies.
 - A realtime endpoint delivers the output's system exclusive events into `produced`, which it
   dropped and counted before. `RealtimeStatus::dropped_events` now counts only events beyond the
   room `produced` has reserved, so pass it an `Events::for_block()`. System exclusive output an
   Audio Unit sends over several calls is joined in room reserved when the unit is prepared,
   instead of in a buffer allocated per message on the render thread.
-
 - The public types no longer implement serde's `Serialize` and `Deserialize`, apart from
   `PluginId`: persist states with `PluginState::to_bytes` and plugins by `PluginId`, and keep
   routing, configurations and other settings in the application's own model. Their serde form
@@ -107,9 +122,9 @@ allocation per message. Upgrading from 0.1:
   which loads it once instead of twice as a `restore_state` after spawning does, and then takes
   its bypass. `recover` and `recover_realtime` take the same slots, which `ChainSnapshot::slots`
   holds in place of `states` and `bypass`, and `recover` now applies the recorded bypass too;
-  recovering from states alone pairs each with its slot's plugin in a `ChainSlot`, and
-  `recover(&[])` for the initial states is a slot per `Chain::references()`, the new accessor
-  for the references a chain loaded.
+  recovering from states alone pairs each with its slot's plugin in a `ChainSlot`.
+  `recover(&[])`, which recovered the initial states, fails with `InputError::EmptyChain`; pass
+  a slot per `Chain::references()`, the new accessor for the references a chain loaded.
   `InputError::StateCount` is removed, since a slot carries its own state.
 - `PluginState`'s fields are private and it has no serde form: store `to_bytes()` instead of
   serializing it. `id()` replaces `format` and `class_id`, and `name()`, `vendor()` and
@@ -118,7 +133,7 @@ allocation per message. Upgrading from 0.1:
   for a preset without a `Cont` chunk; an empty `Cont` chunk is kept when a preset is written
   again, where it was dropped. An empty VST3 controller state is still not passed to the
   controller when restoring.
-- An Audio Unit state over `MAX_STATE_BYTES` fails to save, as one of the other formats does.
+- An Audio Unit state over `MAX_STATE_BYTES` fails to save, as the other formats' states do.
 - `PluginRef` holds a `PluginId` and the bundle, both private: build it with
   `PluginRef::vst3(bundle, class_id)`, `PluginRef::clap(bundle, class_id)` or
   `PluginRef::audio_unit(class_id)` and read it with `id()` and `bundle()`, so a VST3 or CLAP
@@ -134,14 +149,14 @@ allocation per message. Upgrading from 0.1:
   inspected again.
 - The internal helper protocol is now 34. Applications and helpers with different protocol
   versions fail the handshake; rebuild and distribute the helper with the application.
-- `plughost_formats::Error` is one opaque struct for every format instead of an enum with a
-  variant per format, and `Vst3Error`, `ClapError` and `AuError` are no longer public; the
-  format modules' functions, such as `vst3::Module::load` and `clap::Entry::load`, return
-  `plughost_formats::Error`. Match `kind()` for the `FailureKind` and `input_error()` for
-  rejected caller input instead of variants; `format()` names the format whose host failed
-  (none for rejected caller input), `native_code()` gives the VST3 `tresult` or the Audio Unit `OSStatus` (or `NSError` code), and
-  `is_output_event_overflow()` and `failure()` remain. It is no longer `Clone` or `PartialEq`;
-  compare `kind()`.
+- `plughost_formats::Error` is one opaque struct for every format instead of an enum with a variant
+  per format, and `Vst3Error`, `ClapError` and `AuError` are no longer public; the format modules'
+  functions, such as `vst3::Module::load` and `clap::Entry::load`, return `plughost_formats::Error`.
+  Match `kind()` for the `FailureKind` and `input_error()` for rejected caller input instead of
+  variants; `format()` names the format whose host failed or that this build does not support (none
+  for rejected caller input), `native_code()` gives the VST3 `tresult` or the Audio Unit `OSStatus`
+  (or `NSError` code), and `is_output_event_overflow()` and `failure()` remain. It is no longer
+  `Clone` or `PartialEq`; compare `kind()`.
 - Errors keep their causes. A plughost-formats error and a `RenderError` display only their own
   context, and `source()` gives the input or render error, the module loader's error (VST3 on
   Windows, CLAP), the CLAP instance or GUI error, the I/O error of a CLAP preset location, or the
@@ -151,18 +166,18 @@ allocation per message. Upgrading from 0.1:
 - An Audio Unit class ID that no registered unit has fails with `FailureKind::NotFound`, as a
   VST3 or CLAP class that a module does not have does, instead of `FailureKind::Load`.
 - Each input contract has one error. Render events that are not valid, not in offset order or not
-  before the end of the input are `RenderError::Input(InputError::Events)`; `RenderError::Events`
-  is removed. plughost reports input that a render rejects as `Error::Input` with no slot, never
-  as `Error::Render`. Audio buffers of the wrong channel count or length, or a block longer than
-  the prepared maximum, are `InputError::AudioBuffers` in every crate and in rendering:
+  before the end of the input are `RenderError::Input(InputError::Events)`; `RenderError::Events` is
+  removed. plughost reports input that a render rejects as `Error::Input` with no slot, never as
+  `Error::Render`. Audio buffers of the wrong channel count or length, or a block longer than the
+  prepared maximum, are `InputError::AudioBuffers` in every crate and in rendering:
   `Error::Buffers`, `RenderError::InputChannels` and `RenderError::InputLength` are removed, so
   match `Error::Input { error: InputError::AudioBuffers, .. }` or
-  `RenderError::Input(InputError::AudioBuffers)`. Buffers of another precision than the prepared
-  one are `InputError::AudioSampleFormat` in the in-process VST3 and CLAP `process` calls too,
-  where they were a VST3 sample format mismatch and a CLAP unsupported sample format. Parameter changes
+  `RenderError::Input(InputError::AudioBuffers)`. Buffers of another precision than the prepared one
+  are `InputError::AudioSampleFormat` in the in-process VST3 and CLAP `process` calls too, where
+  they were a VST3 sample format mismatch and a CLAP unsupported sample format. Parameter changes
   that the in-process `process` calls receive out of offset order, outside the block or outside
-  `0..=1` fail with `InputError::Automation`, as automation does in a chain, rather than as a
-  buffer error (or, for a VST3 value, `InputError::ParameterValue`).
+  `0..=1` fail with `InputError::Automation`, as automation does in a chain, rather than as a buffer
+  error (or, for a VST3 value, `InputError::ParameterValue`).
 - `plughost_formats::preset::supports(format)` is `supported(format)`, which returns the
   unsupported error instead of `false`.
 - The types an application builds are `#[non_exhaustive]`, so later versions can add fields:
