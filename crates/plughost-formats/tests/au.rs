@@ -363,10 +363,9 @@ fn class_ids_are_matched_without_regard_to_case() {
     let plugin = Plugin::new(&AU_DELAY.to_ascii_lowercase()).unwrap();
     assert_eq!(plugin.info().class_id, AU_DELAY);
     // A well-formed ID that no registered unit has.
-    assert_eq!(
-        Plugin::new("6175667800000000000000AA").unwrap_err(),
-        au::AuError::Instantiate("6175667800000000000000AA".to_owned())
-    );
+    let error = Plugin::new("6175667800000000000000AA").unwrap_err();
+    assert_eq!(error.kind(), plughost_core::FailureKind::NotFound);
+    assert_eq!(error.format(), Some(plughost_core::PluginFormat::AudioUnit));
 }
 
 #[test]

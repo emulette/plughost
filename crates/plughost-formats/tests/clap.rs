@@ -9,10 +9,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use plughost_core::{
-    Event, Layout, PluginKind, ProcessConfig, ProcessMode, SampleFormat, StatePurpose,
+    Event, FailureKind, InputError, Layout, PluginKind, ProcessConfig, ProcessMode, SampleFormat,
+    StatePurpose,
 };
-use plughost_formats::clap::{self, ClapError, Plugin};
-use plughost_formats::{BlockProcessor, Error, HostedPlugin};
+use plughost_formats::clap::{self, Plugin};
+use plughost_formats::{BlockProcessor, HostedPlugin};
 
 const CLASS: &str = "com.studio.plughost.test-delay.79000001";
 const SYNTH: &str = "com.studio.plughost.test-synth";
@@ -58,25 +59,27 @@ fn render_preflight_rejects_unprepared_and_late_invalid_ports() {
     let input = [1.0f32; 32];
     let options =
         plughost_core::render::RenderOptions::new(plughost_core::render::TailPolicy::Reported, 0.0);
-    assert!(matches!(
-        plughost_core::render::render(&mut plugin, &[&input, &input], 32, &[], &options),
-        Err(ClapError::NotPrepared)
-    ));
+    assert_eq!(
+        plughost_core::render::render(&mut plugin, &[&input, &input], 32, &[], &options)
+            .unwrap_err()
+            .kind(),
+        FailureKind::NotPrepared
+    );
     let mut config = config(48_000.0);
     config.max_block_size = 16;
     plugin.prepare(&config).unwrap();
-    assert!(matches!(
+    assert_eq!(
         plughost_core::render::render(
             &mut plugin,
             &[&input, &input],
             32,
             &[Event::note_on(24, 0, 60, 100).on_port(99)],
             &options,
-        ),
-        Err(ClapError::Input(plughost_core::InputError::EventPort {
-            port: 99
-        }))
-    ));
+        )
+        .unwrap_err()
+        .input_error(),
+        Some(InputError::EventPort { port: 99 })
+    );
     assert_eq!(
         plugin
             .parameters()
@@ -188,18 +191,17 @@ fn invalid_parameter_edits_preserve_pending_value_and_state() {
     plugin.prepare(&config(48_000.0)).unwrap();
     plugin.set_parameter(GAIN, 0.25).unwrap();
     for value in [f64::NAN, f64::INFINITY, -0.1, 1.1] {
-        assert!(matches!(
-            plugin.set_parameter(GAIN, value),
-            Err(Error::Clap(ClapError::Input(
-                plughost_core::InputError::ParameterValue
-            )))
-        ));
+        assert_eq!(
+            plugin.set_parameter(GAIN, value).unwrap_err().input_error(),
+            Some(InputError::ParameterValue)
+        );
     }
     assert!(matches!(
-        plugin.set_parameter(u64::MAX, 0.5),
-        Err(Error::Clap(ClapError::Input(
-            plughost_core::InputError::UnknownParameter { .. }
-        )))
+        plugin
+            .set_parameter(u64::MAX, 0.5)
+            .unwrap_err()
+            .input_error(),
+        Some(InputError::UnknownParameter { .. })
     ));
     let read_only = plugin
         .parameters()
@@ -207,10 +209,13 @@ fn invalid_parameter_edits_preserve_pending_value_and_state() {
         .find(|(parameter, _)| parameter.flags.read_only)
         .unwrap()
         .0;
-    assert!(matches!(
-        plugin.set_parameter(read_only.id, 0.5),
-        Err(Error::Clap(ClapError::Input(plughost_core::InputError::ReadOnlyParameter { id }))) if id == read_only.id
-    ));
+    assert_eq!(
+        plugin
+            .set_parameter(read_only.id, 0.5)
+            .unwrap_err()
+            .input_error(),
+        Some(InputError::ReadOnlyParameter { id: read_only.id })
+    );
     let state = plugin
         .save_state(plughost_core::StatePurpose::Project)
         .unwrap();
@@ -303,7 +308,7 @@ fn parameter_value(plugin: &mut Plugin, id: u64) -> f64 {
 fn a_plugin_without_selectable_configurations_lists_none() {
     let _serial = serial();
     // The delay fixture has no audio-ports-config extension.
-    assert_eq!(plugin().audio_configurations(), Ok(Vec::new()));
+    assert_eq!(plugin().audio_configurations().unwrap(), Vec::new());
 }
 
 #[test]
@@ -311,9 +316,9 @@ fn a_plugin_without_selectable_configurations_lists_none() {
 fn reset_before_preparation_succeeds_as_in_the_other_formats() {
     let _serial = serial();
     let mut plugin = plugin();
-    assert_eq!(plugin.reset(), Ok(()));
+    plugin.reset().unwrap();
     plugin.prepare(&config(48_000.0)).unwrap();
-    assert_eq!(plugin.reset(), Ok(()));
+    plugin.reset().unwrap();
 }
 
 #[test]
@@ -336,8 +341,8 @@ fn latency_is_read_for_the_prepared_sample_rate() {
         plugin.prepare(&config(rate)).unwrap();
         let latency = (rate / 100.0) as usize;
         assert_eq!(
-            plugin.timing().map(|timing| timing.latency),
-            Ok(latency as u32),
+            plugin.timing().unwrap().latency,
+            latency as u32,
             "{rate} Hz"
         );
         let input = signal(latency + 4 * BLOCK);
@@ -448,15 +453,15 @@ fn a_plugin_without_state_contexts_saves_project_state_and_refuses_the_others() 
     assert_eq!(parameter_value(&mut plugin, SAVED_CONTEXT), 0.0);
     for purpose in [StatePurpose::Preset, StatePurpose::Duplicate] {
         assert_eq!(
-            plugin.save_state(purpose),
-            Err(Error::Clap(ClapError::StatePurposeUnsupported))
+            plugin.save_state(purpose).unwrap_err().kind(),
+            FailureKind::Unsupported
         );
         assert_eq!(
-            plugin.restore_state(&original, purpose),
-            Err(Error::Clap(ClapError::StatePurposeUnsupported))
+            plugin.restore_state(&original, purpose).unwrap_err().kind(),
+            FailureKind::Unsupported
         );
     }
-    assert_eq!(plugin.save_state(StatePurpose::Project), Ok(original));
+    assert_eq!(plugin.save_state(StatePurpose::Project).unwrap(), original);
 }
 
 #[test]
@@ -469,11 +474,8 @@ fn layouts_the_plugin_refuses_are_errors() {
         ..config(48_000.0)
     };
     assert_eq!(
-        plugin().prepare(&mono),
-        Err(Error::Clap(ClapError::LayoutRefused {
-            requested: Layout::Mono,
-            plugin_channels: 2
-        }))
+        plugin().prepare(&mono).unwrap_err().kind(),
+        FailureKind::Configuration
     );
 }
 
@@ -546,8 +548,8 @@ fn stepped_host_edits_reach_the_plugin_as_whole_values() {
     plugin.set_parameter(TAIL, 0.3).unwrap();
     run(&mut plugin, &signal(BLOCK));
     assert_eq!(
-        plugin.timing().map(|timing| timing.tail),
-        Ok(plughost_core::render::Tail::Samples(10))
+        plugin.timing().unwrap().tail,
+        plughost_core::render::Tail::Samples(10)
     );
 }
 
@@ -581,7 +583,10 @@ fn a_restart_requested_while_processing_keeps_the_block_and_fails_the_next() {
     }];
     assert!(process(&automation).is_ok());
     assert!(plugin.processor().restart_required());
-    assert_eq!(process(&[]), Err(Error::Clap(ClapError::RestartRequired)));
+    assert_eq!(
+        process(&[]).unwrap_err().kind(),
+        FailureKind::RestartRequired
+    );
     plugin.prepare(&config).unwrap();
     assert_eq!(plugin.timing().map(|timing| timing.latency).unwrap(), 512);
     assert!(!plugin.processor().restart_required());
@@ -592,11 +597,17 @@ fn a_restart_requested_while_processing_keeps_the_block_and_fails_the_next() {
         ..automation[0]
     }];
     assert!(process(&automation).is_ok());
-    assert_eq!(process(&[]), Err(Error::Clap(ClapError::RestartRequired)));
+    assert_eq!(
+        process(&[]).unwrap_err().kind(),
+        FailureKind::RestartRequired
+    );
     plugin.prepare(&config).unwrap();
     assert_eq!(plugin.timing().map(|timing| timing.latency).unwrap(), 544);
     assert!(plugin.processor().restart_required());
-    assert_eq!(process(&[]), Err(Error::Clap(ClapError::RestartRequired)));
+    assert_eq!(
+        process(&[]).unwrap_err().kind(),
+        FailureKind::RestartRequired
+    );
 }
 
 #[test]

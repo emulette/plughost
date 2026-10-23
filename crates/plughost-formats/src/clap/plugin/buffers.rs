@@ -26,9 +26,9 @@ impl AudioBuffers {
             Self::F32(storage) => storage,
             Self::F64(storage) => storage,
         };
-        storage
-            .downcast_mut()
-            .ok_or(ClapError::SampleFormatUnsupported(S::FORMAT))
+        storage.downcast_mut().ok_or(ClapError::Input(
+            plughost_core::InputError::AudioSampleFormat,
+        ))
     }
     pub fn active_channels(&self) -> (usize, usize) {
         match self {

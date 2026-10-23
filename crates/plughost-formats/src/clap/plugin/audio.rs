@@ -434,7 +434,7 @@ impl Plugin {
                     max_frames_count: config.max_block_size as u32,
                 },
             )
-            .map_err(|e| ClapError::Activate(e.to_string()))?;
+            .map_err(ClapError::Activate)?;
         let latency = latency_extension.map_or(0, |e| e.get(&self.instance.plugin_handle()));
         self.shared()
             .latency_changed

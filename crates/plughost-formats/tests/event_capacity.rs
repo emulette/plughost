@@ -10,7 +10,7 @@ use plughost_core::{
     ProcessConfig, ProcessMode, SampleFormat,
 };
 #[cfg(feature = "clap")]
-use plughost_formats::{Error, HostedPlugin};
+use plughost_formats::HostedPlugin;
 #[cfg(any(feature = "vst3", feature = "clap"))]
 use std::path::Path;
 
@@ -142,12 +142,10 @@ fn clap_pending_edits_are_bounded_and_survive_a_rejected_audio_block() {
     for _ in 0..MAX_BLOCK_EVENTS {
         plugin.set_parameter(0, 0.25).unwrap();
     }
-    assert!(matches!(
-        plugin.set_parameter(0, 0.75),
-        Err(Error::Clap(plughost_formats::clap::ClapError::Input(
-            plughost_core::InputError::EventCapacity
-        )))
-    ));
+    assert_eq!(
+        plugin.set_parameter(0, 0.75).unwrap_err().input_error(),
+        Some(plughost_core::InputError::EventCapacity)
+    );
     let processor = plugin.processor();
     let input = [1.0f32; 8];
     let (mut left, mut right) = ([99.0; 8], [99.0; 8]);

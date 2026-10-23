@@ -1,7 +1,7 @@
 #![cfg(feature = "clap")]
 use plughost_core::*;
-use plughost_formats::clap::{ClapError, Plugin};
-use plughost_formats::{Error, HostedPlugin};
+use plughost_formats::HostedPlugin;
+use plughost_formats::clap::Plugin;
 use std::path::Path;
 fn plugin() -> Plugin {
     bundle("plughost-test-routing")
@@ -231,23 +231,26 @@ fn invalid_requested_layout_and_precision_buffers_are_rejected() {
     // The selected configuration defines the ports; its layout is not requested away.
     let mut wrong = config(SampleFormat::F64, Layout::Mono, 101);
     assert_eq!(
-        plugin.prepare_audio(&wrong),
-        Err(Error::Clap(ClapError::AudioConfiguration))
+        plugin.prepare_audio(&wrong).unwrap_err().kind(),
+        FailureKind::Configuration
     );
     wrong.inputs[1].layout = Layout::Stereo;
     wrong.outputs[1].layout = Layout::Stereo;
     plugin.prepare_audio(&wrong).unwrap();
     let mut output = vec![vec![0.0f32; 32]; 4];
     assert_eq!(
-        plugin.process(
-            &BlockContext::new(32),
-            &[&[0.0f32; 32][..]; 3],
-            &mut output.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
-            &[],
-            &[],
-            &mut Vec::new(),
-        ),
-        Err(ClapError::SampleFormatUnsupported(SampleFormat::F32))
+        plugin
+            .process(
+                &BlockContext::new(32),
+                &[&[0.0f32; 32][..]; 3],
+                &mut output.iter_mut().map(Vec::as_mut_slice).collect::<Vec<_>>(),
+                &[],
+                &[],
+                &mut Vec::new(),
+            )
+            .unwrap_err()
+            .input_error(),
+        Some(InputError::AudioSampleFormat)
     );
 }
 
@@ -318,11 +321,14 @@ fn configurable_ports_take_every_layout_clap_expresses() {
         );
     }
     assert_eq!(
-        plugin.prepare_audio(&AudioConfig {
-            configuration: None,
-            ..config(SampleFormat::F64, Layout::Surround916, 0)
-        }),
-        Err(Error::Clap(ClapError::AudioConfiguration))
+        plugin
+            .prepare_audio(&AudioConfig {
+                configuration: None,
+                ..config(SampleFormat::F64, Layout::Surround916, 0)
+            })
+            .unwrap_err()
+            .kind(),
+        FailureKind::Configuration
     );
 }
 
@@ -340,8 +346,8 @@ fn a_preparation_that_must_fail_leaves_the_ports_unconfigured() {
     mixed.inputs[1].layout = Layout::Surround714;
     mixed.outputs[1].layout = Layout::Surround916;
     assert_eq!(
-        plugin.prepare_audio(&mixed),
-        Err(Error::Clap(ClapError::AudioConfiguration))
+        plugin.prepare_audio(&mixed).unwrap_err().kind(),
+        FailureKind::Configuration
     );
     let buses = plugin.audio_buses().unwrap();
     assert_eq!(buses[0].layout, Some(Layout::Stereo));
@@ -396,7 +402,7 @@ fn counts_past_the_hosts_bounds_are_neither_followed_nor_stored() {
     // A note output taking a dialect may be past the ones looked at.
     assert_eq!(plugin.capabilities().unwrap().note_output, Support::Unknown);
     assert_eq!(
-        plugin.audio_configurations(),
-        Err(Error::Clap(ClapError::AudioMetadata))
+        plugin.audio_configurations().unwrap_err().kind(),
+        FailureKind::Host
     );
 }

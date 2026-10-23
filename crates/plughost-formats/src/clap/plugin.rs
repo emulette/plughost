@@ -54,7 +54,7 @@ use parameter_cache::ParameterCache;
 const INSTRUMENT: &str = "instrument";
 
 /// The plugin classes in a `.clap` module.
-pub fn classes(bundle: &Path) -> Result<Vec<PluginInfo>, ClapError> {
+pub fn classes(bundle: &Path) -> Result<Vec<PluginInfo>, crate::Error> {
     classes_once_loaded(bundle, || {})
 }
 
@@ -63,7 +63,7 @@ pub fn classes(bundle: &Path) -> Result<Vec<PluginInfo>, ClapError> {
 pub fn classes_once_loaded(
     bundle: &Path,
     loaded: impl FnOnce(),
-) -> Result<Vec<PluginInfo>, ClapError> {
+) -> Result<Vec<PluginInfo>, crate::Error> {
     let entry = load_entry(bundle)?;
     loaded();
     let factory = entry.get_plugin_factory().ok_or(ClapError::NoFactory)?;
@@ -72,7 +72,7 @@ pub fn classes_once_loaded(
 
 fn load_entry(bundle: &Path) -> Result<PluginEntry, ClapError> {
     // SAFETY: running the module's code is the purpose of loading it.
-    unsafe { PluginEntry::load(bundle) }.map_err(|error| ClapError::Load(error.to_string()))
+    unsafe { PluginEntry::load(bundle) }.map_err(ClapError::Load)
 }
 
 fn text(value: Option<&std::ffi::CStr>) -> String {
@@ -176,7 +176,7 @@ impl Plugin {
         bundle: &Path,
         class_id: &str,
         identity: &HostIdentity,
-    ) -> Result<Plugin, ClapError> {
+    ) -> Result<Plugin, crate::Error> {
         let diagnostics = DiagnosticBuffer::default();
         identity.validate().map_err(ClapError::Input)?;
         let entry = load_entry(bundle)?;
@@ -194,7 +194,7 @@ impl Plugin {
             "",
             identity.version.as_str(),
         )
-        .map_err(|error| ClapError::Instantiate(error.to_string()))?;
+        .map_err(|_| ClapError::Input(plughost_core::InputError::HostIdentity))?;
         let instance = PluginInstance::<Host>::new(
             |_| {
                 Shared::new(
@@ -211,7 +211,7 @@ impl Plugin {
             &id,
             &host_info,
         )
-        .map_err(|error| ClapError::Instantiate(error.to_string()))?;
+        .map_err(ClapError::Instantiate)?;
         Ok(Plugin {
             diagnostics,
             info,
@@ -301,9 +301,10 @@ impl Plugin {
         automation: &[plughost_core::ParameterChange],
         events: &[Event],
         produced: &mut Vec<Event>,
-    ) -> Result<(), ClapError> {
-        self.processor()
-            .process(context, input, output, automation, events, produced)
+    ) -> Result<(), crate::Error> {
+        Ok(self
+            .processor()
+            .process(context, input, output, automation, events, produced)?)
     }
 
     /// The prepared plugin's timing, with its tail read again: a plugin reports a changed tail
@@ -542,14 +543,14 @@ impl Plugin {
             .find(|configuration| gui.is_api_supported(&handle, *configuration))
             .ok_or(ClapError::NoEditor)?;
         gui.create(&handle, configuration)
-            .map_err(|error| ClapError::Editor(error.to_string()))?;
+            .map_err(ClapError::Editor)?;
         if configuration.is_floating {
             if let Ok(title) = CString::new(self.info.name.as_str()) {
                 gui.suggest_title(&handle, &title);
             }
             if let Err(error) = gui.show(&handle) {
                 gui.destroy(&handle);
-                return Err(ClapError::Editor(error.to_string()));
+                return Err(ClapError::Editor(error));
             }
             // A floating editor sizes its own window.
             self.editor = Some(Box::new(|_, _| false));
@@ -563,7 +564,7 @@ impl Plugin {
         let attached = unsafe { gui.set_parent(&handle, window) };
         if let Err(error) = attached {
             gui.destroy(&handle);
-            return Err(ClapError::Editor(error.to_string()));
+            return Err(ClapError::Editor(error));
         }
         let _ = gui.show(&handle);
         let (width, height) = gui

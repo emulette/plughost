@@ -7,8 +7,9 @@
 //!
 //! [`load`] creates a plugin of any enabled format from a `PluginRef`; each format's `Plugin` can
 //! also be created directly. Every plugin is used through [`HostedPlugin`] and processed from
-//! another thread through the [`BlockProcessor`] it hands out. Format-specific failures are
-//! variants of [`Error`]. An owner that processes plugins on a thread of its own gives them an
+//! another thread through the [`BlockProcessor`] it hands out. Every format fails with one
+//! [`Error`], which tells the [`FailureKind`](plughost_core::FailureKind), the format, the native
+//! result code and the cause. An owner that processes plugins on a thread of its own gives them an
 //! [`AudioThread`], so the audio-thread calls they need between blocks run there too. Plugins
 //! process, reset and flush with subnormal numbers flushed to zero (MXCSR FTZ and DAZ on x86-64,
 //! FPCR.FZ on AArch64); the calling thread's mode is restored after each call.

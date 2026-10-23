@@ -95,6 +95,6 @@ fn impossible_native_storage_reservation_is_a_configuration_failure() {
     let error = AudioBuffers::new(&buses(), SampleFormat::F64, usize::MAX)
         .err()
         .unwrap();
-    assert_eq!(error, Vst3Error::ProcessingStorage);
+    assert!(matches!(error, Vst3Error::ProcessingStorage));
     assert_eq!(error.kind(), plughost_core::FailureKind::Configuration);
 }

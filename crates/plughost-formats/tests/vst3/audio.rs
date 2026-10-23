@@ -296,27 +296,27 @@ fn invalid_native_audio_requests_and_unsupported_bypass_are_explicit() {
     let mut routing = plugin("plughost-test-routing");
     let mut invalid = buses(SampleFormat::F32, Layout::Stereo);
     invalid.inputs[0].id = 100;
-    assert!(matches!(
-        routing.prepare_audio(&invalid),
-        Err(Error::Vst3(Vst3Error::UnknownAudioBus { id: 100 }))
-    ));
+    assert_eq!(
+        routing.prepare_audio(&invalid).unwrap_err().kind(),
+        FailureKind::InvalidInput
+    );
     invalid = buses(SampleFormat::F32, Layout::Stereo);
     invalid.configuration = Some(0);
-    assert!(matches!(
-        routing.prepare_audio(&invalid),
-        Err(Error::Vst3(Vst3Error::AudioConfigurationsUnsupported))
-    ));
+    assert_eq!(
+        routing.prepare_audio(&invalid).unwrap_err().kind(),
+        FailureKind::Unsupported
+    );
     invalid = buses(SampleFormat::F32, Layout::Stereo);
     invalid.sample_rate = 12345.0;
-    assert!(matches!(
-        routing.prepare_audio(&invalid),
-        Err(Error::Vst3(Vst3Error::SetupRejected(_)))
-    ));
+    let rejected = routing.prepare_audio(&invalid).unwrap_err();
+    assert_eq!(rejected.kind(), FailureKind::Configuration);
+    assert_eq!(rejected.format(), Some(plughost_core::PluginFormat::Vst3));
+    assert!(rejected.native_code().is_some_and(|code| code != 0));
     let mut delay = plugin("plughost-test-delay");
     assert_eq!(delay.bypass().unwrap().support, Support::Unsupported);
     assert_eq!(
-        delay.set_bypass(true),
-        Err(Error::Vst3(Vst3Error::BypassUnsupported))
+        delay.set_bypass(true).unwrap_err().kind(),
+        FailureKind::Unsupported
     );
 }
 
@@ -395,15 +395,18 @@ fn custom_sample_implementations_are_rejected_before_native_pointer_casts() {
         let input = [marker; 4];
         let (mut left, mut right) = ([marker; 4], [marker; 4]);
         assert_eq!(
-            plugin.process(
-                &plughost_core::BlockContext::new(4),
-                &[&input, &input],
-                &mut [&mut left, &mut right],
-                &[],
-                &[],
-                &mut Vec::new(),
-            ),
-            Err(Vst3Error::SampleFormatMismatch)
+            plugin
+                .process(
+                    &plughost_core::BlockContext::new(4),
+                    &[&input, &input],
+                    &mut [&mut left, &mut right],
+                    &[],
+                    &[],
+                    &mut Vec::new(),
+                )
+                .unwrap_err()
+                .input_error(),
+            Some(InputError::AudioSampleFormat)
         );
         assert_eq!(left, [marker; 4]);
         assert_eq!(right, [marker; 4]);

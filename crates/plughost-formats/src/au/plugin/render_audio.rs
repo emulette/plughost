@@ -177,9 +177,9 @@ fn render_output(
     }
     let bytes = frames
         .checked_mul(size_of::<f32>())
-        .ok_or(AuError::Buffers)?;
+        .ok_or(AuError::RenderOutput)?;
     if unsafe { (*list.as_mut_ptr()).mNumberBuffers } as usize != channels.len() {
-        return Err(AuError::Buffers);
+        return Err(AuError::RenderOutput);
     }
     for (native, buffer) in list.buffers().iter().enumerate() {
         let channel = &mut channels[bus.portable(native)];
@@ -187,7 +187,7 @@ fn render_output(
             || (buffer.mDataByteSize as usize) < bytes
             || buffer.mData.is_null()
         {
-            return Err(AuError::Buffers);
+            return Err(AuError::RenderOutput);
         }
         let rendered = buffer.mData.cast::<f32>();
         if rendered != channel.as_mut_ptr() {

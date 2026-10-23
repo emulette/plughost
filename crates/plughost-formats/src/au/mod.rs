@@ -8,6 +8,6 @@ mod plugin;
 mod wait;
 
 pub use components::components;
-pub use errors::AuError;
+pub(crate) use errors::AuError;
 pub use plist::{from_preset, inspect_preset, to_preset};
 pub use plugin::{Plugin, Processor};

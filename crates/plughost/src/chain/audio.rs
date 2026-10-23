@@ -254,7 +254,10 @@ impl Chain {
             || input.iter().any(|channel| channel.len() != frames)
             || output.iter().any(|channel| channel.len() != frames)
         {
-            return Err(Error::Buffers);
+            return Err(Error::Input {
+                slot: None,
+                error: InputError::AudioBuffers,
+            });
         }
         Ok(())
     }

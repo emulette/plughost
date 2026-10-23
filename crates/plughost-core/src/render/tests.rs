@@ -270,15 +270,12 @@ fn input_must_match_the_processor() {
     let mono = [vec![0.0f32; 10]];
     assert_eq!(
         run(&mut processor, &mono, reported(1.0)).unwrap_err(),
-        RenderError::InputChannels {
-            expected: 2,
-            actual: 1
-        }
+        RenderError::Input(crate::InputError::AudioBuffers)
     );
     let uneven: Vec<&[f32]> = vec![&[0.0; 10], &[0.0; 9]];
     assert_eq!(
         render(&mut processor, &uneven, 10, &[], &reported(1.0)).unwrap_err(),
-        RenderError::InputLength
+        RenderError::Input(crate::InputError::AudioBuffers)
     );
 }
 
@@ -330,7 +327,10 @@ fn events_reach_the_block_they_fall_in_with_block_offsets() {
         &[off, on],
         &reported(1.0),
     );
-    assert_eq!(unordered.unwrap_err(), RenderError::Events);
+    assert_eq!(
+        unordered.unwrap_err(),
+        RenderError::Input(crate::InputError::Events)
+    );
 }
 
 #[test]

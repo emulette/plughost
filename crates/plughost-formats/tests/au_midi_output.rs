@@ -473,14 +473,9 @@ fn system_exclusive_input_longer_than_a_native_event_is_rejected_before_scheduli
             Event::sysex(7, message(MAX_BLOCK_SYSEX_BYTES)),
         ],
     );
-    assert!(
-        matches!(
-            rejected,
-            Err(Error::Au(au::AuError::Input(
-                plughost_core::InputError::EventCapacity
-            )))
-        ),
-        "{rejected:?}"
+    assert_eq!(
+        rejected.unwrap_err().input_error(),
+        Some(plughost_core::InputError::EventCapacity)
     );
     // Nothing of the rejected block reached the unit.
     assert!(block(&mut plugin, &[]).unwrap().is_empty());

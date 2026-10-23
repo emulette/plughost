@@ -21,7 +21,7 @@ pub(super) fn optional(value: Option<&CStr>) -> Result<Option<String>, ClapError
 fn entry(bundle: &Path, identity: &HostIdentity) -> Result<(PluginEntry, HostInfo), ClapError> {
     identity.validate().map_err(ClapError::Input)?;
     // SAFETY: loading native provider code is this operation's explicit purpose.
-    let entry = unsafe { PluginEntry::load(bundle) }.map_err(|e| ClapError::Load(e.to_string()))?;
+    let entry = unsafe { PluginEntry::load(bundle) }.map_err(ClapError::Load)?;
     let host = HostInfo::new(&identity.name, &identity.vendor, "", &identity.version)
         .map_err(|_| ClapError::PresetInput)?;
     Ok((entry, host))
@@ -30,7 +30,11 @@ fn entry(bundle: &Path, identity: &HostIdentity) -> Result<(PluginEntry, HostInf
 pub fn preset_providers(
     bundle: &Path,
     identity: &HostIdentity,
-) -> Result<Vec<PresetProviderInfo>, ClapError> {
+) -> Result<Vec<PresetProviderInfo>, crate::Error> {
+    Ok(providers(bundle, identity)?)
+}
+
+fn providers(bundle: &Path, identity: &HostIdentity) -> Result<Vec<PresetProviderInfo>, ClapError> {
     let (entry, host) = entry(bundle, identity)?;
     let factory = entry
         .get_factory::<PresetDiscoveryFactory>()
@@ -70,6 +74,14 @@ pub fn discover_presets(
     bundle: &Path,
     identity: &HostIdentity,
     target: &PresetDiscoveryTarget,
+) -> Result<PresetDiscovery, crate::Error> {
+    Ok(discover(bundle, identity, target)?)
+}
+
+fn discover(
+    bundle: &Path,
+    identity: &HostIdentity,
+    target: &PresetDiscoveryTarget,
 ) -> Result<PresetDiscovery, ClapError> {
     let id = input_string(&target.provider_id)?;
     location_path(&target.location)?;
@@ -79,8 +91,8 @@ pub fn discover_presets(
     }
     let mut provider = Provider::instantiate(Indexer::new(), &entry, &id, &host)
         .map_err(|_| ClapError::PresetDiscovery)?;
-    if let Some(error) = &provider.indexer().error {
-        return Err(error.clone());
+    if let Some(error) = provider.indexer_mut().error.take() {
+        return Err(error);
     }
     let declarations = provider.indexer_mut().take()?;
     match &target.location {
@@ -107,7 +119,7 @@ pub fn discover_presets(
 
 /// The files under `root` that match a declared file type. An empty extension matches any file.
 fn files(root: &Path, types: &[PresetFileType]) -> Result<Vec<PathBuf>, ClapError> {
-    std::fs::read_dir(root).map_err(|error| ClapError::PresetLocation(error.kind()))?;
+    std::fs::read_dir(root).map_err(ClapError::PresetLocation)?;
     let mut files: Vec<PathBuf> = walkdir::WalkDir::new(root)
         .follow_links(true)
         .into_iter()

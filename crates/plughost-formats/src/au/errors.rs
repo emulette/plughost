@@ -3,11 +3,11 @@ use std::fmt;
 use plughost_core::{FailureKind, InputError, Layout, SampleFormat};
 
 use crate::errors::{
-    CLOSED, NOT_PREPARED, PARAMETER_CONVERSION, PARAMETER_RESULT, STATE_PURPOSE_UNSUPPORTED,
+    CLOSED, INPUT, NOT_PREPARED, PARAMETER_CONVERSION, PARAMETER_RESULT, STATE_PURPOSE_UNSUPPORTED,
     state_too_large,
 };
 use plughost_core::messages::{
-    BUFFERS, OUTPUT_EVENT_CAPACITY, STATE_MISMATCH, UNCONVERTIBLE_OUTPUT_EVENTS, UNKNOWN_EVENT_PORT,
+    OUTPUT_EVENT_CAPACITY, STATE_MISMATCH, UNCONVERTIBLE_OUTPUT_EVENTS, UNKNOWN_EVENT_PORT,
 };
 
 const AUDIO_BUS_METADATA: &str = "the Audio Unit returned invalid audio bus metadata";
@@ -18,13 +18,16 @@ const FACTORY_PRESET_METADATA: &str =
     "the Audio Unit returned invalid or excessive factory preset metadata";
 const FACTORY_PRESET_SELECTION: &str = "the Audio Unit did not select the requested factory preset";
 const CLASS_ID: &str = "not an Audio Unit class ID (24 hexadecimal digits)";
+const CLASS_NOT_FOUND: &str = "no registered Audio Unit has class ID";
 const INSTANTIATE: &str = "the Audio Unit could not be instantiated";
+const SET_PARAMETER: &str = "the Audio Unit rejected the parameter change";
 const SAMPLE_FORMAT_UNSUPPORTED: &str = "Audio Units process 32-bit float samples only";
 const NO_BUS: &str = "the Audio Unit has no bus for the requested layout";
 const LAYOUT_REFUSED: &str = "the Audio Unit refused the requested layout";
 const ALLOCATE: &str = "the Audio Unit could not allocate render resources";
 const PROCESSING_STORAGE: &str = "could not reserve the prepared Audio Unit audio buffers";
 const RENDER: &str = "the Audio Unit's render call failed";
+const RENDER_OUTPUT: &str = "the Audio Unit returned render buffers that do not match the request";
 const RENDER_BLOCKS: &str = "the Audio Unit returned no render or parameter scheduling block";
 const STATE: &str = "the Audio Unit state could not be encoded or decoded";
 const INVALIDATED: &str =
@@ -35,9 +38,25 @@ pub(crate) fn unconvertible_output_events(count: u64) -> String {
     format!("{UNCONVERTIBLE_OUTPUT_EVENTS} {count}")
 }
 
+/// What an `NSError` an Audio Unit call returned says: its code, which is an `OSStatus` for
+/// Audio Unit errors, and its localized description.
+#[derive(Debug)]
+pub(crate) struct NativeError {
+    pub(crate) code: isize,
+    pub(crate) description: String,
+}
+
+impl fmt::Display for NativeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} (code {})", self.description, self.code)
+    }
+}
+
+impl std::error::Error for NativeError {}
+
 /// Audio Unit loading, configuration, rendering, state, and editor failures.
-#[derive(Clone, Debug, PartialEq)]
-pub enum AuError {
+#[derive(Debug)]
+pub(crate) enum AuError {
     /// Caller input violated a processing or control contract.
     Input(InputError),
     /// The requested native event port does not exist or is not enabled.
@@ -67,25 +86,28 @@ pub enum AuError {
     ParameterResult,
     /// The supplied Audio Unit class ID is not 24 hexadecimal digits.
     ClassId(String),
-    /// The Audio Unit could not be instantiated. The payload contains the native diagnostic, or
-    /// the requested class ID when no registered Audio Unit has it.
-    Instantiate(String),
+    /// No registered Audio Unit has the class ID.
+    ClassNotFound(String),
+    /// The Audio Unit could not be instantiated, with the error it returned if any.
+    Instantiate(Option<NativeError>),
     /// Audio Units process 32-bit float samples only.
     SampleFormatUnsupported(SampleFormat),
     /// No main audio bus can provide the requested layout.
     NoBus(Layout),
     /// The Audio Unit refused the requested layout.
-    LayoutRefused(Layout, String),
-    /// The Audio Unit could not allocate render resources. The payload contains the native diagnostic.
-    Allocate(String),
+    LayoutRefused(Layout, NativeError),
+    /// The Audio Unit could not allocate render resources.
+    Allocate(NativeError),
+    /// `AudioUnitSetParameter` returned the supplied OSStatus error code.
+    SetParameter(i32),
     /// The plugin is not prepared for processing.
     NotPrepared,
-    /// The buffers do not match the prepared layout or block size.
-    Buffers,
     /// Could not reserve the prepared Audio Unit audio buffers.
     ProcessingStorage,
     /// The native render call returned the supplied OSStatus error code.
     Render(i32),
+    /// The Audio Unit returned render buffers that do not match the request.
+    RenderOutput,
     /// The Audio Unit returned no render or parameter scheduling block.
     RenderBlocks,
     /// Native output exceeded the per-block event or system-exclusive budget; reset before processing again.
@@ -115,23 +137,23 @@ impl fmt::Display for AuError {
             AuError::ParameterConversion => f.write_str(PARAMETER_CONVERSION),
             AuError::ParameterResult => f.write_str(PARAMETER_RESULT),
             AuError::StatePurposeUnsupported => f.write_str(STATE_PURPOSE_UNSUPPORTED),
-            AuError::Input(error) => error.fmt(f),
+            AuError::Input(_) => f.write_str(INPUT),
             AuError::ClassId(id) => write!(f, "{CLASS_ID}: {id}"),
-            AuError::Instantiate(reason) => write!(f, "{INSTANTIATE}: {reason}"),
+            AuError::ClassNotFound(id) => write!(f, "{CLASS_NOT_FOUND} {id}"),
+            AuError::Instantiate(_) => f.write_str(INSTANTIATE),
+            AuError::SetParameter(status) => write!(f, "{SET_PARAMETER} (OSStatus {status})"),
             AuError::SampleFormatUnsupported(format) => {
                 write!(f, "{SAMPLE_FORMAT_UNSUPPORTED} ({format:?})")
             }
             AuError::NoBus(layout) => write!(f, "{NO_BUS} ({layout:?})"),
-            AuError::LayoutRefused(layout, reason) => {
-                write!(f, "{LAYOUT_REFUSED} ({layout:?}): {reason}")
-            }
-            AuError::Allocate(reason) => write!(f, "{ALLOCATE}: {reason}"),
+            AuError::LayoutRefused(layout, _) => write!(f, "{LAYOUT_REFUSED} ({layout:?})"),
+            AuError::Allocate(_) => f.write_str(ALLOCATE),
             AuError::NotPrepared => f.write_str(NOT_PREPARED),
             AuError::Invalidated => f.write_str(INVALIDATED),
             AuError::ProcessingStorage => f.write_str(PROCESSING_STORAGE),
-            AuError::Buffers => f.write_str(BUFFERS),
             AuError::UnknownEventPort { id } => write!(f, "{UNKNOWN_EVENT_PORT} ({id})"),
             AuError::Render(status) => write!(f, "{RENDER} (OSStatus {status})"),
+            AuError::RenderOutput => f.write_str(RENDER_OUTPUT),
             AuError::RenderBlocks => f.write_str(RENDER_BLOCKS),
             AuError::OutputEventCapacity => f.write_str(OUTPUT_EVENT_CAPACITY),
             AuError::State => f.write_str(STATE),
@@ -142,11 +164,32 @@ impl fmt::Display for AuError {
     }
 }
 
-impl std::error::Error for AuError {}
+impl std::error::Error for AuError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Input(error) => Some(error),
+            Self::Instantiate(Some(error))
+            | Self::LayoutRefused(_, error)
+            | Self::Allocate(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl AuError {
+    /// The `OSStatus` of the failed call, or the code of the `NSError` it returned.
+    pub(crate) fn native_code(&self) -> Option<i32> {
+        match self {
+            Self::Render(status) | Self::SetParameter(status) => Some(*status),
+            Self::Instantiate(Some(error))
+            | Self::LayoutRefused(_, error)
+            | Self::Allocate(error) => i32::try_from(error.code).ok(),
+            _ => None,
+        }
+    }
+
     /// Classifies this failure for scan policy and helper diagnostics.
-    pub fn kind(&self) -> FailureKind {
+    pub(crate) fn kind(&self) -> FailureKind {
         match self {
             Self::AudioBusMetadata | Self::RenderBlocks => FailureKind::Host,
             Self::AudioConfiguration | Self::ProcessingStorage => FailureKind::Configuration,
@@ -158,10 +201,12 @@ impl AuError {
             Self::StatePurposeUnsupported => FailureKind::Unsupported,
             Self::ParameterConversion => FailureKind::Unsupported,
             Self::ParameterResult => FailureKind::Host,
-            Self::Input(_) | Self::ClassId(_) | Self::Buffers | Self::UnknownEventPort { .. } => {
+            Self::Input(_) | Self::ClassId(_) | Self::UnknownEventPort { .. } => {
                 FailureKind::InvalidInput
             }
+            Self::ClassNotFound(_) => FailureKind::NotFound,
             Self::Instantiate(_) => FailureKind::Load,
+            Self::SetParameter(_) => FailureKind::State,
             Self::SampleFormatUnsupported(_) | Self::NoEditor => FailureKind::Unsupported,
             Self::NoBus(_) | Self::LayoutRefused(_, _) | Self::Allocate(_) => {
                 FailureKind::Configuration
@@ -171,7 +216,9 @@ impl AuError {
             Self::Invalidated => FailureKind::RestartRequired,
             Self::StateMismatch => FailureKind::StateMismatch,
             Self::State => FailureKind::State,
-            Self::Render(_) | Self::OutputEventCapacity => FailureKind::Processing,
+            Self::Render(_) | Self::RenderOutput | Self::OutputEventCapacity => {
+                FailureKind::Processing
+            }
         }
     }
 }

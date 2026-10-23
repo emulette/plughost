@@ -112,6 +112,6 @@ impl Plugin {
         if unsafe { self.handler.performEdit(id, value) } != kResultOk {
             return Err(Vst3Error::Input(plughost_core::InputError::EventCapacity));
         }
-        self.flush()
+        self.flush_edits()
     }
 }

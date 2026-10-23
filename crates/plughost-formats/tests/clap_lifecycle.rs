@@ -3,10 +3,11 @@
 use std::path::Path;
 
 use plughost_core::{
-    BlockContext, HostIdentity, Layout, ProcessConfig, ProcessMode, SampleFormat, Support,
+    BlockContext, FailureKind, HostIdentity, Layout, ProcessConfig, ProcessMode, SampleFormat,
+    Support,
 };
-use plughost_formats::HostedPlugin;
-use plughost_formats::clap::{ClapError, Plugin};
+use plughost_formats::clap::Plugin;
+use plughost_formats::{Error, HostedPlugin};
 
 fn plugin(variant: &str, suffix: u32) -> Plugin {
     let bundle = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -33,7 +34,7 @@ fn prepare(plugin: &mut Plugin) {
         .unwrap();
 }
 
-fn process(plugin: &mut Plugin) -> Result<[Vec<f32>; 2], ClapError> {
+fn process(plugin: &mut Plugin) -> Result<[Vec<f32>; 2], Error> {
     let input = [1.0f32; 512];
     let (mut left, mut right) = (vec![0.0; 512], vec![0.0; 512]);
     plugin.process(
@@ -62,7 +63,10 @@ fn failed_start_keeps_host_edits_for_the_next_block() {
     let mut plugin = plugin("start-failure", 0x10);
     prepare(&mut plugin);
     plugin.set_parameter(0, 0.25).unwrap();
-    assert!(matches!(process(&mut plugin), Err(ClapError::Process(_))));
+    let error = process(&mut plugin).unwrap_err();
+    assert_eq!(error.kind(), FailureKind::Processing);
+    // The native start failure is kept as the cause.
+    assert!(std::error::Error::source(&error).is_some());
     let output = process(&mut plugin).unwrap();
     for channel in output {
         assert_eq!(&channel[..480], &[0.0; 480]);

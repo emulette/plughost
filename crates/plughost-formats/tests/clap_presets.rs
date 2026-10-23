@@ -1,7 +1,7 @@
 #![cfg(feature = "clap")]
 use plughost_core::{FailureKind, HostIdentity, PresetDiscoveryTarget, PresetLocation};
-use plughost_formats::clap::{self, ClapError, Plugin};
-use plughost_formats::{Error, HostedPlugin};
+use plughost_formats::HostedPlugin;
+use plughost_formats::clap::{self, Plugin};
 use std::path::{Path, PathBuf};
 const CLASS: &str = "com.studio.plughost.test-presets";
 const PROVIDER: &str = "com.studio.plughost.presets";
@@ -108,16 +108,15 @@ fn directories_are_crawled_for_declared_file_types_and_refused_files_are_listed(
 #[test]
 #[ignore = "needs scripts/build-test-plugins.ps1 (or .sh)"]
 fn malformed_and_failed_provider_results_do_not_return_partial_metadata() {
-    for (file, expected) in [
-        ("fail.phcp", ClapError::PresetDiscovery),
-        ("duplicate.phcp", ClapError::PresetMetadata),
-    ] {
+    for file in ["fail.phcp", "duplicate.phcp"] {
         let location = PresetLocation::File {
             path: bundle().parent().unwrap().join(file),
         };
         assert_eq!(
-            clap::discover_presets(&bundle(), &HostIdentity::default(), &target(location)),
-            Err(expected)
+            clap::discover_presets(&bundle(), &HostIdentity::default(), &target(location))
+                .unwrap_err()
+                .kind(),
+            FailureKind::State
         );
     }
 }
@@ -127,8 +126,11 @@ fn load_observes_return_status_and_error_callbacks() {
     let mut plugin = Plugin::new(&bundle(), CLASS, &HostIdentity::default()).unwrap();
     for key in ["fail", "callback-error"] {
         assert_eq!(
-            plugin.load_discovered_preset(&PresetLocation::Plugin, Some(key)),
-            Err(Error::Clap(ClapError::PresetLoad))
+            plugin
+                .load_discovered_preset(&PresetLocation::Plugin, Some(key))
+                .unwrap_err()
+                .kind(),
+            FailureKind::State
         );
     }
     assert!(
@@ -162,15 +164,19 @@ fn invalid_discovery_input_is_rejected_before_loading_a_module() {
             &target(PresetLocation::File {
                 path: "relative.phcp".into()
             })
-        ),
-        Err(ClapError::PresetInput)
+        )
+        .unwrap_err()
+        .kind(),
+        FailureKind::InvalidInput
     );
     let target = PresetDiscoveryTarget {
         provider_id: "bad\0id".into(),
         location: PresetLocation::Plugin,
     };
     assert_eq!(
-        clap::discover_presets(bundle, &HostIdentity::default(), &target),
-        Err(ClapError::PresetInput)
+        clap::discover_presets(bundle, &HostIdentity::default(), &target)
+            .unwrap_err()
+            .kind(),
+        FailureKind::InvalidInput
     );
 }

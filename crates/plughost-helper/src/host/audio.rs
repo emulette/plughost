@@ -378,5 +378,5 @@ fn prepare(
     slot: usize,
     plugin: &mut dyn HostedPlugin,
 ) -> Result<Vec<AudioBusInfo>, Error> {
-    plugin.prepare_audio(&config.slot_config(slot).map_err(Error::Input)?)
+    plugin.prepare_audio(&config.slot_config(slot)?)
 }

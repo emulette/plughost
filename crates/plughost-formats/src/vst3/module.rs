@@ -39,19 +39,22 @@ impl std::fmt::Debug for Module {
 
 impl Module {
     /// Loads the module at `path`: a `.vst3` bundle, or on Windows also a single-file `.vst3`.
-    pub fn load(path: &Path) -> Result<Rc<Module>, Vst3Error> {
+    pub fn load(path: &Path) -> Result<Rc<Module>, crate::Error> {
         Self::load_with_host(path, &HostIdentity::default())
     }
 
     /// Loads a module with a factory-scoped host identity, supplied before class enumeration.
     /// Optional IPluginFactory3 host-context support does not replace per-instance initialization.
-    pub fn load_with_host(path: &Path, identity: &HostIdentity) -> Result<Rc<Module>, Vst3Error> {
-        identity.validate().map_err(Vst3Error::Input)?;
+    pub fn load_with_host(
+        path: &Path,
+        identity: &HostIdentity,
+    ) -> Result<Rc<Module>, crate::Error> {
+        identity.validate()?;
         let (binary, factory) = platform::Binary::open(path)?;
         // SAFETY: GetPluginFactory returns an owned reference.
         let Some(factory) = (unsafe { ComPtr::from_raw(factory) }) else {
             binary.exit();
-            return Err(Vst3Error::NoFactory);
+            return Err(Vst3Error::NoFactory.into());
         };
         let host = ComWrapper::new(HostApplication {
             name: identity.name.clone(),
@@ -248,7 +251,7 @@ mod platform {
             let bundle = CFBundle::new(None, Some(&url)).ok_or(Vst3Error::BundleOpen)?;
             // SAFETY: running the module's code is the purpose of loading it.
             if !unsafe { bundle.load_executable() } {
-                return Err(Vst3Error::BundleLoad);
+                return Err(Vst3Error::BundleLoad(None));
             }
             let binary = Binary { bundle };
             // The SDK accepts both spellings.
@@ -324,8 +327,8 @@ mod platform {
     impl Binary {
         pub fn open(path: &Path) -> Result<(Binary, *mut IPluginFactory), Vst3Error> {
             // SAFETY: running the module's code is the purpose of loading it.
-            let library =
-                unsafe { Library::new(binary_path(path)) }.map_err(|_| Vst3Error::BundleLoad)?;
+            let library = unsafe { Library::new(binary_path(path)) }
+                .map_err(|error| Vst3Error::BundleLoad(Some(Box::new(error))))?;
             let binary = Binary { library };
             // SAFETY: InitDll and GetPluginFactory have these signatures in the VST3 module ABI.
             unsafe {

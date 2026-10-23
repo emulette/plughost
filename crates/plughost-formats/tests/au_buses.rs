@@ -21,7 +21,7 @@ use objc2_core_audio_types::AudioBufferList;
 use objc2_foundation::{NSArray, NSError, NSInteger, NSNumber, NSString};
 use plughost_core::{Layout, ProcessConfig, ProcessMode, SampleFormat};
 use plughost_formats::HostedPlugin;
-use plughost_formats::au::{self, AuError, Plugin};
+use plughost_formats::au::{self, Plugin};
 
 type InternalRender = dyn Fn(
     *mut c_void,
@@ -185,9 +185,11 @@ fn an_instrument_leaves_its_input_off_whatever_channel_pairs_it_lists() {
 
 #[test]
 fn an_effect_keeps_to_its_channel_pairs() {
-    assert!(matches!(
-        prepare(kAudioUnitType_Effect, Layout::None),
-        Err(plughost_formats::Error::Au(AuError::AudioConfiguration))
-    ));
+    assert_eq!(
+        prepare(kAudioUnitType_Effect, Layout::None)
+            .unwrap_err()
+            .kind(),
+        plughost_core::FailureKind::Configuration
+    );
     prepare(kAudioUnitType_Effect, Layout::Stereo).unwrap();
 }

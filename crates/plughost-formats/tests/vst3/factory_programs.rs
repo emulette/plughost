@@ -21,8 +21,11 @@ fn factory_programs_reach_the_processor_and_survive_immediate_state_save() {
         }
     );
     assert_eq!(
-        original.select_factory_preset(&presets[1].id),
-        Err(Error::Vst3(Vst3Error::NotPrepared))
+        original
+            .select_factory_preset(&presets[1].id)
+            .unwrap_err()
+            .kind(),
+        FailureKind::NotPrepared
     );
     original
         .prepare(&config(48_000.0, SampleFormat::F32))
@@ -97,8 +100,8 @@ fn invalid_factory_program_identity_does_not_edit_the_current_state() {
         },
     ] {
         assert_eq!(
-            plugin.select_factory_preset(&id),
-            Err(Error::Vst3(Vst3Error::InvalidFactoryPreset))
+            plugin.select_factory_preset(&id).unwrap_err().kind(),
+            FailureKind::InvalidInput
         );
         assert_eq!(
             plugin

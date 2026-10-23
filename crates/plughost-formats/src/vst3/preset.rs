@@ -34,7 +34,11 @@ impl Preset {
     }
 
     /// Encodes a size-bounded container after validating its class ID and chunk lengths.
-    pub fn to_bytes(&self) -> Result<Vec<u8>, Vst3Error> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, crate::Error> {
+        Ok(self.encode()?)
+    }
+
+    fn encode(&self) -> Result<Vec<u8>, Vst3Error> {
         if !valid_class(&self.class_id) {
             return Err(Vst3Error::Preset);
         }
@@ -79,7 +83,11 @@ impl Preset {
     }
 
     /// Validates the header, chunk table, offsets, lengths, and overlaps before copying state.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Vst3Error> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error> {
+        Ok(Self::decode(bytes)?)
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, Vst3Error> {
         if bytes.len() > MAX_PRESET_BYTES
             || bytes.get(..4) != Some(b"VST3")
             || read_i32(bytes, 4)? != FORMAT_VERSION
@@ -216,11 +224,14 @@ mod tests {
     #[test]
     fn truncated_or_foreign_files_are_rejected() {
         let bytes = preset(&[]).to_bytes().unwrap();
-        assert_eq!(
-            Preset::from_bytes(&bytes[..bytes.len() - 3]),
+        assert!(matches!(
+            Preset::decode(&bytes[..bytes.len() - 3]),
             Err(Vst3Error::Preset)
-        );
-        assert_eq!(Preset::from_bytes(b"RIFF0000"), Err(Vst3Error::Preset));
+        ));
+        assert!(matches!(
+            Preset::decode(b"RIFF0000"),
+            Err(Vst3Error::Preset)
+        ));
     }
 
     #[test]
@@ -239,7 +250,7 @@ mod tests {
             "84E8DE5F92554F5396FAE4133C935A18extra",
         ] {
             preset.class_id = id.into();
-            assert_eq!(preset.to_bytes(), Err(Vst3Error::Preset));
+            assert!(matches!(preset.encode(), Err(Vst3Error::Preset)));
         }
     }
 
@@ -264,9 +275,8 @@ mod tests {
         for (offset, replacement) in cases {
             let mut malformed = bytes.clone();
             malformed[offset..offset + replacement.len()].copy_from_slice(&replacement);
-            assert_eq!(
-                Preset::from_bytes(&malformed),
-                Err(Vst3Error::Preset),
+            assert!(
+                matches!(Preset::decode(&malformed), Err(Vst3Error::Preset)),
                 "offset {offset}"
             );
         }

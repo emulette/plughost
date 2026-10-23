@@ -1,5 +1,5 @@
 //! Native preset containers. File I/O belongs to the caller; CLAP has no common state file codec.
-use crate::Error;
+use crate::errors::{Error, Repr};
 use plughost_core::{InputError, MAX_PRESET_BYTES, PluginFormat, PluginState, PresetInfo};
 
 /// Validated native preset identity and opaque processor/controller payloads.
@@ -12,21 +12,22 @@ pub struct DecodedPreset {
     pub controller: Vec<u8>,
 }
 
-/// Whether this build can encode and decode the format's native preset files.
-pub fn supports(format: PluginFormat) -> bool {
+/// Fails with an unsupported error unless this build can encode and decode the format's native
+/// preset files.
+pub fn supported(format: PluginFormat) -> Result<(), Error> {
     match format {
         #[cfg(feature = "vst3")]
-        PluginFormat::Vst3 => true,
+        PluginFormat::Vst3 => Ok(()),
         #[cfg(all(feature = "au", target_os = "macos"))]
-        PluginFormat::AudioUnit => true,
-        _ => false,
+        PluginFormat::AudioUnit => Ok(()),
+        _ => Err(Error::new(Repr::PresetUnsupported)),
     }
 }
 
 /// Validates a bounded native preset container without loading a plugin.
 pub fn decode(format: PluginFormat, bytes: &[u8]) -> Result<DecodedPreset, Error> {
     if bytes.len() > MAX_PRESET_BYTES {
-        return Err(Error::Input(InputError::PresetSize));
+        return Err(InputError::PresetSize.into());
     }
     match format {
         #[cfg(feature = "vst3")]
@@ -47,7 +48,7 @@ pub fn decode(format: PluginFormat, bytes: &[u8]) -> Result<DecodedPreset, Error
             component: crate::au::from_preset(bytes)?,
             controller: Vec::new(),
         }),
-        _ => Err(Error::PresetUnsupported),
+        _ => Err(Error::new(Repr::PresetUnsupported)),
     }
 }
 
@@ -59,14 +60,14 @@ pub fn encode(state: &PluginState) -> Result<Vec<u8>, Error> {
         PluginFormat::Vst3 => bounded(crate::vst3::Preset::from_state(state).to_bytes()?),
         #[cfg(all(feature = "au", target_os = "macos"))]
         PluginFormat::AudioUnit => bounded(crate::au::to_preset(&state.component)?),
-        _ => Err(Error::PresetUnsupported),
+        _ => Err(Error::new(Repr::PresetUnsupported)),
     }
 }
 
 #[cfg(any(feature = "vst3", all(feature = "au", target_os = "macos")))]
 fn bounded(bytes: Vec<u8>) -> Result<Vec<u8>, Error> {
     if bytes.len() > MAX_PRESET_BYTES {
-        return Err(Error::Input(InputError::PresetSize));
+        return Err(InputError::PresetSize.into());
     }
     Ok(bytes)
 }

@@ -24,14 +24,14 @@ pub fn scan(bundle: &Path, host: &HostIdentity, responder: &Responder) -> io::Re
         match classes {
             Ok(classes) => send(classes, responder)?,
             Err(error) => {
-                return responder.fail(None, plughost_formats::Error::from(error).failure());
+                return responder.fail(None, error.failure());
             }
         }
     } else {
         let module = match Module::load_with_host(bundle, host) {
             Ok(module) => module,
             Err(error) => {
-                return responder.fail(None, plughost_formats::Error::from(error).failure());
+                return responder.fail(None, error.failure());
             }
         };
         responder.send(&Response::ModuleLoaded)?;

@@ -5,6 +5,52 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `plughost_formats::Error` is one opaque struct for every format instead of an enum with a
+  variant per format, and `Vst3Error`, `ClapError` and `AuError` are no longer public; the
+  format modules' functions, such as `vst3::Module::load` and `clap::classes`, return
+  `plughost_formats::Error`. Match `kind()` for the `FailureKind` and `input_error()` for
+  rejected caller input instead of variants; `format()` names the format whose host failed
+  (none for rejected caller input),
+  `native_code()` gives the VST3 `tresult` or the Audio Unit `OSStatus` (or `NSError` code), and
+  `is_output_event_overflow()` and `failure()` remain. It is no longer `Clone` or `PartialEq`;
+  compare `kind()`.
+- Errors keep their causes. A plughost-formats error and a `RenderError` display only their own
+  context, and `source()` gives the input or render error, the module loader's error (VST3 on
+  Windows, CLAP), the CLAP instance or GUI error, the I/O error of a CLAP preset location, or the
+  error an Audio Unit returned behind it,
+  which were dropped or turned into text before. `plughost_formats::Error::failure()` puts the
+  whole chain in its message.
+- An Audio Unit class ID that no registered unit has fails with `FailureKind::NotFound`, as a
+  VST3 or CLAP class that a module does not have does, instead of `FailureKind::Load`.
+- Each input contract has one error. Render events that are not valid, not in offset order or not
+  before the end of the input are `RenderError::Input(InputError::Events)`; `RenderError::Events`
+  is removed. plughost reports input that a render rejects as `Error::Input` with no slot, never
+  as `Error::Render`. Audio buffers of the wrong channel count or length, or a block longer than
+  the prepared maximum, are `InputError::AudioBuffers` in every crate and in rendering:
+  `Error::Buffers`, `RenderError::InputChannels` and `RenderError::InputLength` are removed, so
+  match `Error::Input { error: InputError::AudioBuffers, .. }` or
+  `RenderError::Input(InputError::AudioBuffers)`. Buffers of another precision than the prepared
+  one are `InputError::AudioSampleFormat` in the in-process VST3 and CLAP `process` calls too,
+  where they were a VST3 sample format mismatch and a CLAP unsupported sample format. Parameter changes
+  that the in-process `process` calls receive out of offset order, outside the block or outside
+  `0..=1` fail with `InputError::Automation`, as automation does in a chain, rather than as a
+  buffer error (or, for a VST3 value, `InputError::ParameterValue`).
+- `plughost_formats::preset::supports(format)` is `supported(format)`, which returns the
+  unsupported error instead of `false`.
+
+### Fixed
+
+- An Audio Unit v2 parameter edit that `AudioUnitSetParameter` refuses fails with
+  `FailureKind::State` and the `OSStatus` as `native_code()`, and is neither kept as the host's
+  edit nor announced to the unit's parameter listeners. It succeeded before, whatever the status.
+- An Audio Unit that renders into other buffers than it was given fails the block with
+  `FailureKind::Processing`; it was reported as invalid caller input, after the unit had
+  processed the block.
+
 ## [0.1.6] - 2026-10-23
 
 ### Added
@@ -637,6 +683,7 @@ Windows x64, and of Audio Units on macOS, with each chain isolated in a helper p
 - Failures: typed errors with the failing slot, helper exit monitoring, diagnostics, and chain
   recovery in a new helper from saved states.
 
+[Unreleased]: https://github.com/emulette/plughost/compare/v0.1.6...HEAD
 [0.1.6]: https://github.com/emulette/plughost/releases/tag/v0.1.6
 [0.1.5]: https://github.com/emulette/plughost/releases/tag/v0.1.5
 [0.1.4]: https://github.com/emulette/plughost/releases/tag/v0.1.4

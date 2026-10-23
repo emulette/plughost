@@ -7,7 +7,7 @@ use std::path::Path;
 pub fn providers(bundle: &Path, host: &HostIdentity, responder: &Responder) -> io::Result<()> {
     match plughost_formats::clap::preset_providers(bundle, host) {
         Ok(providers) => responder.send(&Response::PresetProviders(providers)),
-        Err(error) => responder.fail(None, plughost_formats::Error::from(error).failure()),
+        Err(error) => responder.fail(None, error.failure()),
     }
 }
 pub fn discover(
@@ -18,6 +18,6 @@ pub fn discover(
 ) -> io::Result<()> {
     match plughost_formats::clap::discover_presets(bundle, host, target) {
         Ok(presets) => responder.send(&Response::DiscoveredPresets(presets)),
-        Err(error) => responder.fail(None, plughost_formats::Error::from(error).failure()),
+        Err(error) => responder.fail(None, error.failure()),
     }
 }

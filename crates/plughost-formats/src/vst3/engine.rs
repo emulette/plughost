@@ -328,7 +328,9 @@ impl Engine {
             SampleFormat::F64 => std::any::TypeId::of::<S>() == std::any::TypeId::of::<f64>(),
         };
         if !native_type || S::FORMAT != prepared.config.sample_format {
-            return Err(Vst3Error::SampleFormatMismatch);
+            return Err(Vst3Error::Input(
+                plughost_core::InputError::AudioSampleFormat,
+            ));
         }
         context.validate().map_err(Vst3Error::Input)?;
         if let Some(transport) = context.transport {
@@ -358,12 +360,11 @@ impl Engine {
             || frames > prepared.config.max_block_size
             || input.iter().any(|c| c.len() != frames)
             || output.iter().any(|c| c.len() != frames)
-            || changes.iter().any(|c| c.offset >= frames)
-            || changes
-                .windows(2)
-                .any(|pair| pair[0].offset > pair[1].offset)
         {
-            return Err(Vst3Error::Buffers);
+            return Err(Vst3Error::Input(plughost_core::InputError::AudioBuffers));
+        }
+        if !plughost_core::changes_fit(changes, frames) {
+            return Err(Vst3Error::Input(plughost_core::InputError::Automation));
         }
         if frames == 0 {
             return Ok(());
@@ -548,7 +549,7 @@ fn main_layout(buses: &[AudioBusInfo], direction: AudioDirection) -> Layout {
 
 /// Processes a plugin on a thread other than the one that owns it, for example while its editor
 /// runs on the main thread. Calls wait for any other processor call on the same plugin. Once the
-/// plugin is dropped, calls fail with [`Vst3Error::Closed`].
+/// plugin is dropped, calls fail with `FailureKind::Closed`.
 #[derive(Clone)]
 pub struct Processor {
     engine: Shared,

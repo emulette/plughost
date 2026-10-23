@@ -86,9 +86,9 @@ const AUDIO_ROUTE: &str = "the audio route does not name an available source";
 const CHANNEL_ADAPTATION: &str =
     "the explicit channel adaptation does not match the source and target layouts";
 const BLOCK_EVENTS: &str = "events must be notes, expressions in their ranges, MIDI 1.0 channel messages or complete \
-     system exclusive messages, in offset order and inside the block";
-const AUDIO_BUFFERS: &str =
-    "audio buffers must match the bus channel count and contain equal frame counts";
+     system exclusive messages, in offset order and inside the block or render input";
+const AUDIO_BUFFERS: &str = "audio buffers must match the bus channel count and contain equal frame \
+     counts, at most the prepared maximum block size";
 const AUDIO_SAMPLE_FORMAT: &str =
     "audio sample precision does not match the prepared configuration";
 const STATE_SIZE: &str = "plugin component and controller state together exceed the maximum size";
@@ -128,8 +128,6 @@ pub const AUDIT: &str = "real-time audit:";
 pub const UNCONVERTIBLE_OUTPUT_EVENTS: &str = "output events with no portable form (chords, scales, choke, text expression, MIDI 2.0) were not delivered:";
 /// Diagnostic for state belonging to another plugin class.
 pub const STATE_MISMATCH: &str = "the state belongs to a different plugin class";
-/// Diagnostic for mismatched audio buffers or block length.
-pub const BUFFERS: &str = "the buffers do not match the prepared layout or block size";
 /// Diagnostic for a chain without a prepared processing configuration.
 pub const CHAIN_NOT_PREPARED: &str = "the chain is not prepared";
 
@@ -167,7 +165,8 @@ pub enum InputError {
         /// Layout requested by the destination.
         target: crate::Layout,
     },
-    /// Channel counts or per-channel frame lengths do not match the prepared buses.
+    /// Channel counts or per-channel frame lengths do not match the prepared buses, or a block
+    /// has more frames than the prepared maximum block size.
     AudioBuffers,
     /// Sample precision differs from the prepared configuration.
     AudioSampleFormat,
@@ -239,7 +238,8 @@ pub enum InputError {
         /// Invalid zero-based external event port index.
         port: usize,
     },
-    /// Events that are not valid, in offset order, or inside the block.
+    /// Events that are not valid, in offset order, or inside the block, or for a render before
+    /// the end of its input.
     Events,
     /// A bundle or preset path cannot be represented by the helper's Unicode path protocol.
     PathEncoding,
@@ -318,9 +318,7 @@ const REALTIME_QUANTUM: &str =
 const REALTIME_LATENCY: &str = "a realtime latency must be one, two or three quanta";
 const REALTIME_DRY: &str = "a dry fallback needs as many output channels as input channels";
 
-const INPUT_LENGTH: &str = "input channels do not all have the requested number of frames";
-const INPUT_CHANNELS: &str = "input channel count does not match the processor";
-const EVENTS: &str = "events must be valid, in offset order, inside the input";
+const INPUT: &str = "invalid render input";
 const LATENCY_CHANGED: &str = "the processor's latency changed during rendering";
 const LATENCY_NOT_APPLIED: &str = "a plugin announced a new latency that is not applied yet; reset \
      or prepare the chain again before rendering";
@@ -339,7 +337,12 @@ pub(crate) const MALFORMED_MESSAGE: &str = "the message could not be decoded";
 pub enum RenderError {
     /// The streaming render session has already finished, been cancelled or failed.
     SessionClosed,
-    /// A shared processing or control input contract was violated.
+    /// A shared processing or control input contract was violated, including input channels
+    /// that do not match the processor or do not all have the requested number of frames
+    /// ([`InputError::AudioBuffers`]) and render events
+    /// that are not valid, not in offset order or not before the end of the input
+    /// ([`InputError::Events`]). Events on ports the processor lacks fail its
+    /// [`Process::validate_events`](crate::render::Process::validate_events).
     Input(InputError),
     /// Maximum tail duration is not finite and non-negative.
     TailDuration,
@@ -349,18 +352,6 @@ pub enum RenderError {
     SilenceHold,
     /// Render duration or sample storage exceeds the representable range.
     LengthOverflow,
-    /// Input channels do not contain the requested equal frame count.
-    InputLength,
-    /// The supplied channel count differs from the prepared processor.
-    InputChannels {
-        /// Prepared channel count.
-        expected: usize,
-        /// Supplied channel count.
-        actual: usize,
-    },
-    /// Events are invalid, unordered, or outside the render input. Events on ports the
-    /// processor lacks fail its [`Process::validate_events`](crate::render::Process::validate_events).
-    Events,
     /// The processor’s latency changed during a render.
     LatencyChanged {
         /// Latency at render start, in frames.
@@ -382,10 +373,7 @@ impl RenderError {
             | Self::TailDuration
             | Self::SilenceThreshold
             | Self::SilenceHold
-            | Self::LengthOverflow
-            | Self::InputLength
-            | Self::InputChannels { .. }
-            | Self::Events => FailureKind::InvalidInput,
+            | Self::LengthOverflow => FailureKind::InvalidInput,
             Self::LatencyChanged { .. } => FailureKind::Configuration,
             Self::LatencyNotApplied => FailureKind::RestartRequired,
         }
@@ -396,16 +384,11 @@ impl fmt::Display for RenderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RenderError::SessionClosed => f.write_str(SESSION_CLOSED),
-            RenderError::Input(error) => error.fmt(f),
+            RenderError::Input(_) => f.write_str(INPUT),
             RenderError::TailDuration => f.write_str(TAIL_DURATION),
             RenderError::SilenceThreshold => f.write_str(SILENCE_THRESHOLD),
             RenderError::SilenceHold => f.write_str(SILENCE_HOLD),
             RenderError::LengthOverflow => f.write_str(RENDER_LENGTH),
-            RenderError::InputLength => f.write_str(INPUT_LENGTH),
-            RenderError::InputChannels { expected, actual } => {
-                write!(f, "{INPUT_CHANNELS} (expected {expected}, got {actual})")
-            }
-            RenderError::Events => f.write_str(EVENTS),
             RenderError::LatencyChanged { before, after } => {
                 write!(f, "{LATENCY_CHANGED} ({before} to {after} samples)")
             }
@@ -414,4 +397,11 @@ impl fmt::Display for RenderError {
     }
 }
 
-impl std::error::Error for RenderError {}
+impl std::error::Error for RenderError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            RenderError::Input(error) => Some(error),
+            _ => None,
+        }
+    }
+}

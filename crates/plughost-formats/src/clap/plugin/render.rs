@@ -1,8 +1,9 @@
 use super::{ClapError, Plugin, lock};
+use crate::Error;
 use plughost_core::render::{Process, Tail};
 use plughost_core::{AudioDirection, AutomationEvent, BlockContext, Event, InputError, Sample};
 impl<S: Sample> Process<S> for Plugin {
-    type Error = ClapError;
+    type Error = Error;
     fn sample_rate(&self) -> f64 {
         self.config().map_or(0.0, |c| c.sample_rate)
     }
@@ -15,17 +16,17 @@ impl<S: Sample> Process<S> for Plugin {
     fn output_channels(&self) -> usize {
         channel_count(self, AudioDirection::Output)
     }
-    fn latency(&self) -> Result<u32, ClapError> {
+    fn latency(&self) -> Result<u32, Error> {
         Ok(Plugin::timing(self)?.latency)
     }
-    fn tail(&self) -> Result<Tail, ClapError> {
+    fn tail(&self) -> Result<Tail, Error> {
         Ok(Plugin::timing(self)?.tail)
     }
-    fn begin_render(&mut self) -> Result<(), ClapError> {
+    fn begin_render(&mut self) -> Result<(), Error> {
         self.config().ok_or(ClapError::NotPrepared)?;
         Ok(())
     }
-    fn validate_events(&mut self, events: &[Event]) -> Result<(), ClapError> {
+    fn validate_events(&mut self, events: &[Event]) -> Result<(), Error> {
         let engine = lock(&self.engine);
         let prepared = engine.prepared.as_ref().ok_or(ClapError::NotPrepared)?;
         if let Some(event) = events.iter().find(|event| {
@@ -36,25 +37,23 @@ impl<S: Sample> Process<S> for Plugin {
                 .flatten()
                 .is_none()
         }) {
-            return Err(ClapError::Input(InputError::EventPort { port: event.port }));
+            return Err(InputError::EventPort { port: event.port }.into());
         }
         Ok(())
     }
-    fn validate_automation(&mut self, automation: &[AutomationEvent]) -> Result<(), ClapError> {
+    fn validate_automation(&mut self, automation: &[AutomationEvent]) -> Result<(), Error> {
         let parameters = self.parameter_cache();
         for event in automation {
             if event.slot != 0 {
-                return Err(ClapError::Input(InputError::Slot));
+                return Err(InputError::Slot.into());
             }
-            let parameter = parameters.get(event.change.id).ok_or(ClapError::Input(
-                InputError::UnknownParameter {
-                    id: event.change.id,
-                },
-            ))?;
-            parameter
-                .info
-                .automation_value(event.change.value)
-                .map_err(ClapError::Input)?;
+            let parameter =
+                parameters
+                    .get(event.change.id)
+                    .ok_or(InputError::UnknownParameter {
+                        id: event.change.id,
+                    })?;
+            parameter.info.automation_value(event.change.value)?;
         }
         Ok(())
     }
@@ -66,13 +65,14 @@ impl<S: Sample> Process<S> for Plugin {
         automation: &[AutomationEvent],
         events: &[Event],
         produced: &mut Vec<Event>,
-    ) -> Result<(), ClapError> {
+    ) -> Result<(), Error> {
         if automation.iter().any(|event| event.slot != 0) {
-            return Err(ClapError::Input(InputError::Slot));
+            return Err(InputError::Slot.into());
         }
         let changes: Vec<_> = automation.iter().map(|event| event.change).collect();
-        self.processor()
-            .process(context, input, output, &changes, events, produced)
+        Ok(self
+            .processor()
+            .process(context, input, output, &changes, events, produced)?)
     }
 }
 fn channel_count(plugin: &Plugin, direction: AudioDirection) -> usize {

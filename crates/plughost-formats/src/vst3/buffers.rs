@@ -35,7 +35,9 @@ impl AudioBuffers {
         };
         let storage = storage
             .downcast_mut::<Buffers<S>>()
-            .ok_or(Vst3Error::SampleFormatMismatch)?;
+            .ok_or(Vst3Error::Input(
+                plughost_core::InputError::AudioSampleFormat,
+            ))?;
         storage.inputs.bind(input, &mut [], range.clone());
         storage.outputs.bind(&[], output, range);
         Ok(())

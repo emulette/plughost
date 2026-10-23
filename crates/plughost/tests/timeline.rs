@@ -65,17 +65,16 @@ impl Process<f32> for Native {
         let parameters = self.plugin.parameters();
         for event in events {
             if event.slot != 0 {
-                return Err(NativeError::Input(InputError::Slot));
+                return Err(InputError::Slot.into());
             }
             parameters
                 .iter()
                 .find(|(p, _)| p.id == event.change.id)
-                .ok_or(NativeError::Input(InputError::UnknownParameter {
+                .ok_or(InputError::UnknownParameter {
                     id: event.change.id,
-                }))?
+                })?
                 .0
-                .automation_value(event.change.value)
-                .map_err(NativeError::Input)?;
+                .automation_value(event.change.value)?;
         }
         Ok(())
     }

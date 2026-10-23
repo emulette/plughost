@@ -1,13 +1,13 @@
 use std::fmt;
 
-use plughost_core::{FailureKind, InputError, Layout, RenderError, SampleFormat};
+use plughost_core::{FailureKind, InputError, Layout, SampleFormat};
 
 use crate::errors::{
-    ACTIVATE, CLOSED, NO_EDITOR, NOT_PREPARED, PARAMETER_CONVERSION, PARAMETER_RESULT, PROCESS,
-    STATE_PURPOSE_UNSUPPORTED, state_too_large,
+    ACTIVATE, CLOSED, INPUT, NO_EDITOR, NOT_PREPARED, PARAMETER_CONVERSION, PARAMETER_RESULT,
+    PROCESS, STATE_PURPOSE_UNSUPPORTED, state_too_large,
 };
 use plughost_core::messages::{
-    BUFFERS, MAIN_BUS, OUTPUT_EVENT_CAPACITY, STATE_MISMATCH, UNCONVERTIBLE_OUTPUT_EVENTS,
+    MAIN_BUS, OUTPUT_EVENT_CAPACITY, STATE_MISMATCH, UNCONVERTIBLE_OUTPUT_EVENTS,
     UNKNOWN_EVENT_PORT,
 };
 
@@ -23,6 +23,7 @@ const INVALID_FACTORY_PRESET: &str = "the factory program does not belong to thi
 const FACTORY_PRESET_METADATA: &str = "the plugin returned invalid factory program metadata";
 const FACTORY_PRESET_SELECT: &str = "the plugin rejected the factory program";
 const EVENT_STORAGE: &str = "could not reserve the prepared VST3 event storage";
+#[cfg(target_os = "macos")]
 const BUNDLE_OPEN: &str = "could not open the VST3 bundle";
 const BUNDLE_LOAD: &str = "could not load the VST3 module binary";
 const NO_ENTRY_POINT: &str = "the module does not export";
@@ -39,7 +40,6 @@ const SAMPLE_FORMAT_UNSUPPORTED: &str = "the plugin cannot process samples of fo
 const LAYOUT_REFUSED: &str = "the plugin refused the requested layout";
 const SETUP_REJECTED: &str =
     "the plugin rejected the processing setup (sample rate, block size, sample format, or mode)";
-const SAMPLE_FORMAT_MISMATCH: &str = "the buffers' sample format differs from the prepared format";
 const PROCESSING_STORAGE: &str = "could not reserve the prepared VST3 audio buffers";
 const RESTART_REQUIRED: &str =
     "the plugin changed its buses or asked to be reloaded; prepare it again";
@@ -55,8 +55,8 @@ pub(crate) fn unconvertible_output_events(count: u64) -> String {
 }
 
 /// VST3 loading, lifecycle, processing, state, and editor failures.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Vst3Error {
+#[derive(Debug)]
+pub(crate) enum Vst3Error {
     /// The plugin returned invalid audio bus metadata.
     AudioBusMetadata,
     /// VST3 does not enumerate named audio configurations.
@@ -96,9 +96,10 @@ pub enum Vst3Error {
     /// The plugin returned a non-finite or otherwise invalid parameter conversion.
     ParameterResult,
     /// Could not open the VST3 bundle.
+    #[cfg(target_os = "macos")]
     BundleOpen,
-    /// Could not load the VST3 module binary.
-    BundleLoad,
+    /// Could not load the VST3 module binary, with the loader's error where it gives one.
+    BundleLoad(Option<Box<dyn std::error::Error + Send + Sync>>),
     /// The module does not export the named required entry point.
     NoEntryPoint(&'static str),
     /// The module's entry function failed.
@@ -136,10 +137,6 @@ pub enum Vst3Error {
     Activate(i32),
     /// The plugin is not prepared for processing.
     NotPrepared,
-    /// The buffers' sample format differs from the prepared format.
-    SampleFormatMismatch,
-    /// The buffers do not match the prepared layout or block size.
-    Buffers,
     /// Could not reserve the prepared VST3 audio buffers.
     ProcessingStorage,
     /// Could not reserve the prepared VST3 event storage.
@@ -171,8 +168,6 @@ pub enum Vst3Error {
     NoEditor,
     /// The plugin's editor failed to attach. The payload is a native result code.
     EditorAttach(i32),
-    /// The render scheduler rejected its input or failed during delivery.
-    Render(RenderError),
 }
 
 impl fmt::Display for Vst3Error {
@@ -196,9 +191,10 @@ impl fmt::Display for Vst3Error {
             Vst3Error::ParameterResult => f.write_str(PARAMETER_RESULT),
             Vst3Error::ParameterGroups => f.write_str(PARAMETER_GROUPS),
             Vst3Error::StatePurposeUnsupported => f.write_str(STATE_PURPOSE_UNSUPPORTED),
-            Vst3Error::Input(error) => error.fmt(f),
+            Vst3Error::Input(_) => f.write_str(INPUT),
+            #[cfg(target_os = "macos")]
             Vst3Error::BundleOpen => f.write_str(BUNDLE_OPEN),
-            Vst3Error::BundleLoad => f.write_str(BUNDLE_LOAD),
+            Vst3Error::BundleLoad(_) => f.write_str(BUNDLE_LOAD),
             Vst3Error::NoEntryPoint(name) => write!(f, "{NO_ENTRY_POINT} {name}"),
             Vst3Error::EntryFailed => f.write_str(ENTRY_FAILED),
             Vst3Error::NoFactory => f.write_str(NO_FACTORY),
@@ -227,12 +223,10 @@ impl fmt::Display for Vst3Error {
             Vst3Error::SetupRejected(code) => write!(f, "{SETUP_REJECTED} (tresult {code})"),
             Vst3Error::Activate(code) => write!(f, "{ACTIVATE} (tresult {code})"),
             Vst3Error::NotPrepared => f.write_str(NOT_PREPARED),
-            Vst3Error::SampleFormatMismatch => f.write_str(SAMPLE_FORMAT_MISMATCH),
             Vst3Error::EventStorage => f.write_str(EVENT_STORAGE),
             Vst3Error::OutputEventCapacity => f.write_str(OUTPUT_EVENT_CAPACITY),
             Vst3Error::UnknownEventPort { id } => write!(f, "{UNKNOWN_EVENT_PORT} ({id})"),
             Vst3Error::ProcessingStorage => f.write_str(PROCESSING_STORAGE),
-            Vst3Error::Buffers => f.write_str(BUFFERS),
             Vst3Error::Process(code) => write!(f, "{PROCESS} (tresult {code})"),
             Vst3Error::RestartRequired(flags) => write!(f, "{RESTART_REQUIRED} (flags {flags:#x})"),
             Vst3Error::GetState(code) => write!(f, "{GET_STATE} (tresult {code})"),
@@ -243,16 +237,41 @@ impl fmt::Display for Vst3Error {
             Vst3Error::Closed => f.write_str(CLOSED),
             Vst3Error::NoEditor => f.write_str(NO_EDITOR),
             Vst3Error::EditorAttach(code) => write!(f, "{EDITOR_ATTACH} (tresult {code})"),
-            Vst3Error::Render(error) => error.fmt(f),
         }
     }
 }
 
-impl std::error::Error for Vst3Error {}
+impl std::error::Error for Vst3Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Input(error) => Some(error),
+            Self::BundleLoad(Some(error)) => Some(error.as_ref()),
+            _ => None,
+        }
+    }
+}
 
 impl Vst3Error {
+    /// The `tresult` the plugin returned.
+    pub(crate) fn native_code(&self) -> Option<i32> {
+        match self {
+            Self::AudioBusActivation { code, .. }
+            | Self::BypassEdit(code)
+            | Self::FactoryPresetSelect(code)
+            | Self::InitializeComponent(code)
+            | Self::InitializeController(code)
+            | Self::SetupRejected(code)
+            | Self::Activate(code)
+            | Self::Process(code)
+            | Self::GetState(code)
+            | Self::SetState(code)
+            | Self::EditorAttach(code) => Some(*code),
+            _ => None,
+        }
+    }
+
     /// Classifies this failure for scan policy and helper diagnostics.
-    pub fn kind(&self) -> FailureKind {
+    pub(crate) fn kind(&self) -> FailureKind {
         match self {
             Self::AudioBusMetadata => FailureKind::Host,
             Self::UnknownAudioBus { .. } | Self::UnknownEventPort { .. } => {
@@ -272,15 +291,14 @@ impl Vst3Error {
             Self::StatePurposeUnsupported => FailureKind::Unsupported,
             Self::ParameterConversion => FailureKind::Unsupported,
             Self::ParameterResult => FailureKind::Host,
-            Self::Input(_) | Self::SampleFormatMismatch | Self::Buffers | Self::Preset => {
-                FailureKind::InvalidInput
-            }
+            Self::Input(_) | Self::Preset => FailureKind::InvalidInput,
             Self::ClassNotFound(_) => FailureKind::NotFound,
             Self::SampleFormatUnsupported(_) | Self::NoEditor | Self::NoAudioProcessor => {
                 FailureKind::Unsupported
             }
-            Self::BundleOpen
-            | Self::BundleLoad
+            #[cfg(target_os = "macos")]
+            Self::BundleOpen => FailureKind::Load,
+            Self::BundleLoad(_)
             | Self::NoEntryPoint(_)
             | Self::EntryFailed
             | Self::NoFactory
@@ -308,13 +326,6 @@ impl Vst3Error {
             Self::GetState(_) | Self::SetState(_) | Self::StateTooLarge => FailureKind::State,
             Self::Process(_) => FailureKind::Processing,
             Self::EditorAttach(_) => FailureKind::Editor,
-            Self::Render(error) => error.kind(),
         }
-    }
-}
-
-impl From<RenderError> for Vst3Error {
-    fn from(error: RenderError) -> Vst3Error {
-        Vst3Error::Render(error)
     }
 }

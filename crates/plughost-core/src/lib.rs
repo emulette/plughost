@@ -43,7 +43,7 @@ pub use errors::{Failure, FailureKind, InputError, RenderError};
 #[doc(hidden)]
 pub mod messages {
     pub use crate::errors::{
-        AUDIT, BUFFERS, CHAIN_NOT_PREPARED, MAIN_BUS, OUTPUT_EVENT_CAPACITY, STATE_MISMATCH,
+        AUDIT, CHAIN_NOT_PREPARED, MAIN_BUS, OUTPUT_EVENT_CAPACITY, STATE_MISMATCH,
         UNCONVERTIBLE_OUTPUT_EVENTS, UNKNOWN_EVENT_PORT,
     };
 }

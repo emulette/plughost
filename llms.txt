@@ -646,9 +646,21 @@ frontmost before is activated again when the helper's last window closes.
 
 Match typed `Error` variants (`Error::Render` carries a `RenderError`, `Error::Input` an
 `InputError`) or use `Error::kind()` for the shared `FailureKind`; do not parse display text.
+Each input contract has one error: input that a render, a block or a configuration rejects is
+`Error::Input`, never `Error::Render`, and audio buffers of the wrong channel count or length,
+or a block longer than the prepared maximum, are `InputError::AudioBuffers`, and buffers of
+another precision `InputError::AudioSampleFormat`.
 `Error::source()`
 exposes wrapped I/O, render, input and operation errors. `Display` gives the outer context;
-format the source chain to include each cause once. `PresetSearchError` follows the same rule.
+format the source chain to include each cause once. `PresetSearchError`, `RenderError` and
+`plughost_formats::Error` follow the same rule.
+
+`plughost_formats::Error` is one opaque type for every format: `kind()` gives the
+`FailureKind`, `input_error()` the rejected caller input, `format()` the format whose host
+failed (none for rejected input), `native_code()` the VST3 `tresult` or Audio Unit `OSStatus` (an `NSError` code where
+the call returns one), and `source()` the cause, such as the module loader's error or the
+CLAP instance error. `failure()` flattens the chain into a transportable `Failure`. An Audio
+Unit or a VST3 or CLAP class that is not found fails with `FailureKind::NotFound`.
 After a timeout, protocol error or cancellation the
 helper is terminated; later requests return `Error::Crashed` (`NotPrepared` for processing)
 until the application recovers the chain. `Error::Crashed`, `Error::TimedOut` and `Error::Cancelled`

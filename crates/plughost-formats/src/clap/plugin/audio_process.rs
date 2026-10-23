@@ -62,7 +62,9 @@ impl Processor {
             )
         };
         if S::FORMAT != prepared.config.sample_format || !sample_type::<S>() {
-            return Err(ClapError::SampleFormatUnsupported(S::FORMAT));
+            return Err(ClapError::Input(
+                plughost_core::InputError::AudioSampleFormat,
+            ));
         }
 
         if !events_fit(events, frames) {
@@ -73,9 +75,11 @@ impl Processor {
             || frames > prepared.config.max_block_size
             || input.iter().any(|c| c.len() != frames)
             || output.iter().any(|c| c.len() != frames)
-            || !plughost_core::changes_fit(automation, frames)
         {
-            return Err(ClapError::Buffers);
+            return Err(ClapError::Input(plughost_core::InputError::AudioBuffers));
+        }
+        if !plughost_core::changes_fit(automation, frames) {
+            return Err(ClapError::Input(plughost_core::InputError::Automation));
         }
         if frames == 0 {
             return Ok(());
@@ -113,7 +117,7 @@ impl Processor {
             let _floats = crate::float_mode::FlushToZero::enter();
             processor.ensure_processing_started()
         })
-        .map_err(|error| ClapError::Process(error.to_string()))?;
+        .map_err(ClapError::Process)?;
         // Host edits apply from the start of the block, so they come before the notes. They stay
         // queued until the plugin has processed the block.
         let input_events_buffer = &mut prepared.input_events;
@@ -185,7 +189,7 @@ impl Processor {
                     transport.as_ref(),
                 )
             };
-            processed.map_err(|error| ClapError::Process(error.to_string()))
+            processed.map_err(ClapError::Process)
         });
         if result.is_ok() {
             processor.access_shared_handler(|shared| shared.forget_delivered(edits));

@@ -379,18 +379,11 @@ fn render_reusing<S: Sample, P: Process<S>>(
     } = scratch;
     processor.begin_render()?;
     let expected = processor.input_channels();
-    if input.len() != expected {
-        return Err(RenderError::InputChannels {
-            expected,
-            actual: input.len(),
-        }
-        .into());
-    }
-    if input.iter().any(|channel| channel.len() != frames) {
-        return Err(RenderError::InputLength.into());
+    if input.len() != expected || input.iter().any(|channel| channel.len() != frames) {
+        return Err(RenderError::Input(crate::InputError::AudioBuffers).into());
     }
     if !events_fit(events, frames) {
-        return Err(RenderError::Events.into());
+        return Err(RenderError::Input(crate::InputError::Events).into());
     }
 
     processor.validate_events(events)?;

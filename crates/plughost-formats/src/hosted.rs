@@ -2,7 +2,7 @@
 //! retains the explicitly selected sample precision across this interface.
 
 use crate::audio_thread::AudioThread;
-use crate::errors::Error;
+use crate::errors::{Error, Repr};
 use std::ffi::c_void;
 use std::sync::Arc;
 
@@ -60,14 +60,14 @@ pub trait HostedPlugin {
     fn take_parameter_events(&mut self) -> plughost_core::ParameterEventBatch;
     /// Lists native factory presets or programs. The default reports unsupported.
     fn factory_presets(&mut self) -> Result<Vec<plughost_core::FactoryPreset>, Error> {
-        Err(Error::FactoryPresetsUnsupported)
+        Err(Error::new(Repr::FactoryPresetsUnsupported))
     }
     /// Selects a native factory preset or program. The default reports unsupported.
     fn select_factory_preset(
         &mut self,
         _preset: &plughost_core::FactoryPresetId,
     ) -> Result<(), Error> {
-        Err(Error::FactoryPresetsUnsupported)
+        Err(Error::new(Repr::FactoryPresetsUnsupported))
     }
     /// Loads a provider-discovered preset by native location and optional load key.
     fn load_discovered_preset(
@@ -75,7 +75,7 @@ pub trait HostedPlugin {
         _location: &plughost_core::PresetLocation,
         _load_key: Option<&str>,
     ) -> Result<(), Error> {
-        Err(Error::PresetDiscoveryUnsupported)
+        Err(Error::new(Repr::PresetDiscoveryUnsupported))
     }
     /// Reads native audio bus metadata in input-then-output order, retaining native indices.
     fn audio_buses(&mut self) -> Result<Vec<plughost_core::AudioBusInfo>, Error>;
@@ -232,11 +232,11 @@ pub trait BlockProcessor: Send {
 
 /// Loads the plugin class `plugin` names, in this process.
 pub fn load(plugin: &PluginRef, host: &HostIdentity) -> Result<Box<dyn HostedPlugin>, Error> {
-    host.validate().map_err(Error::Input)?;
+    host.validate()?;
     match plugin.format {
         #[cfg(feature = "vst3")]
         plughost_core::PluginFormat::Vst3 => {
-            let bundle = plugin.bundle.as_deref().ok_or(Error::NoBundle)?;
+            let bundle = plugin.bundle.as_deref().ok_or(Error::new(Repr::NoBundle))?;
             let module = vst3::Module::load_with_host(bundle, host)?;
             Ok(Box::new(vst3::Plugin::new(
                 &module,
@@ -248,11 +248,11 @@ pub fn load(plugin: &PluginRef, host: &HostIdentity) -> Result<Box<dyn HostedPlu
         plughost_core::PluginFormat::AudioUnit => Ok(Box::new(au::Plugin::new(&plugin.class_id)?)),
         #[cfg(feature = "clap")]
         plughost_core::PluginFormat::Clap => {
-            let bundle = plugin.bundle.as_deref().ok_or(Error::NoBundle)?;
+            let bundle = plugin.bundle.as_deref().ok_or(Error::new(Repr::NoBundle))?;
             Ok(Box::new(clap::Plugin::new(bundle, &plugin.class_id, host)?))
         }
         #[allow(unreachable_patterns)]
-        format => Err(Error::UnsupportedFormat(format)),
+        format => Err(Error::new(Repr::UnsupportedFormat(format))),
     }
 }
 
@@ -599,9 +599,7 @@ impl BlockProcessor for au::Processor {
         produced: &mut Vec<Event>,
     ) -> Result<(), Error> {
         let _ = (context, input, output, automation, events, produced);
-        Err(Error::Au(au::AuError::SampleFormatUnsupported(
-            plughost_core::SampleFormat::F64,
-        )))
+        Err(au::AuError::SampleFormatUnsupported(plughost_core::SampleFormat::F64).into())
     }
 
     fn timing(&self) -> Result<PluginTiming, Error> {

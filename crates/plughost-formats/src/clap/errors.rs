@@ -1,13 +1,16 @@
 use std::fmt;
 
+use clack_extensions::gui::GuiError;
+use clack_host::entry::PluginEntryError;
+use clack_host::prelude::PluginInstanceError;
 use plughost_core::{FailureKind, InputError, Layout, SampleFormat};
 
 use crate::errors::{
-    ACTIVATE, NO_EDITOR, NOT_PREPARED, PARAMETER_CONVERSION, PARAMETER_RESULT, PROCESS,
+    ACTIVATE, INPUT, NO_EDITOR, NOT_PREPARED, PARAMETER_CONVERSION, PARAMETER_RESULT, PROCESS,
     STATE_PURPOSE_UNSUPPORTED, state_too_large,
 };
 use plughost_core::messages::{
-    BUFFERS, OUTPUT_EVENT_CAPACITY, STATE_MISMATCH, UNCONVERTIBLE_OUTPUT_EVENTS, UNKNOWN_EVENT_PORT,
+    OUTPUT_EVENT_CAPACITY, STATE_MISMATCH, UNCONVERTIBLE_OUTPUT_EVENTS, UNKNOWN_EVENT_PORT,
 };
 
 const AUDIO_METADATA: &str = "the CLAP plugin returned invalid audio bus metadata";
@@ -50,12 +53,10 @@ pub(crate) fn too_many_parameters(count: u32, read: u32) -> String {
 }
 
 /// CLAP loading, extensions, processing, state, and editor failures.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ClapError {
+#[derive(Debug)]
+pub(crate) enum ClapError {
     /// Caller input violated a processing or control contract.
     Input(InputError),
-    /// The render scheduler rejected its input or failed during delivery.
-    Render(plughost_core::RenderError),
     /// The CLAP plugin returned invalid audio bus metadata.
     AudioMetadata,
     /// The CLAP plugin does not support this audio bus operation.
@@ -84,21 +85,21 @@ pub enum ClapError {
     /// Native output exceeded the per-block event or system-exclusive budget; reset before processing again.
     OutputEventCapacity,
     /// The CLAP preset location could not be read.
-    PresetLocation(std::io::ErrorKind),
+    PresetLocation(std::io::Error),
     /// The plugin does not support the requested state context.
     StatePurposeUnsupported,
     /// The plugin does not support the requested parameter conversion.
     ParameterConversion,
     /// The plugin returned a non-finite or otherwise invalid parameter conversion.
     ParameterResult,
-    /// The CLAP module could not be loaded. The payload contains the native diagnostic.
-    Load(String),
+    /// The CLAP module could not be loaded.
+    Load(PluginEntryError),
     /// The CLAP module has no plugin factory.
     NoFactory,
     /// The factory has no plugin with the supplied class ID.
     ClassNotFound(String),
-    /// The CLAP plugin could not be created. The payload contains the native diagnostic.
-    Instantiate(String),
+    /// The CLAP plugin could not be created.
+    Instantiate(PluginInstanceError),
     /// The CLAP audio ports do not support the requested sample format.
     SampleFormatUnsupported(SampleFormat),
     /// The plugin refused the requested channel layout.
@@ -110,22 +111,20 @@ pub enum ClapError {
     },
     /// The plugin cannot render offline (hard real-time requirement).
     RealtimeOnly,
-    /// The plugin failed to activate. The payload contains the native diagnostic.
-    Activate(String),
+    /// The plugin failed to activate.
+    Activate(PluginInstanceError),
     /// The plugin is not prepared for processing.
     NotPrepared,
     /// The plugin requested explicit re-preparation.
     RestartRequired,
     /// CLAP beat transport requires an explicit bar position because it has no separate bar-valid flag.
     BarPositionRequired,
-    /// The buffers do not match the prepared layout or block size.
-    Buffers,
     /// Could not reserve the prepared CLAP audio buffers.
     ProcessingStorage,
     /// Could not reserve the prepared CLAP input events.
     EventStorage,
-    /// The plugin's process call failed. The payload contains the native diagnostic.
-    Process(String),
+    /// The plugin failed to start processing or its process call failed.
+    Process(PluginInstanceError),
     /// The plugin failed to save or load its state.
     State,
     /// The encoded native state exceeds `MAX_STATE_BYTES`.
@@ -136,8 +135,8 @@ pub enum ClapError {
     StateMismatch,
     /// The plugin has no editor for this platform.
     NoEditor,
-    /// The plugin's editor failed to open. The payload contains the native diagnostic.
-    Editor(String),
+    /// The plugin's editor failed to open.
+    Editor(GuiError),
 }
 
 impl fmt::Display for ClapError {
@@ -155,16 +154,15 @@ impl fmt::Display for ClapError {
             Self::NotePortMetadata => f.write_str(NOTE_PORT_METADATA),
             Self::UnknownEventPort { id } => write!(f, "{UNKNOWN_EVENT_PORT} ({id})"),
             Self::OutputEventCapacity => f.write_str(OUTPUT_EVENT_CAPACITY),
-            Self::PresetLocation(kind) => write!(f, "{PRESET_LOCATION} ({kind})"),
+            Self::PresetLocation(_) => f.write_str(PRESET_LOCATION),
             ClapError::ParameterConversion => f.write_str(PARAMETER_CONVERSION),
             ClapError::ParameterResult => f.write_str(PARAMETER_RESULT),
             ClapError::StatePurposeUnsupported => f.write_str(STATE_PURPOSE_UNSUPPORTED),
-            ClapError::Input(error) => error.fmt(f),
-            Self::Render(error) => error.fmt(f),
-            ClapError::Load(reason) => write!(f, "{LOAD}: {reason}"),
+            ClapError::Input(_) => f.write_str(INPUT),
+            ClapError::Load(_) => f.write_str(LOAD),
             ClapError::NoFactory => f.write_str(NO_FACTORY),
             ClapError::ClassNotFound(id) => write!(f, "{CLASS_NOT_FOUND} {id}"),
-            ClapError::Instantiate(reason) => write!(f, "{INSTANTIATE}: {reason}"),
+            ClapError::Instantiate(_) => f.write_str(INSTANTIATE),
             ClapError::SampleFormatUnsupported(format) => {
                 write!(f, "{SAMPLE_FORMAT_UNSUPPORTED} ({format:?})")
             }
@@ -176,29 +174,41 @@ impl fmt::Display for ClapError {
                 "{LAYOUT_REFUSED} ({requested:?}; the port has {plugin_channels} channels)"
             ),
             ClapError::RealtimeOnly => f.write_str(REALTIME_ONLY),
-            ClapError::Activate(reason) => write!(f, "{ACTIVATE}: {reason}"),
+            ClapError::Activate(_) => f.write_str(ACTIVATE),
             ClapError::BarPositionRequired => f.write_str(BAR_POSITION_REQUIRED),
             ClapError::RestartRequired => f.write_str(RESTART_REQUIRED),
             ClapError::NotPrepared => f.write_str(NOT_PREPARED),
             ClapError::EventStorage => f.write_str(EVENT_STORAGE),
             ClapError::ProcessingStorage => f.write_str(PROCESSING_STORAGE),
-            ClapError::Buffers => f.write_str(BUFFERS),
-            ClapError::Process(reason) => write!(f, "{PROCESS}: {reason}"),
+            ClapError::Process(_) => f.write_str(PROCESS),
             ClapError::State => f.write_str(STATE),
             ClapError::StateTooLarge => state_too_large(f),
             ClapError::StateUnsupported => f.write_str(STATE_UNSUPPORTED),
             ClapError::StateMismatch => f.write_str(STATE_MISMATCH),
             ClapError::NoEditor => f.write_str(NO_EDITOR),
-            ClapError::Editor(reason) => write!(f, "{EDITOR}: {reason}"),
+            ClapError::Editor(_) => f.write_str(EDITOR),
         }
     }
 }
 
-impl std::error::Error for ClapError {}
+impl std::error::Error for ClapError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Input(error) => Some(error),
+            // The entry error's display already includes its own cause; skip that level so the
+            // chain names each cause once.
+            Self::Load(error) => Some(error.source().unwrap_or(error)),
+            Self::Instantiate(error) | Self::Activate(error) | Self::Process(error) => Some(error),
+            Self::Editor(error) => Some(error),
+            Self::PresetLocation(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl ClapError {
     /// Classifies this failure for scan policy and helper diagnostics.
-    pub fn kind(&self) -> FailureKind {
+    pub(crate) fn kind(&self) -> FailureKind {
         match self {
             Self::AudioMetadata => FailureKind::Host,
             Self::AudioUnsupported | Self::BypassUnsupported => FailureKind::Unsupported,
@@ -210,13 +220,14 @@ impl ClapError {
             Self::PresetInput | Self::UnknownEventPort { .. } => FailureKind::InvalidInput,
             Self::NotePortMetadata => FailureKind::Host,
             Self::OutputEventCapacity => FailureKind::Processing,
-            Self::PresetLocation(std::io::ErrorKind::NotFound) => FailureKind::NotFound,
+            Self::PresetLocation(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                FailureKind::NotFound
+            }
             Self::PresetLocation(_) => FailureKind::Host,
             Self::StatePurposeUnsupported => FailureKind::Unsupported,
             Self::ParameterConversion => FailureKind::Unsupported,
             Self::ParameterResult => FailureKind::Host,
-            Self::Input(_) | Self::Buffers => FailureKind::InvalidInput,
-            Self::Render(error) => error.kind(),
+            Self::Input(_) => FailureKind::InvalidInput,
             Self::ClassNotFound(_) => FailureKind::NotFound,
             Self::SampleFormatUnsupported(_)
             | Self::RealtimeOnly
@@ -242,9 +253,3 @@ pub(super) const GUI_REQUEST_WITHOUT_EDITOR: &str =
 pub(super) const PRESET_LOADED: &str = "the CLAP plugin reported a loaded preset";
 pub(super) const TIMER_OFF_MAIN_THREAD: &str =
     "the CLAP plugin registered or unregistered a timer off the main thread, which was refused";
-
-impl From<plughost_core::RenderError> for ClapError {
-    fn from(error: plughost_core::RenderError) -> Self {
-        Self::Render(error)
-    }
-}

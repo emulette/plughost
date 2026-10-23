@@ -275,9 +275,7 @@ impl Host {
                     .map(|preset| Response::PresetInfo(preset.info))
             }),
             Request::ExportPreset { slot } => self.with_slot(slot, |plugin| {
-                if !plughost_formats::preset::supports(plugin.info().format) {
-                    return Err(Error::PresetUnsupported);
-                }
+                plughost_formats::preset::supported(plugin.info().format)?;
                 let state = plugin.save_state(plughost_core::StatePurpose::Preset)?;
                 plughost_formats::preset::encode(&state).map(Response::Preset)
             }),

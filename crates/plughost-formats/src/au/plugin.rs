@@ -42,7 +42,7 @@ use plughost_core::{
 };
 
 use super::components::{component, parse_class_id};
-use super::errors::AuError;
+use super::errors::{AuError, NativeError};
 use super::plist::{self, State};
 use super::wait::{Slot, run_loop_for};
 
@@ -142,8 +142,11 @@ fn lock(engine: &Mutex<Engine>) -> MutexGuard<'_, Engine> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn describe(error: &NSError) -> String {
-    text(&error.localizedDescription())
+fn describe(error: &NSError) -> NativeError {
+    NativeError {
+        code: error.code(),
+        description: text(&error.localizedDescription()),
+    }
 }
 
 /// `string` as Rust text, with U+FFFD for what is not valid UTF-16, such as an unpaired
@@ -190,13 +193,13 @@ impl std::fmt::Debug for Plugin {
 impl Plugin {
     /// Instantiates the registered Audio Unit with `class_id`. AUv3 units run in their extension
     /// process, as macOS does by default.
-    pub fn new(class_id: &str) -> Result<Plugin, AuError> {
+    pub fn new(class_id: &str) -> Result<Plugin, crate::Error> {
         let description = parse_class_id(class_id)?;
         // Zero codes match any component, so the found one must have the requested ID; its
         // hexadecimal digits may differ in case, as `ScanPolicy` allows.
         let info = component(description)
             .filter(|info| info.class_id.eq_ignore_ascii_case(class_id))
-            .ok_or_else(|| AuError::Instantiate(class_id.to_owned()))?;
+            .ok_or_else(|| AuError::ClassNotFound(class_id.to_owned()))?;
         let unit = instantiate(description)?;
         let invalidated = Arc::new(AtomicBool::new(false));
         let invalidation = invalidation::Observation::new(&unit, invalidated.clone());
@@ -306,9 +309,9 @@ impl Plugin {
         automation: &[plughost_core::ParameterChange],
         events: &[Event],
         produced: &mut Vec<Event>,
-    ) -> Result<(), AuError> {
+    ) -> Result<(), crate::Error> {
         produced.clear();
-        lock(&self.engine).process(context, input, output, automation, events, produced)
+        Ok(lock(&self.engine).process(context, input, output, automation, events, produced)?)
     }
 
     pub(crate) fn processor(&self) -> Processor {
@@ -364,7 +367,6 @@ impl Plugin {
         info.validate_edit(value).map_err(AuError::Input)?;
         let (min, max) = unsafe { (parameter.minValue(), parameter.maxValue()) };
         let plain = plain(min, max, &info, value).ok_or(AuError::ParameterResult)?;
-        self.edited = true;
         // For a v2 unit, set the parameter the way v2 hosts do and notify listeners, which is how
         // some plugins keep their own model, and so their saved state, in step. The v3 path
         // updates the DSP of such plugins but not their saved state.
@@ -379,7 +381,7 @@ impl Plugin {
                 mScope: kAudioUnitScope_Global,
                 mElement: 0,
             };
-            unsafe {
+            let status = unsafe {
                 AudioUnitSetParameter(
                     audio_unit,
                     parameter_id,
@@ -387,7 +389,12 @@ impl Plugin {
                     0,
                     plain,
                     0,
-                );
+                )
+            };
+            if status != 0 {
+                return Err(AuError::SetParameter(status));
+            }
+            unsafe {
                 AUParameterListenerNotify(
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
@@ -404,6 +411,7 @@ impl Plugin {
                 .map_or(std::ptr::null_mut(), events::Observation::token);
             unsafe { parameter.setValue_originator(plain, token) };
         }
+        self.edited = true;
         Ok(())
     }
 
@@ -490,12 +498,12 @@ impl Drop for Plugin {
 }
 
 fn instantiate(description: AudioComponentDescription) -> Result<Retained<AUAudioUnit>, AuError> {
-    let slot: Slot<Handoff<Result<Retained<AUAudioUnit>, String>>> = Slot::new();
+    let slot: Slot<Handoff<Result<Retained<AUAudioUnit>, Option<NativeError>>>> = Slot::new();
     let fill = slot.clone();
     let completion = RcBlock::new(move |unit: *mut AUAudioUnit, error: *mut NSError| {
         let result = match unsafe { Retained::retain(unit) } {
             Some(unit) => Ok(unit),
-            None => Err(unsafe { error.as_ref() }.map(describe).unwrap_or_default()),
+            None => Err(unsafe { error.as_ref() }.map(describe)),
         };
         fill.fill(Handoff(result));
     });
@@ -862,9 +870,11 @@ impl Engine {
             || frames > prepared.config.max_block_size
             || input.iter().any(|c| c.len() != frames)
             || output.iter().any(|c| c.len() != frames)
-            || !plughost_core::changes_fit(automation, frames)
         {
-            return Err(AuError::Buffers);
+            return Err(AuError::Input(plughost_core::InputError::AudioBuffers));
+        }
+        if !plughost_core::changes_fit(automation, frames) {
+            return Err(AuError::Input(plughost_core::InputError::Automation));
         }
         if frames == 0 {
             return Ok(());
@@ -1012,8 +1022,8 @@ impl Processor {
     }
 
     /// Schedules normalized parameter changes for the next block.
-    pub fn schedule(&self, id: u64, offset: usize, value: f64) -> Result<(), AuError> {
-        lock(&self.engine).schedule(id, offset, value)
+    pub fn schedule(&self, id: u64, offset: usize, value: f64) -> Result<(), crate::Error> {
+        Ok(lock(&self.engine).schedule(id, offset, value)?)
     }
 
     /// The timing the owning thread last read; no call into the unit.

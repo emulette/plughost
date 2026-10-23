@@ -4,7 +4,7 @@
 //! `cargo test -p plughost-formats -- --ignored`.
 #![cfg(feature = "clap")]
 use plughost_core::*;
-use plughost_formats::clap::{ClapError, Plugin};
+use plughost_formats::clap::Plugin;
 use plughost_formats::{Error, HostedPlugin};
 use std::path::Path;
 
@@ -76,8 +76,8 @@ fn events_whose_header_gives_another_size_than_their_type_are_not_read() {
 fn a_parameter_whose_range_is_not_finite_has_no_value_to_send_or_show() {
     let mut plugin = faults();
     assert_eq!(
-        plugin.set_parameter(UNBOUNDED, 0.5),
-        Err(Error::Clap(ClapError::ParameterResult))
+        plugin.set_parameter(UNBOUNDED, 0.5).unwrap_err().kind(),
+        FailureKind::Host
     );
     let (info, value) = plugin
         .parameters()

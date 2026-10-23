@@ -853,9 +853,11 @@ fn non_realtime_parameters_allow_edits_but_reject_block_automation() {
         &[],
         &mut Vec::new(),
     );
-    assert!(
-        matches!(result, Err(au::AuError::Input(plughost_core::InputError::NotAutomatable { id })) if id == u64::from(MODE)),
-        "{result:?}"
+    assert_eq!(
+        result.unwrap_err().input_error(),
+        Some(plughost_core::InputError::NotAutomatable {
+            id: u64::from(MODE)
+        })
     );
     assert_eq!(output, [[7.0; 512]; 2]);
     block(&mut plugin, &[]);

@@ -10,9 +10,12 @@ use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
 
 use plughost_core::render::{RenderOptions, TailPolicy, render};
-use plughost_core::{Event, Layout, PluginKind, ProcessConfig, ProcessMode, Sample, SampleFormat};
-use plughost_formats::vst3::{Module, Plugin, Preset, Vst3Error};
-use plughost_formats::{Error, HostedPlugin};
+use plughost_core::{
+    Event, FailureKind, InputError, Layout, PluginKind, ProcessConfig, ProcessMode, Sample,
+    SampleFormat,
+};
+use plughost_formats::HostedPlugin;
+use plughost_formats::vst3::{Module, Plugin, Preset};
 
 const NEEDS_PLUGINS: &str = "needs scripts/build-test-plugins.sh";
 #[path = "vst3/audio.rs"]
@@ -72,7 +75,7 @@ fn load_a_module_without_a_factory() {
     }
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/test-plugins/plughost-test-no-factory.vst3");
-    assert!(matches!(Module::load(&path), Err(Vst3Error::NoFactory)));
+    assert_eq!(Module::load(&path).unwrap_err().kind(), FailureKind::Load);
 }
 
 #[test]
@@ -126,25 +129,27 @@ fn render_preflight_rejects_unprepared_and_late_invalid_ports() {
     let mut plugin = plugin("plughost-test-delay");
     let input = [1.0f32; 32];
     let options = RenderOptions::new(TailPolicy::Reported, 0.0);
-    assert!(matches!(
-        render(&mut plugin, &[&input, &input], 32, &[], &options),
-        Err(Vst3Error::NotPrepared)
-    ));
+    assert_eq!(
+        render(&mut plugin, &[&input, &input], 32, &[], &options)
+            .unwrap_err()
+            .kind(),
+        FailureKind::NotPrepared
+    );
     let mut config = config(48_000.0, SampleFormat::F32);
     config.max_block_size = 16;
     plugin.prepare(&config).unwrap();
-    assert!(matches!(
+    assert_eq!(
         render(
             &mut plugin,
             &[&input, &input],
             32,
             &[Event::note_on(24, 0, 60, 100).on_port(99)],
             &options,
-        ),
-        Err(Vst3Error::Input(plughost_core::InputError::EventPort {
-            port: 99
-        }))
-    ));
+        )
+        .unwrap_err()
+        .input_error(),
+        Some(InputError::EventPort { port: 99 })
+    );
     assert_eq!(
         plugin
             .parameters()
@@ -183,12 +188,10 @@ fn invalid_prepare_keeps_the_existing_processor_usable() {
             max_block_size: size,
             ..valid
         };
-        assert!(matches!(
-            plugin.prepare(&invalid),
-            Err(Error::Vst3(Vst3Error::Input(
-                plughost_core::InputError::BlockSize
-            )))
-        ));
+        assert_eq!(
+            plugin.prepare(&invalid).unwrap_err().input_error(),
+            Some(InputError::BlockSize)
+        );
         assert_eq!(plugin.config(), Some(valid));
     }
     for rate in [0.0, -1.0, f64::NAN, f64::INFINITY] {
@@ -196,12 +199,10 @@ fn invalid_prepare_keeps_the_existing_processor_usable() {
             sample_rate: rate,
             ..valid
         };
-        assert!(matches!(
-            plugin.prepare(&invalid),
-            Err(Error::Vst3(Vst3Error::Input(
-                plughost_core::InputError::SampleRate
-            )))
-        ));
+        assert_eq!(
+            plugin.prepare(&invalid).unwrap_err().input_error(),
+            Some(InputError::SampleRate)
+        );
         assert_eq!(plugin.config(), Some(valid));
     }
     assert_eq!(
@@ -236,19 +237,18 @@ fn invalid_parameter_edits_preserve_pending_value_and_state() {
         .unwrap();
     plugin.set_parameter(AGAIN_GAIN, 0.25).unwrap();
     for value in [f64::NAN, f64::INFINITY, -0.1, 1.1] {
-        assert!(matches!(
-            plugin.set_parameter(AGAIN_GAIN, value),
-            Err(Error::Vst3(Vst3Error::Input(
-                plughost_core::InputError::ParameterValue
-            )))
-        ));
+        assert_eq!(
+            plugin
+                .set_parameter(AGAIN_GAIN, value)
+                .unwrap_err()
+                .input_error(),
+            Some(InputError::ParameterValue)
+        );
     }
     for id in [u64::MAX, 0xFFFF] {
         assert!(matches!(
-            plugin.set_parameter(id, 0.5),
-            Err(Error::Vst3(Vst3Error::Input(
-                plughost_core::InputError::UnknownParameter { .. }
-            )))
+            plugin.set_parameter(id, 0.5).unwrap_err().input_error(),
+            Some(InputError::UnknownParameter { .. })
         ));
     }
     let meter = plugin
@@ -257,10 +257,11 @@ fn invalid_parameter_edits_preserve_pending_value_and_state() {
         .find(|p| p.0.flags.read_only)
         .unwrap();
     assert!(matches!(
-        plugin.set_parameter(meter.0.id, 0.5),
-        Err(Error::Vst3(Vst3Error::Input(
-            plughost_core::InputError::ReadOnlyParameter { .. }
-        )))
+        plugin
+            .set_parameter(meter.0.id, 0.5)
+            .unwrap_err()
+            .input_error(),
+        Some(InputError::ReadOnlyParameter { .. })
     ));
     let state = plugin
         .save_state(plughost_core::StatePurpose::Project)
@@ -294,24 +295,26 @@ fn malformed_parameter_changes_do_not_touch_audio_or_pending_edits() {
         offset,
         value,
     };
-    let invalid_value = Vst3Error::Input(plughost_core::InputError::ParameterValue);
-    for (changes, error) in [
-        (vec![change(0, f64::NAN)], invalid_value.clone()),
-        (vec![change(0, f64::INFINITY)], invalid_value.clone()),
-        (vec![change(0, -0.1)], invalid_value.clone()),
-        (vec![change(0, 1.1)], invalid_value),
-        (vec![change(32, 0.2), change(0, 0.3)], Vst3Error::Buffers),
+    for changes in [
+        vec![change(0, f64::NAN)],
+        vec![change(0, f64::INFINITY)],
+        vec![change(0, -0.1)],
+        vec![change(0, 1.1)],
+        vec![change(32, 0.2), change(0, 0.3)],
     ] {
         assert_eq!(
-            plugin.process(
-                &plughost_core::BlockContext::new(output.len()),
-                &[&input, &input],
-                &mut [&mut output, &mut right],
-                &changes,
-                &[],
-                &mut Vec::new(),
-            ),
-            Err(error)
+            plugin
+                .process(
+                    &plughost_core::BlockContext::new(output.len()),
+                    &[&input, &input],
+                    &mut [&mut output, &mut right],
+                    &changes,
+                    &[],
+                    &mut Vec::new(),
+                )
+                .unwrap_err()
+                .input_error(),
+            Some(InputError::Automation)
         );
         assert_eq!(output, [42.0; 64]);
         assert_eq!(right, [42.0; 64]);
@@ -410,10 +413,7 @@ fn latency_is_removed_when_rendering() {
     plugin
         .prepare(&config(48_000.0, SampleFormat::F32))
         .unwrap();
-    assert_eq!(
-        plugin.timing().map(|timing| timing.latency),
-        Ok(TEST_DELAY_LATENCY)
-    );
+    assert_eq!(plugin.timing().unwrap().latency, TEST_DELAY_LATENCY);
     let input = signal(4800, |v| v as f32);
     assert_eq!(run(&mut plugin, &input), input);
 }
@@ -520,11 +520,8 @@ fn layouts_the_plugin_refuses_are_errors() {
         ..config(48_000.0, SampleFormat::F32)
     };
     assert_eq!(
-        plugin.prepare(&mono),
-        Err(Error::Vst3(Vst3Error::LayoutRefused {
-            requested: Layout::Mono,
-            plugin_channels: 2
-        }))
+        plugin.prepare(&mono).unwrap_err().kind(),
+        FailureKind::Configuration
     );
 }
 
@@ -539,11 +536,11 @@ fn other_speakers_with_the_same_channel_count_are_refused() {
         ..config(48_000.0, SampleFormat::F32)
     };
     assert_eq!(
-        plugin("plughost-test-delay").prepare(&surround),
-        Err(Error::Vst3(Vst3Error::LayoutRefused {
-            requested: Layout::Surround51,
-            plugin_channels: 6
-        }))
+        plugin("plughost-test-delay")
+            .prepare(&surround)
+            .unwrap_err()
+            .kind(),
+        FailureKind::Configuration
     );
 }
 
@@ -587,15 +584,20 @@ fn buffers_must_match_the_prepared_sample_format() {
     let inputs: Vec<&[f64]> = input.iter().map(Vec::as_slice).collect();
     let mut outputs: Vec<&mut [f64]> = output.iter_mut().map(Vec::as_mut_slice).collect();
     assert_eq!(
-        plugin.process(
-            &plughost_core::BlockContext::new(outputs.first().map_or(0, |channel| channel.len())),
-            &inputs,
-            &mut outputs,
-            &[],
-            &[],
-            &mut Vec::new(),
-        ),
-        Err(Vst3Error::SampleFormatMismatch)
+        plugin
+            .process(
+                &plughost_core::BlockContext::new(
+                    outputs.first().map_or(0, |channel| channel.len())
+                ),
+                &inputs,
+                &mut outputs,
+                &[],
+                &[],
+                &mut Vec::new(),
+            )
+            .unwrap_err()
+            .input_error(),
+        Some(InputError::AudioSampleFormat)
     );
 }
 
@@ -607,8 +609,11 @@ fn state_from_another_class_is_rejected() {
         .save_state(plughost_core::StatePurpose::Project)
         .unwrap();
     assert_eq!(
-        plugin("plughost-test-delay").restore_state(&state, plughost_core::StatePurpose::Project),
-        Err(Error::Vst3(Vst3Error::StateMismatch))
+        plugin("plughost-test-delay")
+            .restore_state(&state, plughost_core::StatePurpose::Project)
+            .unwrap_err()
+            .kind(),
+        FailureKind::StateMismatch
     );
 }
 
@@ -739,15 +744,20 @@ fn processors_fail_once_the_plugin_is_dropped() {
     let mut output = vec![vec![0.0f32; 64]; 2];
     let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
     assert_eq!(
-        processor.process_audio_f32(
-            &plughost_core::BlockContext::new(outputs.first().map_or(0, |channel| channel.len())),
-            &inputs,
-            &mut outputs,
-            &[],
-            &[],
-            &mut Vec::new(),
-        ),
-        Err(Error::Vst3(Vst3Error::Closed))
+        processor
+            .process_audio_f32(
+                &plughost_core::BlockContext::new(
+                    outputs.first().map_or(0, |channel| channel.len())
+                ),
+                &inputs,
+                &mut outputs,
+                &[],
+                &[],
+                &mut Vec::new(),
+            )
+            .unwrap_err()
+            .kind(),
+        FailureKind::Closed
     );
 }
 
@@ -946,8 +956,8 @@ fn processor_context_requirements_are_read_after_setup() {
     let _serial = serial();
     let mut plugin = plugin("plughost-test-delay");
     assert_eq!(
-        plugin.process_context_requirements(),
-        Err(Vst3Error::NotPrepared)
+        plugin.process_context_requirements().unwrap_err().kind(),
+        FailureKind::NotPrepared
     );
     plugin
         .prepare(&config(48_000.0, SampleFormat::F32))
@@ -974,10 +984,10 @@ fn a_cyclic_unit_hierarchy_is_an_error_and_recovers() {
             .restore_state(&broken, plughost_core::StatePurpose::Project)
             .is_err()
     );
-    assert!(matches!(
-        plugin.parameter_details(0),
-        Err(Error::Vst3(Vst3Error::ParameterGroups))
-    ));
+    assert_eq!(
+        plugin.parameter_details(0).unwrap_err().kind(),
+        FailureKind::Host
+    );
     plugin
         .restore_state(&good, plughost_core::StatePurpose::Project)
         .unwrap();
@@ -1021,8 +1031,8 @@ fn note_events_without_an_id_that_overflow_the_event_list_refuse_the_block() {
     let mut events = vec![Event::new(0, EventData::Expression(tuning)); 3000];
     events.push(Event::new(511, EventData::NoteOff(Note::new(0, KEY, 0.0))));
     assert_eq!(
-        block(&events).map(|_| ()),
-        Err(Vst3Error::Input(InputError::EventCapacity))
+        block(&events).unwrap_err().input_error(),
+        Some(InputError::EventCapacity)
     );
     // The refused block changed nothing: its note off alone still ends all three notes.
     let ended = block(&events[3000..]).unwrap();
@@ -1056,12 +1066,13 @@ fn a_render_does_not_start_on_a_latency_the_plugin_changed() {
     assert!(plugin.timing().unwrap().latency_changed);
     let slices: Vec<&[f32]> = input.iter().map(Vec::as_slice).collect();
     let options = RenderOptions::new(TailPolicy::Reported, 0.0);
-    assert!(matches!(
-        render(&mut plugin, &slices, 4800, &[], &options),
-        Err(Vst3Error::Render(
-            plughost_core::RenderError::LatencyNotApplied
-        ))
-    ));
+    let error = render(&mut plugin, &slices, 4800, &[], &options).unwrap_err();
+    assert_eq!(error.kind(), FailureKind::RestartRequired);
+    assert_eq!(
+        std::error::Error::source(&error)
+            .and_then(|source| source.downcast_ref::<plughost_core::RenderError>()),
+        Some(&plughost_core::RenderError::LatencyNotApplied)
+    );
     plugin.reset().unwrap();
     assert_eq!(plugin.timing().unwrap().latency, 2 * TEST_DELAY_LATENCY);
     assert_eq!(run(&mut plugin, &input), input);

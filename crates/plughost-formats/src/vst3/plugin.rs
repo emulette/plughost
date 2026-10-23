@@ -77,8 +77,8 @@ impl Plugin {
         module: &Rc<Module>,
         class_id: &str,
         identity: &HostIdentity,
-    ) -> Result<Plugin, Vst3Error> {
-        identity.validate().map_err(Vst3Error::Input)?;
+    ) -> Result<Plugin, crate::Error> {
+        identity.validate()?;
         let (cid, info) = module.find_class(class_id)?;
         let host = ComWrapper::new(HostApplication {
             name: identity.name.clone(),
@@ -160,8 +160,8 @@ impl Plugin {
         changes: &[ParameterChange],
         events: &[Event],
         produced: &mut Vec<Event>,
-    ) -> Result<(), Vst3Error> {
-        lock(&self.engine).process(context, input, output, changes, events, produced)
+    ) -> Result<(), crate::Error> {
+        Ok(lock(&self.engine).process(context, input, output, changes, events, produced)?)
     }
 
     /// A handle that processes this plugin from another thread.
@@ -176,7 +176,11 @@ impl Plugin {
 
     /// Delivers edits that have not reached the processor yet, with a process call that carries
     /// no audio (`numSamples = 0`).
-    pub fn flush(&mut self) -> Result<(), Vst3Error> {
+    pub fn flush(&mut self) -> Result<(), crate::Error> {
+        Ok(self.flush_edits()?)
+    }
+
+    pub(super) fn flush_edits(&mut self) -> Result<(), Vst3Error> {
         self.deliver_edits()?;
         self.sync_controller();
         Ok(())
@@ -224,12 +228,12 @@ impl Plugin {
 
     /// The optional VST3 processor's requested context flags, queried on the owning thread
     /// during preparation. Unavailable caller time fields are never fabricated to satisfy them.
-    pub fn process_context_requirements(&self) -> Result<Option<u32>, Vst3Error> {
-        lock(&self.engine)
+    pub fn process_context_requirements(&self) -> Result<Option<u32>, crate::Error> {
+        Ok(lock(&self.engine)
             .prepared
             .as_ref()
             .map(|prepared| prepared.context_requirements)
-            .ok_or(Vst3Error::NotPrepared)
+            .ok_or(Vst3Error::NotPrepared)?)
     }
 
     pub(crate) fn parameters(&self) -> Vec<ParameterInfo> {
@@ -396,14 +400,14 @@ impl Plugin {
     }
 
     /// Restores a `.vstpreset` saved for this plugin class, telling the plugin it is a preset.
-    pub fn restore_preset(&mut self, preset: &Preset) -> Result<(), Vst3Error> {
+    pub fn restore_preset(&mut self, preset: &Preset) -> Result<(), crate::Error> {
         if preset
             .component
             .len()
             .saturating_add(preset.controller.len())
             > plughost_core::MAX_STATE_BYTES
         {
-            return Err(Vst3Error::Input(plughost_core::InputError::StateSize));
+            return Err(plughost_core::InputError::StateSize.into());
         }
         let state = PluginState {
             format: PluginFormat::Vst3,
@@ -414,7 +418,7 @@ impl Plugin {
             component: preset.component.clone(),
             controller: preset.controller.clone(),
         };
-        self.restore(&state, StateKind::Preset)
+        Ok(self.restore(&state, StateKind::Preset)?)
     }
 
     /// Clears the plugin's internal audio state (reverb tails, delay lines, envelopes) by
@@ -502,7 +506,7 @@ impl Drop for Plugin {
 }
 
 impl<S: Sample> Process<S> for Plugin {
-    type Error = Vst3Error;
+    type Error = crate::Error;
 
     fn sample_rate(&self) -> f64 {
         self.config().map_or(0.0, |config| config.sample_rate)
@@ -540,17 +544,17 @@ impl<S: Sample> Process<S> for Plugin {
         })
     }
 
-    fn latency(&self) -> Result<u32, Vst3Error> {
+    fn latency(&self) -> Result<u32, crate::Error> {
         Ok(Plugin::timing(self)?.latency)
     }
 
-    fn tail(&self) -> Result<Tail, Vst3Error> {
+    fn tail(&self) -> Result<Tail, crate::Error> {
         Ok(Plugin::timing(self)?.tail)
     }
 
     /// A latency the plugin announced is applied when it activates again, and many plugins delay
     /// by it at once, so a render does not start on the latency it was activated with.
-    fn begin_render(&mut self) -> Result<(), Vst3Error> {
+    fn begin_render(&mut self) -> Result<(), crate::Error> {
         if lock(&self.engine).timing()?.latency_changed {
             return Err(plughost_core::RenderError::LatencyNotApplied.into());
         }
@@ -560,26 +564,23 @@ impl<S: Sample> Process<S> for Plugin {
     fn validate_automation(
         &mut self,
         automation: &[plughost_core::AutomationEvent],
-    ) -> Result<(), Vst3Error> {
+    ) -> Result<(), crate::Error> {
         let parameters = self.parameter_cache();
         for event in automation {
             if event.slot != 0 {
-                return Err(Vst3Error::Input(plughost_core::InputError::Slot));
+                return Err(plughost_core::InputError::Slot.into());
             }
             parameters
                 .find(event.change.id)
-                .ok_or(Vst3Error::Input(
-                    plughost_core::InputError::UnknownParameter {
-                        id: event.change.id,
-                    },
-                ))?
-                .automation_value(event.change.value)
-                .map_err(Vst3Error::Input)?;
+                .ok_or(plughost_core::InputError::UnknownParameter {
+                    id: event.change.id,
+                })?
+                .automation_value(event.change.value)?;
         }
         Ok(())
     }
 
-    fn validate_events(&mut self, events: &[Event]) -> Result<(), Vst3Error> {
+    fn validate_events(&mut self, events: &[Event]) -> Result<(), crate::Error> {
         let engine = lock(&self.engine);
         let prepared = engine.prepared.as_ref().ok_or(Vst3Error::NotPrepared)?;
         if let Some(event) = events.iter().find(|event| {
@@ -589,9 +590,7 @@ impl<S: Sample> Process<S> for Plugin {
                 .copied()
                 .unwrap_or(false)
         }) {
-            return Err(Vst3Error::Input(plughost_core::InputError::EventPort {
-                port: event.port,
-            }));
+            return Err(plughost_core::InputError::EventPort { port: event.port }.into());
         }
         Ok(())
     }
@@ -604,9 +603,9 @@ impl<S: Sample> Process<S> for Plugin {
         automation: &[plughost_core::AutomationEvent],
         events: &[Event],
         produced: &mut Vec<Event>,
-    ) -> Result<(), Vst3Error> {
+    ) -> Result<(), crate::Error> {
         if automation.iter().any(|event| event.slot != 0) {
-            return Err(Vst3Error::Input(plughost_core::InputError::Slot));
+            return Err(plughost_core::InputError::Slot.into());
         }
         let changes: Vec<_> = automation.iter().map(|event| event.change).collect();
         Plugin::process(self, context, input, output, &changes, events, produced)

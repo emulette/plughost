@@ -4,7 +4,7 @@ mod errors;
 mod host;
 mod plugin;
 
-pub use errors::ClapError;
+pub(crate) use errors::ClapError;
 pub use plugin::{Plugin, Processor, classes, classes_once_loaded};
 
 mod transport;

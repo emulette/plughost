@@ -7,7 +7,7 @@ pub(crate) fn read<P: HostedPlugin + ?Sized>(
     start: u64,
     count: u32,
 ) -> Result<ParameterChoicePage, Error> {
-    validate_choice_page(start, count).map_err(Error::Input)?;
+    validate_choice_page(start, count)?;
     let details = plugin.parameter_details(id)?;
     let steps = details.info.step_count;
     let (total, indices) = indices(&details, start, count)?;
@@ -38,11 +38,11 @@ pub(crate) fn indices(
     count: u32,
 ) -> Result<(u64, std::ops::Range<u64>), Error> {
     if !details.info.flags.discrete {
-        return Err(Error::ContinuousParameter);
+        return Err(Error::new(crate::errors::Repr::ContinuousParameter));
     }
     let total = u64::from(details.info.step_count) + 1;
     if start > total {
-        return Err(Error::Input(InputError::ParameterChoicePage));
+        return Err(InputError::ParameterChoicePage.into());
     }
     Ok((total, start..(start + u64::from(count)).min(total)))
 }

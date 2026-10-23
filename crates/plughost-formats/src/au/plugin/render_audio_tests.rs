@@ -280,11 +280,11 @@ fn invalid_pulls_and_render_failures_leave_the_storage_reusable() {
     .unwrap();
     let original = [1.0, 2.0, 3.0, 4.0];
     for expected in [
-        Err(AuError::Render(-77)),
-        Err(AuError::Buffers),
-        Err(AuError::Buffers),
-        Err(AuError::Buffers),
-        Ok(()),
+        "Err(Render(-77))",
+        "Err(RenderOutput)",
+        "Err(RenderOutput)",
+        "Err(RenderOutput)",
+        "Ok(())",
     ] {
         let mut output = [99.0; 4];
         let result = storage.render(
@@ -294,7 +294,7 @@ fn invalid_pulls_and_render_failures_leave_the_storage_reusable() {
             4,
             128.0,
         );
-        assert_eq!(result, expected);
+        assert_eq!(format!("{result:?}"), expected);
         assert_eq!(output, if result.is_ok() { original } else { [99.0; 4] });
         assert_eq!(original, [1.0, 2.0, 3.0, 4.0]);
     }

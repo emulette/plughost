@@ -1,7 +1,7 @@
 use std::fmt;
 use std::process::ExitStatus;
 
-use plughost_core::messages::{BUFFERS, CHAIN_NOT_PREPARED};
+use plughost_core::messages::CHAIN_NOT_PREPARED;
 use plughost_core::{Failure, FailureKind, InputError, RenderError};
 
 const HELPER_START: &str = "could not start the helper";
@@ -69,17 +69,16 @@ pub enum Error {
     Protocol,
     /// The chain has no usable prepared audio configuration.
     NotPrepared,
-    /// Caller input failed validation before it could be applied.
+    /// Caller input failed validation before it could be applied. Input a render rejects is
+    /// reported here too, never as [`Error::Render`].
     Input {
         /// Zero-based plugin slot when attributable to one slot; otherwise `None`.
         slot: Option<usize>,
         /// The violated input contract.
         error: InputError,
     },
-    /// Block audio has the wrong channel count or slice lengths, or more frames than the
-    /// prepared maximum block size.
-    Buffers,
-    /// The render scheduler rejected its input or could not complete delivery.
+    /// The render scheduler rejected its options or timing, or could not complete delivery.
+    /// Input it rejects is [`Error::Input`].
     Render(RenderError),
     /// A scan writer could not lock, read, publish, or flush its cache. Discovery reads
     /// instead treat unreadable caches as empty.
@@ -137,7 +136,6 @@ impl fmt::Display for Error {
                 f.write_str(INPUT)?;
                 slot(f, which)
             }
-            Error::Buffers => f.write_str(BUFFERS),
             Error::Render(_) => f.write_str(RENDER),
             Error::Cache(_) => f.write_str(CACHE),
             Error::RealtimeRunning => f.write_str(REALTIME_RUNNING),
@@ -159,7 +157,10 @@ impl std::error::Error for Error {
 
 impl From<RenderError> for Error {
     fn from(error: RenderError) -> Error {
-        Error::Render(error)
+        match error {
+            RenderError::Input(error) => Error::Input { slot: None, error },
+            error => Error::Render(error),
+        }
     }
 }
 
@@ -188,7 +189,7 @@ impl Error {
             Self::Cancelled { .. } => FailureKind::Cancelled,
             Self::Operation { failure, .. } => failure.kind,
             Self::NotPrepared => FailureKind::NotPrepared,
-            Self::Input { .. } | Self::Buffers | Self::RealtimeRunning => FailureKind::InvalidInput,
+            Self::Input { .. } | Self::RealtimeRunning => FailureKind::InvalidInput,
             Self::Render(error) => error.kind(),
         }
     }

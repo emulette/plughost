@@ -47,7 +47,7 @@ pub fn decode(bytes: &[u8]) -> Result<Retained<State>, AuError> {
 }
 
 /// Converts a stored state into the XML property list of an `.aupreset` file.
-pub fn to_preset(state: &[u8]) -> Result<Vec<u8>, AuError> {
+pub fn to_preset(state: &[u8]) -> Result<Vec<u8>, crate::Error> {
     let state = decode(state)?;
     let bytes = encode(&state, NSPropertyListFormat::XMLFormat_v1_0)?;
     validate_preset_size(&bytes)?;
@@ -55,18 +55,18 @@ pub fn to_preset(state: &[u8]) -> Result<Vec<u8>, AuError> {
 }
 
 /// Reads an `.aupreset` file into the binary form states are stored in.
-pub fn from_preset(preset: &[u8]) -> Result<Vec<u8>, AuError> {
+pub fn from_preset(preset: &[u8]) -> Result<Vec<u8>, crate::Error> {
     validate_preset_size(preset)?;
     let state = decode(preset)?;
     inspect_dictionary(&state)?;
-    encode(&state, NSPropertyListFormat::BinaryFormat_v1_0)
+    Ok(encode(&state, NSPropertyListFormat::BinaryFormat_v1_0)?)
 }
 
 /// Reads identity from the container itself, before a host applies any opaque state.
-pub fn inspect_preset(bytes: &[u8]) -> Result<plughost_core::PresetInfo, AuError> {
+pub fn inspect_preset(bytes: &[u8]) -> Result<plughost_core::PresetInfo, crate::Error> {
     validate_preset_size(bytes)?;
     let state = decode(bytes)?;
-    inspect_dictionary(&state)
+    Ok(inspect_dictionary(&state)?)
 }
 
 fn validate_preset_size(bytes: &[u8]) -> Result<(), AuError> {
@@ -174,8 +174,14 @@ mod tests {
                 "<integer>2</integer>",
                 "<string>bad</string>",
             );
-            assert_eq!(inspect_preset(&bytes), Err(AuError::State));
-            assert_eq!(from_preset(&bytes), Err(AuError::State));
+            assert_eq!(
+                inspect_preset(&bytes).unwrap_err().kind(),
+                plughost_core::FailureKind::State
+            );
+            assert_eq!(
+                from_preset(&bytes).unwrap_err().kind(),
+                plughost_core::FailureKind::State
+            );
         }
     }
 }

@@ -256,7 +256,10 @@ impl RealtimeEndpoint {
         if output.len() != self.output_channels
             || output.iter().any(|channel| channel.len() != frames)
         {
-            return Err(Error::Buffers);
+            return Err(Error::Input {
+                slot: None,
+                error: InputError::AudioBuffers,
+            });
         }
         State::count(&self.state.callbacks);
         // A new generation's dry delay line holds this callback's input already.
@@ -293,7 +296,10 @@ impl RealtimeEndpoint {
             self.validate(context, automation, events)
                 .map_err(|error| Error::Input { slot: None, error })
         } else {
-            Err(Error::Buffers)
+            Err(Error::Input {
+                slot: None,
+                error: InputError::AudioBuffers,
+            })
         };
         if let Err(error) = invalid {
             // A quantum that is not submitted breaks the pipeline like an overflow.

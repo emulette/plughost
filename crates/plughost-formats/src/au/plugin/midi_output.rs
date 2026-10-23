@@ -336,10 +336,10 @@ mod tests {
         let start = [0xF0, 1];
         let rest = vec![2; MAX_BLOCK_SYSEX_BYTES];
         split(&start, &mut sysex, |data| found.push(data)).unwrap();
-        assert_eq!(
+        assert!(matches!(
             split(&rest, &mut sysex, |data| found.push(data)),
             Err(AuError::OutputEventCapacity)
-        );
+        ));
         assert!(sysex.is_none());
         assert!(found.is_empty());
     }

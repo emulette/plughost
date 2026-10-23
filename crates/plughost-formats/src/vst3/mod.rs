@@ -21,7 +21,7 @@ mod preset;
 mod uid;
 
 pub use engine::Processor;
-pub use errors::Vst3Error;
+pub(crate) use errors::Vst3Error;
 pub use module::Module;
 pub use plugin::Plugin;
 pub use preset::Preset;
