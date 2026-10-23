@@ -17,7 +17,7 @@
 //! prepared sample type. For instruments with an empty input slice, specify
 //! `render::<f32, _>` or `render::<f64, _>` so Rust can infer the output precision.
 //!
-//! The [detailed API guide](https://github.com/emulette/plughost/blob/v0.1.5/llms.txt)
+//! The [detailed API guide](https://github.com/emulette/plughost/blob/v0.1.6/llms.txt)
 //! covers scanning, cancellation, routing, state, and failure contracts.
 //!
 //! # Stereo effect rendering

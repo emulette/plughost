@@ -666,7 +666,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "plughost"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "cpal",
  "interprocess",
@@ -685,7 +685,7 @@ dependencies = [
 
 [[package]]
 name = "plughost-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "interprocess",
  "postcard",
@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "plughost-formats"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "block2",
  "clack-extensions",
@@ -721,7 +721,7 @@ dependencies = [
 
 [[package]]
 name = "plughost-helper"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "interprocess",
  "libc",
