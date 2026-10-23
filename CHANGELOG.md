@@ -149,6 +149,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   as are the enums `Message`, `AudioBusRole`, `AudioDirection`, `AudioSource`, `EventSource`,
   `ChannelAdaptation`, `Support`, `SampleFormat`, `ProcessMode`, `Tail`, `SessionState`,
   `PresetLocation`, `EditorRequest` and `EditorView`, which need a wildcard arm in a `match`.
+- `HostedPlugin`, `BlockProcessor` and `Sample` are sealed: the format plugins and processors
+  and `f32` and `f64` implement them, and other crates cannot. `render::Process` and
+  `AudioThread` remain for applications to implement. With `Sample` sealed, processing no longer
+  compares type IDs to refuse a sample type claiming another precision.
+  `HostedPlugin::set_editor_scale` is a default method on every platform, returning `None`
+  outside Windows, where it was only declared on Windows.
 - CLAP preset discovery flags are a `PresetFlags` instead of a `u32`
   (`PresetLocationInfo::flags`, `PresetSoundpack::flags`, `DiscoveredPreset::flags`); read the
   bits with `bits()`.

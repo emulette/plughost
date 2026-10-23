@@ -326,12 +326,7 @@ impl Engine {
             return Err(Vst3Error::RestartRequired(flags));
         }
         let prepared = self.prepared.as_mut().ok_or(Vst3Error::NotPrepared)?;
-        let native_type = match S::FORMAT {
-            SampleFormat::F32 => std::any::TypeId::of::<S>() == std::any::TypeId::of::<f32>(),
-            SampleFormat::F64 => std::any::TypeId::of::<S>() == std::any::TypeId::of::<f64>(),
-            _ => false,
-        };
-        if !native_type || S::FORMAT != prepared.config.sample_format {
+        if S::FORMAT != prepared.config.sample_format {
             return Err(Vst3Error::Input(
                 plughost_core::InputError::AudioSampleFormat,
             ));

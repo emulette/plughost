@@ -2,13 +2,21 @@ use std::ops::Range;
 
 use crate::config::SampleFormat;
 
-/// An audio sample type the plugin formats can process.
-pub trait Sample: Copy + Default + Send + Sync + 'static {
+/// An audio sample type the plugin formats can process: `f32` or `f64`. It is sealed: only this
+/// crate implements it, so a sample's `FORMAT` always names its own type.
+pub trait Sample: sealed::Sealed + Copy + Default + Send + Sync + 'static {
     /// Native sample precision corresponding to this Rust type.
     const FORMAT: SampleFormat;
 
     /// Converts a sample for peak measurement and silence detection.
     fn to_f64(self) -> f64;
+}
+
+mod sealed {
+    /// Implemented by `f32` and `f64` only.
+    pub trait Sealed {}
+    impl Sealed for f32 {}
+    impl Sealed for f64 {}
 }
 
 impl Sample for f32 {

@@ -40,9 +40,13 @@ uses ad-hoc signing for local development; the distributing application owns its
 signing and notarization. On Windows pass the helper `.exe` path.
 
 `plughost-formats` loads native code in the calling process. Its default features are
-`vst3`, `au`, and `clap`; direct users can disable defaults and select formats. Native
-lifecycle/controller/editor calls normally belong on the main thread, with the OS event
-loop running. A plugin's `BlockProcessor` processes it from another thread; an owner that
+`vst3`, `au`, and `clap`; direct users can disable defaults and select formats. `HostedPlugin`
+and `BlockProcessor` are sealed: the format plugins and their processors implement them, and an
+application calls them; `render::Process` and `AudioThread` stay open for applications to
+implement. `Sample` is sealed too, implemented by `f32` and `f64` alone.
+`HostedPlugin::set_editor_scale` exists on every platform and returns `None` where an editor
+takes no explicit scale (outside Windows, always). Native lifecycle/controller/editor calls
+normally belong on the main thread, with the OS event loop running. A plugin's `BlockProcessor` processes it from another thread; an owner that
 does gives the plugin an `AudioThread` with `HostedPlugin::set_audio_thread`, and the
 audio-thread calls the plugin needs between blocks (delivering edits to a prepared VST3
 processor, CLAP `params.flush` while active, `reset` and `stop_processing`) run there instead

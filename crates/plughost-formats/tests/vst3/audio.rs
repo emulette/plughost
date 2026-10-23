@@ -341,56 +341,6 @@ fn every_layout_f64_render_preserves_every_native_speaker_position() {
 }
 
 #[test]
-#[ignore = "needs native delay fixture"]
-fn custom_sample_implementations_are_rejected_before_native_pointer_casts() {
-    #[derive(Clone, Copy, Default, Debug, PartialEq)]
-    #[repr(transparent)]
-    struct ClaimedF32(u32);
-    impl Sample for ClaimedF32 {
-        const FORMAT: SampleFormat = SampleFormat::F32;
-        fn to_f64(self) -> f64 {
-            f64::from(self.0)
-        }
-    }
-    #[derive(Clone, Copy, Default, Debug, PartialEq)]
-    #[repr(transparent)]
-    struct ClaimedF64(u64);
-    impl Sample for ClaimedF64 {
-        const FORMAT: SampleFormat = SampleFormat::F64;
-        fn to_f64(self) -> f64 {
-            self.0 as f64
-        }
-    }
-    fn rejected<S: Sample + PartialEq + std::fmt::Debug>(marker: S) {
-        let mut plugin = plugin("plughost-test-delay");
-        plugin.prepare(&config(48_000.0, S::FORMAT)).unwrap();
-        plugin.set_parameter(0, 0.5).unwrap();
-        let input = [marker; 4];
-        let (mut left, mut right) = ([marker; 4], [marker; 4]);
-        assert_eq!(
-            plugin
-                .process(
-                    &plughost_core::BlockContext::new(4),
-                    &[&input, &input],
-                    &mut [&mut left, &mut right],
-                    &[],
-                    &Events::new(),
-                    &mut Events::for_block(),
-                )
-                .unwrap_err()
-                .input_error(),
-            Some(InputError::AudioSampleFormat)
-        );
-        assert_eq!(left, [marker; 4]);
-        assert_eq!(right, [marker; 4]);
-        assert_eq!(plugin.parameter_value(5), Some(0.0));
-    }
-    let _serial = serial();
-    rejected(ClaimedF32(3.0f32.to_bits()));
-    rejected(ClaimedF64(3.0f64.to_bits()));
-}
-
-#[test]
 #[ignore = "needs scripts/build-test-plugins.ps1 or .sh"]
 fn arrangements_the_plugin_took_are_used_whatever_it_answered() {
     let _serial = serial();

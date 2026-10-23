@@ -1,6 +1,4 @@
 use super::*;
-use plughost_core::Sample;
-use std::any::TypeId;
 impl Processor {
     pub(super) fn process_audio_impl<S: plughost_core::Sample>(
         &self,
@@ -61,7 +59,7 @@ impl Processor {
                 prepared.main_output.map_or(0, |i| prepared.outputs[i]),
             )
         };
-        if S::FORMAT != prepared.config.sample_format || !sample_type::<S>() {
+        if S::FORMAT != prepared.config.sample_format {
             return Err(ClapError::Input(
                 plughost_core::InputError::AudioSampleFormat,
             ));
@@ -218,8 +216,4 @@ impl Processor {
         outputs.copy_output(output, prepared.main_output, all_buses);
         Ok(())
     }
-}
-fn sample_type<S: Sample>() -> bool {
-    (S::FORMAT == SampleFormat::F32 && TypeId::of::<S>() == TypeId::of::<f32>())
-        || (S::FORMAT == SampleFormat::F64 && TypeId::of::<S>() == TypeId::of::<f64>())
 }

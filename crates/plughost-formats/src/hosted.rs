@@ -52,8 +52,26 @@ pub enum EditorRequest {
     Closed,
 }
 
-/// A plugin instance, used on the thread that created it.
-pub trait HostedPlugin {
+mod sealed {
+    /// Implemented by the format plugins and processors of this crate only.
+    pub trait Sealed {}
+    #[cfg(feature = "vst3")]
+    impl Sealed for crate::vst3::Plugin {}
+    #[cfg(feature = "vst3")]
+    impl Sealed for crate::vst3::Processor {}
+    #[cfg(all(feature = "au", target_os = "macos"))]
+    impl Sealed for crate::au::Plugin {}
+    #[cfg(all(feature = "au", target_os = "macos"))]
+    impl Sealed for crate::au::Processor {}
+    #[cfg(feature = "clap")]
+    impl Sealed for crate::clap::Plugin {}
+    #[cfg(feature = "clap")]
+    impl Sealed for crate::clap::Processor {}
+}
+
+/// A plugin instance, used on the thread that created it. It is sealed: the format plugins of
+/// this crate implement it.
+pub trait HostedPlugin: sealed::Sealed {
     /// Drains plugin-authored log messages; formats without a native log callback return empty.
     fn take_diagnostics(&self) -> plughost_core::DiagnosticBatch {
         plughost_core::DiagnosticBatch::default()
@@ -181,16 +199,20 @@ pub trait HostedPlugin {
         None
     }
     /// Sends a Windows monitor scale to an editor that supports explicit scaling, returning
-    /// its resulting size in physical pixels. Other editors keep their own size.
-    #[cfg(target_os = "windows")]
-    fn set_editor_scale(&mut self, scale: f64) -> Option<(u32, u32)>;
+    /// its resulting size in physical pixels. Other editors keep their own size, and on other
+    /// platforms it does nothing and returns `None`.
+    fn set_editor_scale(&mut self, scale: f64) -> Option<(u32, u32)> {
+        let _ = scale;
+        None
+    }
     /// Serves requests the plugin made of the owning thread (callbacks, timers). Call it
     /// regularly from that thread's event loop.
     fn idle(&mut self) {}
 }
 
-/// Processes a plugin from a processing thread.
-pub trait BlockProcessor: Send {
+/// Processes a plugin from a processing thread. It is sealed: the format processors of this crate
+/// implement it.
+pub trait BlockProcessor: sealed::Sealed + Send {
     /// Processes one block in the prepared precision. `events` are in offset order, inside the
     /// block, on active native event input ports by index. `produced` is replaced with the
     /// plugin's output events in offset order, on native event output ports by index; pass
