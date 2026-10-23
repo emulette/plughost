@@ -131,7 +131,12 @@ impl Transport {
             next.beat_position = Some(beats);
             if let (Some(bar), Some(meter)) = (self.bar_position, self.time_signature) {
                 let length = f64::from(meter.numerator) * 4.0 / f64::from(meter.denominator);
-                let count = ((beats - bar.start) / length).floor();
+                let mut count = ((beats - bar.start) / length).floor();
+                // Just below a bar line, `beats - bar.start` can round up to it; that bar has
+                // not started yet.
+                if bar.start + count * length > beats {
+                    count -= 1.0;
+                }
                 let number = f64::from(bar.number) + count;
                 if !number.is_finite() || number < i32::MIN as f64 || number > i32::MAX as f64 {
                     return Err(InputError::Transport);
@@ -189,5 +194,34 @@ impl BlockContext {
             transport.validate()?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_beat_just_below_a_bar_boundary_stays_in_the_earlier_bar() {
+        // `beat - start` rounds to exactly nine 3/4 bars, although the beat is before the ninth
+        // bar line.
+        let start = -25.380543983444497;
+        let beat = 1.6194560165555028;
+        let mut transport = Transport::new(0, true);
+        transport.beat_position = Some(beat);
+        transport.tempo = Some(120.0);
+        transport.time_signature = Some(TimeSignature {
+            numerator: 3,
+            denominator: 4,
+        });
+        transport.bar_position = Some(BarPosition { start, number: 1 });
+        let advanced = transport.advanced(0, 48_000.0).unwrap();
+        assert_eq!(
+            advanced.bar_position,
+            Some(BarPosition {
+                start: start + 8.0 * 3.0,
+                number: 9,
+            })
+        );
     }
 }
