@@ -123,7 +123,11 @@ impl Plugin {
         let parameters = self.parameter_cache();
         let generation = self.handler.values_generation();
         let values: Vec<f64> = (0..parameters.len())
-            .map(|index| self.controller_value(parameters.native_id(index)))
+            // A value with no normalized form is unknown to the processing side, not 0.
+            .map(|index| {
+                self.controller_value(parameters.native_id(index))
+                    .unwrap_or(f64::NAN)
+            })
             .collect();
         if let Some(prepared) = &mut lock(&self.engine).prepared {
             prepared.seed_held_values(&values, generation);
@@ -242,13 +246,13 @@ impl Plugin {
             return 0.0;
         };
         self.sync_controller();
-        self.controller_value(id)
+        self.controller_value(id).unwrap_or(0.0)
     }
 
-    /// The controller's value of `id` under the rule [`Plugin::parameter_value`] describes.
-    fn controller_value(&self, id: ParamID) -> f64 {
+    /// The controller's value of `id`, clamped, or `None` when it has no normalized form.
+    fn controller_value(&self, id: ParamID) -> Option<f64> {
         let value = unsafe { self.controller.getParamNormalized(id) };
-        crate::parameter_values::normalized(value, 0.0, 1.0).unwrap_or(0.0)
+        crate::parameter_values::normalized(value, 0.0, 1.0)
     }
 
     /// Changes a parameter the way an edit in the plugin's editor does: the controller takes the

@@ -80,9 +80,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   ports; and capabilities are `Support::Unknown` where more note ports (beyond 65,535), audio ports
   or parameters would have to be looked at. A plugin reporting billions made the helper allocate
   without bound or run until the control timeout.
-- Parameter values and ranges a plugin reports follow one rule in every format: a value outside
-  its range is clamped into it, and one that is not finite, or whose range is not, reads as 0 in
-  `parameters`. A CLAP parameter whose range is not finite has no default, and `set_parameter`
+- Parameter values and ranges that `parameters` and `parameter_details` read follow one rule in
+  every format: a value outside its range is clamped into it, and one that is not finite, or
+  whose range is not, reads as 0. A CLAP parameter whose range is not finite has no default, and `set_parameter`
   and automation of a CLAP or Audio Unit parameter with such a range fail with the format's
   parameter result error (`FailureKind::Host`). `parameters` reported such values as NaN or
   outside 0 to 1, and edits sent NaN to the plugin.

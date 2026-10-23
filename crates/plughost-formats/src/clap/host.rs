@@ -3,7 +3,7 @@
 //! `Plugin::idle`.
 
 use std::cell::{Cell, RefCell};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread::ThreadId;
 use std::time::{Duration, Instant};
@@ -128,6 +128,8 @@ pub struct Shared {
     pub editor_open: AtomicBool,
     /// Host edits not yet delivered to the plugin, as `(parameter ID, plain value)`.
     pub pending: Mutex<Vec<(u32, f64)>>,
+    /// How often a load dropped the pending edits; changed and read only under `pending`'s lock.
+    pending_dropped: AtomicU64,
 }
 
 impl Shared {
@@ -150,6 +152,7 @@ impl Shared {
             editor_request: Mutex::new(None),
             editor_open: AtomicBool::new(false),
             pending: Mutex::new(Vec::with_capacity(plughost_core::MAX_BLOCK_EVENTS)),
+            pending_dropped: AtomicU64::new(0),
         }
     }
 
@@ -167,32 +170,42 @@ impl Shared {
 
     /// Control-path snapshot; draining retains the producer's prepared capacity.
     pub fn take_pending(&self) -> Vec<(u32, f64)> {
-        self.pending
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .drain(..)
-            .collect()
+        let mut pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
+        self.pending_dropped.fetch_add(1, Ordering::Relaxed);
+        pending.drain(..).collect()
     }
 
     /// Processing sends the edits without taking them, so that a block that fails leaves them for
     /// the next one: the values are absolute, so one the plugin already has may reach it again.
-    /// Returns how many it sent.
-    pub fn copy_pending(&self, mut send: impl FnMut(u32, f64)) -> usize {
+    /// Returns what it sent, for [`Shared::forget_delivered`].
+    pub fn copy_pending(&self, mut send: impl FnMut(u32, f64)) -> Sent {
         let pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
         for &(id, value) in pending.iter() {
             send(id, value);
         }
-        pending.len()
+        Sent {
+            count: pending.len(),
+            dropped: self.pending_dropped.load(Ordering::Relaxed),
+        }
     }
 
-    /// Forgets the first `count` edits, which a block delivered, keeping those queued since and
-    /// the producer's storage. A state or preset load on the owning thread may have dropped them
-    /// already.
-    pub fn forget_delivered(&self, count: usize) {
+    /// Forgets the edits a block delivered, keeping those queued since and the producer's
+    /// storage. A state or preset load on the owning thread that dropped the queue meanwhile
+    /// took them already, and what is queued now came after it.
+    pub fn forget_delivered(&self, sent: Sent) {
         let mut pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
-        let count = count.min(pending.len());
-        pending.drain(..count);
+        if self.pending_dropped.load(Ordering::Relaxed) == sent.dropped {
+            let count = sent.count.min(pending.len());
+            pending.drain(..count);
+        }
     }
+}
+
+/// The host edits a block sent, from [`Shared::copy_pending`].
+#[derive(Clone, Copy)]
+pub struct Sent {
+    count: usize,
+    dropped: u64,
 }
 
 impl<'a> SharedHandler<'a> for Shared {

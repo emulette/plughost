@@ -146,11 +146,16 @@ impl ProcessOutput<'_> {
                 if self.sysex.saturating_add(event.buffer_size() as usize) > MAX_BLOCK_SYSEX_BYTES {
                     return self.overflowed();
                 }
-                // SAFETY: the plugin's buffer is valid during this call; it is copied now.
-                Some((
-                    usize::from(event.port_index()),
-                    EventData::SysEx(unsafe { event.data() }.to_vec()),
-                ))
+                // A plugin declaring bytes it gives no buffer for sent nothing to read.
+                if event.buffer_ptr().is_null() && event.buffer_size() > 0 {
+                    None
+                } else {
+                    // SAFETY: the plugin's buffer is valid during this call; it is copied now.
+                    Some((
+                        usize::from(event.port_index()),
+                        EventData::SysEx(unsafe { event.data() }.to_vec()),
+                    ))
+                }
             }
             Some(
                 CoreEventSpace::ParamValue(_)
