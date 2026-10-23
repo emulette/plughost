@@ -948,6 +948,9 @@ impl IPluginFactoryTrait for Factory {
         if unsafe { *(cid as *const TUID) } != class_id() {
             return kInvalidArgument;
         }
+        if variant() == Variant::SlowLoad {
+            std::thread::sleep(LOAD);
+        }
         let Some(instance) = ComWrapper::new(Delay::new()).to_com_ptr::<FUnknown>() else {
             return kResultFalse;
         };
@@ -1003,6 +1006,9 @@ extern "system" fn ExitDll() -> bool {
 
 /// How long the `slow-unload` variant takes to exit its module.
 pub const UNLOAD: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// How long the `slow-load` variant takes to create each instance.
+pub const LOAD: std::time::Duration = std::time::Duration::from_millis(400);
 
 /// The `no-factory` variant creates the file `PLUGHOST_TEST_EXIT_MARKER` names when the host
 /// exits the module; `slow-unload` takes [`UNLOAD`] to exit.

@@ -7,7 +7,7 @@ mod scan_benchmark;
 #[cfg(test)]
 mod tests;
 mod transport;
-pub use process::HelperMonitor;
+pub use process::{ChainCanceller, HelperMonitor};
 
 use std::hash::{BuildHasher, RandomState};
 use std::io;
@@ -16,10 +16,10 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use interprocess::local_socket::prelude::*;
-use plughost_core::HostIdentity;
 use plughost_core::PluginRef;
 use plughost_core::ipc::shared::{Activity, Caller, transfer};
 use plughost_core::ipc::{PROTOCOL_VERSION, Request, Response};
+use plughost_core::{FailureKind, HostIdentity};
 
 use crate::errors::Error;
 use transport::{Incoming, Stopped, Transport, Unqueued};
@@ -43,6 +43,8 @@ pub(crate) struct Helper {
     shared: Option<Shared>,
     /// Whether the outstanding request runs on the helper's processing thread.
     processing: bool,
+    /// Whether a call reported the helper's end, after which a cancellation reads as an exit.
+    end_reported: bool,
 }
 
 struct Shared {
@@ -111,14 +113,14 @@ impl Helper {
         let deadline = Instant::now() + START_TIMEOUT;
         let stream = loop {
             if cancelled() {
-                let _ = child.kill();
+                let _ = child.kill(FailureKind::Cancelled);
                 return Ok(None);
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             match listener.wait(remaining.min(POLL)) {
                 Ok(true) => {
                     break listener.accept().map_err(|error| {
-                        let _ = child.kill();
+                        let _ = child.kill(FailureKind::Host);
                         Error::HelperStart(error)
                     })?;
                 }
@@ -130,12 +132,12 @@ impl Helper {
                         });
                     }
                     if Instant::now() > deadline {
-                        let _ = child.kill();
+                        let _ = child.kill(FailureKind::TimedOut);
                         return Err(Error::TimedOut { slot: None });
                     }
                 }
                 Err(error) => {
-                    let _ = child.kill();
+                    let _ = child.kill(FailureKind::Host);
                     return Err(Error::HelperStart(error));
                 }
             }
@@ -146,7 +148,7 @@ impl Helper {
         {
             Ok(transport) => transport,
             Err(error) => {
-                let _ = child.kill();
+                let _ = child.kill(FailureKind::Host);
                 return Err(Error::HelperStart(error));
             }
         };
@@ -155,6 +157,7 @@ impl Helper {
             transport,
             shared,
             processing: false,
+            end_reported: false,
         };
         let error = match helper.message_controlled(START_TIMEOUT, cancelled)? {
             Some(Incoming::Hello(hello)) if hello.token == token => {
@@ -169,7 +172,7 @@ impl Helper {
             None => return Ok(None),
             _ => Error::Handshake,
         };
-        helper.kill();
+        helper.kill(FailureKind::Protocol);
         Err(error)
     }
 
@@ -184,12 +187,17 @@ impl Helper {
             });
         }
         self.send(request, timeout)?;
-        let response = self.receive(timeout)?;
+        let response = loop {
+            match self.receive(timeout)? {
+                Response::Progress => {}
+                response => break response,
+            }
+        };
         match response {
             Response::Failed { slot, failure } => {
                 self.check_slot(slot)?;
-                if failure.kind == plughost_core::FailureKind::Protocol {
-                    self.kill();
+                if failure.kind == FailureKind::Protocol {
+                    self.kill(FailureKind::Protocol);
                     return Err(Error::Protocol);
                 }
                 Err(Error::Operation { slot, failure })
@@ -212,7 +220,7 @@ impl Helper {
 
     fn check_slot(&mut self, slot: Option<usize>) -> Result<(), Error> {
         if !self.valid_slot(slot) {
-            self.kill();
+            self.kill(FailureKind::Protocol);
             return Err(Error::Protocol);
         }
         Ok(())
@@ -280,6 +288,10 @@ impl Helper {
         self.child.monitor()
     }
 
+    pub fn canceller(&self) -> ChainCanceller {
+        self.child.canceller()
+    }
+
     /// Writes a request within `timeout`. A request not written in time leaves the connection
     /// mid-frame, so the helper is terminated.
     pub fn send(&mut self, request: Request<'_>, timeout: Duration) -> Result<(), Error> {
@@ -295,14 +307,14 @@ impl Helper {
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Option<()>, Error> {
         if cancelled() {
-            self.kill();
+            self.kill(FailureKind::Cancelled);
             return Ok(None);
         }
         match self.queue(&request) {
             Ok(()) => {}
             // The helper is fine; the request is not one this crate should have made.
             Err(Unqueued::Unencodable) => {
-                self.kill();
+                self.kill(FailureKind::Protocol);
                 return Err(Error::Protocol);
             }
             Err(Unqueued::Closed) => return self.ended_controlled(cancelled).map_or(Ok(None), Err),
@@ -310,7 +322,7 @@ impl Helper {
         let started = Instant::now();
         loop {
             if cancelled() {
-                self.kill();
+                self.kill(FailureKind::Cancelled);
                 return Ok(None);
             }
             let remaining = timeout.saturating_sub(started.elapsed());
@@ -318,7 +330,7 @@ impl Helper {
                 Ok(()) => return Ok(Some(())),
                 Err(Stopped::TimedOut) if started.elapsed() < timeout => continue,
                 Err(Stopped::TimedOut) => {
-                    self.kill();
+                    self.kill(FailureKind::TimedOut);
                     return Err(Error::TimedOut {
                         slot: self.culprit()?,
                     });
@@ -356,7 +368,7 @@ impl Helper {
         match self.message(timeout)? {
             Incoming::Response(response) => Ok(response),
             Incoming::Hello(_) => {
-                self.kill();
+                self.kill(FailureKind::Protocol);
                 Err(Error::Protocol)
             }
         }
@@ -372,7 +384,7 @@ impl Helper {
         match self.message_controlled(timeout, cancelled)? {
             Some(Incoming::Response(response)) => Ok(Some(response)),
             Some(Incoming::Hello(_)) => {
-                self.kill();
+                self.kill(FailureKind::Protocol);
                 Err(Error::Protocol)
             }
             None => Ok(None),
@@ -396,7 +408,7 @@ impl Helper {
         let (first, second) = (activity.slot(first), activity.slot(second));
         if !self.valid_slot(first) || !self.valid_slot(second) {
             // Later requests report the exit, not this mapping again.
-            self.kill();
+            self.kill(FailureKind::Protocol);
             self.shared = None;
             return Err(Error::Protocol);
         }
@@ -411,7 +423,7 @@ impl Helper {
         let started = Instant::now();
         loop {
             if cancelled() {
-                self.kill();
+                self.kill(FailureKind::Cancelled);
                 return Ok(None);
             }
             let remaining = timeout.saturating_sub(started.elapsed());
@@ -419,13 +431,13 @@ impl Helper {
                 Ok(Ok(message)) => return Ok(Some(message)),
                 Err(Stopped::TimedOut) if started.elapsed() < timeout => continue,
                 Err(Stopped::TimedOut) => {
-                    self.kill();
+                    self.kill(FailureKind::TimedOut);
                     return Err(Error::TimedOut {
                         slot: self.culprit()?,
                     });
                 }
                 Ok(Err(error)) if error.kind() == io::ErrorKind::InvalidData => {
-                    self.kill();
+                    self.kill(FailureKind::Protocol);
                     return Err(Error::Protocol);
                 }
                 _ => return self.ended_controlled(cancelled).map_or(Ok(None), Err),
@@ -437,13 +449,13 @@ impl Helper {
         match self.transport.receive(timeout) {
             Ok(Ok(message)) => Ok(message),
             Err(Stopped::TimedOut) => {
-                self.kill();
+                self.kill(FailureKind::TimedOut);
                 Err(Error::TimedOut {
                     slot: self.culprit()?,
                 })
             }
             Ok(Err(error)) if error.kind() == io::ErrorKind::InvalidData => {
-                self.kill();
+                self.kill(FailureKind::Protocol);
                 Err(Error::Protocol)
             }
             _ => Err(self.ended()),
@@ -460,7 +472,7 @@ impl Helper {
         let monitor = self.child.monitor();
         let status = loop {
             if cancelled() {
-                self.kill();
+                self.kill(FailureKind::Cancelled);
                 return None;
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -468,32 +480,40 @@ impl Helper {
                 break Some(status);
             }
             if remaining.is_zero() {
-                self.kill();
+                self.kill(FailureKind::Crashed);
                 break None;
             }
         };
+        let by_canceller =
+            !self.end_reported && monitor.end_reason() == Some(FailureKind::Cancelled);
+        self.end_reported = true;
+        // A canceller ended the process; the connection is closed here.
+        self.transport.close();
         Some(match self.culprit() {
+            Ok(slot) if by_canceller => Error::Cancelled { slot },
             Ok(slot) => Error::Crashed { slot, status },
             Err(error) => error,
         })
     }
 
-    /// Terminates and reaps the helper, then closes the connection. A reply that arrived after a
-    /// deadline is discarded, and every later request reports the exit; the owner recovers the
-    /// chain in a new helper.
-    pub fn kill(&mut self) {
-        let _ = self.child.kill();
+    /// Terminates and reaps the helper for `reason`, then closes the connection. A reply that
+    /// arrived after a deadline is discarded, and every later request reports the exit; the owner
+    /// recovers the chain in a new helper.
+    pub fn kill(&mut self, reason: FailureKind) {
+        let _ = self.child.kill(reason);
+        self.end_reported = true;
         self.transport.close();
     }
 }
 
 impl Drop for Helper {
     fn drop(&mut self) {
+        self.child.expect_exit(FailureKind::Closed);
         if self.transport.queue(&Request::Shutdown).is_ok()
             && self.transport.flush(EXIT_TIMEOUT).is_ok()
         {
             self.child.monitor().wait_for_exit(EXIT_TIMEOUT);
         }
-        self.kill();
+        self.kill(FailureKind::Closed);
     }
 }

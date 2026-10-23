@@ -33,7 +33,10 @@ impl Chain {
             .prepare_shared(&candidate.memory, request, timeout);
         if matches!(
             result,
-            Err(Error::Protocol | Error::Crashed { .. } | Error::TimedOut { .. })
+            Err(Error::Protocol
+                | Error::Crashed { .. }
+                | Error::TimedOut { .. }
+                | Error::Cancelled { .. })
         ) {
             self.shared = None;
         }
@@ -51,7 +54,7 @@ impl Chain {
     }
 
     pub(super) fn protocol_error(&mut self) -> Error {
-        self.helper.kill();
+        self.helper.kill(FailureKind::Protocol);
         self.shared = None;
         Error::Protocol
     }
@@ -130,9 +133,11 @@ macro_rules! process {
                 })();
                 match &result {
                     Err(Error::Protocol) => {
-                        self.helper.kill();
+                        self.helper.kill(FailureKind::Protocol);
                     }
-                    Err(Error::Crashed { .. } | Error::TimedOut { .. }) => {}
+                    Err(
+                        Error::Crashed { .. } | Error::TimedOut { .. } | Error::Cancelled { .. },
+                    ) => {}
                     _ => {
                         self.shared = Some(transport);
                     }

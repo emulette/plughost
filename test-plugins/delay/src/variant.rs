@@ -34,10 +34,11 @@ pub enum Variant {
     StallInProcess,
     StallInState,
     FloatMode,
+    SlowLoad,
 }
 
 /// Module file name (without extension), class ID suffix, and plugin name of each variant.
-const VARIANTS: [(Variant, &str, u32, &str); 26] = [
+const VARIANTS: [(Variant, &str, u32, &str); 27] = [
     (
         Variant::Delay,
         "plughost-test-delay",
@@ -193,6 +194,12 @@ const VARIANTS: [(Variant, &str, u32, &str); 26] = [
         "plughost-test-float-mode",
         0x7900001A,
         "plughost test float mode",
+    ),
+    (
+        Variant::SlowLoad,
+        "plughost-test-slow-load",
+        0x7900001B,
+        "plughost test slow load",
     ),
 ];
 

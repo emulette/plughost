@@ -58,6 +58,7 @@ enum Mode {
 
 /// Runs the helper until the application disconnects or asks it to shut down.
 pub fn run() -> ExitCode {
+    abort_on_panic();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let parsed = match args.as_slice() {
         [mode, name, token, parent] => {
@@ -93,6 +94,18 @@ pub fn run() -> ExitCode {
     }
 }
 
+/// Ends the whole helper on any panic, after the default report. A panic that unwound instead
+/// would end one thread without a reply, clear the slot that thread recorded, and leave the
+/// application waiting for a timeout that names no slot; a panic in a native callback cannot
+/// unwind at all. An abort keeps the slot recorded, so the application reports a crash of it.
+fn abort_on_panic() {
+    let report = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        report(info);
+        std::process::abort();
+    }));
+}
+
 fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
     let _runtime = events::init(mode == Mode::Host)?;
     let stream = Stream::connect(name.to_ns_name::<GenericNamespaced>()?)?;
@@ -114,7 +127,7 @@ fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
         let (processing, work) = process::Processing::spawn(responder.clone())?;
         host = Some(host::Host::new(
             transfer::Receiver::take_from_stdin()?,
-            responder.diagnostics.clone(),
+            responder.clone(),
             processing,
         ));
         blocks = Some(work);

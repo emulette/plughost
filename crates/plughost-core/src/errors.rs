@@ -39,6 +39,8 @@ pub enum FailureKind {
     Crashed,
     /// An operation exceeded its configured deadline.
     TimedOut,
+    /// The application cancelled the operation, which terminated the helper.
+    Cancelled,
 }
 
 /// A portable category with the original diagnostic message, including native codes when provided.

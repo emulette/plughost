@@ -106,6 +106,7 @@ impl Host {
                 Ok(report) => {
                     reports.push(Some(report));
                     candidates.push(Some(candidate));
+                    self.progress();
                 }
                 Err(error) => {
                     self.retain_diagnostics(slot, candidate.as_ref());

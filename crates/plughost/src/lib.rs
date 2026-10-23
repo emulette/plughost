@@ -54,7 +54,7 @@ mod scan;
 
 pub use chain::{Chain, ChainSnapshot, Timeouts};
 pub use errors::Error;
-pub use helper::HelperMonitor;
+pub use helper::{ChainCanceller, HelperMonitor};
 pub use plughost_core::render::{
     AutomationRamp, Delivery, Process, RenderInput, RenderOptions, RenderProgress, RenderSchedule,
     RenderSession, RenderStatus, Rendered, SessionState, Tail, TailPolicy, TransportChange, render,

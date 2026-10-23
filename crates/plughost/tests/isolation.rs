@@ -6,9 +6,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use plughost::{
-    Chain, Error, Event, HostIdentity, InputError, Layout, PluginFormat, PluginRef, RenderOptions,
-    RoutedChainConfig, ScanAction, ScanOutcome, ScanPolicy, Scanner, Source, TailPolicy, Timeouts,
-    render,
+    Chain, Error, Event, FailureKind, HostIdentity, InputError, Layout, PluginFormat, PluginRef,
+    RenderOptions, RoutedChainConfig, ScanAction, ScanOutcome, ScanPolicy, Scanner, Source,
+    TailPolicy, Timeouts, render,
 };
 
 mod support;
@@ -319,6 +319,10 @@ fn a_crash_names_the_slot_and_the_chain_can_recover() {
             }) => assert!(!status.success()),
             other => panic!("{format:?}: {other:?}"),
         }
+        assert_eq!(
+            chain.helper_monitor().end_reason(),
+            Some(FailureKind::Crashed)
+        );
         chain = chain.recover(&[]).unwrap();
         assert!(!chain.parameters(0).unwrap().is_empty());
     }
@@ -346,6 +350,78 @@ fn a_hang_times_out_and_names_the_slot() {
             "{format:?}"
         );
         assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(
+            chain.helper_monitor().end_reason(),
+            Some(FailureKind::TimedOut)
+        );
+    }
+}
+
+#[test]
+#[ignore = "needs scripts/build-helper.sh and scripts/build-test-plugins.sh"]
+fn a_call_held_up_by_a_plugin_is_cancelled_from_another_thread() {
+    // Without the canceller, the block would wait for this timeout.
+    let timeouts = {
+        let mut timeouts = Timeouts::default();
+        timeouts.process = Duration::from_secs(60);
+        timeouts
+    };
+    for format in [PluginFormat::Vst3, PluginFormat::Clap] {
+        let hanging = delay_variant(format, "hang-in-process", 3);
+        let mut chain = spawn_with(&[hanging], &HostIdentity::default(), timeouts);
+        prepare(&mut chain);
+        let canceller = chain.canceller();
+        let started = Instant::now();
+        let cancelling = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            canceller.cancel();
+        });
+        let result = try_process_block(&mut chain, &signal(512));
+        cancelling.join().unwrap();
+        assert!(
+            matches!(result, Err(Error::Cancelled { slot: Some(0) })),
+            "{format:?}: {result:?}"
+        );
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert_eq!(
+            chain.helper_monitor().end_reason(),
+            Some(FailureKind::Cancelled)
+        );
+        // Like a timeout, the cancellation is reported once; the helper is gone after it.
+        assert!(matches!(chain.parameters(0), Err(Error::Crashed { .. })));
+        chain = chain.recover(&[]).unwrap();
+        assert!(!chain.parameters(0).unwrap().is_empty());
+        let monitor = chain.helper_monitor();
+        drop(chain);
+        assert!(monitor.wait_for_exit(Duration::from_secs(5)).is_some());
+        assert_eq!(monitor.end_reason(), Some(FailureKind::Closed));
+    }
+}
+
+#[test]
+#[ignore = "needs scripts/build-helper.sh and scripts/build-test-plugins.sh"]
+fn the_load_timeout_applies_to_each_plugin_of_a_chain() {
+    // Each plugin takes 400 ms to load, well within the timeout; all of them take longer.
+    let timeouts = {
+        let mut timeouts = Timeouts::default();
+        timeouts.load = Duration::from_millis(1_000);
+        timeouts
+    };
+    for format in [PluginFormat::Vst3, PluginFormat::Clap] {
+        let slow = delay_variant(format, "slow-load", 0x1B);
+        let mut chain = spawn_with(
+            &[slow.clone(), slow.clone(), slow.clone(), slow],
+            &HostIdentity::default(),
+            timeouts,
+        );
+        prepare(&mut chain);
+        // Preparing a prepared chain again loads every plugin again.
+        chain.reprepare().unwrap();
+        assert_eq!(
+            process_block(&mut chain, &signal(512)).len(),
+            2,
+            "{format:?}"
+        );
     }
 }
 

@@ -11,6 +11,7 @@ const PROTOCOL_VERSION: &str =
 const APPLICATION_PROTOCOL: &str = "the application's is";
 const CRASHED: &str = "the helper exited";
 const TIMED_OUT: &str = "the helper stopped responding and was terminated";
+const CANCELLED: &str = "the call was cancelled and the helper was terminated";
 const OPERATION: &str = "the operation failed";
 const PROTOCOL: &str = "the helper sent an invalid or unexpected message";
 const SLOT: &str = "slot";
@@ -49,6 +50,12 @@ pub enum Error {
     /// The helper did not respond within the operation's timeout and was terminated.
     TimedOut {
         /// Zero-based plugin slot when attributable to one slot; otherwise `None`.
+        slot: Option<usize>,
+    },
+    /// A [`ChainCanceller`](crate::ChainCanceller) terminated the helper during this call, or
+    /// before it.
+    Cancelled {
+        /// Zero-based plugin slot the helper was calling, when attributable; otherwise `None`.
         slot: Option<usize>,
     },
     /// A helper operation returned a structured native or host failure.
@@ -116,6 +123,10 @@ impl fmt::Display for Error {
                 f.write_str(TIMED_OUT)?;
                 slot(f, which)
             }
+            Error::Cancelled { slot: which } => {
+                f.write_str(CANCELLED)?;
+                slot(f, which)
+            }
             Error::Operation { slot: which, .. } => {
                 f.write_str(OPERATION)?;
                 slot(f, which)
@@ -174,6 +185,7 @@ impl Error {
             }
             Self::Crashed { .. } => FailureKind::Crashed,
             Self::TimedOut { .. } => FailureKind::TimedOut,
+            Self::Cancelled { .. } => FailureKind::Cancelled,
             Self::Operation { failure, .. } => failure.kind,
             Self::NotPrepared => FailureKind::NotPrepared,
             Self::Input { .. } | Self::Buffers | Self::RealtimeRunning => FailureKind::InvalidInput,

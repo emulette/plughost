@@ -25,7 +25,7 @@ The application depends on `plughost = "=0.1.5"`. A separate executable depends 
 `std::process::ExitCode`. Ship that executable with the application and pass its path to
 `Scanner::new` and `Chain::spawn`. The library supplies the helper's command-line arguments
 and IPC handshake. Keep application and helper versions matched; the internal helper protocol
-is 30, and an application and a helper with different protocol versions fail the handshake with
+is 31, and an application and a helper with different protocol versions fail the handshake with
 `Error::ProtocolVersion`, which carries both versions.
 
 Supported targets are `aarch64-apple-darwin`, on macOS 15 or newer, and
@@ -189,7 +189,10 @@ an editor, preparing one slot again (`reprepare_slot`), and preparing an already
 chain again use the load timeout. Initial preparation, reset, `resync_realtime`, saving state,
 preset inspection/export, and parameter/control queries use the control timeout.
 `recover_realtime` uses the load timeout for loading the plugins and restoring their states and
-the control timeout for the rest. Processing one block uses the process timeout. Scan stall
+the control timeout for the rest. Processing one block uses the process timeout. A timeout is how
+long the helper may go without responding: loading a chain and preparing an already configured
+chain again go through the plugins one at a time, and each plugin that finishes renews the load
+timeout for the next, so the timeout bounds each plugin rather than the whole chain. Scan stall
 timeouts are configured separately on `Scanner`; they do not use `Timeouts`.
 
 Types that later versions extend are `#[non_exhaustive]`: the enums `Layout`, `PluginFormat`,
@@ -616,10 +619,19 @@ Match typed `Error` variants (`Error::Render` carries a `RenderError`, `Error::I
 `Error::source()`
 exposes wrapped I/O, render, input and operation errors. `Display` gives the outer context;
 format the source chain to include each cause once. `PresetSearchError` follows the same rule.
-After a timeout or protocol error the
+After a timeout, protocol error or cancellation the
 helper is terminated; later requests return `Error::Crashed` (`NotPrepared` for processing)
-until the application recovers the chain. `Error::Crashed` and `Error::TimedOut` can include the last reported
-slot, which may be unavailable. Treat plugin failures as recoverable application events.
+until the application recovers the chain. `Error::Crashed`, `Error::TimedOut` and `Error::Cancelled`
+can include the last reported slot, which may be unavailable. Treat plugin failures as
+recoverable application events.
+
+`canceller()` returns a clonable `ChainCanceller` for the current helper generation. Its
+`cancel()` terminates that helper from any thread without waiting, which ends a call the chain
+is blocked in, such as a plugin that does not return from loading, restoring state, opening its
+editor or processing a block. That call, or the chain's next call if none is blocked, returns
+`Error::Cancelled` (`FailureKind::Cancelled`) with the slot the helper was calling; later calls
+return `Error::Crashed` as after a timeout, until the application recovers the chain. A
+recovered chain has its own canceller; cancelling a helper that already ended does nothing.
 
 `reset()` clears DSP history while retaining settings. `recover(&states)` starts a separate
 chain in a new helper with the same plugin list, host identity and timeouts, restores `states`
@@ -640,11 +652,16 @@ caller.
 
 `helper_monitor()` returns a clonable `HelperMonitor` for the current helper generation. Its
 `exit_status()` and `wait_for_exit(timeout)` observe the OS exit without IPC, including while
-the chain is idle; wait from application or control code. A recovered chain has its own monitor.
+the chain is idle; wait from application or control code. Once the exit is observed,
+`end_reason()` tells why the helper ended, which the later `Error::Crashed` results do not:
+`FailureKind::Crashed` when it exited on its own (a crash, or a plugin ending the process),
+`TimedOut`, `Protocol` or `Cancelled` when plughost terminated it for that reason, and `Closed`
+when its chain shut it down. A recovered chain has its own monitor.
 Helpers run in an application-owned macOS process group or Windows kill-on-close Job. Drop,
 timeout, and scan cancellation terminate the helper and descendants that stay in that scope; a
 helper also terminates its scope when the application exits or disconnects, even if a modal
-dialog or stuck native call blocks its main thread. An invalidated Audio Unit extension instance
+dialog or stuck native call blocks its main thread. A panic in the helper aborts it, so the
+application sees a crash of the slot the helper was calling rather than a timeout. An invalidated Audio Unit extension instance
 fails later calls with `RestartRequired`; it is not recreated automatically.
 
 `take_changes()` drains coalesced `PluginTiming` notifications per slot: the latency the plugin

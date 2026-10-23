@@ -17,7 +17,7 @@ use crate::render::Tail;
 use crate::state::{PluginState, PresetInfo, StatePurpose};
 use crate::{CapabilityReport, DiagnosticBatch, Failure, HostIdentity};
 
-pub const PROTOCOL_VERSION: u32 = 30;
+pub const PROTOCOL_VERSION: u32 = 31;
 /// Upper bound on one message. A helper whose memory a plugin corrupted could send anything.
 pub const MAX_MESSAGE_BYTES: usize = 256 << 20;
 
@@ -277,6 +277,9 @@ pub enum Response {
     Class(PluginInfo),
     Loaded(Vec<PluginInfo>),
     Done,
+    /// Host progress: a request that loads or prepares the slots one at a time finished one,
+    /// which renews the application's deadline for the rest.
+    Progress,
     /// Confirms a published shared output, with the chain timing after the block.
     Processed {
         submission: shared::Submission,

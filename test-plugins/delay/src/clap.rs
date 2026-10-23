@@ -92,6 +92,9 @@ impl DefaultPluginFactory for TestPlugin {
     }
 
     fn new_shared(host: HostSharedHandle<'_>) -> Result<Shared, PluginError> {
+        if variant() == Variant::SlowLoad {
+            std::thread::sleep(crate::LOAD);
+        }
         if let Some(log) = host.get_extension::<HostLog>() {
             for severity in [
                 LogSeverity::Debug,

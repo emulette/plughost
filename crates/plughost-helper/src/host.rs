@@ -31,6 +31,8 @@ pub struct Host {
     identity: HostIdentity,
     retired_diagnostics: plughost_core::DiagnosticBatch,
     diagnostics: DiagnosticBuffer,
+    /// Sends progress while a request goes through the slots one at a time.
+    responder: crate::Responder,
     editors: Vec<Option<EditorWindow>>,
     processing: Arc<Processing>,
     /// The prepared routing, each slot's part of it, and the alignment planned for it.
@@ -49,7 +51,7 @@ pub struct Host {
 impl Host {
     pub fn new(
         transfer: transfer::Receiver,
-        diagnostics: DiagnosticBuffer,
+        responder: crate::Responder,
         processing: Arc<Processing>,
     ) -> Self {
         Self {
@@ -58,7 +60,8 @@ impl Host {
             references: Vec::new(),
             identity: HostIdentity::default(),
             retired_diagnostics: Default::default(),
-            diagnostics,
+            diagnostics: responder.diagnostics.clone(),
+            responder,
             editors: Vec::new(),
             processing,
             audio_config: None,
@@ -444,6 +447,7 @@ impl Host {
             };
             infos.push(loaded.info().clone());
             self.slots.push(loaded);
+            self.progress();
         }
         self.parameter_events = self.slots.iter().map(|_| Default::default()).collect();
         self.references = plugins.to_vec();
@@ -453,6 +457,12 @@ impl Host {
             self.slots.iter().map(|plugin| plugin.processor()).collect(),
         ));
         Response::Loaded(infos)
+    }
+
+    /// Tells the application one slot of the request is done, renewing its deadline for the next.
+    /// A failed write means the application disconnected, which ends the helper anyway.
+    fn progress(&self) {
+        let _ = self.responder.send(&Response::Progress);
     }
 
     /// Loads an instance for `slot`, whose audio-thread calls run on the processing thread.

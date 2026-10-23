@@ -101,12 +101,16 @@ impl Drop for Editor {
     }
 }
 
+/// The width and height of a rectangle the plugin filled in. Its coordinates can be any `i32`s,
+/// whose difference only fits a wider type.
 fn dimensions(rect: &ViewRect) -> (u32, u32) {
-    (
-        (rect.right - rect.left).max(0) as u32,
-        (rect.bottom - rect.top).max(0) as u32,
-    )
+    let length = |start: i32, end: i32| (i64::from(end) - i64::from(start)).max(0) as u32;
+    (length(rect.left, rect.right), length(rect.top, rect.bottom))
 }
+
+#[cfg(test)]
+#[path = "editor_tests.rs"]
+mod tests;
 
 struct PlugFrame {
     resize: ResizeRequest,

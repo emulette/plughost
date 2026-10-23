@@ -5,6 +5,37 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Chain::canceller` returns a `ChainCanceller` whose `cancel` terminates the chain's helper from
+  any thread, which ends a call the chain is blocked in, such as a plugin that does not return
+  from loading, restoring state, opening its editor or processing a block. That call, or the next
+  one if none is blocked, returns the new `Error::Cancelled` (`FailureKind::Cancelled`) with the
+  slot the helper was calling, and later calls return `Error::Crashed` as after a timeout.
+- `HelperMonitor::end_reason` tells why a helper ended once its exit is observed: it crashed or
+  exited on its own, plughost terminated it after a timeout, a protocol error or a cancellation,
+  or its chain shut it down. The errors after the first one report `Error::Crashed` whatever the
+  reason was.
+
+### Changed
+
+- The load timeout bounds each plugin of a chain rather than the whole chain: loading a chain,
+  and preparing an already configured chain again, renew it after each plugin, also in
+  `recover` and `recover_realtime`. A chain of instruments that each load within the timeout no
+  longer times out together.
+- A panic in the helper aborts it, so the application reports a crash of the slot the helper
+  was calling. A panic on its processing thread made the request it served time out without
+  naming a slot before.
+- The internal helper protocol is now 31. Applications and helpers with different protocol
+  versions fail the handshake; rebuild and distribute the helper with the application.
+
+### Fixed
+
+- A VST3 editor whose view reports a size with coordinates far apart no longer panics the
+  helper when it computes the window size.
+
 ## [0.1.5] - 2026-10-23
 
 ### Added

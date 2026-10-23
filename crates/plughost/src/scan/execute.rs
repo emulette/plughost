@@ -26,7 +26,7 @@ impl Scanner {
             None => return Ok(work.stopped().unwrap()),
         };
         if let Some(outcome) = work.stage(ScanStage::Loading) {
-            helper.kill();
+            helper.kill(plughost_core::FailureKind::Cancelled);
             return Ok(outcome);
         }
         match helper.send_controlled(request, timeout, &stopped)? {
@@ -56,7 +56,7 @@ impl Scanner {
                 Err(error) => return Ok(outcome_of(error)),
             };
             if let Some(outcome) = work.stage(stage) {
-                helper.kill();
+                helper.kill(plughost_core::FailureKind::Cancelled);
                 return Ok(outcome);
             }
         }

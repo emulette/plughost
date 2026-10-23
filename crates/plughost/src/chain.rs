@@ -28,7 +28,9 @@ pub use recovery::ChainSnapshot;
 pub struct Timeouts {
     /// Loading plugins, restoring state, importing/loading presets, selecting factory presets,
     /// opening editors, preparing a slot again and preparing an already configured chain again
-    /// (which reloads its plugins). Large instruments take minutes.
+    /// (which reloads its plugins). Large instruments take minutes. Loading a chain and
+    /// preparing it again go through the plugins one at a time, and each plugin that finishes
+    /// renews the timeout for the next.
     pub load: Duration,
     /// Initial preparation, resetting, saving state, parameter access and other control calls.
     pub control: Duration,
@@ -145,6 +147,13 @@ impl Chain {
     /// idle. The handle stays attached to this helper after recovery or Chain drop.
     pub fn helper_monitor(&self) -> crate::HelperMonitor {
         self.helper.monitor()
+    }
+
+    /// Ends a call this chain is blocked in from another thread, such as a plugin that does not
+    /// return from loading, restoring state or opening its editor, by terminating this helper.
+    /// The handle stays attached to this helper after recovery or Chain drop.
+    pub fn canceller(&self) -> crate::ChainCanceller {
+        self.helper.canceller()
     }
 
     /// Drains bounded plugin and helper diagnostics. Poll from application/control code.
@@ -347,7 +356,10 @@ impl Chain {
         let result = self.helper.request(request, timeout);
         if matches!(
             result,
-            Err(Error::Protocol | Error::Crashed { .. } | Error::TimedOut { .. })
+            Err(Error::Protocol
+                | Error::Crashed { .. }
+                | Error::TimedOut { .. }
+                | Error::Cancelled { .. })
         ) {
             self.shared = None;
         }
