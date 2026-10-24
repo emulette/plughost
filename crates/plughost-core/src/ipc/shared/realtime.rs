@@ -19,7 +19,7 @@
 use std::io;
 use std::ptr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering, fence};
 
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -618,7 +618,11 @@ impl Ring {
             event_ports,
             produced,
         )?;
-        // A worker that rewrote the lane while it was read wrote it out of turn.
+        // A worker that rewrote the lane out of turn and published that before this check is
+        // caught; the fence keeps the reads above before it. The worker marks no rewrite in
+        // progress, so one still under way is not: only a misbehaving helper rewrites a lane the
+        // callback reads, and it can write any output anyway.
+        fence(Ordering::Acquire);
         if !published(&self.control) {
             return Err(invalid(GENERATION));
         }
