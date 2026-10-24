@@ -108,6 +108,11 @@ pub struct RealtimeStatus {
     /// Quanta the helper completed later than `latency` quanta after their submission, whether
     /// or not the callback still waited for them.
     pub late: u64,
+    /// Callbacks that played the chain's output with a NaN or infinite sample in it, which the
+    /// device received as is. Rendering fails on such output with
+    /// [`crate::RenderError::NonFiniteOutput`]; the endpoint plays it and counts it, from the
+    /// first output on, where rendering leaves out the chain's latency.
+    pub non_finite_outputs: u64,
     /// Output events left out because they go beyond the room `produced` has reserved, which
     /// the callback cannot grow without allocating. A new generation's note offs for the
     /// notes earlier outputs left on count too when they do not fit `produced`, as does each
@@ -165,6 +170,7 @@ pub(crate) struct State {
     overflows: AtomicU64,
     size_mismatches: AtomicU64,
     failures: AtomicU64,
+    non_finite_outputs: AtomicU64,
     /// The kind's index plus one above the slot plus one, or 0.
     last_failure: AtomicU64,
     dropped_events: AtomicU64,
@@ -215,6 +221,7 @@ impl State {
             failures: load(&self.failures),
             last_failure: self.last_failure(),
             late,
+            non_finite_outputs: load(&self.non_finite_outputs),
             dropped_events: load(&self.dropped_events),
             latency: self.latency.load(Ordering::Relaxed).saturating_add(added),
             stalled,

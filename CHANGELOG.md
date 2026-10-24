@@ -7,6 +7,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ## [Unreleased]
 
+### Added
+
+- `RealtimeStatus::non_finite_outputs` counts the callbacks that played the chain's output with
+  a NaN or infinite sample in it, which the device receives as is.
+
 ### Fixed
 
 - A realtime callback that began before `stop_realtime` or `recover_realtime` no longer submits

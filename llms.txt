@@ -572,8 +572,9 @@ quanta; like `resync_realtime` and `recover_realtime`, it waits for a callback i
 that none submits afterwards. `chain.realtime_status()` reports callbacks, processed and missed
 outputs, overflows, callbacks of another size, failed quanta and the last failure, late
 completions (quanta the helper completed more than `latency` quanta after their submission,
-carried over a recovery), dropped events, the latency, and `stalled`. A callback of another
-size, a full ring (the helper
+carried over a recovery), outputs played with a NaN or infinite sample (`non_finite_outputs`;
+the device receives them as is, where rendering fails with `RenderError::NonFiniteOutput`),
+dropped events, the latency, and `stalled`. A callback of another size, a full ring (the helper
 fell `latency + 2` quanta behind), a failed quantum, or invalid input sets `resync`: the endpoint plays its fallback until
 the application calls `chain.resync_realtime()` (or `recover_realtime`, below). It halts the
 callbacks' submissions, which play `Resync` meanwhile, resets every plugin as `reset()` does,

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use plughost_core::internal::level;
 use plughost_core::ipc::shared::clock;
 use plughost_core::ipc::shared::realtime::{Outcome, Ring};
 use plughost_core::{
@@ -366,6 +367,9 @@ impl RealtimeEndpoint {
                     .fetch_add(dropped as u64, Ordering::Relaxed);
                 self.state.latency.store(latency, Ordering::Relaxed);
                 self.play(output);
+                if level(output, 0..frames).non_finite.is_some() {
+                    State::count(&self.state.non_finite_outputs);
+                }
                 Ok(RealtimeOutput::Processed)
             }
             Ok(Some((Outcome::Failed { slot, kind }, _))) => {

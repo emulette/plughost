@@ -5,7 +5,9 @@
 use std::sync::Arc;
 
 use plughost_core::ipc::shared::SlotConfig;
-use plughost_core::ipc::shared::realtime::{Ring, RingDescriptor};
+use plughost_core::ipc::shared::clock;
+use plughost_core::ipc::shared::realtime::{Quantum, Ring, RingDescriptor};
+use plughost_core::render::Tail;
 use plughost_core::{
     AudioBusConfig, BlockContext, Events, FailureKind, Layout, ProcessMode, RoutedChainConfig,
     SampleFormat, SlotAudioConfig,
@@ -188,4 +190,37 @@ fn a_failure_in_a_slot_the_chain_does_not_have_is_a_protocol_failure() {
             kind: FailureKind::Protocol,
         })
     );
+}
+
+#[test]
+fn outputs_with_non_finite_samples_play_and_are_counted() {
+    let state = Arc::new(State::default());
+    let mut ring = ring(1);
+    // The worker's output for the first quantum, which the callback plays one quantum later.
+    let mut left = [0.25f32; QUANTUM];
+    left[3] = f32::NAN;
+    let quantum = Quantum {
+        generation: 1,
+        sequence: 1,
+        context: BlockContext::new(QUANTUM),
+        submitted_at: clock::now(),
+    };
+    ring.complete_f32(
+        &quantum,
+        &[&left, &[0.25; QUANTUM]],
+        &Events::new(),
+        0,
+        Tail::Samples(0),
+    )
+    .unwrap();
+    let config = RealtimeConfig::new(QUANTUM);
+    let mut endpoint = RealtimeEndpoint::new(ring, Arc::clone(&state), &config, &chain(), None);
+    state.start(1, 0, 0);
+    assert_eq!(
+        call(&mut endpoint),
+        RealtimeOutput::Fallback(FallbackReason::Priming)
+    );
+    assert_eq!(call(&mut endpoint), RealtimeOutput::Processed);
+    let status = state.status(0, Default::default(), 0);
+    assert_eq!((status.processed, status.non_finite_outputs), (1, 1));
 }

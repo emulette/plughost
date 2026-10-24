@@ -61,6 +61,7 @@ pub mod internal {
         changes_fit, validate_choice_page, validate_normalized, validate_parameter_text,
     };
     pub use crate::parameter_events::ParameterEventBuffer;
+    pub use crate::sample::{Level, level};
 }
 pub use event::{
     Event, EventData, Events, ExpressionKind, Iter as EventsIter, MAX_BLOCK_EVENTS,
