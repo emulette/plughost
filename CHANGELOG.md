@@ -35,6 +35,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   while the realtime endpoint runs succeeds when the resync it starts does not complete; the
   endpoint plays its fallback with `resync` set meanwhile. It returned the resync's error though
   the slot was already replaced.
+- The events of an output the realtime callback missed are no longer lost: once the helper has
+  completed it, they go out at offset 0, before the output's own, with the next callback. A note
+  off in a missed output left its note on until the next generation.
 - The note offs a new realtime generation sends for the notes earlier outputs left on go out with
   its first callback that returns `Ok`. A first callback with invalid input dropped them with its
   error.

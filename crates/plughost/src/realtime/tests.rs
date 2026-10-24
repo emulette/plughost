@@ -9,8 +9,8 @@ use plughost_core::ipc::shared::clock;
 use plughost_core::ipc::shared::realtime::{Quantum, Ring, RingDescriptor};
 use plughost_core::render::Tail;
 use plughost_core::{
-    AudioBusConfig, BlockContext, Events, FailureKind, Layout, ProcessMode, RoutedChainConfig,
-    SampleFormat, SlotAudioConfig,
+    AudioBusConfig, BlockContext, Event, Events, FailureKind, Layout, ProcessMode,
+    RoutedChainConfig, SampleFormat, SlotAudioConfig,
 };
 
 use super::{
@@ -223,4 +223,61 @@ fn outputs_with_non_finite_samples_play_and_are_counted() {
     assert_eq!(call(&mut endpoint), RealtimeOutput::Processed);
     let status = state.status(0, Default::default(), 0);
     assert_eq!((status.processed, status.non_finite_outputs), (1, 1));
+}
+
+#[test]
+fn a_missed_quantums_events_go_out_with_the_first_callback_after_it_completed() {
+    let state = Arc::new(State::default());
+    let mut chain = chain();
+    chain.slots[0].events.outputs = vec![0];
+    let config = RealtimeConfig::new(QUANTUM);
+    let mut endpoint = RealtimeEndpoint::new(ring(1), Arc::clone(&state), &config, &chain, None);
+    state.start(1, 0, 0);
+    let serve = |endpoint: &mut RealtimeEndpoint| {
+        let input = [0.0f32; QUANTUM];
+        let (mut left, mut right) = ([0.0f32; QUANTUM], [0.0f32; QUANTUM]);
+        let mut produced = Events::for_block();
+        let played = endpoint
+            .process_audio_f32(
+                &BlockContext::new(QUANTUM),
+                &[&input, &input],
+                &mut [&mut left, &mut right],
+                &[],
+                &Events::new(),
+                &mut produced,
+            )
+            .unwrap();
+        (played, produced)
+    };
+    let missed = RealtimeOutput::Fallback(FallbackReason::Missed);
+    assert_eq!(
+        serve(&mut endpoint).0,
+        RealtimeOutput::Fallback(FallbackReason::Priming)
+    );
+    assert_eq!(serve(&mut endpoint), (missed, Events::new()));
+
+    // The helper completes the first quantum after the callback played the fallback for it.
+    let quantum = Quantum {
+        generation: 1,
+        sequence: 1,
+        context: BlockContext::new(QUANTUM),
+        submitted_at: clock::now(),
+    };
+    let silence = [0.0f32; QUANTUM];
+    endpoint
+        .ring()
+        .complete_f32(
+            &quantum,
+            &[&silence, &silence],
+            &Events::from_iter([Event::note_off(5, 0, 60, 0)]),
+            0,
+            Tail::Samples(0),
+        )
+        .unwrap();
+    assert_eq!(
+        serve(&mut endpoint),
+        (missed, Events::from_iter([Event::note_off(0, 0, 60, 0)]))
+    );
+    assert_eq!(serve(&mut endpoint), (missed, Events::new()));
+    assert_eq!(state.status(0, Default::default(), 0).dropped_events, 0);
 }

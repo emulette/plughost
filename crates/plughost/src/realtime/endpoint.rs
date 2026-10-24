@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use plughost_core::internal::level;
 use plughost_core::ipc::shared::clock;
-use plughost_core::ipc::shared::realtime::{Outcome, Ring};
+use plughost_core::ipc::shared::realtime::{MAX_LANES, Outcome, Ring};
 use plughost_core::{
     AutomationEvent, BlockContext, Events, FailureKind, InputError, RoutedChainConfig, Sample,
     SampleFormat,
@@ -40,7 +40,8 @@ pub enum FallbackReason {
     /// The endpoint started less than `latency` callbacks ago, so no output is due yet. The first
     /// output plays as is, without a crossfade from this fallback.
     Priming,
-    /// The helper had not completed the output in time.
+    /// The helper had not completed the output in time. Its events go out, at offset 0, with
+    /// the first callback after the helper completed it.
     Missed,
     /// The endpoint waits for [`crate::Chain::resync_realtime`], to be stopped, the chain reset
     /// and the endpoint started again, or to be recovered; or a resync or recovery is under way.
@@ -92,6 +93,14 @@ pub struct RealtimeEndpoint {
     /// The notes earlier outputs started wait for the new generation's first callback that
     /// returns `Ok` to end them.
     ending: bool,
+    /// The quanta of this generation the callback played the fallback for, oldest first, whose
+    /// events it delivers once the helper has completed them.
+    missed: [u64; MAX_LANES],
+    missed_len: usize,
+    /// The events of those quanta that this call delivers, at the start of its output.
+    late: Events,
+    /// Room to read one quantum's events, and to set aside this call's output's.
+    scratch: Events,
 }
 
 impl std::fmt::Debug for RealtimeEndpoint {
@@ -193,7 +202,17 @@ impl RealtimeEndpoint {
             planned: None,
             notes: Notes::new(),
             ending: false,
+            missed: [0; MAX_LANES],
+            missed_len: 0,
+            late: Events::for_block(),
+            scratch: Events::for_block(),
         }
+    }
+
+    /// The ring, for a test to play the helper's part in it.
+    #[cfg(test)]
+    pub(super) fn ring(&mut self) -> &mut Ring {
+        &mut self.ring
     }
 
     /// Validates the callback's events and automation as a chain block, without allocating.
@@ -248,7 +267,67 @@ impl RealtimeEndpoint {
                 .dropped_events
                 .fetch_add(dropped, Ordering::Relaxed);
         }
+        if !self.late.is_empty() {
+            self.deliver_late(produced);
+        }
         played
+    }
+
+    /// Reads the events of the missed quanta the helper has completed since. A missed quantum's
+    /// lane is reused only once it completed, as an overflow otherwise starts a resync, so each
+    /// is read before its lane is.
+    fn take_late(&mut self, generation: u64) {
+        let mut kept = 0;
+        let mut dropped = 0;
+        for index in 0..self.missed_len {
+            let sequence = self.missed[index];
+            match self
+                .ring
+                .read_events(generation, sequence, self.event_outputs, &mut self.scratch)
+            {
+                Ok(None) => {
+                    self.missed[kept] = sequence;
+                    kept += 1;
+                }
+                Ok(Some(skipped)) => {
+                    dropped += skipped as u64;
+                    for event in self.scratch.iter() {
+                        if !self.late.push_within_capacity(event.at(0)) {
+                            dropped += 1;
+                        }
+                    }
+                }
+                // A lane the helper rewrote out of turn; its events are lost.
+                Err(_) => {}
+            }
+        }
+        self.missed_len = kept;
+        self.notes.record(&self.late);
+        self.state
+            .dropped_events
+            .fetch_add(dropped, Ordering::Relaxed);
+    }
+
+    /// Puts the late events at offset 0 before the output's own, within the room `produced` has
+    /// reserved.
+    fn deliver_late(&mut self, produced: &mut Events) {
+        self.scratch.clear();
+        let mut dropped = 0;
+        for event in produced.iter() {
+            if !self.scratch.push_within_capacity(event) {
+                dropped += 1;
+            }
+        }
+        produced.clear();
+        for event in self.late.iter().chain(self.scratch.iter()) {
+            if !produced.push_within_capacity(event) {
+                dropped += 1;
+            }
+        }
+        self.late.clear();
+        self.state
+            .dropped_events
+            .fetch_add(dropped, Ordering::Relaxed);
     }
 
     fn serve<S: Wire>(
@@ -322,6 +401,11 @@ impl RealtimeEndpoint {
             self.state.resync.store(true, Ordering::Relaxed);
             return Ok(self.fallback(output, FallbackReason::Resync));
         }
+        // Before this quantum's submission reuses a missed quantum's lane. Every return from
+        // here on is `Ok`, which delivers them.
+        if self.missed_len > 0 {
+            self.take_late(generation);
+        }
         let submitted = S::submit(
             &mut self.ring,
             generation,
@@ -386,6 +470,10 @@ impl RealtimeEndpoint {
             Ok(None) => {
                 produced.clear();
                 State::count(&self.state.missed);
+                if let Some(missed) = self.missed.get_mut(self.missed_len) {
+                    *missed = sequence - self.latency;
+                    self.missed_len += 1;
+                }
                 Ok(self.fallback(output, FallbackReason::Missed))
             }
             Err(_) => {
@@ -410,6 +498,7 @@ impl RealtimeEndpoint {
         self.sequence = 0;
         self.planned = None;
         self.ending = true;
+        self.missed_len = 0;
         self.state.ring.receive(&mut self.ring);
         if let Some(dry) = &mut self.dry {
             self.state.dry.receive(dry);
@@ -490,8 +579,9 @@ macro_rules! endpoint_process {
             /// is the callback's frames long, which must be the quantum. `produced` is replaced
             /// with that output's events, system exclusive ones included, up to the room it has
             /// reserved: pass [`crate::Events::for_block`] to receive them all without
-            /// allocating. The first callback that returns `Ok` after a start, a resync or a
-            /// recovery puts there instead a note off at offset 0 for each
+            /// allocating. The events of outputs the callback missed come first, at offset 0,
+            /// once the helper has completed them. The first callback that returns `Ok` after a
+            /// start, a resync or a recovery puts there instead a note off at offset 0 for each
             /// note earlier outputs started and did not end, in the form it started in: a MIDI
             /// note off, or a note off with the note's ID.
             ///

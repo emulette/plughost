@@ -172,10 +172,29 @@ impl SharedAudio {
         Ok(skipped)
     }
 
-    fn read_output_events<T: WireSample>(
+    /// Reads only the events of an output, leaving out those beyond the room `events` has
+    /// reserved, and returns how many it left out.
+    pub(super) fn read_output_events_within_capacity(
         &mut self,
         submission: Submission,
-        output: &mut [&mut [T]],
+        event_count: usize,
+        event_ports: usize,
+        events: &mut Events,
+    ) -> io::Result<usize> {
+        let mut skipped = 0;
+        self.read_output_event_list(
+            submission,
+            event_count,
+            event_ports,
+            events,
+            Some(&mut skipped),
+        )?;
+        Ok(skipped)
+    }
+
+    fn read_output_event_list(
+        &mut self,
+        submission: Submission,
         event_count: usize,
         event_ports: usize,
         events: &mut Events,
@@ -188,6 +207,19 @@ impl SharedAudio {
         {
             return Err(invalid(EVENTS));
         }
+        Ok(())
+    }
+
+    fn read_output_events<T: WireSample>(
+        &mut self,
+        submission: Submission,
+        output: &mut [&mut [T]],
+        event_count: usize,
+        event_ports: usize,
+        events: &mut Events,
+        skipped: Option<&mut usize>,
+    ) -> io::Result<()> {
+        self.read_output_event_list(submission, event_count, event_ports, events, skipped)?;
         if self.descriptor.config.sample_format != T::FORMAT
             || output.len() != self.descriptor.config.output_channels
             || output

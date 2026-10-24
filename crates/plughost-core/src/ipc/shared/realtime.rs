@@ -548,6 +548,62 @@ impl Ring {
         Ok(())
     }
 
+    /// Whether the worker published quantum `sequence` of `generation` in the output header
+    /// `header`.
+    fn published(&self, header: usize, generation: u64, sequence: u64) -> bool {
+        self.control.word(header + SEQUENCE).load(Ordering::Acquire) == sequence
+            && self
+                .control
+                .word(header + HEADER_GENERATION)
+                .load(Ordering::Relaxed)
+                == generation
+    }
+
+    /// Reads only the events of quantum `sequence` of `generation` into the room `produced` has
+    /// reserved, as the callback does for a quantum completed after it played the fallback in
+    /// its place. `None` while the worker has not completed it; otherwise how many events were
+    /// left out for want of room, and none read for a failed quantum.
+    pub fn read_events(
+        &mut self,
+        generation: u64,
+        sequence: u64,
+        event_ports: usize,
+        produced: &mut Events,
+    ) -> io::Result<Option<usize>> {
+        produced.clear();
+        let lane = self.lane(sequence);
+        let header = self.control.header(lane, true);
+        if !self.published(header, generation, sequence) {
+            return Ok(None);
+        }
+        let control = &self.control;
+        if control.word(header + STATUS).load(Ordering::Relaxed) != STATUS_DONE {
+            return Ok(Some(0));
+        }
+        let frames = control.word(header + FRAMES).load(Ordering::Relaxed);
+        let count = usize::try_from(control.word(header + EVENT_COUNT).load(Ordering::Relaxed))
+            .map_err(|_| invalid(EVENTS))?;
+        let submission = Submission {
+            generation: self.descriptor.lane(lane).generation,
+            sequence,
+            frames: usize::try_from(frames).map_err(|_| invalid(BLOCK))?,
+            automation: 0,
+            events: count,
+        };
+        let skipped = self.lanes[lane].read_output_events_within_capacity(
+            submission,
+            count,
+            event_ports,
+            produced,
+        )?;
+        // As in `read`.
+        fence(Ordering::Acquire);
+        if !self.published(header, generation, sequence) {
+            return Err(invalid(GENERATION));
+        }
+        Ok(Some(skipped))
+    }
+
     fn read<T: super::samples::WireSample>(
         &mut self,
         generation: u64,
@@ -558,17 +614,10 @@ impl Ring {
     ) -> io::Result<Option<(Outcome, usize)>> {
         let lane = self.lane(sequence);
         let header = self.control.header(lane, true);
-        let control = &self.control;
-        let published = |control: &Control| {
-            control.word(header + SEQUENCE).load(Ordering::Acquire) == sequence
-                && control
-                    .word(header + HEADER_GENERATION)
-                    .load(Ordering::Relaxed)
-                    == generation
-        };
-        if !published(control) {
+        if !self.published(header, generation, sequence) {
             return Ok(None);
         }
+        let control = &self.control;
         let report: Report = control.read_payload(header)?;
         let outcome = match (
             control.word(header + STATUS).load(Ordering::Relaxed),
@@ -623,7 +672,7 @@ impl Ring {
         // progress, so one still under way is not: only a misbehaving helper rewrites a lane the
         // callback reads, and it can write any output anyway.
         fence(Ordering::Acquire);
-        if !published(&self.control) {
+        if !self.published(header, generation, sequence) {
             return Err(invalid(GENERATION));
         }
         Ok(Some((outcome, skipped)))

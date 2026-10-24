@@ -558,7 +558,9 @@ into the fallback from the last sample played, and back to the output after a mi
 crossfade. The first output after a start, a resync or a recovery plays as is, so without misses
 the output is the offline output for blocks of one quantum, `latency * quantum` frames later. `produced` receives the output events, system
 exclusive ones included, within the room it has reserved; pass an `Events::for_block()`. Events
-beyond that room count as `dropped_events`.
+beyond that room count as `dropped_events`. A missed output's audio is lost, but its events are
+not: once the helper has completed it, they go out at offset 0, before the output's own, with
+the next callback, so a note off it held still ends its note.
 Invalid input is an error and starts a resync; wrong output buffers or precision are an error
 and leave `output` unchanged. `endpoint.last_completion()` says how long the helper took for
 the output just played. Drop the endpoint on a control thread. Call the endpoint once per
