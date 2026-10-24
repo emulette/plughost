@@ -88,6 +88,9 @@ pub struct RealtimeEndpoint {
     /// for a new generation rather than go on in this one's timeline.
     planned: Option<u32>,
     notes: Notes,
+    /// The notes earlier outputs started wait for the new generation's first callback that
+    /// returns `Ok` to end them.
+    ending: bool,
 }
 
 impl std::fmt::Debug for RealtimeEndpoint {
@@ -188,6 +191,7 @@ impl RealtimeEndpoint {
             dry,
             planned: None,
             notes: Notes::new(),
+            ending: false,
         }
     }
 
@@ -234,6 +238,15 @@ impl RealtimeEndpoint {
         let state = Arc::clone(&self.state);
         let _call = state.enter();
         let played = self.serve(context, input, output, automation, events, produced);
+        // The new generation's plugins will not end the notes earlier outputs started. A
+        // generation's first `latency` callbacks play no output, and a callback that fails sets
+        // `resync` until the next generation, so no output of this one has added notes yet.
+        if played.is_ok() && std::mem::take(&mut self.ending) {
+            let dropped = self.notes.end_all(produced);
+            self.state
+                .dropped_events
+                .fetch_add(dropped, Ordering::Relaxed);
+        }
         played
     }
 
@@ -267,12 +280,6 @@ impl RealtimeEndpoint {
         let generation = self.state.generation.load(Ordering::Acquire);
         if generation != self.generation {
             self.begin(generation);
-            // The new generation's plugins will not end the notes earlier outputs started. Its
-            // first callback reads no output, which would replace `produced`.
-            let dropped = self.notes.end_all(produced);
-            self.state
-                .dropped_events
-                .fetch_add(dropped, Ordering::Relaxed);
         }
         let input_fits = input.len() == self.input_channels
             && input.iter().all(|channel| channel.len() == frames);
@@ -392,6 +399,7 @@ impl RealtimeEndpoint {
         self.generation = generation;
         self.sequence = 0;
         self.planned = None;
+        self.ending = true;
         self.state.ring.receive(&mut self.ring);
         if let Some(dry) = &mut self.dry {
             self.state.dry.receive(dry);
@@ -472,8 +480,8 @@ macro_rules! endpoint_process {
             /// is the callback's frames long, which must be the quantum. `produced` is replaced
             /// with that output's events, system exclusive ones included, up to the room it has
             /// reserved: pass [`crate::Events::for_block`] to receive them all without
-            /// allocating. The first callback after
-            /// a start, a resync or a recovery puts there instead a note off at offset 0 for each
+            /// allocating. The first callback that returns `Ok` after a start, a resync or a
+            /// recovery puts there instead a note off at offset 0 for each
             /// note earlier outputs started and did not end, in the form it started in: a MIDI
             /// note off, or a note off with the note's ID.
             ///

@@ -581,10 +581,10 @@ stopping the helper's worker: its quanta are numbered from 1 again and the first
 is after `latency` priming callbacks, as after a start. It returns the whole latency in frames,
 as `start_realtime` does, and changes nothing on a stopped endpoint. Stopping the endpoint,
 calling `chain.reset()` and starting it again still works. The first callback of every new
-generation (a start, a resync or a recovery) puts in `produced`, in place of the output's events,
-a note off at offset 0 for each note earlier outputs started there and did not end, in the form
-it started in; they count as `dropped_events` when `produced` cannot hold them, and so does a
-note on beyond the 256 notes the endpoint tracks. A plugin whose reset does not return within the
+generation (a start, a resync or a recovery) that returns `Ok` puts in `produced`, in place of
+the output's events, a note off at offset 0 for each note earlier outputs started there and did
+not end, in the form it started in; they count as `dropped_events` when `produced` cannot hold
+them, and so does a note on beyond the 256 notes the endpoint tracks. A plugin whose reset does not return within the
 control timeout fails the resync with `Error::TimedOut`.
 
 `status.stalled` is the time since the helper's worker last completed a quantum (or since the

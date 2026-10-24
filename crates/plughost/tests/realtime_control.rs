@@ -471,6 +471,42 @@ fn notes_the_application_received_end_after_a_resync() {
     thread::sleep(PACE);
     let (played, _, produced) = serve(&mut endpoint, &silent, &[], &Events::new());
     assert_eq!((played, produced), (PROCESSED, Events::new()));
+
+    // A new generation's first callback that fails leaves the note offs to the next one that
+    // returns Ok, so an application that reads `produced` only then still ends the notes.
+    thread::sleep(PACE);
+    serve(&mut endpoint, &silent, &[], &starts);
+    thread::sleep(PACE);
+    let (played, _, _) = serve(&mut endpoint, &silent, &[], &Events::new());
+    assert_eq!(played, PROCESSED);
+    chain.resync_realtime().unwrap();
+    let invalid = [AutomationEvent::new(1, ParameterChange::new(0, 0, 0.5))];
+    let mut output = silence(QUANTUM);
+    let [left, right] = &mut output;
+    let mut produced = Events::for_block();
+    thread::sleep(PACE);
+    let failed = endpoint.process_audio_f32(
+        &BlockContext::new(QUANTUM),
+        &[&silent[0], &silent[1]],
+        &mut [left, right],
+        &invalid,
+        &Events::new(),
+        &mut produced,
+    );
+    assert!(matches!(failed, Err(Error::Input { .. })), "{failed:?}");
+    assert_eq!(produced, Events::new());
+    thread::sleep(PACE);
+    let (played, _, produced) = serve(&mut endpoint, &silent, &[], &Events::new());
+    assert_eq!(played, RESYNC);
+    assert_eq!(produced.len(), 4, "{produced:?}");
+    for ended in [
+        Event::note_off(0, 0, 72, 0),
+        Event::note_off(0, 0, 74, 0),
+        Event::new(0, EventData::NoteOff(Note::new(0, 64, 0.0).with_id(5))),
+        Event::new(0, EventData::NoteOff(Note::new(0, 65, 0.0).with_id(6))),
+    ] {
+        assert!(produced.iter().any(|event| event == ended), "{produced:?}");
+    }
     assert_eq!(chain.realtime_status().unwrap().dropped_events, 0);
 }
 
