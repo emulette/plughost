@@ -19,6 +19,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - A `Fallback::Dry` endpoint called with more frames than the quantum plays the input its delay
   line still holds, delayed, and silence before it; it read overwritten history and, in a debug
   build, panicked in the callback.
+- The helper no longer ends with a control timeout when timing changes keep arriving while a
+  started realtime endpoint submits nothing, as when the device stopped or a resync is pending:
+  its worker takes them as they come. A CLAP plugin reporting a new tail on every tick filled
+  the queue in about 0.64 s.
 
 ## [0.2.0] - 2026-10-24
 

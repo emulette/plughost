@@ -51,6 +51,9 @@ pub(super) fn publish(
 mod tests {
     use super::*;
     use crate::process::{Command, Pipeline, Processing, Work};
+    use plughost_core::SampleFormat;
+    use plughost_core::ipc::shared::SlotConfig;
+    use plughost_core::ipc::shared::realtime::{Ring, RingDescriptor};
     use plughost_core::render::Tail;
     use std::sync::mpsc::{self, Receiver};
 
@@ -116,6 +119,32 @@ mod tests {
         assert!(processing.observe(0, timing(3)));
         receive(&queue, &mut changes, timing(3));
         assert_eq!(changes.take().snapshot, [Some(timing(3))]);
+    }
+
+    #[test]
+    fn an_observation_wakes_a_realtime_worker() {
+        let (processing, queue, mut changes) = setup();
+        let ring = Ring::new(RingDescriptor {
+            control: 1,
+            first_lane: 2,
+            lanes: 3,
+            config: SlotConfig {
+                sample_format: SampleFormat::F32,
+                max_frames: 64,
+                input_channels: 2,
+                output_channels: 2,
+            },
+        })
+        .unwrap();
+        let control = ring.control();
+        processing.set_bell(Some(Arc::clone(&control)));
+        let rung = control.bell_count();
+        assert!(processing.observe(0, timing(1)));
+        assert_eq!(control.bell_count(), rung + 1);
+        // An unchanged timing queues nothing and wakes nothing.
+        assert!(processing.observe(0, timing(1)));
+        assert_eq!(control.bell_count(), rung + 1);
+        receive(&queue, &mut changes, timing(1));
     }
 
     #[test]

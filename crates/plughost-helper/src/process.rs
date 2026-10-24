@@ -268,13 +268,7 @@ impl Processing {
         if self.work.send(Work::Command(command)).is_err() {
             crate::lifetime::disconnected();
         }
-        if let Some(bell) = &*self
-            .bell
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-        {
-            bell.ring();
-        }
+        self.ring();
         returned
             .recv()
             .unwrap_or_else(|_| crate::lifetime::disconnected())
@@ -288,8 +282,21 @@ impl Processing {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = bell;
     }
 
-    /// Records a slot's timing without waiting. A full queue skips it: the next idle tick reads
-    /// the timing again.
+    /// Wakes a realtime worker to read the queue, which otherwise it reads only when a callback
+    /// submits a quantum.
+    fn ring(&self) {
+        if let Some(bell) = &*self
+            .bell
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        {
+            bell.ring();
+        }
+    }
+
+    /// Records a slot's timing without waiting, and wakes a realtime worker to take it, so that
+    /// observations do not fill the queue while no callback submits. A full queue skips it: the
+    /// next idle tick reads the timing again.
     pub fn observe(&self, slot: usize, timing: PluginTiming) -> bool {
         let mut observed = match self.observations.try_lock() {
             Ok(observed) => observed,
@@ -303,6 +310,7 @@ impl Processing {
             return false;
         }
         changes::publish(&mut observed, slot, timing);
+        self.ring();
         true
     }
 }
