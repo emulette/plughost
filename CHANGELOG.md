@@ -26,6 +26,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - Audio Unit editors, parameter lists, parameter edits and lookups no longer hold up the
   processing thread: they call the unit without the lock it takes for each block. Opening an
   editor while the realtime endpoint ran could make the worker miss.
+- A `restore_state`, preset, factory preset or `reprepare_slot` that changes the chain's latency
+  while the realtime endpoint runs succeeds when the resync it starts does not complete; the
+  endpoint plays its fallback with `resync` set meanwhile. It returned the resync's error though
+  the slot was already replaced.
 
 ## [0.2.0] - 2026-10-24
 

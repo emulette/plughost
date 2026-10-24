@@ -695,7 +695,10 @@ in between quanta, deferring the new instance's restart requests as it does the 
 stream goes on. A replacement that changes the chain's latency resynchronizes the endpoint right
 after, as `resync_realtime()` does (which resets every plugin), because the endpoint does not go
 on in a generation's timeline at another latency; the new latency is the one the resync
-returns and `realtime_status` reports. A replacement that keeps the latency does not.
+returns and `realtime_status` reports. A replacement that keeps the latency does not. The
+replacement succeeds even when that resync does not complete: the endpoint then plays its
+fallback with `resync` set, and a helper the resync found crashed or hung fails the next call,
+as `helper_monitor()` reports.
 
 `inspect_preset`, `export_preset`, and `import_preset` operate on native preset bytes;
 the caller owns file I/O. `MAX_PRESET_BYTES` is 64 MiB. `factory_presets` and

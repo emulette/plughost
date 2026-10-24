@@ -79,7 +79,10 @@ impl Chain {
     /// on, as it does for presets, factory presets and [`Chain::reprepare_slot`]. A replacement
     /// that changes the chain's latency resynchronizes the endpoint right after, as
     /// [`Chain::resync_realtime`] does, so that the new latency starts with a new generation;
-    /// that resets every plugin.
+    /// that resets every plugin. The replacement succeeds even when that resync does not
+    /// complete: the endpoint then plays its fallback with [`crate::RealtimeStatus::resync`] set,
+    /// and a helper the resync found crashed or hung fails the next call, as
+    /// [`Chain::helper_monitor`] reports.
     pub fn restore_state(
         &mut self,
         slot: usize,
@@ -120,8 +123,10 @@ impl Chain {
                     self.latency = latency;
                     self.tail = tail;
                     // The endpoint does not go on in its generation's timeline at another latency.
+                    // The slot is replaced already, and the replaced instance gone: a resync that
+                    // does not complete leaves `resync` set for the application to act on.
                     if changed && self.realtime_running() {
-                        self.resync_realtime()?;
+                        let _ = self.resync_realtime();
                     }
                 }
                 Ok(())
