@@ -7,7 +7,7 @@
 mod schedule;
 
 use std::io;
-use std::sync::mpsc::{Receiver, SyncSender, TryRecvError};
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::Duration;
 
 use plughost_core::ipc::AudioSamples;
@@ -15,7 +15,7 @@ use plughost_core::ipc::shared::realtime::{Control, Quantum, Ring};
 use plughost_core::render::Tail;
 use plughost_core::{AutomationEvent, Events, Failure, FailureKind, InputError, MAX_BLOCK_EVENTS};
 
-use super::{Command, Pipeline, Work, audio};
+use super::{Command, HandBack, Pipeline, Work, audio};
 use crate::Responder;
 use schedule::Schedule;
 
@@ -62,18 +62,18 @@ pub(super) fn run(
     pipeline: &mut Pipeline,
     start: Command,
     queue: &Receiver<Work>,
-    handed_back: &SyncSender<Command>,
+    handed_back: &HandBack,
     responder: &Responder,
 ) -> bool {
     let (Some(transport), Some(config)) = (&pipeline.realtime, &pipeline.audio_config) else {
-        return handed_back.send(start).is_ok();
+        return handed_back.send(start);
     };
     let control = transport.ring.control();
     let (generation, deadline) = transport.ring.started();
     let quantum = transport.ring.descriptor().config.max_frames as f64 / config.sample_rate;
     let schedule = Schedule::enter(Duration::from_secs_f64(quantum), deadline, responder);
     defer_restarts(pipeline, true);
-    if handed_back.send(start).is_err() {
+    if !handed_back.send(start) {
         return false;
     }
     let connected = work(
@@ -104,7 +104,7 @@ fn work(
     control: &Control,
     mut generation: u64,
     queue: &Receiver<Work>,
-    handed_back: &SyncSender<Command>,
+    handed_back: &HandBack,
     responder: &Responder,
 ) -> bool {
     let mut processed = 0;
@@ -124,7 +124,7 @@ fn work(
                         processed = 0;
                     }
                     pipeline.apply(&mut command);
-                    if handed_back.send(command).is_err() {
+                    if !handed_back.send(command) {
                         return false;
                     }
                     if stop || pipeline.realtime.is_none() {

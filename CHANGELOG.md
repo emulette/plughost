@@ -45,6 +45,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   `recover_realtime` instead of starting again from 0.
 - A failure the helper reports in a slot the chain does not have counts as a protocol failure
   without a slot.
+- On Windows, the helper's main thread handles the messages other threads send it while it waits
+  for its processing thread, so a plugin that sends it one from its processing no longer holds
+  it up until the control timeout.
 
 ## [0.2.0] - 2026-10-24
 

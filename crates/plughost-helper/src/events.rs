@@ -119,11 +119,15 @@ mod platform {
 
 #[cfg(target_os = "windows")]
 mod platform {
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
     use windows_sys::Win32::System::Com::{
         COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize,
     };
+
+    use windows_sys::Win32::System::Threading::{CreateEventW, INFINITE, SetEvent};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage,
+        DispatchMessageW, MSG, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_NOREMOVE,
+        PM_QS_SENDMESSAGE, PM_REMOVE, PeekMessageW, QS_SENDMESSAGE, TranslateMessage,
     };
 
     pub struct Runtime;
@@ -170,6 +174,99 @@ mod platform {
             }
         }
     }
+
+    /// An unnamed auto-reset event, initially unsignaled, that another thread sets to end
+    /// [`wait_sent`].
+    pub fn signal() -> std::io::Result<OwnedHandle> {
+        // SAFETY: creates a new event with default security.
+        let handle = unsafe { CreateEventW(std::ptr::null(), 0, 0, std::ptr::null()) };
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: the new handle is owned here.
+        Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
+    }
+
+    pub fn raise(signal: &OwnedHandle) {
+        // SAFETY: the event is live.
+        unsafe { SetEvent(signal.as_raw_handle()) };
+    }
+
+    /// Returns once `signal` is set, or once another thread sent this one messages, which it
+    /// handles first: a plugin that sends the main thread a message from its processing waits
+    /// for them. Posted messages stay queued for the event loop.
+    pub fn wait_sent(signal: &OwnedHandle) {
+        let handle = signal.as_raw_handle();
+        // SAFETY: one live event handle; MSG is plain C data PeekMessageW fills in, and a peek
+        // limited to sent messages removes nothing from the queue.
+        unsafe {
+            MsgWaitForMultipleObjectsEx(1, &handle, INFINITE, QS_SENDMESSAGE, MWMO_INPUTAVAILABLE);
+            let mut message: MSG = std::mem::zeroed();
+            PeekMessageW(
+                &mut message,
+                std::ptr::null_mut(),
+                0,
+                0,
+                PM_NOREMOVE | PM_QS_SENDMESSAGE,
+            );
+        }
+    }
 }
 
 pub use platform::{activate, init, pump, with_pool};
+#[cfg(target_os = "windows")]
+pub use platform::{raise, signal, wait_sent};
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, HWND_MESSAGE, SendMessageW, WM_NULL,
+    };
+
+    use super::{raise, signal, wait_sent};
+
+    #[test]
+    fn a_wait_handles_what_another_thread_sends_until_it_is_signaled() {
+        let class: Vec<u16> = "STATIC".encode_utf16().chain([0]).collect();
+        // SAFETY: a message-only window of a system class, on this thread.
+        let window = unsafe {
+            CreateWindowExW(
+                0,
+                class.as_ptr(),
+                std::ptr::null(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                HWND_MESSAGE,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+            )
+        };
+        assert!(!window.is_null());
+        let answered = Arc::new(signal().unwrap());
+        let raised = Arc::clone(&answered);
+        let done = Arc::new(AtomicBool::new(false));
+        let finished = Arc::clone(&done);
+        let address = window as usize;
+        // As a plugin's processing would: it waits for this thread before it answers.
+        let sender = thread::spawn(move || {
+            // SAFETY: the window lives until this thread is joined.
+            unsafe { SendMessageW(address as _, WM_NULL, 0, 0) };
+            finished.store(true, Ordering::Release);
+            raise(&raised);
+        });
+        while !done.load(Ordering::Acquire) {
+            wait_sent(&answered);
+        }
+        sender.join().unwrap();
+        // SAFETY: this thread created the window.
+        unsafe { DestroyWindow(window) };
+    }
+}

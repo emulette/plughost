@@ -66,6 +66,8 @@ mod tests {
                 work,
                 bell: Mutex::new(None),
                 returned: Mutex::new(returned),
+                #[cfg(windows)]
+                answered: Arc::new(crate::events::signal().unwrap()),
                 thread: std::thread::current().id(),
                 observations: Arc::clone(&observations),
             },

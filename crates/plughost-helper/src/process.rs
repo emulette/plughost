@@ -18,6 +18,8 @@ pub(crate) mod shared;
 
 use std::io;
 use std::mem::swap;
+#[cfg(windows)]
+use std::os::windows::io::OwnedHandle;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, ThreadId};
@@ -226,6 +228,32 @@ impl Pipeline {
     }
 }
 
+/// The processing thread's way to hand a command back to the main thread that waits for it.
+pub(crate) struct HandBack {
+    sender: SyncSender<Command>,
+    /// Ends the main thread's wait, which also handles the messages sent to it.
+    #[cfg(windows)]
+    answered: Arc<OwnedHandle>,
+}
+
+impl HandBack {
+    /// Whether the main thread is still there to take `command`.
+    pub fn send(&self, command: Command) -> bool {
+        let sent = self.sender.send(command).is_ok();
+        #[cfg(windows)]
+        crate::events::raise(&self.answered);
+        sent
+    }
+}
+
+/// The main thread sees the processing thread gone.
+#[cfg(windows)]
+impl Drop for HandBack {
+    fn drop(&mut self) {
+        crate::events::raise(&self.answered);
+    }
+}
+
 /// The main thread's way to the processing thread.
 pub(crate) struct Processing {
     work: SyncSender<Work>,
@@ -233,6 +261,8 @@ pub(crate) struct Processing {
     bell: Mutex<Option<Arc<Control>>>,
     /// Commands handed back; the main thread waits for each before it sends the next.
     returned: Mutex<Receiver<Command>>,
+    #[cfg(windows)]
+    answered: Arc<OwnedHandle>,
     thread: ThreadId,
     observations: Observations,
 }
@@ -242,7 +272,14 @@ impl Processing {
     /// returned sender.
     pub fn spawn(responder: Responder) -> io::Result<(Arc<Processing>, SyncSender<Work>)> {
         let (work, queue) = mpsc::sync_channel(QUEUE);
-        let (handed_back, returned) = mpsc::sync_channel(1);
+        let (sender, returned) = mpsc::sync_channel(1);
+        #[cfg(windows)]
+        let answered = Arc::new(crate::events::signal()?);
+        let handed_back = HandBack {
+            sender,
+            #[cfg(windows)]
+            answered: Arc::clone(&answered),
+        };
         let observations = Observations::default();
         let observed = Arc::clone(&observations);
         let thread = thread::Builder::new()
@@ -252,6 +289,8 @@ impl Processing {
             work: work.clone(),
             bell: Mutex::new(None),
             returned: Mutex::new(returned),
+            #[cfg(windows)]
+            answered,
             thread: thread.thread().id(),
             observations,
         };
@@ -269,9 +308,30 @@ impl Processing {
             crate::lifetime::disconnected();
         }
         self.ring();
+        self.answer(&returned)
+    }
+
+    /// Waits for the processing thread to hand the command back.
+    #[cfg(not(windows))]
+    fn answer(&self, returned: &Receiver<Command>) -> Command {
         returned
             .recv()
             .unwrap_or_else(|_| crate::lifetime::disconnected())
+    }
+
+    /// Waits for the processing thread to hand the command back, handling meanwhile the
+    /// messages other threads send this one, as a plugin may from its processing. A handler
+    /// that asked for another command here would wait for itself; the helper's handlers do not,
+    /// and a plugin's own handlers do not reach the processing thread.
+    #[cfg(windows)]
+    fn answer(&self, returned: &Receiver<Command>) -> Command {
+        loop {
+            match returned.try_recv() {
+                Ok(command) => return command,
+                Err(mpsc::TryRecvError::Disconnected) => crate::lifetime::disconnected(),
+                Err(mpsc::TryRecvError::Empty) => crate::events::wait_sent(&self.answered),
+            }
+        }
     }
 
     /// Sets the doorbell that commands ring, which a realtime worker waits on.
@@ -317,7 +377,7 @@ impl Processing {
 
 fn serve(
     queue: &Receiver<Work>,
-    handed_back: &SyncSender<Command>,
+    handed_back: &HandBack,
     responder: &Responder,
     observations: Observations,
 ) {
@@ -346,7 +406,7 @@ fn serve(
                 let connected = if matches!(command, Command::Realtime(realtime::Realtime::Start)) {
                     realtime::run(&mut pipeline, command, queue, handed_back, responder)
                 } else {
-                    handed_back.send(command).is_ok()
+                    handed_back.send(command)
                 };
                 if !connected {
                     return;
