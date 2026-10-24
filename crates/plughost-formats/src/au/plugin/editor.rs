@@ -18,7 +18,7 @@ use objc2_core_audio_kit::{AUAudioUnit_ViewController, AUViewControllerBase};
 use objc2_core_foundation::{CFBundle, CFRetained, CFString, CFURL};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
-use super::{AuError, Handoff, Plugin, Slot, lock};
+use super::{AuError, Handoff, Plugin, Slot};
 use crate::ResizeRequest;
 
 /// An open editor: its view in the host's window, and the view controller that owns the view.
@@ -109,19 +109,16 @@ impl Plugin {
         let completion = RcBlock::new(move |controller: *mut AUViewControllerBase| {
             fill.fill(Handoff(unsafe { Retained::retain(controller) }));
         });
-        {
-            let engine = lock(&self.engine);
-            let unit = engine.unit()?;
-            unsafe { unit.requestViewControllerWithCompletionHandler(&completion) };
-        }
+        let unit = self.shared_unit()?;
+        unsafe { unit.requestViewControllerWithCompletionHandler(&completion) };
         slot.wait().0.ok_or(AuError::NoEditor)
     }
 
     /// A new view from the view factory a version 2 unit names in `kAudioUnitProperty_CocoaUI`,
     /// or `None` for other units.
     fn cocoa_view(&self) -> Result<Option<Retained<NSView>>, AuError> {
-        let engine = lock(&self.engine);
-        let Some(bridge) = engine.unit()?.downcast_ref::<AUAudioUnitV2Bridge>() else {
+        let unit = self.shared_unit()?;
+        let Some(bridge) = unit.downcast_ref::<AUAudioUnitV2Bridge>() else {
             return Ok(None);
         };
         let unit = unsafe { bridge.audioUnit() };

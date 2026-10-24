@@ -23,6 +23,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   started realtime endpoint submits nothing, as when the device stopped or a resync is pending:
   its worker takes them as they come. A CLAP plugin reporting a new tail on every tick filled
   the queue in about 0.64 s.
+- Audio Unit editors, parameter lists, parameter edits and lookups no longer hold up the
+  processing thread: they call the unit without the lock it takes for each block. Opening an
+  editor while the realtime endpoint ran could make the worker miss.
 
 ## [0.2.0] - 2026-10-24
 

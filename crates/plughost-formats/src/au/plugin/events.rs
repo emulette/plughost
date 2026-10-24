@@ -161,10 +161,9 @@ impl Plugin {
     /// `kAudioUnitProperty_ParameterList` and `kAudioUnitProperty_ParameterInfo`); a replacement
     /// rebinds the observer and refreshes the processing thread's parameter ranges.
     pub(super) fn refresh_parameter_observer(&mut self) {
-        let mut engine = lock(&self.engine);
-        let tree = engine
-            .unit()
-            .ok()
+        let unit = self.shared_unit().ok();
+        let tree = unit
+            .as_ref()
             .and_then(|unit| unsafe { unit.parameterTree() });
         let replaced = match (&self.observation, &tree) {
             (Some(old), Some(new)) => !std::ptr::eq(&*old.tree, &**new),
@@ -177,11 +176,9 @@ impl Plugin {
         self.observation = None;
         self.observation = tree.map(Observation::new);
         self.parameter_metadata_changed = true;
-        if engine.prepared.is_some()
-            && let Ok(unit) = engine.unit()
-        {
-            let ranges = ranges(unit);
-            if let Some(prepared) = &mut engine.prepared {
+        if let Some(unit) = unit {
+            let ranges = ranges(&unit);
+            if let Some(prepared) = &mut lock(&self.engine).prepared {
                 prepared.ranges = ranges;
             }
         }

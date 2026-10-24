@@ -262,9 +262,10 @@ impl Plugin {
         )
     }
 
-    /// The unit, for the queries an Audio Unit answers on the owning thread while it renders,
-    /// such as its full state, bypass, factory presets, buses and capabilities. They run without
-    /// the engine lock, which the processing thread takes for each block.
+    /// The unit, for the calls an Audio Unit answers on the owning thread while it renders, such
+    /// as its full state, bypass, factory presets, buses, capabilities, parameters, parameter
+    /// edits and editor views. They run without the engine lock, which the processing thread
+    /// takes for each block, so that native work on the main thread does not hold up a block.
     fn shared_unit(&self) -> Result<Retained<AUAudioUnit>, AuError> {
         lock(&self.engine).unit().map(|unit| unit.retain())
     }
@@ -351,15 +352,13 @@ impl Plugin {
     /// Each parameter with its current value, normalized over its range and clamped to it, or
     /// `None` when a v2 unit refuses it or it or its range is not finite.
     pub(crate) fn parameters(&self) -> Vec<(ParameterInfo, Option<f64>)> {
-        let engine = lock(&self.engine);
-        engine
-            .unit()
+        self.shared_unit()
             .ok()
             .map(|unit| {
-                all_parameters(unit)
+                all_parameters(&unit)
                     .iter()
                     .map(|p| {
-                        let value = plain_value(unit, p).and_then(|plain| normalized(p, plain));
+                        let value = plain_value(&unit, p).and_then(|plain| normalized(p, plain));
                         (parameter_info(p), value)
                     })
                     .collect()
@@ -369,8 +368,7 @@ impl Plugin {
 
     /// Sets a parameter's normalized value; the Audio Unit passes it to its render thread.
     pub(crate) fn set_parameter(&mut self, id: u64, value: f64) -> Result<(), AuError> {
-        let engine = lock(&self.engine);
-        let unit = engine.unit()?;
+        let unit = self.shared_unit()?;
         let parameter = (unsafe { unit.parameterTree() })
             .and_then(|tree| unsafe { tree.parameterWithAddress(id) })
             .ok_or(AuError::Input(

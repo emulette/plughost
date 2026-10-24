@@ -1,4 +1,4 @@
-use super::{AUParameter, AuError, Plugin, Retained, lock, parameter_info};
+use super::{AUParameter, AuError, Plugin, Retained, parameter_info};
 use objc2::msg_send;
 use objc2_foundation::NSString;
 use plughost_core::internal::{validate_normalized, validate_parameter_text};
@@ -12,8 +12,7 @@ impl Plugin {
         let parameter = self.parameter(id)?;
         let plain_at_zero = self.parameter_to_plain(id, 0.0)?;
         let plain_at_one = self.parameter_to_plain(id, 1.0)?;
-        let engine = lock(&self.engine);
-        let unit = engine.unit()?;
+        let unit = self.shared_unit()?;
         let groups = (unsafe { unit.parameterTree() }).and_then(|tree| group_path(&tree, id));
         Ok({
             let mut parameter_details = plughost_core::ParameterDetails::new(
@@ -28,8 +27,7 @@ impl Plugin {
     }
 
     fn parameter(&self, id: u64) -> Result<Retained<AUParameter>, AuError> {
-        let engine = lock(&self.engine);
-        let unit = engine.unit()?;
+        let unit = self.shared_unit()?;
         (unsafe { unit.parameterTree() })
             .and_then(|tree| unsafe { tree.parameterWithAddress(id) })
             .ok_or(AuError::Input(InputError::UnknownParameter { id }))
