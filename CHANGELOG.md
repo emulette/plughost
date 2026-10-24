@@ -9,6 +9,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ### Fixed
 
+- A realtime callback that began before `stop_realtime` or `recover_realtime` no longer submits
+  to the old generation after the next start, which sent the new generation into a resync:
+  stopping and recovering wait for a callback in progress and stop its generation's
+  submissions, as `resync_realtime` does. `stop_realtime`, `recover_realtime`, and dropping or
+  preparing again a chain with an endpoint now wait for that callback.
 - A realtime callback that panics no longer leaves the endpoint's call count unbalanced, after
   which a resync either went on while a callback submitted or never returned.
 - A `Fallback::Dry` endpoint called with more frames than the quantum plays the input its delay

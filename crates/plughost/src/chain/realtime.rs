@@ -224,7 +224,8 @@ impl Chain {
     }
 
     /// Stops the realtime endpoint between quanta; its callbacks play the fallback until it is
-    /// started again.
+    /// started again. A callback in progress is waited for, as [`Chain::resync_realtime`] and
+    /// [`Chain::recover_realtime`] do, so that none submits after the endpoint stopped.
     pub fn stop_realtime(&mut self) -> Result<(), Error> {
         let Some(realtime) = &mut self.realtime else {
             return Ok(());

@@ -147,3 +147,15 @@ fn a_dry_callback_longer_than_the_line_plays_the_history_it_holds_and_silence_be
         );
     }
 }
+
+#[test]
+fn stop_and_suspend_halt_the_generation_a_late_call_may_still_follow() {
+    let state = State::default();
+    state.start(1, 0, 0);
+    state.stop();
+    assert!(state.halted(1));
+    state.start(2, 0, 0);
+    assert!(!state.halted(2));
+    state.suspend();
+    assert!(state.halted(2));
+}

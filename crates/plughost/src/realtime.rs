@@ -250,13 +250,12 @@ impl State {
         self.halted.load(Ordering::Relaxed) == generation
     }
 
-    /// Stops the callback's submissions to the current generation for a resync, and returns once
-    /// no call submits any more. A call that began before the halt is waited for. A call that
-    /// read the current generation and sees the halt only after the next start cleared `resync`
-    /// still finds that generation halted; it submits again once it follows the new one.
-    pub(crate) fn halt(&self) {
+    /// Stops the callback's submissions to the current generation, and returns once no call
+    /// submits any more. A call that began before is waited for. A call that read the current
+    /// generation and sees this only after the next start still finds that generation halted; it
+    /// submits again once it follows the new one.
+    fn exclude(&self) {
         self.halted.store(self.generation(), Ordering::Relaxed);
-        self.resync.store(true, Ordering::Relaxed);
         fence(Ordering::SeqCst);
         let inside = self.inside.load(Ordering::Acquire);
         // A call never waits, so this ends within one call.
@@ -265,9 +264,16 @@ impl State {
         }
     }
 
+    /// Stops the callback's submissions for a resync.
+    pub(crate) fn halt(&self) {
+        self.resync.store(true, Ordering::Relaxed);
+        self.exclude();
+    }
+
     /// Stops the callback's submissions before the helper stops.
     pub(crate) fn stop(&self) {
         self.running.store(false, Ordering::Release);
+        self.exclude();
         self.reclaim();
     }
 
@@ -275,6 +281,7 @@ impl State {
     /// next start.
     pub(crate) fn suspend(&self) {
         self.resync.store(true, Ordering::Relaxed);
+        self.exclude();
     }
 
     /// Frees what the callback replaced.
