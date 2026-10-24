@@ -236,16 +236,13 @@ impl State {
         self.running.store(true, Ordering::Release);
     }
 
-    /// Callback: begins a call. Either [`State::halt`] sees the call begin and waits for it to
-    /// end, or the call sees the halt.
-    fn enter(&self) {
+    /// Callback: begins a call, which ends when the returned value drops, also when the call
+    /// unwinds. Either [`State::halt`] sees the call begin and waits for it to end, or the call
+    /// sees the halt.
+    fn enter(&self) -> Call<'_> {
         self.inside.fetch_add(1, Ordering::Relaxed);
         fence(Ordering::SeqCst);
-    }
-
-    /// Callback: ends a call, after which the control thread sees what it wrote to the ring.
-    fn leave(&self) {
-        self.inside.fetch_add(1, Ordering::Release);
+        Call(self)
     }
 
     /// Whether a resync stopped the callback's submissions to `generation`.
@@ -302,6 +299,16 @@ impl State {
     /// Hands the callback the ring of the generation started next.
     pub(crate) fn send_ring(&self, ring: Box<Ring>) {
         self.ring.send(ring);
+    }
+}
+
+/// A callback's call from [`State::enter`] until it drops, after which the control thread sees
+/// what the call wrote to the ring.
+struct Call<'a>(&'a State);
+
+impl Drop for Call<'_> {
+    fn drop(&mut self) {
+        self.0.inside.fetch_add(1, Ordering::Release);
     }
 }
 

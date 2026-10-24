@@ -45,16 +45,18 @@ impl DryDelay {
         self.write = (self.write + frames) % capacity;
     }
 
-    /// Frame `frame` of the callback just pushed, `frames` long, delayed.
+    /// Frame `frame` of the callback just pushed, `frames` long, delayed; 0 for history the line
+    /// no longer holds, as for a callback longer than the quantum.
     pub fn delayed(&self, channel: usize, frame: usize, frames: usize) -> f64 {
         let capacity = self.capacity();
         let Some(history) = self.channels.get(channel) else {
             return 0.0;
         };
-        if capacity == 0 {
+        // Frames before the next write.
+        let back = frames - frame + self.delay;
+        if back > capacity {
             return 0.0;
         }
-        let position = (self.write + capacity * 2 + frame - frames - self.delay) % capacity;
-        history[position]
+        history[(self.write + capacity - back) % capacity]
     }
 }

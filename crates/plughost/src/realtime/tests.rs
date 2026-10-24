@@ -11,7 +11,9 @@ use plughost_core::{
     SlotAudioConfig,
 };
 
-use super::{FallbackReason, RealtimeConfig, RealtimeEndpoint, RealtimeOutput, State};
+use super::{
+    DryDelay, Fallback, FallbackReason, RealtimeConfig, RealtimeEndpoint, RealtimeOutput, State,
+};
 
 const QUANTUM: usize = 64;
 
@@ -103,4 +105,45 @@ fn the_callback_takes_a_recovered_ring_and_the_control_thread_frees_the_old_one(
     assert_eq!(call(&mut endpoint), priming);
     assert_eq!(new_control.progress().0, 1);
     assert_eq!(Arc::strong_count(&new_control), 2);
+}
+
+#[test]
+fn a_dry_callback_longer_than_the_line_plays_the_history_it_holds_and_silence_before() {
+    let state = Arc::new(State::default());
+    let config = RealtimeConfig::new(QUANTUM).with_fallback(Fallback::Dry);
+    // One quantum of added latency over a chain latency of 0: the line holds two quanta.
+    let line = Box::new(DryDelay::new(2, 2 * QUANTUM));
+    let mut endpoint =
+        RealtimeEndpoint::new(ring(1), Arc::clone(&state), &config, &chain(), Some(line));
+    state.start(1, 0, QUANTUM as u64);
+
+    let frames = 4 * QUANTUM;
+    let input: Vec<f32> = (0..frames).map(|frame| frame as f32).collect();
+    let mut left = vec![1.0f32; frames];
+    let mut right = vec![1.0f32; frames];
+    let played = endpoint
+        .process_audio_f32(
+            &BlockContext::new(frames),
+            &[&input, &input],
+            &mut [&mut left, &mut right],
+            &[],
+            &Events::new(),
+            &mut Events::for_block(),
+        )
+        .unwrap();
+
+    assert_eq!(played, RealtimeOutput::Fallback(FallbackReason::Resync));
+    assert_eq!(state.status(0, Default::default(), 0).size_mismatches, 1);
+    // The line holds the last two quanta of input. Delayed by one quantum, the older of them
+    // plays in the callback's last quantum; what would play before it is no longer held.
+    let held = frames - QUANTUM;
+    for channel in [&left, &right] {
+        assert!(channel[..held].iter().all(|&sample| sample == 0.0));
+        assert!(
+            channel[held..]
+                .iter()
+                .zip(held - QUANTUM..)
+                .all(|(&sample, source)| sample == source as f32)
+        );
+    }
 }

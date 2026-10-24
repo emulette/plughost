@@ -5,6 +5,16 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A realtime callback that panics no longer leaves the endpoint's call count unbalanced, after
+  which a resync either went on while a callback submitted or never returned.
+- A `Fallback::Dry` endpoint called with more frames than the quantum plays the input its delay
+  line still holds, delayed, and silence before it; it read overwritten history and, in a debug
+  build, panicked in the callback.
+
 ## [0.2.0] - 2026-10-24
 
 0.2.0 settles the public API: types later versions extend are non-exhaustive, states and plugin
@@ -877,6 +887,7 @@ Windows x64, and of Audio Units on macOS, with each chain isolated in a helper p
 - Failures: typed errors with the failing slot, helper exit monitoring, diagnostics, and chain
   recovery in a new helper from saved states.
 
+[Unreleased]: https://github.com/emulette/plughost/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/emulette/plughost/releases/tag/v0.2.0
 [0.1.6]: https://github.com/emulette/plughost/releases/tag/v0.1.6
 [0.1.5]: https://github.com/emulette/plughost/releases/tag/v0.1.5

@@ -231,9 +231,9 @@ impl RealtimeEndpoint {
         produced: &mut Events,
     ) -> Result<RealtimeOutput, Error> {
         let _audit = plughost_core::audit::processing();
-        self.state.enter();
+        let state = Arc::clone(&self.state);
+        let _call = state.enter();
         let played = self.serve(context, input, output, automation, events, produced);
-        self.state.leave();
         played
     }
 
