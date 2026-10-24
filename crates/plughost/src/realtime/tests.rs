@@ -7,12 +7,13 @@ use std::sync::Arc;
 use plughost_core::ipc::shared::SlotConfig;
 use plughost_core::ipc::shared::realtime::{Ring, RingDescriptor};
 use plughost_core::{
-    AudioBusConfig, BlockContext, Events, Layout, ProcessMode, RoutedChainConfig, SampleFormat,
-    SlotAudioConfig,
+    AudioBusConfig, BlockContext, Events, FailureKind, Layout, ProcessMode, RoutedChainConfig,
+    SampleFormat, SlotAudioConfig,
 };
 
 use super::{
-    DryDelay, Fallback, FallbackReason, RealtimeConfig, RealtimeEndpoint, RealtimeOutput, State,
+    DryDelay, Fallback, FallbackReason, RealtimeConfig, RealtimeEndpoint, RealtimeFailure,
+    RealtimeOutput, State,
 };
 
 const QUANTUM: usize = 64;
@@ -158,4 +159,33 @@ fn stop_and_suspend_halt_the_generation_a_late_call_may_still_follow() {
     assert!(!state.halted(2));
     state.suspend();
     assert!(state.halted(2));
+}
+
+#[test]
+fn a_failure_in_a_slot_the_chain_does_not_have_is_a_protocol_failure() {
+    let state = Arc::new(State::default());
+    let mut ring = ring(1);
+    // The worker's report on the first quantum, which the callback reads one quantum later.
+    ring.fail(1, 1, None, Some(99), FailureKind::Processing)
+        .unwrap();
+    let config = RealtimeConfig::new(QUANTUM);
+    let mut endpoint = RealtimeEndpoint::new(ring, Arc::clone(&state), &config, &chain(), None);
+    state.start(1, 0, 0);
+    assert_eq!(
+        call(&mut endpoint),
+        RealtimeOutput::Fallback(FallbackReason::Priming)
+    );
+    assert_eq!(
+        call(&mut endpoint),
+        RealtimeOutput::Fallback(FallbackReason::Resync)
+    );
+    let status = state.status(0, Default::default(), 0);
+    assert_eq!(status.failures, 1);
+    assert_eq!(
+        status.last_failure,
+        Some(RealtimeFailure {
+            slot: None,
+            kind: FailureKind::Protocol,
+        })
+    );
 }

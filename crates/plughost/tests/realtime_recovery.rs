@@ -235,6 +235,37 @@ fn crash_recovery(plugin: PluginRef) {
 
 #[test]
 #[ignore = "needs helper and the stall-in-process fixture (.ps1 or .sh build scripts)"]
+fn recovery_keeps_counting_late_completions_from_the_old_helper_on() {
+    let mut stall = support::stall::Stall::new();
+    let plugin = delay_variant(PluginFormat::Clap, "stall-in-process", 0x18);
+    let mut chain = spawn_with(
+        std::slice::from_ref(&plugin),
+        &stall.identity(),
+        Timeouts::default(),
+    );
+    prepare(&mut chain);
+    let mut endpoint = chain
+        .realtime_endpoint(&RealtimeConfig::new(QUANTUM))
+        .unwrap();
+    chain.start_realtime().unwrap();
+    let snapshot = chain.snapshot().unwrap();
+    for index in 0..=STALL_AT {
+        callback(&mut endpoint, index);
+    }
+    // Released after its deadline, the held quantum completes late.
+    stall.wait_until_entered();
+    thread::sleep(HANG);
+    drop(stall);
+    wait_for(&chain, |status| status.late > 0);
+    let before = chain.realtime_status().unwrap();
+
+    let mut recovered = chain.recover_realtime(&snapshot.slots).unwrap();
+    assert!(recovered.realtime_status().unwrap().late >= before.late);
+    recovered.stop_realtime().unwrap();
+}
+
+#[test]
+#[ignore = "needs helper and the stall-in-process fixture (.ps1 or .sh build scripts)"]
 fn a_hung_helper_shows_as_stalled_and_is_recovered_while_it_still_runs() {
     let mut stall = support::stall::Stall::new();
     let plugin = delay_variant(PluginFormat::Clap, "stall-in-process", 0x18);

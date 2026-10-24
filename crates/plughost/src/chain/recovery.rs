@@ -61,6 +61,9 @@ impl Chain {
         let mut realtime = self.realtime.take().ok_or(Error::NotPrepared)?;
         let control = std::mem::replace(&mut realtime.control, ring.control());
         let running = std::mem::replace(&mut realtime.running, false);
+        // The counters go on from what this chain's ring counted.
+        let late = realtime.late;
+        realtime.late += control.worker().0;
         chain.realtime = Some(realtime);
         match chain.start_generation(Some(Box::new(ring))) {
             Ok(_) => Ok(chain),
@@ -70,6 +73,7 @@ impl Chain {
                 if let Some(mut realtime) = chain.realtime.take() {
                     realtime.control = control;
                     realtime.running = running;
+                    realtime.late = late;
                     self.realtime = Some(realtime);
                 }
                 Err(error)

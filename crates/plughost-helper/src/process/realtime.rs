@@ -192,13 +192,13 @@ fn quantum(pipeline: &mut Pipeline, schedule: &Schedule, generation: u64, sequen
                 ring.fail(
                     generation,
                     sequence,
-                    quantum.submitted_at,
+                    Some(quantum.submitted_at),
                     None,
                     FailureKind::Protocol,
                 )
             })
         }
-        Err(_) => ring.fail(generation, sequence, 0, None, FailureKind::Protocol),
+        Err(_) => ring.fail(generation, sequence, None, None, FailureKind::Protocol),
     };
     pipeline.realtime = Some(transport);
 }
@@ -215,7 +215,7 @@ impl Lane<'_> {
         self.ring.fail(
             quantum.generation,
             quantum.sequence,
-            quantum.submitted_at,
+            Some(quantum.submitted_at),
             slot,
             kind,
         )

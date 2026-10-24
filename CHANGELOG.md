@@ -33,6 +33,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - The note offs a new realtime generation sends for the notes earlier outputs left on go out with
   its first callback that returns `Ok`. A first callback with invalid input dropped them with its
   error.
+- `RealtimeStatus::late` no longer counts a quantum the helper could not read, and goes on across
+  `recover_realtime` instead of starting again from 0.
+- A failure the helper reports in a slot the chain does not have counts as a protocol failure
+  without a slot.
 
 ## [0.2.0] - 2026-10-24
 

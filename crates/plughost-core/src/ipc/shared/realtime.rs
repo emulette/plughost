@@ -462,7 +462,9 @@ impl Ring {
         })
     }
 
-    fn finish(&self, header: usize, generation: u64, sequence: u64, submitted_at: u64) {
+    /// Publishes the lane's result; one submitted at `submitted_at` counts late after the
+    /// deadline, and one the worker could not take, with no submission time, does not.
+    fn finish(&self, header: usize, generation: u64, sequence: u64, submitted_at: Option<u64>) {
         let control = &self.control;
         control
             .word(header + HEADER_GENERATION)
@@ -472,7 +474,9 @@ impl Ring {
         control
             .word(header + SEQUENCE)
             .store(sequence, Ordering::Release);
-        if now.saturating_sub(submitted_at) > control.word(DEADLINE).load(Ordering::Relaxed) {
+        if submitted_at.is_some_and(|submitted_at| {
+            now.saturating_sub(submitted_at) > control.word(DEADLINE).load(Ordering::Relaxed)
+        }) {
             control.word(LATE).fetch_add(1, Ordering::Relaxed);
         }
         control.word(HEARTBEAT).store(now, Ordering::Relaxed);
@@ -512,16 +516,22 @@ impl Ring {
         control
             .word(header + EVENT_COUNT)
             .store(events.len() as u64, Ordering::Relaxed);
-        self.finish(header, quantum.generation, sequence, quantum.submitted_at);
+        self.finish(
+            header,
+            quantum.generation,
+            sequence,
+            Some(quantum.submitted_at),
+        );
         Ok(())
     }
 
-    /// Reports that quantum `sequence` failed in `slot`, or in the chain, with `kind`.
+    /// Reports that quantum `sequence` failed in `slot`, or in the chain, with `kind`; with no
+    /// `submitted_at` when the worker could not take it.
     pub fn fail(
         &mut self,
         generation: u64,
         sequence: u64,
-        submitted_at: u64,
+        submitted_at: Option<u64>,
         slot: Option<usize>,
         kind: FailureKind,
     ) -> io::Result<()> {

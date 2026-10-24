@@ -216,7 +216,13 @@ fn a_failed_quantum_reports_its_slot_and_kind() {
         .unwrap();
     let (quantum, _, _) = take(&mut worker, 2, 1);
     worker
-        .fail(2, 1, quantum.submitted_at, Some(3), FailureKind::Processing)
+        .fail(
+            2,
+            1,
+            Some(quantum.submitted_at),
+            Some(3),
+            FailureKind::Processing,
+        )
         .unwrap();
     let mut output = vec![vec![0.0; 8]; 2];
     assert_eq!(
@@ -259,6 +265,27 @@ fn completions_after_their_deadline_are_counted_late() {
         )
         .unwrap();
     assert_eq!(owner.worker().0, 1);
+}
+
+#[test]
+fn a_quantum_the_worker_could_not_take_is_not_counted_late() {
+    let (mut owner, mut worker) = pair(3);
+    owner.start(1, 0);
+    owner
+        .submit_f32(
+            1,
+            1,
+            &BlockContext::new(8),
+            &[&[0.0f32; 8][..]; 2],
+            &[],
+            &Events::new(),
+        )
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1));
+    worker
+        .fail(1, 1, None, None, FailureKind::Protocol)
+        .unwrap();
+    assert_eq!(owner.worker().0, 0);
 }
 
 #[test]

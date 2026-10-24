@@ -370,7 +370,13 @@ impl RealtimeEndpoint {
             }
             Ok(Some((Outcome::Failed { slot, kind }, _))) => {
                 produced.clear();
-                self.state.fail(slot, kind);
+                // A slot the chain does not have is the helper's fault, not the slot's.
+                match slot {
+                    Some(slot) if slot >= self.slots => {
+                        self.state.fail(None, FailureKind::Protocol);
+                    }
+                    _ => self.state.fail(slot, kind),
+                }
                 Ok(self.fallback(output, FallbackReason::Resync))
             }
             Ok(None) => {

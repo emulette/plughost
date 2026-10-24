@@ -571,8 +571,9 @@ in frames: the chain's latency plus `latency * quantum`. `chain.stop_realtime()`
 quanta; like `resync_realtime` and `recover_realtime`, it waits for a callback in progress, so
 that none submits afterwards. `chain.realtime_status()` reports callbacks, processed and missed
 outputs, overflows, callbacks of another size, failed quanta and the last failure, late
-completions (quanta the helper completed more than `latency` quanta after their submission),
-dropped events, the latency, and `stalled`. A callback of another size, a full ring (the helper
+completions (quanta the helper completed more than `latency` quanta after their submission,
+carried over a recovery), dropped events, the latency, and `stalled`. A callback of another
+size, a full ring (the helper
 fell `latency + 2` quanta behind), a failed quantum, or invalid input sets `resync`: the endpoint plays its fallback until
 the application calls `chain.resync_realtime()` (or `recover_realtime`, below). It halts the
 callbacks' submissions, which play `Resync` meanwhile, resets every plugin as `reset()` does,

@@ -27,6 +27,8 @@ pub(super) struct Realtime {
     dry_capacity: usize,
     /// When the current generation started, in [`clock`] ticks.
     started: u64,
+    /// Late completions the rings of the chains the endpoint left in recoveries counted.
+    pub(super) late: u64,
 }
 
 impl Realtime {
@@ -97,6 +99,7 @@ impl Chain {
             running: false,
             dry_capacity,
             started: 0,
+            late: 0,
         });
         Ok(endpoint)
     }
@@ -246,7 +249,7 @@ impl Chain {
         realtime.state.reclaim();
         let running = realtime.state.running();
         Some(realtime.state.status(
-            realtime.control.worker().0,
+            realtime.late + realtime.control.worker().0,
             realtime.stalled(running),
             realtime.added(),
         ))
