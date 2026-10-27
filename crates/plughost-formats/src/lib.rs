@@ -17,7 +17,7 @@
 //! process, reset and flush with subnormal numbers flushed to zero (MXCSR FTZ and DAZ on x86-64,
 //! FPCR.FZ on AArch64); the calling thread's mode is restored after each call.
 //!
-//! The [detailed API guide](https://github.com/emulette/plughost/blob/v0.2.0/llms.txt)
+//! The [detailed API guide](https://github.com/emulette/plughost/blob/v0.2.1/llms.txt)
 //! describes format capabilities and the application-level processing contracts.
 
 #![warn(missing_docs)]

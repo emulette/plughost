@@ -6,21 +6,21 @@ Each plugin chain runs in a helper process, isolating plugin crashes and hangs f
 
 ## Installation
 
-plughost 0.2.0 requires Rust 1.92 or newer. Supported platforms are macOS 15 or newer on Apple
+plughost 0.2.1 requires Rust 1.92 or newer. Supported platforms are macOS 15 or newer on Apple
 Silicon (`aarch64-apple-darwin`) and Windows x64 (`x86_64-pc-windows-msvc`).
 
 Add the application library to your application's `Cargo.toml`:
 
 ```toml
 [dependencies]
-plughost = "=0.2.0"
+plughost = "=0.2.1"
 ```
 
 Your application also ships a separate helper executable. In that executable's package:
 
 ```toml
 [dependencies]
-plughost-helper = "=0.2.0"
+plughost-helper = "=0.2.1"
 ```
 
 Its `main.rs` is:
@@ -35,8 +35,8 @@ Build the application and helper with matching plughost versions. Pass the helpe
 path to `Scanner` and `Chain`; the application library starts and manages the process.
 On macOS, package the helper as a background `LSUIElement` application with Hardened Runtime and
 `disable-library-validation` / `allow-unsigned-executable-memory` entitlements. The repository's
-[packaging script](https://github.com/emulette/plughost/blob/v0.2.0/scripts/macos/package-app.sh) and
-[entitlements](https://github.com/emulette/plughost/blob/v0.2.0/scripts/macos/helper.entitlements)
+[packaging script](https://github.com/emulette/plughost/blob/v0.2.1/scripts/macos/package-app.sh) and
+[entitlements](https://github.com/emulette/plughost/blob/v0.2.1/scripts/macos/helper.entitlements)
 provide a local, ad-hoc signed example. Distribution signing and notarization belong to the
 shipping application; the script does not perform them.
 
@@ -70,9 +70,9 @@ fn render_effect(
 
 Input channels must have equal lengths and already use the configured sample rate. Rendering
 removes reported latency and appends a bounded tail. For instruments, explicit buses, automation,
-streaming, state, and recovery, see the [API documentation](https://docs.rs/plughost/0.2.0/plughost/)
-and the [llms.txt reference](https://github.com/emulette/plughost/blob/v0.2.0/llms.txt).
-The [render example](https://github.com/emulette/plughost/blob/v0.2.0/crates/plughost/examples/render.rs)
+streaming, state, and recovery, see the [API documentation](https://docs.rs/plughost/0.2.1/plughost/)
+and the [llms.txt reference](https://github.com/emulette/plughost/blob/v0.2.1/llms.txt).
+The [render example](https://github.com/emulette/plughost/blob/v0.2.1/crates/plughost/examples/render.rs)
 is a complete offline batch: it finds a plugin class, renders several jobs, and recovers the
 chain from a state snapshot when the plugin crashes or hangs.
 
@@ -108,7 +108,7 @@ helper has gone without completing a quantum, so the application can tell a hang
 which `helper_monitor` reports. `snapshot` saves each slot's state and bypass, and
 `recover_realtime` moves the same endpoint to a chain it prepares in a new helper, while the
 audio callback keeps it. The
-[realtime example](https://github.com/emulette/plughost/blob/v0.2.0/crates/plughost/examples/realtime.rs)
+[realtime example](https://github.com/emulette/plughost/blob/v0.2.1/crates/plughost/examples/realtime.rs)
 plays a chain through the default output device, which it asks for callbacks of one quantum,
 resynchronizes it, and recovers it after its helper crashes or hangs.
 
@@ -136,7 +136,7 @@ Intel Macs, Rosetta, Linux, and cross-architecture plugin bridging are not suppo
 Metadata discovery avoids loading plugin code; native scanning and processing can display plugin
 license dialogs. Scans run serially unless explicitly configured otherwise. The application owns
 scan directories, allow/block policy, cancellation, and recovery decisions. See the
-[scanning contract](https://github.com/emulette/plughost/blob/v0.2.0/llms.txt)
+[scanning contract](https://github.com/emulette/plughost/blob/v0.2.1/llms.txt)
 for discovery, native inspection, retry, progress, and cache behavior.
 Query plugin capabilities before relying on optional native behavior.
 
@@ -195,7 +195,7 @@ The delay, preset and `routing-faults` fixtures intentionally expose failure mod
 loops, hangs and invalid output events; their expected failures are checked by the native host tests.
 
 For repeatable offline performance measurements, build the test assets and helper above, then run
-`cargo bench -p plughost --bench offline --locked`. The [benchmark guide](https://github.com/emulette/plughost/blob/v0.2.0/crates/plughost/benches/README.md)
+`cargo bench -p plughost --bench offline --locked`. The [benchmark guide](https://github.com/emulette/plughost/blob/v0.2.1/crates/plughost/benches/README.md)
 describes its workload matrix, options, and output. It uses repository fixtures and does not scan
 installed plugins. The same guide describes the comparison with Pedalboard for one installed plugin
 (`cargo bench -p plughost --bench compare`), including direct, isolated and per-block IPC costs,
@@ -218,8 +218,8 @@ install `cargo-fuzz` and run `python3 fuzz/run.py --seconds 60` with a nightly t
 
 ## License
 
-Licensed under either the [Apache License, Version 2.0](https://github.com/emulette/plughost/blob/v0.2.0/LICENSE-APACHE)
-or the [MIT license](https://github.com/emulette/plughost/blob/v0.2.0/LICENSE-MIT), at your option.
+Licensed under either the [Apache License, Version 2.0](https://github.com/emulette/plughost/blob/v0.2.1/LICENSE-APACHE)
+or the [MIT license](https://github.com/emulette/plughost/blob/v0.2.1/LICENSE-MIT), at your option.
 Both license texts are included in each published crate.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in

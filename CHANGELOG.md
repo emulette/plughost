@@ -5,7 +5,7 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.1] - 2026-10-27
 
 ### Added
 
@@ -925,7 +925,7 @@ Windows x64, and of Audio Units on macOS, with each chain isolated in a helper p
 - Failures: typed errors with the failing slot, helper exit monitoring, diagnostics, and chain
   recovery in a new helper from saved states.
 
-[Unreleased]: https://github.com/emulette/plughost/compare/v0.2.0...HEAD
+[0.2.1]: https://github.com/emulette/plughost/releases/tag/v0.2.1
 [0.2.0]: https://github.com/emulette/plughost/releases/tag/v0.2.0
 [0.1.6]: https://github.com/emulette/plughost/releases/tag/v0.1.6
 [0.1.5]: https://github.com/emulette/plughost/releases/tag/v0.1.5
