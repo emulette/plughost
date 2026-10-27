@@ -66,18 +66,26 @@ impl Connection {
         kResultOk
     }
 
+    /// Asks the component from a thread of the controller's own, as plugins that poll their
+    /// processor from a display-link thread do.
     pub(super) fn gain_points(&self) -> f64 {
-        let result = (|| {
-            let peer = lock(&self.peer).clone()?;
-            let message = self.message(c"routing.gain-points")?;
-            if unsafe { peer.notify(message.as_ptr()) } != kResultOk {
-                return None;
-            }
-            let attributes = unsafe { ComRef::from_raw(message.getAttributes()) }?;
-            let mut count = 0;
-            (unsafe { attributes.getInt(c"count".as_ptr(), &mut count) } == kResultOk)
-                .then_some(count as f64 / 100.0)
-        })();
+        let result = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let peer = lock(&self.peer).clone()?;
+                    let message = self.message(c"routing.gain-points")?;
+                    if unsafe { peer.notify(message.as_ptr()) } != kResultOk {
+                        return None;
+                    }
+                    let attributes = unsafe { ComRef::from_raw(message.getAttributes()) }?;
+                    let mut count = 0;
+                    (unsafe { attributes.getInt(c"count".as_ptr(), &mut count) } == kResultOk)
+                        .then_some(count as f64 / 100.0)
+                })
+                .join()
+                .ok()
+                .flatten()
+        });
         // Failed native communication is observable in the fixture's diagnostic parameter.
         result.unwrap_or(f64::NAN)
     }

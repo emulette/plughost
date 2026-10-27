@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_void};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
-use std::thread::ThreadId;
 
 use plughost_core::ParameterEvent;
 use plughost_core::internal::ParameterEventBuffer;
@@ -703,19 +702,17 @@ impl IComponentHandler2Trait for ComponentHandler {
     }
 }
 
-/// Forwards messages between component and controller only on the thread that created the plugin
-/// (the UI thread), like the SDK's ConnectionProxy.
+/// Forwards messages between component and controller on whatever thread sends them, as hosts
+/// that connect the two directly do. The SDK's ConnectionProxy drops those not sent on the UI
+/// thread, which leaves plugins that poll their processor from a display-link thread (FabFilter's
+/// level displays) without an answer.
 pub(crate) struct ConnectionProxy {
     destination: ComPtr<IConnectionPoint>,
-    owner: ThreadId,
 }
 
 impl ConnectionProxy {
     pub fn new(destination: ComPtr<IConnectionPoint>) -> ComWrapper<ConnectionProxy> {
-        ComWrapper::new(ConnectionProxy {
-            destination,
-            owner: std::thread::current().id(),
-        })
+        ComWrapper::new(ConnectionProxy { destination })
     }
 
     pub fn ptr(proxy: &ComWrapper<ConnectionProxy>) -> *mut IConnectionPoint {
@@ -739,9 +736,6 @@ impl IConnectionPointTrait for ConnectionProxy {
     }
 
     unsafe fn notify(&self, message: *mut IMessage) -> tresult {
-        if std::thread::current().id() != self.owner {
-            return kResultFalse;
-        }
         unsafe { self.destination.notify(message) }
     }
 }

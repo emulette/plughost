@@ -38,6 +38,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - The events of an output the realtime callback missed are no longer lost: once the helper has
   completed it, they go out at offset 0, before the output's own, with the next callback. A note
   off in a missed output left its note on until the next generation.
+- A VST3 plugin's component and separate controller now get the messages they send each other
+  from any thread; only those sent on the thread that created the plugin went through. An editor
+  that asks its processor for levels from a display-link thread, as FabFilter Pro-C 3's does,
+  showed no meters.
 - The note offs a new realtime generation sends for the notes earlier outputs left on go out with
   its first callback that returns `Ok`. A first callback with invalid input dropped them with its
   error.
