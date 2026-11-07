@@ -127,16 +127,26 @@ fn red(bgr: [u8; 3]) -> bool {
     bgr[2] > 200 && bgr[1] < 60 && bgr[0] < 60
 }
 
+/// The window server lists an editor's window a while after it opened; until then the capture is
+/// refused as `NoHelper`, and the test starts it again.
 fn start(chain: &Chain, region: Region, frames: &Frames) -> Capture {
     let pid = chain.helper_monitor().process_id();
-    Capture::start(
-        &region,
-        pid,
-        &CaptureOptions::default(),
-        frames.keep(),
-        |reason| panic!("the capture stopped: {reason}"),
-    )
-    .unwrap()
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match Capture::start(
+            &region,
+            pid,
+            &CaptureOptions::default(),
+            frames.keep(),
+            |reason| panic!("the capture stopped: {reason}"),
+        ) {
+            Ok(capture) => return capture,
+            Err(CaptureError::NoHelper) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => panic!("the capture did not start: {error:?}"),
+        }
+    }
 }
 
 #[test]
