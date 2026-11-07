@@ -146,7 +146,7 @@ fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
         let responder = responder.clone();
         thread::spawn(move || {
             loop {
-                thread::sleep(KEEP_ALIVE);
+                thread::sleep(KEEP_ALIVE / 4);
                 if responder.keep_alive().is_err() {
                     break;
                 }
@@ -312,14 +312,16 @@ fn handle(
     Ok(())
 }
 
-/// How often a remote-mode helper checks whether a request the main thread holds needs keeping
-/// alive.
+/// How long a request the main thread holds goes without a message to the application before a
+/// remote-mode helper keeps it alive. The helper checks four times as often, so the application
+/// hears at most a quarter of it later.
 #[cfg(target_os = "macos")]
 const KEEP_ALIVE: Duration = Duration::from_secs(1);
 
 /// The requests a remote-mode helper's main thread has yet to answer, and since when it works on
-/// the first of them. It is apart from the writer: the reader thread records requests while the
-/// main thread may wait to write a response the application does not read yet.
+/// the first of them or last kept them alive. It is apart from the writer: the reader thread
+/// records requests while the main thread may wait to write a response the application does not
+/// read yet.
 struct Waiting {
     requests: usize,
     since: Instant,
@@ -386,6 +388,7 @@ impl Responder {
         };
         if held && remote::watch::running_within(KEEP_ALIVE) {
             writer.write(&Response::Progress)?;
+            self.waiting().since = Instant::now();
         }
         Ok(())
     }
