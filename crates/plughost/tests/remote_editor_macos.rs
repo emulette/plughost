@@ -1296,7 +1296,12 @@ fn what_a_plugin_copies_stays_off_the_machines_clipboard() {
     let (mut chain, _session, _) = shown_editor();
     let before = clipboard();
     act(&mut chain, 22);
-    assert_eq!(value(&mut chain, COPIED), 1.0);
+    // The editor copies after the plugin call, when the helper's run loop next runs.
+    wait(
+        &mut chain,
+        |chain| value(chain, COPIED) == 1.0,
+        "what the plugin copied did not read back",
+    );
     assert_eq!(clipboard(), before);
 }
 
