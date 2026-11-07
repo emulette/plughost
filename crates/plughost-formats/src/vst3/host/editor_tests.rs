@@ -32,3 +32,24 @@ fn host_advertises_the_plugin_interfaces_it_calls() {
         );
     }
 }
+
+#[test]
+fn an_edit_past_the_range_by_rounding_is_clamped_and_one_further_out_asks_for_a_resync() {
+    let owner = ComWrapper::new(ComponentHandler::default());
+    let handler = owner.as_com_ref::<IComponentHandler>().unwrap();
+    unsafe {
+        assert_eq!(handler.performEdit(3, 1.000_000_1), kResultOk);
+        assert_eq!(handler.performEdit(4, 1.5), kInvalidArgument);
+    }
+    assert_eq!(owner.take_pending(), [(3, 1.0)]);
+    assert_eq!(
+        owner.events.take().events,
+        [
+            ParameterEvent::Value {
+                id: 3,
+                normalized: 1.0
+            },
+            ParameterEvent::ValuesChanged
+        ]
+    );
+}

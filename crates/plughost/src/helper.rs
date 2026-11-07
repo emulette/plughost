@@ -34,6 +34,8 @@ const POLL: Duration = Duration::from_millis(5);
 pub(crate) enum Mode {
     Scan,
     Host,
+    /// Host mode for remote editors: the helper never activates itself.
+    Remote,
 }
 
 pub(crate) struct Helper {
@@ -45,6 +47,9 @@ pub(crate) struct Helper {
     processing: bool,
     /// Whether a call reported the helper's end, after which a cancellation reads as an exit.
     end_reported: bool,
+    /// A remote-mode helper, which sends progress for any request while its main thread is in a
+    /// nested loop that runs.
+    remote: bool,
 }
 
 struct Shared {
@@ -74,7 +79,7 @@ impl Helper {
             return Ok(None);
         }
         let (shared, stdin) = match mode {
-            Mode::Host => {
+            Mode::Host | Mode::Remote => {
                 let (sender, stdin) = transfer::Sender::new().map_err(Error::HelperStart)?;
                 let activity = Activity::new().map_err(Error::HelperStart)?;
                 (
@@ -99,6 +104,7 @@ impl Helper {
             .arg(match mode {
                 Mode::Scan => "scan",
                 Mode::Host => "host",
+                Mode::Remote => "remote",
             })
             .arg(&name)
             .arg(format!("{token:x}"))
@@ -158,6 +164,7 @@ impl Helper {
             shared,
             processing: false,
             end_reported: false,
+            remote: matches!(mode, Mode::Remote),
         };
         let error = match helper.message_controlled(START_TIMEOUT, cancelled)? {
             Some(Incoming::Hello(hello)) if hello.token == token => {
@@ -187,7 +194,8 @@ impl Helper {
             });
         }
         // Only the requests that go through the slots one at a time report progress.
-        let progresses = matches!(request, Request::Load { .. } | Request::PrepareAudio { .. });
+        let progresses =
+            self.remote || matches!(request, Request::Load { .. } | Request::PrepareAudio { .. });
         self.send(request, timeout)?;
         let response = loop {
             match self.receive(timeout)? {
@@ -288,6 +296,13 @@ impl Helper {
             Ok(handle) => Ok(handle),
             Err(_) => Err(self.ended()),
         }
+    }
+
+    /// Sends one end of a remote session's channel for the request that carries the returned
+    /// token.
+    #[cfg(target_os = "macos")]
+    pub fn send_channel(&mut self, channel: &std::os::fd::OwnedFd) -> Result<u64, Error> {
+        self.transfer(|sender, _, child| sender.send_channel(channel, child))
     }
 
     pub fn monitor(&self) -> HelperMonitor {

@@ -203,23 +203,28 @@ impl Plugin {
         }
         for event in pending.events {
             let id = event.address;
-            if event.eventType == AUParameterAutomationEventType::Value {
-                // The v2 bridge reports this host's own edits back; any other value came from
-                // the unit and ends that.
-                match self.host_values.get(&id) {
-                    Some(&value) if value == event.value => continue,
-                    Some(_) => {
+            if event.eventType == AUParameterAutomationEventType::Value
+                && let Some(sent) = self.host_values.get_mut(&id)
+            {
+                // The v2 bridge reports this host's own edits back, in order, and may leave out
+                // ones a later edit replaced or report one again. The edits before a reported one
+                // are done; it stays until another value comes. Any other value came from the
+                // unit and ends them.
+                match sent.iter().position(|value| *value == event.value) {
+                    Some(position) => {
+                        sent.drain(..position);
+                        continue;
+                    }
+                    None => {
                         self.host_values.remove(&id);
                     }
-                    None => {}
                 }
             }
             let mapped = match event.eventType {
                 AUParameterAutomationEventType::Touch => Some(ParameterEvent::BeginEdit { id }),
                 AUParameterAutomationEventType::Release => Some(ParameterEvent::EndEdit { id }),
                 AUParameterAutomationEventType::Value => self
-                    .parameter_to_normalized(id, f64::from(event.value))
-                    .ok()
+                    .reported_normalized(id, f64::from(event.value))
                     .map(|normalized| ParameterEvent::Value { id, normalized }),
                 _ => None,
             };
@@ -232,7 +237,9 @@ impl Plugin {
         }
         if batch.events.len() > CAPACITY {
             let excess = batch.events.len() - CAPACITY;
-            batch.events.drain(..excess);
+            // The metadata change first is kept: the helper refreshes metadata only for one.
+            let kept = usize::from(changed);
+            batch.events.drain(kept..kept + excess);
             batch.dropped = batch.dropped.saturating_add(excess as u64);
             batch.resync_required = true;
         }
@@ -251,6 +258,18 @@ mod tests {
         let mut plugin = unsafe { Plugin::new("6175667864656C796170706C") }.unwrap();
         let _ = plugin.take_parameter_events();
         plugin.set_parameter(0, 0.3).unwrap();
+        crate::au::wait::run_loop_for(std::time::Duration::from_millis(200));
+        assert_eq!(plugin.take_parameter_events().events, []);
+    }
+
+    #[test]
+    fn quick_host_edits_are_not_reported_back_either() {
+        // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+        let mut plugin = unsafe { Plugin::new("6175667864656C796170706C") }.unwrap();
+        let _ = plugin.take_parameter_events();
+        for value in [0.2, 0.4, 0.6] {
+            plugin.set_parameter(0, value).unwrap();
+        }
         crate::au::wait::run_loop_for(std::time::Duration::from_millis(200));
         assert_eq!(plugin.take_parameter_events().events, []);
     }

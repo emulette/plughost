@@ -13,6 +13,11 @@ const CRASHED: &str = "the helper exited";
 const TIMED_OUT: &str = "the helper stopped responding and was terminated";
 const CANCELLED: &str = "the call was cancelled and the helper was terminated";
 const OPERATION: &str = "the operation failed";
+pub(crate) const REMOTE_UNSUPPORTED: &str = "remote mode is available on macOS only";
+const REMOTE_BACKLOG: &str =
+    "the remote session's commands back up: the helper does not take them as fast as they come";
+const REMOTE_SESSION_ENDED: &str =
+    "the remote session ended: its helper exited or a later session replaced it";
 const PROTOCOL: &str = "the helper sent an invalid or unexpected message";
 const SLOT: &str = "slot";
 const CACHE: &str = "could not access the scan cache";
@@ -87,6 +92,11 @@ pub enum Error {
     /// The chain's realtime endpoint runs, which refuses what would reconfigure or reset the
     /// chain under it, and processing through the chain itself.
     RealtimeRunning,
+    /// A remote session's channel closed: its helper exited, or a later
+    /// [`Chain::remote_session`](crate::Chain::remote_session) replaced it.
+    RemoteSessionEnded,
+    /// A remote session's commands back up past what it holds; this one was not sent.
+    RemoteBacklog,
 }
 
 fn slot(f: &mut fmt::Formatter<'_>, slot: &Option<usize>) -> fmt::Result {
@@ -140,6 +150,8 @@ impl fmt::Display for Error {
             Error::Render(_) => f.write_str(RENDER),
             Error::Cache(_) => f.write_str(CACHE),
             Error::RealtimeRunning => f.write_str(REALTIME_RUNNING),
+            Error::RemoteSessionEnded => f.write_str(REMOTE_SESSION_ENDED),
+            Error::RemoteBacklog => f.write_str(REMOTE_BACKLOG),
         }
     }
 }
@@ -181,7 +193,10 @@ impl Error {
     /// Common category for local errors and structured helper failures.
     pub fn kind(&self) -> FailureKind {
         match self {
-            Self::HelperStart(_) | Self::Cache(_) => FailureKind::Host,
+            Self::HelperStart(_)
+            | Self::Cache(_)
+            | Self::RemoteSessionEnded
+            | Self::RemoteBacklog => FailureKind::Host,
             Self::Handshake | Self::ProtocolVersion { .. } | Self::Protocol => {
                 FailureKind::Protocol
             }

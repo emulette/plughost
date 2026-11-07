@@ -6,6 +6,7 @@ use std::ptr::null_mut;
 use std::rc::Rc;
 use std::sync::OnceLock;
 
+use plughost_core::remote::{EditorId, Region};
 use plughost_core::{Failure, FailureKind};
 use plughost_formats::{EditorView, HostedPlugin, ResizeRequest};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
@@ -95,6 +96,17 @@ impl WindowState {
         }
         resized
     }
+
+    /// Gives the window the size a plugin asked for. When the system keeps the window from
+    /// taking exactly that size, the window goes back to the size it had and the request fails.
+    fn resize_exactly(&self, width: u32, height: u32) -> bool {
+        let previous = self.size.get();
+        if self.resize(width, height) && self.size.get() == (width, height) {
+            return true;
+        }
+        self.resize(previous.0, previous.1);
+        false
+    }
 }
 
 pub struct EditorWindow {
@@ -138,35 +150,82 @@ impl EditorWindow {
             floating: false,
             hidden: false,
         };
-        let frame = Rc::clone(&window.state);
-        let resize: ResizeRequest = Box::new(move |width, height| frame.resize(width, height));
-        // SAFETY: close() and tick() detach the plugin before the native parent is destroyed.
+        window.attach(plugin)?;
+        if !window.floating {
+            window.bring_to_front();
+        }
+        Ok(window)
+    }
+
+    /// Remote editors are available on macOS only, where a chain can start in remote mode.
+    pub fn open_remote(
+        _plugin: &mut dyn HostedPlugin,
+        _region: Region,
+        _id: EditorId,
+    ) -> Result<Self, Failure> {
+        Err(Failure::new(
+            FailureKind::Unsupported,
+            crate::errors::NOT_REMOTE,
+        ))
+    }
+
+    /// No editor is remote on Windows.
+    pub fn remote_id(&self) -> Option<EditorId> {
+        None
+    }
+
+    pub fn size(&self) -> (u32, u32) {
+        self.state.size.get()
+    }
+
+    pub fn set_region(&mut self, _region: Region) {}
+
+    /// Opens `plugin`'s editor in this window after [`EditorWindow::detach`]. The window keeps
+    /// its place, order, and minimized or hidden state, and does not take focus. On failure the
+    /// caller drops the window.
+    pub fn reattach(&mut self, plugin: &mut dyn HostedPlugin) -> Result<(), Failure> {
+        let _context = DpiContext::enter();
+        self.attach(plugin)?;
+        if self.hidden {
+            plugin.set_editor_visible(false);
+        }
+        Ok(())
+    }
+
+    /// Closes the editor and keeps its window for the instance that replaces `plugin`.
+    pub fn detach(&mut self, plugin: &mut dyn HostedPlugin) {
+        let _context = DpiContext::enter();
+        plugin.close_editor();
+    }
+
+    fn attach(&mut self, plugin: &mut dyn HostedPlugin) -> Result<(), Failure> {
+        let hwnd = self.state.hwnd.get();
+        let frame = Rc::clone(&self.state);
+        let resize: ResizeRequest =
+            Box::new(move |width, height| frame.resize_exactly(width, height));
+        // SAFETY: close(), detach() and tick() detach the plugin before the native parent is
+        // destroyed.
         let view = unsafe { plugin.open_editor(hwnd, resize) }.map_err(|error| error.failure())?;
         let EditorView::Embedded { width, height } = view else {
-            window.floating = true;
-            return Ok(window);
+            self.floating = true;
+            unsafe { ShowWindow(hwnd, SW_HIDE) };
+            return Ok(());
         };
-        if plugin.editor_can_resize() {
-            unsafe {
-                SetWindowLongW(
-                    hwnd,
-                    GWL_STYLE,
-                    (STYLE | WS_THICKFRAME | WS_MAXIMIZEBOX) as i32,
-                )
-            };
-        }
-        if !window.state.resize(width, height) {
+        self.floating = false;
+        let style = if plugin.editor_can_resize() {
+            STYLE | WS_THICKFRAME | WS_MAXIMIZEBOX
+        } else {
+            STYLE
+        };
+        unsafe { SetWindowLongW(hwnd, GWL_STYLE, style as i32) };
+        if !self.state.resize(width, height) {
             let error = window_error(io::Error::last_os_error());
             plugin.close_editor();
             return Err(error);
         }
-        window
-            .state
-            .scale
-            .set(Some(unsafe { GetDpiForWindow(hwnd) }));
-        window.update_scale(plugin);
-        window.bring_to_front();
-        Ok(window)
+        self.state.scale.set(Some(unsafe { GetDpiForWindow(hwnd) }));
+        self.update_scale(plugin);
+        Ok(())
     }
 
     fn update_scale(&self, plugin: &mut dyn HostedPlugin) {

@@ -1,11 +1,8 @@
 use plughost_core::{Capabilities, Support};
-use vst3::Steinberg::Vst::{
-    BusDirections_, IAudioProcessorTrait, IComponentTrait, IUnitInfo, IUnitInfoTrait, MediaTypes_,
-    SymbolicSampleSizes_,
-};
-use vst3::Steinberg::{kResultFalse, kResultOk};
+use vst3::Steinberg::Vst::{IUnitInfo, IUnitInfoTrait};
 
-use super::{Plugin, Vst3Error, lock};
+use super::Plugin;
+use super::Vst3Error;
 
 fn count_support(count: i32) -> Support {
     if count < 0 {
@@ -24,19 +21,7 @@ impl Plugin {
             .iter()
             .any(|info| info.flags.automatable)
             .into();
-        let instance = lock(&self.engine).handle()?;
-        let precision = |size| match unsafe { instance.processor.canProcessSampleSize(size) } {
-            result if result == kResultOk => Support::Supported,
-            result if result == kResultFalse => Support::Unsupported,
-            _ => Support::Unknown,
-        };
-        let notes = |direction| {
-            count_support(unsafe {
-                instance
-                    .component
-                    .getBusCount(MediaTypes_::kEvent as i32, direction)
-            })
-        };
+        let queried = self.queried()?;
         let factory_presets = self
             .controller
             .cast::<IUnitInfo>()
@@ -51,14 +36,14 @@ impl Plugin {
                 Support::Unknown
             };
             capabilities.bus_discovery = Support::Supported;
-            capabilities.note_input = notes(BusDirections_::kInput as i32);
-            capabilities.note_output = notes(BusDirections_::kOutput as i32);
+            capabilities.note_input = queried.note_input;
+            capabilities.note_output = queried.note_output;
             capabilities.sample_accurate_automation = automation;
             // IComponent has state methods but no query establishing that the plugin implements them.
             capabilities.state = Support::Unknown;
             capabilities.factory_presets = factory_presets;
-            capabilities.f32 = precision(SymbolicSampleSizes_::kSample32 as i32);
-            capabilities.f64 = precision(SymbolicSampleSizes_::kSample64 as i32);
+            capabilities.f32 = queried.f32;
+            capabilities.f64 = queried.f64;
             capabilities
         })
     }

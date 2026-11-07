@@ -286,10 +286,11 @@ impl Host {
                 };
             }
         };
-        let reopen: Vec<bool> = self.editors.iter().map(Option::is_some).collect();
-        if staged {
-            self.close_editors();
-        }
+        let editors = if staged {
+            self.detach_editors()
+        } else {
+            Vec::new()
+        };
         let mut old = Vec::new();
         for (slot, candidate) in std::mem::take(candidates).into_iter().enumerate() {
             if let Some(candidate) = candidate {
@@ -347,8 +348,10 @@ impl Host {
         for slot in 0..self.slots.len() {
             self.invalidate_parameters(slot);
         }
-        if staged {
-            self.reopen_editors(&reopen);
+        for (slot, window) in editors.into_iter().enumerate() {
+            if let Some(window) = window {
+                self.reattach_editor(slot, window);
+            }
         }
         Response::AudioPrepared {
             generation,

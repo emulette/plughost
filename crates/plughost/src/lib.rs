@@ -56,6 +56,7 @@ mod helper;
 mod preset_paths;
 mod presets;
 mod realtime;
+pub mod remote;
 mod scan;
 
 pub use chain::{Chain, ChainSlot, ChainSnapshot, SpawnOptions, Timeouts};

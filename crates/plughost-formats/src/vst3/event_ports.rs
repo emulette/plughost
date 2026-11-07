@@ -30,7 +30,7 @@ impl Instance {
 
     /// Whether the controller lists note expressions for an event input bus. Controllers list
     /// them per channel; the SDK's samples list them for channel 0 alone.
-    fn note_expressions(&self, bus: u64) -> Support {
+    pub(crate) fn note_expressions(&self, bus: u64) -> Support {
         let Some(controller) = self.controller.cast::<INoteExpressionController>() else {
             return Support::Unsupported;
         };
@@ -42,6 +42,14 @@ impl Instance {
     /// the controller's MIDI mapping, and outputs send them as legacy controller events. VST3 has
     /// no MPE declaration.
     pub fn event_ports(&self) -> Result<Vec<EventPortInfo>, Vst3Error> {
+        self.event_ports_with(|bus| self.note_expressions(bus))
+    }
+
+    /// The event ports, with each input bus's note expressions as `expressions` tells.
+    pub(crate) fn event_ports_with(
+        &self,
+        expressions: impl Fn(u64) -> Support,
+    ) -> Result<Vec<EventPortInfo>, Vst3Error> {
         let mut ports = Vec::new();
         if self.controllers_only() {
             ports.push({
@@ -71,7 +79,7 @@ impl Instance {
                     // Data events are part of the format; a plugin's use of them is not queryable.
                     event_port_info.sysex = Support::Unknown;
                     event_port_info.note_expression = match dir {
-                        AudioDirection::Input => self.note_expressions(index),
+                        AudioDirection::Input => expressions(index),
                         _ => Support::Unknown,
                     };
                     event_port_info

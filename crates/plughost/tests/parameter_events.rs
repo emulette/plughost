@@ -156,3 +156,40 @@ fn replacing_slot_state_invalidates_the_consumer_parameter_view() {
     assert!(batch.events.contains(&ParameterEvent::MetadataChanged));
     assert!(batch.events.contains(&ParameterEvent::ValuesChanged));
 }
+
+#[test]
+#[ignore = "needs helper and the meters CLAP fixture"]
+fn a_flood_of_meter_values_does_not_make_the_helper_read_the_parameters_again() {
+    // 200 meters report their values every block; small blocks come many times between two
+    // helper ticks. The fixture counts the parameter value reads it serves.
+    const VALUE_READS: u64 = 15;
+    let mut chain = support::spawn(&[support::fixture(
+        PluginFormat::Clap,
+        "plughost-test-meters",
+        "com.studio.plughost.test-delay.7900001d",
+    )]);
+    support::prepare(&mut chain);
+    let reads = |chain: &mut Chain| {
+        let (_, value) = chain
+            .parameters(0)
+            .unwrap()
+            .into_iter()
+            .find(|(info, _)| info.id == VALUE_READS)
+            .unwrap();
+        chain
+            .parameter_to_plain(0, VALUE_READS, value.unwrap())
+            .unwrap()
+            .round() as u64
+    };
+    let one_read = {
+        let before = reads(&mut chain);
+        reads(&mut chain) - before
+    };
+    let before = reads(&mut chain);
+    let started = std::time::Instant::now();
+    while started.elapsed() < std::time::Duration::from_millis(300) {
+        block(&mut chain, 64, 1.0);
+    }
+    // Only this read; the helper read none for the values the meters reported.
+    assert_eq!(reads(&mut chain) - before, one_read);
+}

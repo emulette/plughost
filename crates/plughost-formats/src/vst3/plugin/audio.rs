@@ -1,4 +1,5 @@
 use super::{Plugin, Vst3Error, lock};
+use crate::vst3::audio::Queried;
 use plughost_core::{AudioBusInfo, AudioConfig, AudioConfiguration, BypassState, Support};
 use vst3::Steinberg::Vst::{IComponentHandlerTrait, IEditControllerTrait};
 use vst3::Steinberg::kResultOk;
@@ -13,23 +14,50 @@ impl Plugin {
     }
     /// Full native bus order. Current activation is only known after host preparation.
     pub(crate) fn audio_buses(&self) -> Result<Vec<AudioBusInfo>, Vst3Error> {
-        let instance = lock(&self.engine).handle()?;
-        let mut buses = instance.audio_buses()?;
-        if let Some(prepared) = &lock(&self.engine).prepared {
-            for bus in &mut buses {
-                bus.active = prepared
-                    .audio_buses
-                    .iter()
-                    .find(|known| known.id == bus.id && known.direction == bus.direction)
-                    .and_then(|known| known.active);
+        let instance = {
+            let engine = lock(&self.engine);
+            if let Some(prepared) = &engine.prepared {
+                return Ok(prepared.audio_buses.clone());
+            }
+            engine.handle()?
+        };
+        instance.audio_buses()
+    }
+    /// Event buses in both directions, inputs first; each ID is the bus index. The note
+    /// expressions are the controller's, asked now without the engine lock.
+    pub(crate) fn event_ports(&self) -> Result<Vec<plughost_core::EventPortInfo>, Vst3Error> {
+        let (mut ports, instance) = {
+            let engine = lock(&self.engine);
+            match &engine.prepared {
+                Some(prepared) => (Some(prepared.queried.event_ports.clone()), engine.handle()?),
+                None => (None, engine.handle()?),
+            }
+        };
+        let Some(ports) = ports.as_mut() else {
+            return instance.event_ports();
+        };
+        // The cache leaves the input buses' note expressions unknown; a controller-only port's
+        // are unsupported.
+        for port in ports.iter_mut() {
+            if port.direction == plughost_core::AudioDirection::Input
+                && port.note_expression == Support::Unknown
+            {
+                port.note_expression = instance.note_expressions(port.id);
             }
         }
-        Ok(buses)
+        Ok(std::mem::take(ports))
     }
-    /// Event buses in both directions, inputs first; each ID is the bus index.
-    pub(crate) fn event_ports(&self) -> Result<Vec<plughost_core::EventPortInfo>, Vst3Error> {
-        let instance = lock(&self.engine).handle()?;
-        instance.event_ports()
+    /// The queries VST3 allows only while the processor does not process: read now while the
+    /// plugin is not prepared, or as it was prepared. Only this thread prepares the plugin.
+    pub(crate) fn queried(&self) -> Result<Queried, Vst3Error> {
+        let instance = {
+            let engine = lock(&self.engine);
+            if let Some(prepared) = &engine.prepared {
+                return Ok(prepared.queried.clone());
+            }
+            engine.handle()?
+        };
+        instance.queried()
     }
     /// VST3 negotiates speaker arrangements but has no complete configuration enumerator.
     pub(crate) fn audio_configurations(&self) -> Result<Vec<AudioConfiguration>, Vst3Error> {

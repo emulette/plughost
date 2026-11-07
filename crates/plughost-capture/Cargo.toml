@@ -1,0 +1,35 @@
+[package]
+name = "plughost-capture"
+description = "Reads the region of a display where a plughost remote editor shows, with only its helper's windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+documentation = "https://docs.rs/plughost-capture"
+publish = true
+include = ["/src/**", "/Cargo.toml", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
+keywords = ["audio", "plugin", "remote", "screen-capture"]
+categories = ["multimedia::video"]
+
+[package.metadata.docs.rs]
+default-target = "aarch64-apple-darwin"
+targets = ["aarch64-apple-darwin"]
+
+[lints]
+workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2.workspace = true
+dispatch2.workspace = true
+objc2.workspace = true
+objc2-core-foundation.workspace = true
+objc2-core-media.workspace = true
+objc2-core-video.workspace = true
+objc2-foundation = { workspace = true, features = ["NSArray", "NSDictionary", "NSEnumerator", "NSError", "NSValue"] }
+objc2-screen-capture-kit.workspace = true
+plughost-core.workspace = true
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+plughost.workspace = true

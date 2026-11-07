@@ -23,11 +23,13 @@ mod host;
 mod lifetime;
 mod presets;
 mod process;
+#[cfg(target_os = "macos")]
+mod remote;
 mod scan;
 
 use std::io;
 use std::process::ExitCode;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -55,6 +57,9 @@ const EVENT_INTERVAL: Duration = Duration::from_millis(10);
 enum Mode {
     Scan,
     Host,
+    /// Host mode for remote editors (macOS): the helper never activates itself.
+    #[cfg(target_os = "macos")]
+    Remote,
 }
 
 /// Runs the helper until the application disconnects or asks it to shut down.
@@ -66,6 +71,8 @@ pub fn run() -> ExitCode {
             let mode = match mode.as_str() {
                 "scan" => Some(Mode::Scan),
                 "host" => Some(Mode::Host),
+                #[cfg(target_os = "macos")]
+                "remote" => Some(Mode::Remote),
                 _ => None,
             };
             mode.zip(u64::from_str_radix(token, 16).ok())
@@ -110,7 +117,15 @@ fn abort_on_panic() {
 }
 
 fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
-    let _runtime = events::init(mode == Mode::Host)?;
+    let _runtime = events::init(mode != Mode::Scan)?;
+    // Before any plugin loads, so none sees the helper activate or inactive.
+    #[cfg(target_os = "macos")]
+    if mode == Mode::Remote
+        && let Some(mtm) = objc2::MainThreadMarker::new()
+    {
+        remote::enter();
+        remote::input::install(mtm);
+    }
     let stream = Stream::connect(name.to_ns_name::<GenericNamespaced>()?)?;
     let (receive, send) = stream.split();
     let mut send = MessageWriter::new(send);
@@ -120,38 +135,98 @@ fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
     })?;
     let responder = Responder {
         send: Arc::new(Mutex::new(send)),
+        waiting: Arc::new(Mutex::new(Waiting {
+            requests: 0,
+            since: Instant::now(),
+        })),
         diagnostics: DiagnosticBuffer::default(),
     };
+    #[cfg(target_os = "macos")]
+    if mode == Mode::Remote {
+        let responder = responder.clone();
+        thread::spawn(move || {
+            loop {
+                thread::sleep(KEEP_ALIVE);
+                if responder.keep_alive().is_err() {
+                    break;
+                }
+            }
+        });
+    }
 
     let (requests, incoming) = mpsc::channel::<Request<'static>>();
     let mut host = None;
     let mut blocks = None;
-    if mode == Mode::Host {
+    let mut transfers = None;
+    if mode != Mode::Scan {
         let (processing, work) = process::Processing::spawn(responder.clone())?;
+        #[cfg(target_os = "macos")]
+        let remote = mode == Mode::Remote;
+        #[cfg(target_os = "windows")]
+        let remote = false;
+        let transfer = Arc::new(transfer::Receiver::take_from_stdin()?);
+        transfers = Some(Arc::clone(&transfer));
         host = Some(host::Host::new(
-            transfer::Receiver::take_from_stdin()?,
+            transfer,
             responder.clone(),
             processing,
+            remote,
         ));
         blocks = Some(work);
     }
+    let reader = responder.clone();
+    // Only a remote-mode helper keeps the requests its main thread holds alive.
+    #[cfg(target_os = "macos")]
+    let counted = mode == Mode::Remote;
+    #[cfg(target_os = "windows")]
+    let counted = false;
+    // A remote-mode helper starts its sessions on this reader.
+    let sessions = transfers.filter(|_| counted);
     thread::spawn(move || {
+        let responder = reader;
         let mut receive = MessageReader::new(receive);
         while let Ok(request) = receive.read::<Request<'static>>() {
-            let handled = match (request, &blocks) {
+            let handled = match (request, &blocks, &sessions) {
                 (
                     Request::Process {
                         context,
                         submission,
                     },
                     Some(blocks),
+                    _,
                 ) => blocks
                     .send(process::Work::Block {
                         context,
                         submission,
                     })
                     .is_ok(),
-                (request, _) => requests.send(request).is_ok(),
+                // Not through the main thread, which a plugin's dialog or menu may hold.
+                #[cfg(target_os = "macos")]
+                (
+                    Request::RemoteSession {
+                        commands,
+                        notices,
+                        menu_timeout_ms,
+                    },
+                    _,
+                    Some(transfer),
+                ) => {
+                    let response = remote::session::open(
+                        transfer,
+                        commands,
+                        notices,
+                        Duration::from_millis(menu_timeout_ms),
+                    );
+                    responder.send(&response).is_ok()
+                }
+                (request, _, _) => {
+                    if counted {
+                        responder.begin();
+                    }
+                    let sent = requests.send(request).is_ok();
+                    events::wake();
+                    sent
+                }
             };
             if !handled {
                 break;
@@ -172,6 +247,20 @@ fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
             });
             next_tick = Instant::now() + EVENT_INTERVAL;
         }
+        // macOS waits on the main run loop, which the reader wakes, so run loop sources, timers
+        // and the main queue run while the helper waits.
+        #[cfg(target_os = "macos")]
+        let request = match incoming.try_recv() {
+            Ok(Request::Shutdown) | Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
+            Ok(request) => request,
+            Err(mpsc::TryRecvError::Empty) => {
+                events::with_pool(|| {
+                    events::wait(next_tick.saturating_duration_since(Instant::now()));
+                });
+                continue;
+            }
+        };
+        #[cfg(target_os = "windows")]
         let request =
             match incoming.recv_timeout(next_tick.saturating_duration_since(Instant::now())) {
                 Ok(Request::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
@@ -214,7 +303,7 @@ fn handle(
             },
         ) => presets::discover(&bundle, &host, &target, responder)?,
         (None, Request::ListAudioUnits) => scan::list_audio_units(responder)?,
-        (Some(host), request) => responder.send(&host.handle(request))?,
+        (Some(host), request) => responder.answer(&host.handle(request))?,
         (None, _) => responder.fail(
             None,
             Failure::new(FailureKind::Protocol, errors::WRONG_MODE),
@@ -223,11 +312,25 @@ fn handle(
     Ok(())
 }
 
+/// How often a remote-mode helper checks whether a request the main thread holds needs keeping
+/// alive.
+#[cfg(target_os = "macos")]
+const KEEP_ALIVE: Duration = Duration::from_secs(1);
+
+/// The requests a remote-mode helper's main thread has yet to answer, and since when it works on
+/// the first of them. It is apart from the writer: the reader thread records requests while the
+/// main thread may wait to write a response the application does not read yet.
+struct Waiting {
+    requests: usize,
+    since: Instant,
+}
+
 /// Writes responses to the application, from the main thread and the processing thread. The
 /// application sends one request at a time, so their responses do not interleave.
 #[derive(Clone)]
 pub(crate) struct Responder {
     send: Arc<Mutex<MessageWriter<SendHalf>>>,
+    waiting: Arc<Mutex<Waiting>>,
     diagnostics: DiagnosticBuffer,
 }
 
@@ -237,11 +340,54 @@ impl Responder {
         if let Response::Failed { slot, failure } = response {
             record_failure(&self.diagnostics, *slot, failure);
         }
-        let mut send = self
-            .send
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        send.write(response)
+        self.writer().write(response)
+    }
+
+    /// Writes the main thread's answer to a request, which it then no longer holds.
+    fn answer(&self, response: &Response) -> io::Result<()> {
+        if let Response::Failed { slot, failure } = response {
+            record_failure(&self.diagnostics, *slot, failure);
+        }
+        let mut writer = self.writer();
+        let written = writer.write(response);
+        let mut waiting = self.waiting();
+        waiting.requests = waiting.requests.saturating_sub(1);
+        waiting.since = Instant::now();
+        written
+    }
+
+    fn writer(&self) -> std::sync::MutexGuard<'_, MessageWriter<SendHalf>> {
+        self.send.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn waiting(&self) -> std::sync::MutexGuard<'_, Waiting> {
+        self.waiting.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Records that the main thread has a request to answer.
+    fn begin(&self) {
+        let mut waiting = self.waiting();
+        if waiting.requests == 0 {
+            waiting.since = Instant::now();
+        }
+        waiting.requests += 1;
+    }
+
+    /// Keeps a request the main thread has held for a while alive while its run loop runs, in
+    /// a dialog's, a menu's or a panel's loop. A main thread held up outside any loop sends
+    /// nothing, and the application's timeout ends the helper as before.
+    #[cfg(target_os = "macos")]
+    fn keep_alive(&self) -> io::Result<()> {
+        // The writer first, as `answer` takes them: an answer written meanwhile is seen.
+        let mut writer = self.writer();
+        let held = {
+            let waiting = self.waiting();
+            waiting.requests > 0 && waiting.since.elapsed() >= KEEP_ALIVE
+        };
+        if held && remote::watch::running_within(KEEP_ALIVE) {
+            writer.write(&Response::Progress)?;
+        }
+        Ok(())
     }
 
     pub fn fail(&self, slot: Option<usize>, failure: Failure) -> io::Result<()> {

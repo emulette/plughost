@@ -249,6 +249,8 @@ impl ClapError {
 pub(super) const PRESET_DISCOVERY_FAILED: &str = "preset discovery failed";
 pub(super) const GUI_REQUEST_WITHOUT_EDITOR: &str =
     "the plugin asked to show or hide an editor that is not open";
+pub(super) const GUI_RESIZE_WITHOUT_EMBEDDED_EDITOR: &str =
+    "the plugin asked to resize an editor that is not open in the host's window";
 
 pub(super) const PRESET_LOADED: &str = "the CLAP plugin reported a loaded preset";
 pub(super) const TIMER_OFF_MAIN_THREAD: &str =

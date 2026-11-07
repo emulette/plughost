@@ -117,6 +117,8 @@ pub struct Shared {
     pub tail_changed: AtomicBool,
     pub callback_requested: AtomicBool,
     pub flush_requested: AtomicBool,
+    /// Counts the blocks that processed, which take the queued host edits.
+    pub blocks: AtomicU64,
     /// The plugin rescanned its parameter info; the cached parameter list is stale.
     pub parameters_changed: AtomicBool,
     /// An editor size the plugin asked for, applied on the main thread.
@@ -125,6 +127,8 @@ pub struct Shared {
     pub editor_request: Mutex<Option<crate::EditorRequest>>,
     /// Whether the host has the plugin's editor open, which visibility requests need.
     pub editor_open: AtomicBool,
+    /// Whether that editor draws in the host's window, which resize requests need.
+    pub editor_embedded: AtomicBool,
     /// Host edits not yet delivered to the plugin, as `(parameter ID, plain value)`.
     pub pending: Mutex<Vec<(u32, f64)>>,
     /// How often a load dropped the pending edits; changed and read only under `pending`'s lock.
@@ -146,10 +150,12 @@ impl Shared {
             tail_changed: AtomicBool::new(false),
             callback_requested: AtomicBool::new(false),
             flush_requested: AtomicBool::new(false),
+            blocks: AtomicU64::new(0),
             parameters_changed: AtomicBool::new(true),
             resize_requested: Mutex::new(None),
             editor_request: Mutex::new(None),
             editor_open: AtomicBool::new(false),
+            editor_embedded: AtomicBool::new(false),
             pending: Mutex::new(Vec::with_capacity(plughost_core::MAX_BLOCK_EVENTS)),
             pending_dropped: AtomicU64::new(0),
         }
@@ -327,7 +333,14 @@ impl Shared {
 impl HostGuiImpl for Shared {
     fn resize_hints_changed(&self) {}
 
+    /// Accepts a size for the main thread to give the host window; a size the window cannot take
+    /// is reverted there. A floating editor sizes its own window.
     fn request_resize(&self, size: GuiSize) -> Result<(), HostError> {
+        if !self.editor_embedded.load(Ordering::Relaxed) {
+            return Err(HostError::Message(
+                super::errors::GUI_RESIZE_WITHOUT_EMBEDDED_EDITOR,
+            ));
+        }
         *self
             .resize_requested
             .lock()
@@ -516,6 +529,22 @@ mod tests {
             DiagnosticBuffer::default(),
             PluginId::new(PluginFormat::Clap, ""),
         )
+    }
+
+    #[test]
+    fn only_an_editor_in_the_host_window_may_ask_for_a_size() {
+        let shared = shared();
+        let size = GuiSize {
+            width: 300,
+            height: 150,
+        };
+        assert!(HostGuiImpl::request_resize(&shared, size).is_err());
+        shared.editor_open.store(true, Ordering::Relaxed);
+        assert!(HostGuiImpl::request_resize(&shared, size).is_err());
+        assert_eq!(*shared.resize_requested.lock().unwrap(), None);
+        shared.editor_embedded.store(true, Ordering::Relaxed);
+        assert!(HostGuiImpl::request_resize(&shared, size).is_ok());
+        assert_eq!(*shared.resize_requested.lock().unwrap(), Some((300, 150)));
     }
 
     #[test]

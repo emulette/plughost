@@ -8,12 +8,17 @@
 //! nor from the processing thread: the owning thread calls it directly, and values the processor
 //! reports back reach it through [`ParameterCache`]. The latency and tail getters are owning
 //! thread calls too: the latency is read as the plugin activates, the tail when the owning thread
-//! asks for the timing, and the processing thread reads both from [`Prepared`].
+//! asks for the timing, under this mutex so not while a block processes, and the processing
+//! thread reads both from [`Prepared`]. The bus, event bus and sample size queries VST3 allows
+//! only while the processor does not process are read before the plugin activates and answered
+//! from [`Prepared`] while it is prepared.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use plughost_core::internal::events_fit;
+
+use super::audio::Queried;
 use plughost_core::render::Tail;
 use plughost_core::{
     AudioBusInfo, AudioConfig, AudioDirection, EventData, ExpressionKind, Layout, Message,
@@ -55,6 +60,8 @@ pub(crate) struct Prepared {
     pub config: ProcessConfig,
     pub audio_config: AudioConfig,
     pub audio_buses: Vec<AudioBusInfo>,
+    /// The other queries, read before the plugin activated.
+    pub queried: Queried,
     pub context_requirements: Option<u32>,
     /// The latency the plugin reported as it activated, which holds until it activates again.
     latency: u32,
@@ -66,6 +73,11 @@ pub(crate) struct Prepared {
     held: Vec<Held>,
     /// Metadata indices whose queue was resolved during the last assembly, including flushes.
     queued: Vec<usize>,
+    /// The controller's edits the last block sent, kept queued until it succeeds; room for every
+    /// pending edit, so copying them does not allocate.
+    sent: Vec<(ParamID, vst3::Steinberg::Vst::ParamValue)>,
+    /// The handler's count of takes when they were copied.
+    taken: u64,
     values_generation: u32,
     /// The block's validated automation: parameter index, offset, value.
     automation: Vec<(usize, i32, f64)>,
@@ -133,9 +145,9 @@ impl Engine {
         self.instance.as_deref().ok_or(Vst3Error::Closed)
     }
 
-    /// The instance, for the owning thread's queries that VST3 allows while the processor
-    /// processes, such as `getState` and the bus and tail queries. They run without the engine
-    /// lock, which the processing thread takes for each block.
+    /// The instance, for the owning thread's calls without the engine lock, which the processing
+    /// thread takes for each block: `getState`, which VST3 allows while the processor processes,
+    /// and the queries while the plugin is not prepared and nothing processes.
     pub fn handle(&self) -> Result<Arc<Instance>, Vst3Error> {
         self.instance.clone().ok_or(Vst3Error::Closed)
     }
@@ -165,6 +177,7 @@ impl Engine {
         }
         self.unprepare();
         let instance = self.instance()?;
+        let queried = instance.queried()?;
         instance.handler.take_restart_flags();
         let processor = &instance.processor;
         if process_mode(config.mode).is_none() {
@@ -222,6 +235,7 @@ impl Engine {
             .with_mode(config.mode),
             audio_config: config.clone(),
             audio_buses: audio_buses.clone(),
+            queried,
             context_requirements: {
                 use vst3::Steinberg::Vst::{
                     IProcessContextRequirements, IProcessContextRequirementsTrait,
@@ -237,6 +251,8 @@ impl Engine {
             parameters: Arc::clone(parameters),
             held: vec![UNKNOWN; parameters.len()],
             queued,
+            sent: Vec::with_capacity(plughost_core::MAX_BLOCK_EVENTS),
+            taken: 0,
             values_generation: instance.handler.values_generation(),
             automation,
             inputs,
@@ -392,6 +408,7 @@ impl Engine {
             prepared.output_events.discard();
             return Err(Vst3Error::Process(result));
         }
+        prepared.delivered(&instance.handler);
         prepared.output_events.take(produced, frames)
     }
 
@@ -415,6 +432,7 @@ impl Engine {
         if result != kResultOk {
             return Err(Vst3Error::Process(result));
         }
+        prepared.delivered(&instance.handler);
         Ok(())
     }
 
@@ -430,15 +448,11 @@ impl Engine {
         Ok(timing)
     }
 
-    /// The instance while it is prepared, whose tail the owning thread reads again: VST3 has no
-    /// notification for it.
-    pub fn tail_source(&self) -> Option<Arc<Instance>> {
-        self.prepared.as_ref().and(self.instance.clone())
-    }
-
-    pub fn set_tail(&mut self, tail: Tail) {
-        if let Some(prepared) = &mut self.prepared {
-            prepared.tail = tail;
+    /// Reads the prepared plugin's tail again, under the engine lock so not while it processes
+    /// a block: VST3 has no notification for it.
+    pub fn read_tail(&mut self) {
+        if let (Some(prepared), Some(instance)) = (&mut self.prepared, &self.instance) {
+            prepared.tail = tail(&instance.processor);
         }
     }
 }
@@ -485,9 +499,11 @@ fn flush_inactive(instance: &Instance, parameters: &ParameterCache) -> Result<()
     if result != kResultOk {
         return Err(Vst3Error::Activate(result));
     }
-    instance
-        .handler
-        .drain_pending(|id, value| changes.push(id, 0, value));
+    let mut sent = Vec::with_capacity(limit);
+    let taken = instance.handler.copy_pending(&mut sent);
+    for &(id, value) in &sent {
+        changes.push(id, 0, value);
+    }
     let mut context = process_context(sample_rate, 0);
     let mut data = ProcessData {
         processMode: setup.processMode,
@@ -521,6 +537,7 @@ fn flush_inactive(instance: &Instance, parameters: &ParameterCache) -> Result<()
     if result != kResultOk {
         return Err(Vst3Error::Process(result));
     }
+    instance.handler.forget_delivered(&sent, taken);
     Ok(())
 }
 
@@ -667,7 +684,8 @@ impl Prepared {
         Ok(())
     }
 
-    /// Clears the queues and sends the controller's pending edits at the start of the block.
+    /// Clears the queues and sends the controller's pending edits at the start of the block,
+    /// keeping them queued until the block succeeds ([`Prepared::delivered`]).
     fn begin(&mut self, handler: &ComponentHandler, changes: &mut ParameterInput<'_>) {
         for index in self.queued.drain(..) {
             self.held[index].queue = None;
@@ -679,7 +697,9 @@ impl Prepared {
             self.values_generation = generation;
             self.forget_held_values();
         }
-        handler.drain_pending(|id, value| {
+        let mut sent = std::mem::take(&mut self.sent);
+        self.taken = handler.copy_pending(&mut sent);
+        for &(id, value) in &sent {
             let queue = changes.push(id, 0, value);
             if let Some(index) = self.parameters.index(u64::from(id)) {
                 if self.held[index].queue.is_none() && queue.is_some() {
@@ -692,7 +712,13 @@ impl Prepared {
                     queue,
                 };
             }
-        });
+        }
+        self.sent = sent;
+    }
+
+    /// Forgets the controller's edits the block delivered, once it succeeded.
+    fn delivered(&self, handler: &ComponentHandler) {
+        handler.forget_delivered(&self.sent, self.taken);
     }
 
     /// Queues the staged automation and inputs in offset order; automation goes first at equal

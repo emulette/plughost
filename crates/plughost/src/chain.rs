@@ -18,6 +18,7 @@ use plughost_core::{
 
 use crate::errors::Error;
 use crate::helper::{Helper, Mode};
+use crate::remote;
 
 pub use recovery::ChainSnapshot;
 
@@ -37,6 +38,9 @@ pub struct Timeouts {
     pub control: Duration,
     /// Processing one block.
     pub process: Duration,
+    /// How long an AppKit menu a remote editor's plugin opens stays open without a choice. The
+    /// helper's main thread is in the menu's loop meanwhile; the helper closes it then.
+    pub menu: Duration,
 }
 
 impl Default for Timeouts {
@@ -45,6 +49,7 @@ impl Default for Timeouts {
             load: Duration::from_secs(300),
             control: Duration::from_secs(60),
             process: Duration::from_secs(10),
+            menu: Duration::from_secs(60),
         }
     }
 }
@@ -106,13 +111,23 @@ pub struct SpawnOptions {
     pub host: HostIdentity,
     /// How long the chain's operations may go without a response from the helper.
     pub timeouts: Timeouts,
+    /// Whether the chain shows its editors remotely, to someone not in front of the machine
+    /// (macOS only; elsewhere starting fails as unsupported). Its helper never activates itself,
+    /// so it does not take the focus from other sessions on the machine, tells plugins that check
+    /// that it is active, and opens editors only with [`Chain::open_remote_editor`]. Recovered
+    /// chains keep it.
+    pub remote: bool,
 }
 
 impl SpawnOptions {
     /// Starts chains that present `host` to plugins, with `timeouts`.
     #[must_use]
     pub fn new(host: HostIdentity, timeouts: Timeouts) -> SpawnOptions {
-        SpawnOptions { host, timeouts }
+        SpawnOptions {
+            host,
+            timeouts,
+            remote: false,
+        }
     }
 }
 
@@ -125,6 +140,8 @@ pub struct Chain {
     identity: HostIdentity,
     helper_path: PathBuf,
     helper: Helper,
+    /// Whether the helper runs in remote mode.
+    remote: bool,
     plugins: Vec<PluginRef>,
     infos: Vec<PluginInfo>,
     timeouts: Timeouts,
@@ -164,7 +181,13 @@ impl Chain {
             .host
             .validate()
             .map_err(|error| Error::Input { slot: None, error })?;
-        start(helper, slots, &options.host, options.timeouts)
+        start(
+            helper,
+            slots,
+            &options.host,
+            options.timeouts,
+            options.remote,
+        )
     }
 
     /// Starts a separate chain of `slots` with this chain's helper, host identity and timeouts,
@@ -180,7 +203,13 @@ impl Chain {
     /// not recovered, and editors are closed. The realtime endpoint stays with this chain: it is
     /// not moved to the recovered one, as [`Chain::recover_realtime`] does.
     pub fn recover(&self, slots: &[ChainSlot]) -> Result<Chain, Error> {
-        let mut chain = start(&self.helper_path, slots, &self.identity, self.timeouts)?;
+        let mut chain = start(
+            &self.helper_path,
+            slots,
+            &self.identity,
+            self.timeouts,
+            self.remote,
+        )?;
         if let Some(config) = &self.config {
             chain.prepare_audio(config)?;
         }
@@ -413,6 +442,58 @@ impl Chain {
         }
     }
 
+    /// Sets where a remote chain shows its remote editors and moves those open there. The region
+    /// must have a finite position and a positive size within an existing display, or it fails
+    /// as [`InputError::RemoteRegion`](crate::InputError::RemoteRegion) and nothing changes.
+    /// Moving editors to another display changes their scale, which plugins redraw for; closing
+    /// and opening them again there avoids that.
+    pub fn set_remote_region(&mut self, region: remote::Region) -> Result<(), Error> {
+        self.request_done(Request::SetRemoteRegion { region }, self.timeouts.control)
+    }
+
+    /// Opens the editor of the plugin in `slot` for someone not in front of the machine, in a
+    /// borderless window [`remote::EDITOR_INSET`] points in from the top-left corner of the
+    /// region [`Chain::set_remote_region`] set, which the application reads and shows them. The
+    /// editor is shown and the remote editor shown before is hidden, not closed, so it keeps its
+    /// state; an editor already open is shown again. Returns the editor and its size.
+    ///
+    /// Needs a remote chain ([`SpawnOptions::remote`]) and a region. An Audio Unit v3 editor,
+    /// which runs in its extension's process, and an editor that draws only in its own window
+    /// fail as unsupported. Close it with [`Chain::close_editor`].
+    pub fn open_remote_editor(&mut self, slot: usize) -> Result<remote::Opened, Error> {
+        match self.request(Request::OpenRemoteEditor { slot }, self.timeouts.load)? {
+            Response::RemoteEditorOpened(opened) => Ok(opened),
+            _ => Err(self.protocol_error()),
+        }
+    }
+
+    /// Shows the open remote editor of `slot` and hides the one shown before.
+    pub fn show_remote_editor(&mut self, slot: usize) -> Result<(), Error> {
+        self.request_done(Request::ShowRemoteEditor { slot }, self.timeouts.control)
+    }
+
+    /// Starts a remote session (macOS only): the channel on which the helper tells what happens
+    /// to its remote editors as it happens, beginning with the current state. A later session
+    /// ends this one. Needs a remote chain ([`SpawnOptions::remote`]).
+    #[cfg(target_os = "macos")]
+    pub fn remote_session(&mut self) -> Result<remote::Session, Error> {
+        let (commands_read, commands_write) = remote::pipe().map_err(Error::HelperStart)?;
+        let (notices_read, notices_write) = remote::pipe().map_err(Error::HelperStart)?;
+        let commands = self.helper.send_channel(&commands_read)?;
+        let notices = self.helper.send_channel(&notices_write)?;
+        drop((commands_read, notices_write));
+        let menu_timeout_ms = u64::try_from(self.timeouts.menu.as_millis()).unwrap_or(u64::MAX);
+        self.request_done(
+            Request::RemoteSession {
+                commands,
+                notices,
+                menu_timeout_ms,
+            },
+            self.timeouts.control,
+        )?;
+        Ok(remote::Session::new(notices_read, commands_write))
+    }
+
     fn request(&mut self, request: Request<'_>, timeout: Duration) -> Result<Response, Error> {
         let result = self.helper.request(request, timeout);
         if matches!(
@@ -494,7 +575,17 @@ fn start(
     slots: &[ChainSlot],
     host: &HostIdentity,
     timeouts: Timeouts,
+    remote: bool,
 ) -> Result<Chain, Error> {
+    if remote && !cfg!(target_os = "macos") {
+        return Err(Error::Operation {
+            slot: None,
+            failure: plughost_core::Failure::new(
+                plughost_core::FailureKind::Unsupported,
+                crate::errors::REMOTE_UNSUPPORTED,
+            ),
+        });
+    }
     if slots.is_empty() {
         return Err(Error::Input {
             slot: None,
@@ -521,7 +612,8 @@ fn start(
     }
     let plugins: Vec<PluginRef> = slots.iter().map(|spec| spec.plugin.clone()).collect();
     let plugins = plugins.as_slice();
-    let mut process = Helper::spawn(helper, Mode::Host)?;
+    let mode = if remote { Mode::Remote } else { Mode::Host };
+    let mut process = Helper::spawn(helper, mode)?;
     let infos = match process.load(host, plugins, timeouts.load)? {
         Response::Loaded(infos) if infos.len() == plugins.len() => infos,
         _ => return Err(Error::Protocol),
@@ -539,6 +631,7 @@ fn start(
         identity: host.clone(),
         helper_path: helper.to_path_buf(),
         helper: process,
+        remote,
         plugins: plugins.to_vec(),
         infos,
         timeouts,

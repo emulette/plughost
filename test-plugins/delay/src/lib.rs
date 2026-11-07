@@ -184,6 +184,13 @@ struct Delay {
     latency: Mutex<(usize, usize)>,
     /// The lifecycle calls the `float-mode` variant saw run with subnormal numbers not flushed.
     unflushed: AtomicU32,
+    /// The `start-failure` variant failed its first block.
+    failed_once: std::sync::atomic::AtomicBool,
+    /// The `thread-check` variant is in `process`.
+    processing: std::sync::atomic::AtomicBool,
+    /// The queries the `thread-check` variant took while in `process`, which VST3 allows only
+    /// on the UI thread while the processor does not process.
+    queries_while_processing: AtomicU32,
     /// The thread that created the plugin, the only one VST3 lets call the edit controller.
     owner: std::thread::ThreadId,
 }
@@ -193,6 +200,19 @@ unsafe impl Send for Delay {}
 unsafe impl Sync for Delay {}
 
 impl Delay {
+    /// A query VST3 allows only while the processor does not process. The `thread-check`
+    /// variant stays in it a little, so a query a host makes beside `process` overlaps it.
+    fn queried(&self) {
+        if variant() != Variant::ThreadCheck {
+            return;
+        }
+        let before = self.processing.load(Ordering::SeqCst);
+        std::thread::sleep(std::time::Duration::from_micros(50));
+        if before || self.processing.load(Ordering::SeqCst) {
+            self.queries_while_processing.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
     fn new() -> Delay {
         Delay {
             mapping_probe: mapping_probe::Probe::default(),
@@ -205,6 +225,9 @@ impl Delay {
             arrangement: Mutex::new(SpeakerArr::kStereo),
             latency: Mutex::new((LATENCY, 0)),
             unflushed: AtomicU32::new(0),
+            failed_once: std::sync::atomic::AtomicBool::new(false),
+            processing: std::sync::atomic::AtomicBool::new(false),
+            queries_while_processing: AtomicU32::new(0),
             owner: std::thread::current().id(),
         }
     }
@@ -384,10 +407,12 @@ impl IComponentTrait for Delay {
     }
 
     unsafe fn getBusCount(&self, media: i32, _dir: i32) -> int32 {
+        self.queried();
         i32::from(media == MediaTypes_::kAudio as i32)
     }
 
     unsafe fn getBusInfo(&self, media: i32, dir: i32, index: int32, bus: *mut BusInfo) -> tresult {
+        self.queried();
         if media != MediaTypes_::kAudio as i32 || index != 0 {
             return kInvalidArgument;
         }
@@ -530,6 +555,7 @@ impl IAudioProcessorTrait for Delay {
         index: int32,
         arrangement: *mut SpeakerArrangement,
     ) -> tresult {
+        self.queried();
         if index != 0 {
             return kInvalidArgument;
         }
@@ -538,6 +564,7 @@ impl IAudioProcessorTrait for Delay {
     }
 
     unsafe fn canProcessSampleSize(&self, _size: int32) -> tresult {
+        self.queried();
         kResultOk
     }
 
@@ -562,112 +589,19 @@ impl IAudioProcessorTrait for Delay {
     }
 
     unsafe fn process(&self, data: *mut ProcessData) -> tresult {
-        let data = unsafe { &*data };
-        if variant() == Variant::MappingProbe {
-            self.mapping_probe.process();
+        if variant() != Variant::ThreadCheck {
+            return unsafe { self.process_block(data) };
         }
-        if variant() == Variant::ContextRequired {
-            let Some(context) = (unsafe { data.processContext.as_ref() }) else {
-                return kInvalidArgument;
-            };
-            if context.sampleRate != 48_000.0
-                || context.continousTimeSamples != 0
-                || context.projectTimeSamples != 0
-                || context.state
-                    != vst3::Steinberg::Vst::ProcessContext_::StatesAndFlags_::kContTimeValid as u32
-            {
-                return kInvalidArgument;
-            }
-        }
-        let mut gains = vec![*lock(&self.gain); data.numSamples as usize];
-        if let Some(changes) = unsafe { ComRef::from_raw(data.inputParameterChanges) } {
-            for index in 0..unsafe { changes.getParameterCount() } {
-                if let Some(queue) = unsafe { ComRef::from_raw(changes.getParameterData(index)) } {
-                    for point in 0..unsafe { queue.getPointCount() } {
-                        let (mut offset, mut value) = (0, 0.0);
-                        if unsafe { queue.getPoint(point, &mut offset, &mut value) } == kResultOk {
-                            match unsafe { queue.getParameterId() } {
-                                GAIN if (offset as usize) < gains.len() => {
-                                    gains[offset as usize..].fill(value)
-                                }
-                                PROGRAM if (offset as usize) < gains.len() => {
-                                    gains[offset as usize..].fill(program_gain(value))
-                                }
-                                4 => lock(&self.values)[4] = value,
-                                9 => *lock(&self.tail) = (value * 32.0).round() as u32,
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        self.apply_changes(data);
-        if lock(&self.values)[EVENT_PROBE as usize] > 0.5
-            && let Some(changes) = unsafe { ComRef::from_raw(data.outputParameterChanges) }
-        {
-            let mut index = 0;
-            if let Some(queue) =
-                unsafe { ComRef::from_raw(changes.addParameterData(&GAIN, &mut index)) }
-            {
-                unsafe {
-                    queue.addPoint(0, 0.375, &mut index);
-                }
-            }
-        }
-        lock(&self.values)[5] += f64::from(data.numSamples) / 1_000_000.0;
-        if variant() == Variant::LatencyChange {
-            let mut latency = lock(&self.latency);
-            let before = latency.1;
-            latency.1 += data.numSamples as usize;
-            // Plugins commonly announce a latency change from their process call.
-            if before < LATENCY_CHANGE_AFTER
-                && latency.1 >= LATENCY_CHANGE_AFTER
-                && let Some(handler) = lock(&self.handler).clone()
-            {
-                use vst3::Steinberg::Vst::RestartFlags_::kLatencyChanged;
-                unsafe { handler.restartComponent(kLatencyChanged as int32) };
-            }
-        }
-        if data.numSamples == 0 || data.numInputs < 1 || data.numOutputs < 1 {
-            if data.numSamples == 0 {
-                self.check_float_mode();
-            }
-            return kResultOk;
-        }
-        if matches!(variant(), Variant::CrashInProcess | Variant::HangInProcess) {
-            fail();
-        }
-        let (input, output) = unsafe { (&*data.inputs, &*data.outputs) };
-        if input.numChannels != 2 || output.numChannels != 2 {
-            return kInvalidArgument;
-        }
-        let frames = data.numSamples as usize;
-        unsafe {
-            if data.symbolicSampleSize == SymbolicSampleSizes_::kSample64 as i32 {
-                self.run(
-                    input.__field0.channelBuffers64,
-                    output.__field0.channelBuffers64,
-                    frames,
-                    |v| v,
-                    data.processContext.as_ref(),
-                    &gains,
-                );
-            } else {
-                self.run(
-                    input.__field0.channelBuffers32,
-                    output.__field0.channelBuffers32,
-                    frames,
-                    |v| v as f32,
-                    data.processContext.as_ref(),
-                    &gains,
-                );
-            }
-        }
-        kResultOk
+        self.processing.store(true, Ordering::SeqCst);
+        // Long enough for a query from another thread to land in it.
+        std::thread::sleep(std::time::Duration::from_micros(200));
+        let result = unsafe { self.process_block(data) };
+        self.processing.store(false, Ordering::SeqCst);
+        result
     }
 
     unsafe fn getTailSamples(&self) -> u32 {
+        self.queried();
         if variant() == Variant::LatencyChange && std::thread::current().id() != self.owner {
             vst3::Steinberg::Vst::kInfiniteTail
         } else {
@@ -813,6 +747,9 @@ impl IEditControllerTrait for Delay {
         if id == 10 {
             return match variant() {
                 Variant::FloatMode => f64::from(self.unflushed.load(Ordering::Relaxed)),
+                Variant::ThreadCheck => {
+                    f64::from(self.queries_while_processing.load(Ordering::SeqCst))
+                }
                 _ => f64::from(self.mapping_probe.processed()),
             };
         }
@@ -1043,5 +980,121 @@ extern "system" fn GetPluginFactory() -> *mut IPluginFactory {
 impl IProcessContextRequirementsTrait for Delay {
     unsafe fn getProcessContextRequirements(&self) -> u32 {
         (1 << 1) | (1 << 2) | (1 << 6) | (1 << 7) | (1 << 10)
+    }
+}
+
+impl Delay {
+    unsafe fn process_block(&self, data: *mut ProcessData) -> tresult {
+        let data = unsafe { &*data };
+        // The `start-failure` variant fails its first block with audio, before it takes the
+        // block's parameter changes.
+        if variant() == Variant::StartFailure
+            && data.numSamples > 0
+            && !self.failed_once.swap(true, Ordering::Relaxed)
+        {
+            return kResultFalse;
+        }
+        if variant() == Variant::MappingProbe {
+            self.mapping_probe.process();
+        }
+        if variant() == Variant::ContextRequired {
+            let Some(context) = (unsafe { data.processContext.as_ref() }) else {
+                return kInvalidArgument;
+            };
+            if context.sampleRate != 48_000.0
+                || context.continousTimeSamples != 0
+                || context.projectTimeSamples != 0
+                || context.state
+                    != vst3::Steinberg::Vst::ProcessContext_::StatesAndFlags_::kContTimeValid as u32
+            {
+                return kInvalidArgument;
+            }
+        }
+        let mut gains = vec![*lock(&self.gain); data.numSamples as usize];
+        if let Some(changes) = unsafe { ComRef::from_raw(data.inputParameterChanges) } {
+            for index in 0..unsafe { changes.getParameterCount() } {
+                if let Some(queue) = unsafe { ComRef::from_raw(changes.getParameterData(index)) } {
+                    for point in 0..unsafe { queue.getPointCount() } {
+                        let (mut offset, mut value) = (0, 0.0);
+                        if unsafe { queue.getPoint(point, &mut offset, &mut value) } == kResultOk {
+                            match unsafe { queue.getParameterId() } {
+                                GAIN if (offset as usize) < gains.len() => {
+                                    gains[offset as usize..].fill(value)
+                                }
+                                PROGRAM if (offset as usize) < gains.len() => {
+                                    gains[offset as usize..].fill(program_gain(value))
+                                }
+                                4 => lock(&self.values)[4] = value,
+                                9 => *lock(&self.tail) = (value * 32.0).round() as u32,
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.apply_changes(data);
+        if lock(&self.values)[EVENT_PROBE as usize] > 0.5
+            && let Some(changes) = unsafe { ComRef::from_raw(data.outputParameterChanges) }
+        {
+            let mut index = 0;
+            if let Some(queue) =
+                unsafe { ComRef::from_raw(changes.addParameterData(&GAIN, &mut index)) }
+            {
+                unsafe {
+                    queue.addPoint(0, 0.375, &mut index);
+                }
+            }
+        }
+        lock(&self.values)[5] += f64::from(data.numSamples) / 1_000_000.0;
+        if variant() == Variant::LatencyChange {
+            let mut latency = lock(&self.latency);
+            let before = latency.1;
+            latency.1 += data.numSamples as usize;
+            // Plugins commonly announce a latency change from their process call.
+            if before < LATENCY_CHANGE_AFTER
+                && latency.1 >= LATENCY_CHANGE_AFTER
+                && let Some(handler) = lock(&self.handler).clone()
+            {
+                use vst3::Steinberg::Vst::RestartFlags_::kLatencyChanged;
+                unsafe { handler.restartComponent(kLatencyChanged as int32) };
+            }
+        }
+        if data.numSamples == 0 || data.numInputs < 1 || data.numOutputs < 1 {
+            if data.numSamples == 0 {
+                self.check_float_mode();
+            }
+            return kResultOk;
+        }
+        if matches!(variant(), Variant::CrashInProcess | Variant::HangInProcess) {
+            fail();
+        }
+        let (input, output) = unsafe { (&*data.inputs, &*data.outputs) };
+        if input.numChannels != 2 || output.numChannels != 2 {
+            return kInvalidArgument;
+        }
+        let frames = data.numSamples as usize;
+        unsafe {
+            if data.symbolicSampleSize == SymbolicSampleSizes_::kSample64 as i32 {
+                self.run(
+                    input.__field0.channelBuffers64,
+                    output.__field0.channelBuffers64,
+                    frames,
+                    |v| v,
+                    data.processContext.as_ref(),
+                    &gains,
+                );
+            } else {
+                self.run(
+                    input.__field0.channelBuffers32,
+                    output.__field0.channelBuffers32,
+                    frames,
+                    |v| v as f32,
+                    data.processContext.as_ref(),
+                    &gains,
+                );
+            }
+        }
+        kResultOk
     }
 }

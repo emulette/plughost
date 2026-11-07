@@ -738,6 +738,13 @@ fn reset_runs_with_subnormal_numbers_flushed_to_zero() {
 }
 
 #[test]
+fn a_version_2_editor_runs_in_this_process() {
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let plugin = unsafe { Plugin::new(&class_id()) }.unwrap();
+    assert!(!plugin.editor_in_extension());
+}
+
+#[test]
 fn renamed_parameter_values_are_reported_as_changed_metadata() {
     // SAFETY: the tests load only the repository's fixtures and Apple's own units.
     let mut plugin = unsafe { Plugin::new(&class_id()) }.unwrap();

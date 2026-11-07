@@ -148,6 +148,7 @@ Query plugin capabilities before relying on optional native behavior.
 | `plughost-core` | Shared types and render rules |
 | `plughost-formats` | In-process hosting; `vst3`, `au`, and `clap` features are enabled by default |
 | `plughost-helper` | Helper process body; applications supply the executable |
+| `plughost-capture` | macOS: reads the display region of a remote editor with only its helper's windows |
 
 Most applications depend on `plughost` and use `plughost-helper` in a separate executable.
 `plughost-formats` executes plugin code in the caller's process and requires native lifecycle

@@ -1104,3 +1104,79 @@ fn a_render_does_not_start_on_a_latency_the_plugin_changed() {
     assert_eq!(plugin.timing().unwrap().latency, 2 * TEST_DELAY_LATENCY);
     assert_eq!(run(&mut plugin, &input), input);
 }
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
+fn a_failed_block_keeps_host_edits_for_the_next_one() {
+    let _serial = serial();
+    // The `start-failure` variant fails its first block before taking its parameter changes.
+    let mut plugin = plugin("plughost-test-start-failure");
+    plugin
+        .prepare(&config(48_000.0, SampleFormat::F32))
+        .unwrap();
+    plugin.set_parameter(0, 0.25).unwrap();
+    let block = |plugin: &mut Plugin| {
+        let input = [1.0f32; 512];
+        let (mut left, mut right) = (vec![0.0f32; 512], vec![0.0f32; 512]);
+        plugin
+            .process(
+                &plughost_core::BlockContext::new(512),
+                &[&input, &input],
+                &mut [&mut left, &mut right],
+                &[],
+                &Events::new(),
+                &mut Events::for_block(),
+            )
+            .map(|()| [left, right])
+    };
+    assert_eq!(
+        block(&mut plugin).unwrap_err().kind(),
+        FailureKind::Processing
+    );
+    for channel in block(&mut plugin).unwrap() {
+        let latency = TEST_DELAY_LATENCY as usize;
+        assert_eq!(&channel[..latency], &[0.0; 480]);
+        assert_eq!(&channel[latency..], &[0.25; 32]);
+    }
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.sh"]
+fn the_owning_thread_queries_nothing_vst3_forbids_while_the_processor_processes() {
+    /// The thread-check fixture counts here the bus, sample size and tail queries it took while
+    /// in `process`.
+    const QUERIES_WHILE_PROCESSING: u64 = 10;
+    let _serial = serial();
+    let mut plugin = plugin("plughost-test-thread-check");
+    plugin
+        .prepare(&config(48_000.0, SampleFormat::F32))
+        .unwrap();
+    let processor = plugin.processor();
+    let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let keep_running = std::sync::Arc::clone(&running);
+    let worker = std::thread::spawn(move || {
+        let input = [0.0f32; 64];
+        let (mut left, mut right) = ([0.0f32; 64], [0.0f32; 64]);
+        while keep_running.load(std::sync::atomic::Ordering::Relaxed) {
+            processor
+                .process_audio_f32(
+                    &plughost_core::BlockContext::new(64),
+                    &[&input, &input],
+                    &mut [&mut left, &mut right],
+                    &[],
+                    &Events::new(),
+                    &mut Events::for_block(),
+                )
+                .unwrap();
+        }
+    });
+    for _ in 0..200 {
+        plugin.audio_buses().unwrap();
+        plugin.event_ports().unwrap();
+        plugin.capabilities().unwrap();
+        plugin.timing().unwrap();
+    }
+    running.store(false, std::sync::atomic::Ordering::Relaxed);
+    worker.join().unwrap();
+    assert_eq!(plugin.parameter_value(QUERIES_WHILE_PROCESSING), Some(0.0));
+}

@@ -176,6 +176,12 @@ mod unit {
         CONTROLLER.with_borrow(|controller| controller.clone().unwrap())
     }
 
+    pub fn a_version_3_editor_runs_in_its_extension() {
+        // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+        let plugin = unsafe { Plugin::new(&class_id()) }.unwrap();
+        assert!(plugin.editor_in_extension());
+    }
+
     pub fn the_window_follows_the_size_the_view_takes() {
         let mtm = MainThreadMarker::new().unwrap();
         // SAFETY: the tests load only the repository's fixtures and Apple's own units.
@@ -224,5 +230,8 @@ mod unit {
 
 fn main() {
     #[cfg(target_os = "macos")]
-    unit::the_window_follows_the_size_the_view_takes();
+    {
+        unit::a_version_3_editor_runs_in_its_extension();
+        unit::the_window_follows_the_size_the_view_takes();
+    }
 }

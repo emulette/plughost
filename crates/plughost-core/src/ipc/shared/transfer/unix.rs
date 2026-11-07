@@ -18,6 +18,8 @@ use super::super::{
 
 /// Tags the activity datagram; shared audio generations start at 1.
 const ACTIVITY_TAG: u64 = 0;
+/// Tags a remote session's channel, which no generation reaches.
+const CHANNEL_TAG: u64 = u64::MAX;
 
 pub struct Sender {
     socket: UnixDatagram,
@@ -42,6 +44,12 @@ impl Sender {
     /// Sends the activity mapping the same way, for the load request that carries its token.
     pub fn send_activity(&self, activity: &Activity, _child: &Child) -> io::Result<u64> {
         self.send_fd(activity.memory.handle(), ACTIVITY_TAG)
+    }
+
+    /// Sends one end of a remote session's channel the same way, for the request that carries
+    /// its token.
+    pub fn send_channel(&self, channel: &OwnedFd, _child: &Child) -> io::Result<u64> {
+        self.send_fd(channel, CHANNEL_TAG)
     }
 
     /// Sends a realtime ring's control mapping and then its lanes, and returns their tokens.
@@ -112,6 +120,14 @@ impl Receiver {
         }
         // SAFETY: the parent sent the shared memory of its `Activity`.
         unsafe { Activity::open(self.receive_fd(token)?) }
+    }
+
+    /// Receives the remote session channel sent before the request carrying `token`.
+    pub fn receive_channel(&self, token: u64) -> io::Result<OwnedFd> {
+        if token != CHANNEL_TAG {
+            return Err(invalid(TRANSFER));
+        }
+        self.receive_fd(token)
     }
 
     /// Receives the realtime ring sent with `tokens` for the request carrying `descriptor`.

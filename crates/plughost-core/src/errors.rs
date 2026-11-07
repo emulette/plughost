@@ -257,6 +257,11 @@ pub enum InputError {
     RealtimeLatency,
     /// A dry fallback needs as many output channels as input channels.
     RealtimeDry,
+    /// A remote editor region does not have a finite position and a positive size within an
+    /// existing display.
+    RemoteRegion,
+    /// The slot has no open remote editor.
+    RemoteEditor,
 }
 
 impl fmt::Display for InputError {
@@ -315,6 +320,8 @@ impl fmt::Display for InputError {
             Self::RealtimeQuantum => f.write_str(REALTIME_QUANTUM),
             Self::RealtimeLatency => f.write_str(REALTIME_LATENCY),
             Self::RealtimeDry => f.write_str(REALTIME_DRY),
+            Self::RemoteRegion => f.write_str(REMOTE_REGION),
+            Self::RemoteEditor => f.write_str(REMOTE_EDITOR),
         }
     }
 }
@@ -326,6 +333,9 @@ const REALTIME_QUANTUM: &str =
     "a realtime quantum must be at least one frame and at most the prepared maximum block size";
 const REALTIME_LATENCY: &str = "a realtime latency must be one, two or three quanta";
 const REALTIME_DRY: &str = "a dry fallback needs as many output channels as input channels";
+const REMOTE_EDITOR: &str = "the slot has no open remote editor";
+const REMOTE_REGION: &str =
+    "a remote editor region needs a finite position and a positive size within an existing display";
 
 const INPUT: &str = "invalid render input";
 const LATENCY_CHANGED: &str = "the processor's latency changed during rendering";

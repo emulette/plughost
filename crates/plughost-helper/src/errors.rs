@@ -9,6 +9,14 @@ pub const WRONG_MODE: &str = "the request does not belong to this helper mode";
 pub const LATENCY_OVERFLOW: &str = "the chain latency exceeds the supported sample count";
 #[cfg(target_os = "macos")]
 pub const NOT_MAIN_THREAD: &str = "editors can only open on the helper's main thread";
+pub const EXTENSION_EDITOR: &str =
+    "the editor runs in its Audio Unit extension's process, which a remote editor cannot reach";
+pub const NOT_REMOTE: &str = "remote editors need a chain started in remote mode";
+pub const LOCAL_EDITOR_IN_REMOTE: &str =
+    "a chain started in remote mode opens editors only as remote editors";
+#[cfg(target_os = "macos")]
+pub const FLOATING_REMOTE: &str =
+    "the editor draws only in its own window, which a remote editor cannot place in its region";
 #[cfg(target_os = "windows")]
 pub const EDITOR_WINDOW: &str = "could not create or resize the editor window";
 #[cfg(target_os = "windows")]

@@ -75,6 +75,14 @@ impl Plugin {
         })
     }
 
+    /// A value the unit reports, normalized, when it is one of the parameter's: in its range or
+    /// past an end by rounding.
+    pub(crate) fn reported_normalized(&self, id: u64, plain: f64) -> Option<f64> {
+        let parameter = self.parameter(id).ok()?;
+        let (min, max) = unsafe { (parameter.minValue(), parameter.maxValue()) };
+        crate::parameter_values::reported(plain, f64::from(min), f64::from(max))
+    }
+
     pub(crate) fn parameter_text(&self, id: u64, value: f64) -> Result<String, AuError> {
         let plain = self.parameter_to_plain(id, value)? as f32;
         // AUv2 bridges can return nil when no native formatter is provided, despite

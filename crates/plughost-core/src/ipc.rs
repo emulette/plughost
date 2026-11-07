@@ -18,7 +18,7 @@ use crate::render::Tail;
 use crate::state::{PluginState, PresetInfo, StatePurpose};
 use crate::{CapabilityReport, DiagnosticBatch, Failure, HostIdentity};
 
-pub const PROTOCOL_VERSION: u32 = 34;
+pub const PROTOCOL_VERSION: u32 = 44;
 /// Upper bound on one message. A helper whose memory a plugin corrupted could send anything.
 pub const MAX_MESSAGE_BYTES: usize = 256 << 20;
 
@@ -221,6 +221,28 @@ pub enum Request<'a> {
     EditorOpen {
         slot: usize,
     },
+    /// Sets where a remote-mode helper shows its remote editors, moving those open there.
+    SetRemoteRegion {
+        #[serde_as(as = "wire::RegionDef")]
+        region: crate::remote::Region,
+    },
+    /// Opens the slot's editor remotely and shows it, hiding the remote editor shown before.
+    /// Answered with `RemoteEditorOpened`; an editor already open is shown again.
+    OpenRemoteEditor {
+        slot: usize,
+    },
+    /// Shows the slot's open remote editor, hiding the one shown before.
+    ShowRemoteEditor {
+        slot: usize,
+    },
+    /// Starts a remote session on the pipes the transfers name, the read end of the commands'
+    /// and then the write end of the notices', ending the one before. The helper first sends the
+    /// current state on it, and closes a menu that stays open `menu_timeout_ms` without a choice.
+    RemoteSession {
+        commands: u64,
+        notices: u64,
+        menu_timeout_ms: u64,
+    },
     /// Installs the realtime ring the transfers `tokens` name, for the prepared chain, replacing
     /// one installed before. Preparing the chain again removes it.
     RealtimeInstall {
@@ -269,11 +291,23 @@ impl Request<'_> {
             | Self::LoadState { slot, .. }
             | Self::OpenEditor { slot }
             | Self::CloseEditor { slot }
-            | Self::EditorOpen { slot } => Some(*slot),
+            | Self::EditorOpen { slot }
+            | Self::OpenRemoteEditor { slot }
+            | Self::ShowRemoteEditor { slot } => Some(*slot),
             _ => None,
         }
     }
 }
+
+/// A message the application sends on a remote session's channel.
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CommandMessage(#[serde_as(as = "wire::CommandDef")] pub crate::remote::Command);
+
+/// A message a remote-mode helper sends on a remote session's channel.
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NoticeMessage(#[serde_as(as = "wire::NoticeDef")] pub crate::remote::Notice);
 
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -343,6 +377,7 @@ pub enum Response {
         latency_changed: bool,
     },
     EditorOpen(bool),
+    RemoteEditorOpened(#[serde_as(as = "wire::OpenedDef")] crate::remote::Opened),
     /// Invalid caller input; the helper remains usable and no mutation was attempted.
     Rejected {
         slot: Option<usize>,

@@ -196,9 +196,9 @@ impl Host {
         let _ = candidate.take_parameter_events();
         // All fallible native state/setup/timing work has completed. Editor failure after a
         // successful replacement is diagnosed separately and does not undo the restored state.
-        let reopen = self.editors[slot].is_some();
-        if let Some(window) = self.editors[slot].take() {
-            window.close(self.slots[slot].as_mut());
+        let mut editor = self.editors[slot].take();
+        if let Some(window) = &mut editor {
+            window.detach(self.slots[slot].as_mut());
         }
         let mut timing = None;
         let retime = retimed.map(|((delays32, delays64, plan, tail), current)| {
@@ -223,9 +223,9 @@ impl Host {
         self.retain_diagnostics(slot, old.as_ref());
         self.invalidate_parameters(slot);
         drop(old);
-        let mut reopen_slots = vec![false; self.slots.len()];
-        reopen_slots[slot] = reopen;
-        self.reopen_editors(&reopen_slots);
+        if let Some(window) = editor {
+            self.reattach_editor(slot, window);
+        }
         Response::StateRestored { timing }
     }
 

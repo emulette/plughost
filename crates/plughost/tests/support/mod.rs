@@ -4,6 +4,8 @@
 // Every test target compiles this module and uses a different subset of it.
 #![allow(dead_code)]
 
+#[cfg(target_os = "macos")]
+pub mod desktop;
 pub mod stall;
 
 /// Desktop activation is process-global; editor tests in one test executable run serially. A

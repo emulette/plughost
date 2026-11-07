@@ -3,12 +3,13 @@
 
 #![allow(non_snake_case)]
 
+use std::cell::Cell;
 use std::ffi::c_void;
 
 use vst3::Steinberg::Vst::{IEditController, IEditControllerTrait, ViewType};
 use vst3::Steinberg::{
-    IPlugFrame, IPlugFrameTrait, IPlugView, IPlugViewTrait, ViewRect, kResultFalse, kResultOk,
-    tresult,
+    IPlugFrame, IPlugFrameTrait, IPlugView, IPlugViewTrait, ViewRect, kInvalidArgument,
+    kResultFalse, kResultOk, tresult,
 };
 use vst3::{Class, ComPtr, ComRef, ComWrapper};
 
@@ -39,7 +40,10 @@ impl Editor {
         if unsafe { view.isPlatformTypeSupported(PLATFORM) } != kResultOk {
             return Err(Vst3Error::NoEditor);
         }
-        let frame = ComWrapper::new(PlugFrame { resize });
+        let frame = ComWrapper::new(PlugFrame {
+            resize,
+            resizing: Cell::new(false),
+        });
         let frame_ptr = frame
             .as_com_ref::<IPlugFrame>()
             .map_or(std::ptr::null_mut(), |f| f.as_ptr());
@@ -58,10 +62,7 @@ impl Editor {
     }
 
     pub fn size(&self) -> (u32, u32) {
-        // SAFETY: ViewRect is plain C data the view fills in.
-        let mut rect: ViewRect = unsafe { std::mem::zeroed() };
-        unsafe { self.view.getSize(&mut rect) };
-        dimensions(&rect)
+        view_size(&self.view.as_com_ref())
     }
 
     pub fn can_resize(&self) -> bool {
@@ -75,8 +76,9 @@ impl Editor {
         (unsafe { scaling.setContentScaleFactor(scale as f32) } == kResultOk).then(|| self.size())
     }
 
-    /// Offers the size the user dragged the window to. The view may adjust it; the returned size
-    /// is what the window should have.
+    /// Offers the size the user dragged the window to. The view may adjust it, and may ask for
+    /// another size while it resizes; the returned size is the view's, which the window should
+    /// have.
     pub fn resize(&self, width: u32, height: u32) -> (u32, u32) {
         let mut rect = ViewRect {
             left: 0,
@@ -84,11 +86,11 @@ impl Editor {
             right: width as i32,
             bottom: height as i32,
         };
-        unsafe {
-            self.view.checkSizeConstraint(&mut rect);
-            self.view.onSize(&mut rect);
+        unsafe { self.view.checkSizeConstraint(&mut rect) };
+        if dimensions(&rect) != self.size() {
+            unsafe { self.view.onSize(&mut rect) };
         }
-        dimensions(&rect)
+        self.size()
     }
 }
 
@@ -99,6 +101,13 @@ impl Drop for Editor {
             self.view.setFrame(std::ptr::null_mut());
         }
     }
+}
+
+fn view_size(view: &ComRef<'_, IPlugView>) -> (u32, u32) {
+    // SAFETY: ViewRect is plain C data the view fills in.
+    let mut rect: ViewRect = unsafe { std::mem::zeroed() };
+    unsafe { view.getSize(&mut rect) };
+    dimensions(&rect)
 }
 
 /// The width and height of a rectangle the plugin filled in. Its coordinates can be any `i32`s,
@@ -114,6 +123,9 @@ mod tests;
 
 struct PlugFrame {
     resize: ResizeRequest,
+    /// The host window is being resized for the view. A view that asks again from the resize
+    /// it sees is refused, as the SDK's host does, instead of resizing the window inside itself.
+    resizing: Cell<bool>,
 }
 
 impl Class for PlugFrame {
@@ -121,16 +133,32 @@ impl Class for PlugFrame {
 }
 
 impl IPlugFrameTrait for PlugFrame {
+    /// Resizes the window, then the view if it does not have the size yet. The view is told
+    /// only a size the window got.
     unsafe fn resizeView(&self, view: *mut IPlugView, newSize: *mut ViewRect) -> tresult {
         let Some(view) = (unsafe { ComRef::from_raw(view) }) else {
-            return kResultFalse;
+            return kInvalidArgument;
         };
-        let mut rect = unsafe { *newSize };
-        let (width, height) = dimensions(&rect);
-        if !(self.resize)(width, height) {
+        if newSize.is_null() {
+            return kInvalidArgument;
+        }
+        if self.resizing.get() {
             return kResultFalse;
         }
-        unsafe { view.onSize(&mut rect) };
+        let mut rect = unsafe { *newSize };
+        let size = dimensions(&rect);
+        if view_size(&view) == size {
+            return kResultOk;
+        }
+        self.resizing.set(true);
+        let resized = (self.resize)(size.0, size.1);
+        self.resizing.set(false);
+        if !resized {
+            return kResultFalse;
+        }
+        if view_size(&view) != size {
+            unsafe { view.onSize(&mut rect) };
+        }
         kResultOk
     }
 }

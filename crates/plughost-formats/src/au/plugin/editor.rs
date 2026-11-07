@@ -8,10 +8,10 @@ use std::ptr::NonNull;
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject};
-use objc2::{MainThreadMarker, msg_send};
+use objc2::{MainThreadMarker, msg_send, sel};
 use objc2_app_kit::{NSView, NSViewController};
 use objc2_audio_toolbox::{
-    AUAudioUnitV2Bridge, AudioUnitGetProperty, AudioUnitGetPropertyInfo,
+    AUAudioUnitV2Bridge, AudioUnit, AudioUnitGetProperty, AudioUnitGetPropertyInfo,
     kAudioUnitProperty_CocoaUI, kAudioUnitScope_Global,
 };
 use objc2_core_audio_kit::{AUAudioUnit_ViewController, AUViewControllerBase};
@@ -103,6 +103,14 @@ impl Plugin {
         }
     }
 
+    /// Whether this is a version 3 unit, whose view and panels its extension provides, or a unit
+    /// that can no longer tell. Version 2 units come through the system's v2 bridge.
+    pub(crate) fn editor_in_extension(&self) -> bool {
+        self.shared_unit().map_or(true, |unit| {
+            unit.downcast_ref::<AUAudioUnitV2Bridge>().is_none()
+        })
+    }
+
     fn view_controller(&self) -> Result<Retained<NSViewController>, AuError> {
         let slot: Slot<Handoff<Option<Retained<AUViewControllerBase>>>> = Slot::new();
         let fill = slot.clone();
@@ -171,11 +179,18 @@ impl Plugin {
         else {
             return Ok(None);
         };
-        let factory: Retained<AnyObject> = unsafe { msg_send![class, new] };
-        Ok(unsafe {
-            msg_send![&factory, uiViewForAudioUnit: unit, withSize: NSSize::new(0.0, 0.0)]
-        })
+        Ok(factory_view(class, unit))
     }
+}
+
+/// A view of `unit` from the Cocoa view factory `class`; `None` when the class does not make
+/// views or makes no factory.
+fn factory_view(class: &AnyClass, unit: AudioUnit) -> Option<Retained<NSView>> {
+    if !class.responds_to(sel!(uiViewForAudioUnit:withSize:)) {
+        return None;
+    }
+    let factory: Option<Retained<AnyObject>> = unsafe { msg_send![class, new] };
+    unsafe { msg_send![&factory?, uiViewForAudioUnit: unit, withSize: NSSize::new(0.0, 0.0)] }
 }
 
 fn has_area(size: NSSize) -> bool {
@@ -210,6 +225,45 @@ unsafe fn cocoa_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use objc2::rc::Allocated;
+    use objc2::runtime::NSObject;
+    use objc2::{ClassType, define_class};
+
+    define_class!(
+        /// Names a view factory but is none.
+        #[unsafe(super(NSObject))]
+        struct NotAViewFactory;
+    );
+
+    define_class!(
+        /// A view factory that cannot be made.
+        #[unsafe(super(NSObject))]
+        struct UnmadeViewFactory;
+
+        impl UnmadeViewFactory {
+            #[unsafe(method_id(init))]
+            fn init(_this: Allocated<Self>) -> Option<Retained<Self>> {
+                None
+            }
+
+            #[unsafe(method_id(uiViewForAudioUnit:withSize:))]
+            fn view(&self, _unit: AudioUnit, _size: NSSize) -> Option<Retained<NSView>> {
+                None
+            }
+        }
+    );
+
+    #[test]
+    fn a_class_that_makes_no_views_is_not_an_editor() {
+        let class = NotAViewFactory::class();
+        assert!(factory_view(class, std::ptr::null_mut()).is_none());
+    }
+
+    #[test]
+    fn a_view_factory_that_cannot_be_made_is_not_an_editor() {
+        let class = UnmadeViewFactory::class();
+        assert!(factory_view(class, std::ptr::null_mut()).is_none());
+    }
 
     fn location() -> *mut c_void {
         CFRetained::into_raw(CFBundle::main_bundle().unwrap().bundle_url().unwrap())

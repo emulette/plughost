@@ -36,10 +36,11 @@ pub enum Variant {
     FloatMode,
     SlowLoad,
     ResetFailure,
+    Meters,
 }
 
 /// Module file name (without extension), class ID suffix, and plugin name of each variant.
-const VARIANTS: [(Variant, &str, u32, &str); 28] = [
+const VARIANTS: [(Variant, &str, u32, &str); 29] = [
     (
         Variant::Delay,
         "plughost-test-delay",
@@ -207,6 +208,12 @@ const VARIANTS: [(Variant, &str, u32, &str); 28] = [
         "plughost-test-reset-failure",
         0x7900001C,
         "plughost test reset failure",
+    ),
+    (
+        Variant::Meters,
+        "plughost-test-meters",
+        0x7900001D,
+        "plughost test meters",
     ),
 ];
 

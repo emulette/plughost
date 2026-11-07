@@ -5,6 +5,7 @@
 
 mod audio;
 mod realtime;
+mod remote;
 mod state;
 mod timing;
 
@@ -21,6 +22,7 @@ use plughost_formats::{EditorRequest, Error, HostedPlugin};
 
 use crate::calls::Calls;
 use crate::editor::EditorWindow;
+use crate::errors::LOCAL_EDITOR_IN_REMOTE;
 use crate::errors::WRONG_MODE;
 use crate::process::audio_timing::{self, AudioTiming};
 use crate::process::{AudioThread, Command, Pipeline, Processing};
@@ -42,19 +44,22 @@ pub struct Host {
     routes: Vec<audio::Routes>,
     timing: Option<AudioTiming>,
     timing_polls: Vec<timing::Poll>,
-    transfer: transfer::Receiver,
+    transfer: Arc<transfer::Receiver>,
     calls: Calls,
     /// The application installed a realtime ring for the prepared chain.
     realtime_installed: bool,
     /// The processing thread runs the realtime worker.
     realtime_running: bool,
+    /// The remote editors of a helper started in remote mode, which opens no other editors.
+    remote: Option<remote::RemoteEditors>,
 }
 
 impl Host {
     pub fn new(
-        transfer: transfer::Receiver,
+        transfer: Arc<transfer::Receiver>,
         responder: crate::Responder,
         processing: Arc<Processing>,
+        remote: bool,
     ) -> Self {
         Self {
             slots: Vec::new(),
@@ -75,6 +80,7 @@ impl Host {
             calls: Calls::default(),
             realtime_installed: false,
             realtime_running: false,
+            remote: remote.then(Default::default),
         }
     }
 
@@ -92,6 +98,8 @@ impl Host {
                 Request::SetParameter { .. } | Request::SetParameterText { .. } | Request::Reset
             );
         let response = self.dispatch(request);
+        #[cfg(target_os = "macos")]
+        self.publish_remote();
         self.collect_parameter_events();
         if refresh_timing && matches!(response, Response::Done) {
             let timing = self.timing();
@@ -295,6 +303,20 @@ impl Host {
                 self.tick();
                 Response::EditorOpen(self.editors[slot].is_some())
             }
+            Request::SetRemoteRegion { region } => self.set_remote_region(region),
+            Request::OpenRemoteEditor { slot } => self.open_remote_editor(slot),
+            Request::ShowRemoteEditor { slot } => self.show_remote_editor(slot),
+            #[cfg(target_os = "macos")]
+            // A remote helper's request reader starts sessions, in whatever loop the main thread
+            // is; this one is not remote.
+            Request::RemoteSession {
+                commands, notices, ..
+            } => self.remote_session(commands, notices),
+            #[cfg(target_os = "windows")]
+            Request::RemoteSession { .. } => Response::Failed {
+                slot: None,
+                failure: Failure::new(FailureKind::Unsupported, crate::errors::NOT_REMOTE),
+            },
             Request::RealtimeInstall { ring, tokens } => self.install_realtime(ring, &tokens),
             Request::RealtimeStart => self.start_realtime(),
             Request::RealtimeStop => self.stop_realtime(),
@@ -318,13 +340,24 @@ impl Host {
         self.collect_parameter_events();
         self.observe_timing();
         let calls = self.calls.clone();
+        // A remote helper opens editors only remotely, and shows only the remote editor the
+        // application chose.
+        let remote = self.remote.is_some();
+        let shown = self.shown_remote();
         for (slot, (plugin, editor)) in self.slots.iter_mut().zip(&mut self.editors).enumerate() {
             let _call = calls.enter(Caller::Main, slot);
             match (plugin.take_editor_request(), editor.as_mut()) {
+                (Some(EditorRequest::Open), None) if remote => crate::record_failure(
+                    &self.diagnostics,
+                    Some(slot),
+                    &Failure::new(FailureKind::Unsupported, LOCAL_EDITOR_IN_REMOTE),
+                ),
                 (Some(EditorRequest::Open), None) => match EditorWindow::open(plugin.as_mut()) {
                     Ok(window) => *editor = Some(window),
                     Err(failure) => crate::record_failure(&self.diagnostics, Some(slot), &failure),
                 },
+                (Some(EditorRequest::Open | EditorRequest::Show), Some(_))
+                    if remote && shown != Some(slot) => {}
                 (Some(EditorRequest::Open | EditorRequest::Show), Some(window)) => {
                     window.show(plugin.as_mut());
                 }
@@ -342,6 +375,8 @@ impl Host {
                 *editor = None;
             }
         }
+        #[cfg(target_os = "macos")]
+        self.publish_remote();
     }
 
     /// Serves the plugins' main-thread requests and drains their parameter events. A reported
@@ -352,10 +387,11 @@ impl Host {
             let _call = calls.enter(Caller::Main, slot);
             plugin.idle();
             let batch = plugin.take_parameter_events();
-            if batch.resync_required
-                || batch
-                    .events
-                    .contains(&plughost_core::ParameterEvent::MetadataChanged)
+            // A flood of values sets `resync_required` for the application, which reads the
+            // values again; the cached metadata stays unless it changed, which the queues keep.
+            if batch
+                .events
+                .contains(&plughost_core::ParameterEvent::MetadataChanged)
             {
                 let parameters = parameter_infos(plugin.as_mut());
                 self.processing
@@ -387,6 +423,12 @@ impl Host {
     }
 
     fn open_editor(&mut self, slot: usize) -> Response {
+        if self.remote.is_some() {
+            return Response::Failed {
+                slot: Some(slot),
+                failure: Failure::new(FailureKind::Unsupported, LOCAL_EDITOR_IN_REMOTE),
+            };
+        }
         let (plugin, editor) = (&mut self.slots[slot], &mut self.editors[slot]);
         if let Some(window) = editor {
             window.show(plugin.as_mut());
@@ -602,18 +644,29 @@ impl Host {
         }
     }
 
-    /// Reopens the editors that were open before their instances changed. A failure is reported
-    /// as a diagnostic; it does not undo the change.
-    fn reopen_editors(&mut self, reopen: &[bool]) {
+    /// Closes the open editors and keeps their windows, by slot, for [`Self::reattach_editor`].
+    fn detach_editors(&mut self) -> Vec<Option<EditorWindow>> {
         let calls = self.calls.clone();
-        for (slot, &reopen) in reopen.iter().enumerate() {
-            if reopen {
+        let mut editors = std::mem::take(&mut self.editors);
+        for (slot, (plugin, editor)) in self.slots.iter_mut().zip(&mut editors).enumerate() {
+            if let Some(window) = editor {
                 let _call = calls.enter(Caller::Main, slot);
-                match EditorWindow::open(self.slots[slot].as_mut()) {
-                    Ok(window) => self.editors[slot] = Some(window),
-                    Err(failure) => crate::record_failure(&self.diagnostics, Some(slot), &failure),
-                }
+                window.detach(plugin.as_mut());
             }
+        }
+        self.editors = self.slots.iter().map(|_| None).collect();
+        editors
+    }
+
+    /// Opens the editor of the instance that replaced `slot`'s in the window its editor was
+    /// detached from. A failure closes the window and is reported as a diagnostic; it does not
+    /// undo the change.
+    fn reattach_editor(&mut self, slot: usize, mut window: EditorWindow) {
+        let calls = self.calls.clone();
+        let _call = calls.enter(Caller::Main, slot);
+        match window.reattach(self.slots[slot].as_mut()) {
+            Ok(()) => self.editors[slot] = Some(window),
+            Err(failure) => crate::record_failure(&self.diagnostics, Some(slot), &failure),
         }
     }
 }

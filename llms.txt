@@ -738,6 +738,63 @@ such a view to the host. The editor window is not embedded in application window
 or showing an editor brings the helper to the front; on macOS the application that was
 frontmost before is activated again when the helper's last window closes.
 
+Remote editors (macOS) show editors to someone who is not in front of the machine. Start the
+chain with `SpawnOptions::remote` set: its helper never activates itself, so it does not take the
+focus from other sessions on the machine, tells plugins that check that it is active, and opens
+editors only remotely (`open_editor` and a plugin's own request to open fail or are reported as
+unsupported). `set_remote_region` sets a `remote::Region`, a display identifier and a
+`remote::Rect` in points from the display's top-left corner, which the application reads and
+shows; a region that is not finite, not positive or not within an existing display is
+`InputError::RemoteRegion` and changes nothing. `open_remote_editor(slot)` opens the slot's
+editor in a borderless window `remote::EDITOR_INSET` points into the region, shows it and returns
+its `remote::Opened` (editor identifier and size); the editor shown before is hidden, not closed,
+and `show_remote_editor(slot)` shows it again with its state. `remote_session()` starts a
+`remote::Session`, the channel on which the helper tells what happens as it happens, beginning
+with the current state; `recv(timeout)` returns `remote::Notice`s: the shown editor's `Windows`
+front to back (its own and the menus, popups and dialogs its plugin opens, each with its frame in
+region points and whether it reaches out of the region), `EditorClosed`, `Nested`, `Cursor`,
+`MenuOpened`, `MenuClosed`, `PanelRequested`, `PanelFinished`, `OpenUrl`, `RevealFiles` and
+`DisplayLost`. A later session ends the one before with `Error::RemoteSessionEnded`.
+`Session::sender()` returns a `remote::Sender` (cloneable, any thread) whose `send(Command)`
+never blocks: `Error::RemoteBacklog` when 1024 commands wait to be written, `RemoteSessionEnded`
+once the session ended. Commands are `Pointer` (`Down`, `Up`, `Move` with a button, a region
+point, the click count and `Modifiers`), `Motion` (a relative move in points, as Pointer Lock
+reports while a plugin hides the cursor, after the system's acceleration), `Wheel` (`dy` positive scrolls the content down; `Line`
+or `Point` units), `Key` (macOS virtual key code and characters), `Text`, `Modifiers` and
+`ReleaseAll`; each names the shown editor's `EditorId` and the helper drops input for another.
+Pointer input goes to the helper's frontmost window under the point, keys and text to the window
+of the last button down, and input reaches the dialogs and menus a plugin runs in a loop of its
+own; a session's end releases a held button. Plugins that ask where the mouse is, which buttons
+are down or which modifiers are held are answered with the session's input, and a plugin's
+cursor warp moves that mouse, not the machine's cursor; a `Motion` goes on from where the warp
+left it. Moves without a button reach the views tracking the mouse (hover). `Cursor` notices tell
+the cursor the plugin sets over the shown editor, an AppKit `CursorShape` or an `Image` (PNG,
+size and hot spot in points), and whether it is hidden; lock the pointer and send `Motion` while
+it is. Neither reaches the machine's cursor. Input does not choose the items of an AppKit menu
+the plugin opens: `MenuOpened` lists them (`MenuItem`: index among all items, title, enabled,
+`MenuItemState`, separator, submenu; hidden items left out), the menu's window comes in `Windows`
+as kind `Menu`, and `Command::ChooseMenuItem(MenuChoice::new(menu, index_path))` chooses one or
+`CloseMenu` closes it; a disabled item, a separator or a path that names no item is not chosen.
+A menu open past `Timeouts::menu` (60 seconds by default), or whose session ends, closes. Open
+and save panels never show on the machine: `PanelRequested` tells what the plugin asked
+(`PanelKind`, its folder, proposed name, allowed extensions, whether it takes several files or
+folders, its message) and `Command::AnswerPanel(PanelAnswer::new(panel, Some(paths)))` answers it,
+`None` cancelling; a save takes one path and an open at least one. `PanelFinished` follows once
+the plugin has the answer. While a plugin waits in a modal panel, input to its editor is dropped.
+A session's end cancels its panels and closes its menus; a later session that replaces it gets
+them instead, so replace a session rather than dropping it to keep them. A remote helper keeps
+a general pasteboard of its own, and the URLs, files and Finder reveals a plugin asks for open
+nothing on the machine: `OpenUrl` and `RevealFiles` tell them. A session starts while a plugin's dialog or menu holds the main thread, so a reconnecting client
+can close it. While the
+helper's main thread is in a loop nested in its own (a plugin's dialog, a menu, a file panel),
+`Nested` reports its depth and the chain's requests wait for the loop to end; the helper keeps
+them alive past their timeout while that loop runs, and a main thread held up outside any loop
+still times out. Send preview audio through the realtime endpoint, which does not wait for the
+main thread. An AUv3 editor (it runs in
+its extension's process) and an editor that draws only in its own window are unsupported. The
+display, sending what is read, and the sessions are the application's; the `plughost-capture`
+crate reads the region with only the helper's windows, in one process of the application.
+
 Match typed `Error` variants (`Error::Render` carries a `RenderError`, `Error::Input` an
 `InputError`) or use `Error::kind()` for the shared `FailureKind`; do not parse display text.
 Each input contract has one error: input that a render, a block or a configuration rejects is

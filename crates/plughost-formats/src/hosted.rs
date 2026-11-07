@@ -194,6 +194,11 @@ pub trait HostedPlugin: sealed::Sealed {
     fn editor_can_resize(&mut self) -> bool {
         false
     }
+    /// Whether the editor and the panels it opens run in an app extension's process rather than
+    /// this one, as an AUv3 unit's do. The default is false.
+    fn editor_in_extension(&self) -> bool {
+        false
+    }
     /// Offers the size the user dragged the editor window to; returns the size the editor took,
     /// or `None` when the editor keeps its own size.
     fn resize_editor(&mut self, _width: u32, _height: u32) -> Option<(u32, u32)> {
@@ -602,6 +607,10 @@ impl HostedPlugin for au::Plugin {
 
     fn close_editor(&mut self) {
         au::Plugin::close_editor(self);
+    }
+
+    fn editor_in_extension(&self) -> bool {
+        au::Plugin::editor_in_extension(self)
     }
 
     fn idle(&mut self) {

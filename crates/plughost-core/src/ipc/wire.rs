@@ -202,6 +202,378 @@ pub(super) struct CapabilityReportDef {
 }
 remote!(CapabilityReportDef, crate::CapabilityReport);
 
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::Rect")]
+pub(super) struct RectDef {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+remote!(RectDef, crate::remote::Rect);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::Region")]
+pub(super) struct RegionDef {
+    display: u32,
+    #[serde_as(as = "RectDef")]
+    rect: remote::Rect,
+}
+remote!(RegionDef, crate::remote::Region);
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::EditorId")]
+pub(super) struct EditorIdDef(u64);
+remote!(EditorIdDef, crate::remote::EditorId);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::Opened")]
+pub(super) struct OpenedDef {
+    #[serde_as(as = "EditorIdDef")]
+    editor: remote::EditorId,
+    width: f64,
+    height: f64,
+}
+remote!(OpenedDef, crate::remote::Opened);
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::WindowKind")]
+pub(super) enum WindowKindDef {
+    Editor,
+    Menu,
+    Dialog,
+    Popup,
+}
+remote!(WindowKindDef, crate::remote::WindowKind);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::Window")]
+pub(super) struct WindowDef {
+    id: u64,
+    #[serde_as(as = "WindowKindDef")]
+    kind: remote::WindowKind,
+    #[serde_as(as = "RectDef")]
+    frame: remote::Rect,
+    outside: bool,
+}
+remote!(WindowDef, crate::remote::Window);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::Notice")]
+pub(super) enum NoticeDef {
+    Windows {
+        #[serde_as(as = "EditorIdDef")]
+        editor: remote::EditorId,
+        #[serde_as(as = "Vec<WindowDef>")]
+        windows: Vec<remote::Window>,
+    },
+    EditorClosed {
+        #[serde_as(as = "EditorIdDef")]
+        editor: remote::EditorId,
+        slot: usize,
+    },
+    Nested {
+        depth: u32,
+    },
+    Cursor {
+        #[serde_as(as = "CursorShapeDef")]
+        shape: remote::CursorShape,
+        hidden: bool,
+    },
+    MenuOpened {
+        #[serde_as(as = "MenuIdDef")]
+        menu: remote::MenuId,
+        #[serde_as(as = "Vec<MenuItemDef>")]
+        items: Vec<remote::MenuItem>,
+    },
+    MenuClosed {
+        #[serde_as(as = "MenuIdDef")]
+        menu: remote::MenuId,
+    },
+    PanelRequested {
+        #[serde_as(as = "PanelIdDef")]
+        panel: remote::PanelId,
+        #[serde_as(as = "PanelKindDef")]
+        kind: remote::PanelKind,
+        directory: Option<PathBuf>,
+        name: String,
+        types: Vec<String>,
+        multiple: bool,
+        directories: bool,
+        message: String,
+    },
+    PanelFinished {
+        #[serde_as(as = "PanelIdDef")]
+        panel: remote::PanelId,
+    },
+    OpenUrl {
+        url: String,
+    },
+    RevealFiles {
+        paths: Vec<PathBuf>,
+    },
+    DisplayLost,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::PanelId")]
+pub(super) struct PanelIdDef(u64);
+remote!(PanelIdDef, crate::remote::PanelId);
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::PanelKind")]
+pub(super) enum PanelKindDef {
+    Open,
+    Save,
+}
+remote!(PanelKindDef, crate::remote::PanelKind);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::PanelAnswer")]
+pub(super) struct PanelAnswerDef {
+    #[serde_as(as = "PanelIdDef")]
+    panel: remote::PanelId,
+    paths: Option<Vec<PathBuf>>,
+}
+remote!(PanelAnswerDef, crate::remote::PanelAnswer);
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::MenuId")]
+pub(super) struct MenuIdDef(u64);
+remote!(MenuIdDef, crate::remote::MenuId);
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::MenuItemState")]
+pub(super) enum MenuItemStateDef {
+    Off,
+    On,
+    Mixed,
+}
+remote!(MenuItemStateDef, crate::remote::MenuItemState);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::MenuItem")]
+pub(super) struct MenuItemDef {
+    index: usize,
+    title: String,
+    enabled: bool,
+    #[serde_as(as = "MenuItemStateDef")]
+    state: remote::MenuItemState,
+    separator: bool,
+    #[serde_as(as = "Vec<MenuItemDef>")]
+    submenu: Vec<remote::MenuItem>,
+}
+remote!(MenuItemDef, crate::remote::MenuItem);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::MenuChoice")]
+pub(super) struct MenuChoiceDef {
+    #[serde_as(as = "MenuIdDef")]
+    menu: remote::MenuId,
+    path: Vec<usize>,
+}
+remote!(MenuChoiceDef, crate::remote::MenuChoice);
+remote!(NoticeDef, crate::remote::Notice);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::CursorShape")]
+pub(super) enum CursorShapeDef {
+    Arrow,
+    IBeam,
+    IBeamVertical,
+    PointingHand,
+    Crosshair,
+    OpenHand,
+    ClosedHand,
+    ResizeLeft,
+    ResizeRight,
+    ResizeLeftRight,
+    ResizeUp,
+    ResizeDown,
+    ResizeUpDown,
+    DragLink,
+    DragCopy,
+    OperationNotAllowed,
+    ContextualMenu,
+    DisappearingItem,
+    Image(#[serde_as(as = "CursorImageDef")] remote::CursorImage),
+}
+remote!(CursorShapeDef, crate::remote::CursorShape);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::CursorImage")]
+pub(super) struct CursorImageDef {
+    png: Vec<u8>,
+    width: f64,
+    height: f64,
+    #[serde_as(as = "PointDef")]
+    hot_spot: remote::Point,
+}
+remote!(CursorImageDef, crate::remote::CursorImage);
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::Point")]
+pub(super) struct PointDef {
+    x: f64,
+    y: f64,
+}
+remote!(PointDef, crate::remote::Point);
+
+/// Modifiers as their bits.
+pub(super) struct ModifiersDef;
+impl SerializeAs<remote::Modifiers> for ModifiersDef {
+    fn serialize_as<S: Serializer>(
+        modifiers: &remote::Modifiers,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        modifiers.bits().serialize(serializer)
+    }
+}
+impl<'de> DeserializeAs<'de, remote::Modifiers> for ModifiersDef {
+    fn deserialize_as<D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<remote::Modifiers, D::Error> {
+        u32::deserialize(deserializer).map(remote::Modifiers::from_bits_retain)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::PointerKind")]
+pub(super) enum PointerKindDef {
+    Down,
+    Up,
+    Move,
+}
+remote!(PointerKindDef, crate::remote::PointerKind);
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::Button")]
+pub(super) enum ButtonDef {
+    Left,
+    Right,
+    Middle,
+}
+remote!(ButtonDef, crate::remote::Button);
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::WheelUnit")]
+pub(super) enum WheelUnitDef {
+    Line,
+    Point,
+}
+remote!(WheelUnitDef, crate::remote::WheelUnit);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::PointerInput")]
+pub(super) struct PointerInputDef {
+    #[serde_as(as = "EditorIdDef")]
+    editor: remote::EditorId,
+    #[serde_as(as = "PointerKindDef")]
+    kind: remote::PointerKind,
+    #[serde_as(as = "ButtonDef")]
+    button: remote::Button,
+    #[serde_as(as = "PointDef")]
+    at: remote::Point,
+    clicks: u32,
+    #[serde_as(as = "ModifiersDef")]
+    modifiers: remote::Modifiers,
+}
+remote!(PointerInputDef, crate::remote::PointerInput);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::MotionInput")]
+pub(super) struct MotionInputDef {
+    #[serde_as(as = "EditorIdDef")]
+    editor: remote::EditorId,
+    dx: f64,
+    dy: f64,
+    #[serde_as(as = "ModifiersDef")]
+    modifiers: remote::Modifiers,
+}
+remote!(MotionInputDef, crate::remote::MotionInput);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::WheelInput")]
+pub(super) struct WheelInputDef {
+    #[serde_as(as = "EditorIdDef")]
+    editor: remote::EditorId,
+    #[serde_as(as = "PointDef")]
+    at: remote::Point,
+    dx: f64,
+    dy: f64,
+    #[serde_as(as = "WheelUnitDef")]
+    unit: remote::WheelUnit,
+    #[serde_as(as = "ModifiersDef")]
+    modifiers: remote::Modifiers,
+}
+remote!(WheelInputDef, crate::remote::WheelInput);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::KeyInput")]
+pub(super) struct KeyInputDef {
+    #[serde_as(as = "EditorIdDef")]
+    editor: remote::EditorId,
+    down: bool,
+    key_code: u16,
+    characters: String,
+    characters_ignoring_modifiers: String,
+    repeat: bool,
+    #[serde_as(as = "ModifiersDef")]
+    modifiers: remote::Modifiers,
+}
+remote!(KeyInputDef, crate::remote::KeyInput);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::TextInput")]
+pub(super) struct TextInputDef {
+    #[serde_as(as = "EditorIdDef")]
+    editor: remote::EditorId,
+    text: String,
+}
+remote!(TextInputDef, crate::remote::TextInput);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::ModifiersInput")]
+pub(super) struct ModifiersInputDef {
+    #[serde_as(as = "EditorIdDef")]
+    editor: remote::EditorId,
+    #[serde_as(as = "ModifiersDef")]
+    modifiers: remote::Modifiers,
+}
+remote!(ModifiersInputDef, crate::remote::ModifiersInput);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::Command")]
+pub(super) enum CommandDef {
+    Pointer(#[serde_as(as = "PointerInputDef")] remote::PointerInput),
+    Motion(#[serde_as(as = "MotionInputDef")] remote::MotionInput),
+    Wheel(#[serde_as(as = "WheelInputDef")] remote::WheelInput),
+    Key(#[serde_as(as = "KeyInputDef")] remote::KeyInput),
+    Text(#[serde_as(as = "TextInputDef")] remote::TextInput),
+    Modifiers(#[serde_as(as = "ModifiersInputDef")] remote::ModifiersInput),
+    ReleaseAll(#[serde_as(as = "EditorIdDef")] remote::EditorId),
+    ChooseMenuItem(#[serde_as(as = "MenuChoiceDef")] remote::MenuChoice),
+    CloseMenu(#[serde_as(as = "MenuIdDef")] remote::MenuId),
+    AnswerPanel(#[serde_as(as = "PanelAnswerDef")] remote::PanelAnswer),
+}
+remote!(CommandDef, crate::remote::Command);
+
 #[serde_as]
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "crate::Support")]
@@ -431,6 +803,8 @@ pub(super) enum InputErrorDef {
     RealtimeQuantum,
     RealtimeLatency,
     RealtimeDry,
+    RemoteRegion,
+    RemoteEditor,
 }
 remote!(InputErrorDef, crate::InputError);
 

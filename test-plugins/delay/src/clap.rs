@@ -49,6 +49,18 @@ const RANGE: ClapId = ClapId::new(1);
 const EDITOR_FOCUS: ClapId = ClapId::new(15);
 /// The `editor` variant's count of editor sizes it refused.
 const REFUSED_SIZES: ClapId = ClapId::new(16);
+/// Set on the `editor` variant, what its editor does next to the helper application or its
+/// window, as a user would (see `editor::act`).
+const EDITOR_WINDOW: ClapId = ClapId::new(17);
+/// The `editor` variant's report of whether its application said it was active after the
+/// editor tried to activate it (`editor::act`).
+const APPLICATION_ACTIVE: ClapId = ClapId::new(18);
+/// The `meters` variant's meters, which report their values every block, and its count of the
+/// host's parameter value reads.
+const METERS: u32 = 200;
+const VALUE_READS: ClapId = ClapId::new(15);
+static VALUE_READS_SEEN: AtomicU64 = AtomicU64::new(0);
+
 /// The `timers` variant's report of calls for a removed timer (see `timers.rs`).
 const REMOVED_TIMER_CALLS: ClapId = ClapId::new(15);
 
@@ -381,14 +393,35 @@ impl PluginMainThreadParams for MainThread<'_> {
         15 + u32::from(matches!(
             variant(),
             Variant::Editor | Variant::Timers | Variant::FlushRequest | Variant::ThreadCheck
-        )) + u32::from(variant() == Variant::Editor)
+        )) + 24 * u32::from(variant() == Variant::Editor)
             + 3 * u32::from(variant() == Variant::Timers)
             + 5 * u32::from(variant() == Variant::ThreadCheck)
+            + (1 + METERS) * u32::from(variant() == Variant::Meters)
     }
 
     fn get_info(&self, index: u32, info: &mut ParamInfoWriter) {
         self.check("params.get_info");
         match index {
+            15 if variant() == Variant::Meters => info.set(&ParamInfo {
+                id: VALUE_READS,
+                flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: b"Parameter value reads",
+                module: b"",
+                min_value: 0.0,
+                max_value: 1e12,
+                default_value: 0.0,
+            }),
+            16.. if variant() == Variant::Meters && index < 16 + METERS => info.set(&ParamInfo {
+                id: ClapId::new(index),
+                flags: ParamInfoFlags::IS_READONLY,
+                cookie: Cookie::empty(),
+                name: b"Meter",
+                module: b"",
+                min_value: 0.0,
+                max_value: 1.0,
+                default_value: 0.0,
+            }),
             16..=20 if variant() == Variant::ThreadCheck => info.set(&ParamInfo {
                 id: ClapId::new(index),
                 flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
@@ -447,6 +480,36 @@ impl PluginMainThreadParams for MainThread<'_> {
                 module: b"",
                 min_value: 0.0,
                 max_value: 1000.0,
+                default_value: 0.0,
+            }),
+            18 if variant() == Variant::Editor => info.set(&ParamInfo {
+                id: APPLICATION_ACTIVE,
+                flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: b"Application active",
+                module: b"",
+                min_value: 0.0,
+                max_value: 1.0,
+                default_value: 0.0,
+            }),
+            19..=39 if variant() == Variant::Editor => info.set(&ParamInfo {
+                id: ClapId::new(index),
+                flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: b"Editor input",
+                module: b"",
+                min_value: -1_000_000.0,
+                max_value: 1_000_000.0,
+                default_value: 0.0,
+            }),
+            17 if variant() == Variant::Editor => info.set(&ParamInfo {
+                id: EDITOR_WINDOW,
+                flags: ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: b"Editor window action",
+                module: b"",
+                min_value: 0.0,
+                max_value: 25.0,
                 default_value: 0.0,
             }),
             16 if variant() == Variant::Editor => info.set(&ParamInfo {
@@ -581,6 +644,15 @@ impl PluginMainThreadParams for MainThread<'_> {
 
     fn get_value(&self, id: ClapId) -> Option<f64> {
         self.check("params.get_value");
+        if variant() == Variant::Meters {
+            let reads = VALUE_READS_SEEN.fetch_add(1, Ordering::Relaxed) + 1;
+            if id == VALUE_READS {
+                return Some(reads as f64);
+            }
+            if (16..16 + METERS).contains(&id.get()) {
+                return Some(0.5);
+            }
+        }
         if variant() == Variant::ThreadCheck {
             match id.get() {
                 16 => return Some(f64::from(self.shared.thread_check.is_some())),
@@ -624,6 +696,19 @@ impl PluginMainThreadParams for MainThread<'_> {
         }
         if id == REFUSED_SIZES && variant() == Variant::Editor {
             return Some(f64::from(self.shared.refused_sizes.load(Ordering::Relaxed)));
+        }
+        if id == EDITOR_WINDOW && variant() == Variant::Editor {
+            return Some(0.0);
+        }
+        #[cfg(target_os = "macos")]
+        if (19..=39).contains(&id.get()) && variant() == Variant::Editor {
+            return Some(crate::editor::input(id.get() - 19));
+        }
+        if id == APPLICATION_ACTIVE && variant() == Variant::Editor {
+            #[cfg(target_os = "macos")]
+            return Some(f64::from(crate::editor::application_active()));
+            #[cfg(not(target_os = "macos"))]
+            return Some(0.0);
         }
         if id.get() == 13 {
             return Some(5.0);
@@ -705,6 +790,13 @@ impl PluginMainThreadParams for MainThread<'_> {
             state.mark_dirty(&self.host);
         }
         for event in input {
+            #[cfg(target_os = "macos")]
+            if let Some(CoreEventSpace::ParamValue(change)) = event.as_core_event()
+                && change.param_id() == Some(EDITOR_WINDOW)
+                && let Some(editor) = &*self.editor().borrow()
+            {
+                editor.act(change.value() as u32);
+            }
             if let Some(CoreEventSpace::ParamValue(change)) = event.as_core_event()
                 && change.param_id() == Some(RANGE)
             {
@@ -858,6 +950,19 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
         self.shared.apply(events.input);
         report_edits(events.input, events.output);
         self.apply_timing(events.input);
+        if variant() == Variant::Meters {
+            let level = (self.shared.clock.load(Ordering::Relaxed) % 1000) as f64 / 1000.0;
+            for id in 16..16 + METERS {
+                let _ = events.output.try_push(
+                    clack_plugin::events::event_types::ParamValueEvent::new(
+                        0,
+                        ClapId::new(id),
+                        clack_plugin::events::Pckn::match_all(),
+                        level,
+                    ),
+                );
+            }
+        }
         for mut port in &mut audio {
             let Some(channels) = port.channels()?.into_f32() else {
                 continue;

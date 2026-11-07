@@ -25,6 +25,7 @@ mod programs;
 pub use programs::{FactoryPreset, FactoryPresetId, MAX_FACTORY_PRESETS};
 mod parameter_events;
 mod plugin;
+pub mod remote;
 pub mod render;
 mod sample;
 mod state;

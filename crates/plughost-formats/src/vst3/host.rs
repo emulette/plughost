@@ -517,6 +517,9 @@ pub(crate) struct ComponentHandler {
     parameters_changed: AtomicBool,
     /// Counts the controller's reports of changed values, which the processor may not have.
     values_generation: AtomicU32,
+    /// Counts the times the owning thread took the pending edits, which a block that copied them
+    /// before must not forget again.
+    taken: AtomicU64,
     /// Output events the processor produced that have no MIDI 1.0 form.
     unconvertible_output_events: AtomicU64,
 }
@@ -531,6 +534,7 @@ impl Default for ComponentHandler {
             editor_requested: AtomicBool::new(false),
             parameters_changed: AtomicBool::new(false),
             values_generation: AtomicU32::new(0),
+            taken: AtomicU64::new(0),
             unconvertible_output_events: AtomicU64::new(0),
         }
     }
@@ -543,13 +547,36 @@ impl Class for ComponentHandler {
 impl ComponentHandler {
     /// Edits reported with performEdit that have not reached the processor yet.
     pub fn take_pending(&self) -> Vec<(ParamID, ParamValue)> {
-        lock(&self.pending).drain(..).collect()
+        let mut pending = lock(&self.pending);
+        self.taken.fetch_add(1, Ordering::Relaxed);
+        pending.drain(..).collect()
     }
 
-    pub fn drain_pending(&self, mut consume: impl FnMut(ParamID, ParamValue)) {
-        for (id, value) in lock(&self.pending).drain(..) {
-            consume(id, value);
+    /// Copies the pending edits into `sent`, which has room for every pending edit, without
+    /// taking them: a block that fails leaves them for the next one. Returns the count of takes
+    /// for [`Self::forget_delivered`].
+    pub fn copy_pending(&self, sent: &mut Vec<(ParamID, ParamValue)>) -> u64 {
+        let pending = lock(&self.pending);
+        sent.clear();
+        sent.extend_from_slice(&pending);
+        self.taken.load(Ordering::Relaxed)
+    }
+
+    /// Forgets the edits a block delivered from [`Self::copy_pending`]. performEdit replaces an
+    /// edit in its place and adds new ones after, so the delivered edits are the queue's first
+    /// ones; one replaced since keeps its newer value. Nothing is forgotten when the owning
+    /// thread took the queue meanwhile.
+    pub fn forget_delivered(&self, sent: &[(ParamID, ParamValue)], taken: u64) {
+        let mut pending = lock(&self.pending);
+        if self.taken.load(Ordering::Relaxed) != taken || pending.len() < sent.len() {
+            return;
         }
+        let mut index = 0;
+        pending.retain(|edit| {
+            let delivered = sent.get(index) == Some(edit);
+            index += 1;
+            !delivered
+        });
     }
 
     pub fn can_edit(&self, id: ParamID) -> bool {
@@ -613,9 +640,13 @@ impl IComponentHandlerTrait for ComponentHandler {
 
     unsafe fn performEdit(&self, id: ParamID, value_normalized: ParamValue) -> tresult {
         let _audit = plughost_core::audit::callback();
-        if !value_normalized.is_finite() || !(0.0..=1.0).contains(&value_normalized) {
+        // A value past an end by rounding is that end. One further out is not a value: the
+        // application reads the values again, as the controller and the processor may differ.
+        let Some(value_normalized) = crate::parameter_values::reported(value_normalized, 0.0, 1.0)
+        else {
+            self.events.record(ParameterEvent::ValuesChanged);
             return kInvalidArgument;
-        }
+        };
         let mut pending = lock(&self.pending);
         if pending.len() == plughost_core::MAX_BLOCK_EVENTS
             && !pending.iter().any(|(pending_id, _)| *pending_id == id)

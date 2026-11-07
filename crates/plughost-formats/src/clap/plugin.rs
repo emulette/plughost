@@ -134,6 +134,11 @@ pub struct Plugin {
     audio: AudioCalls,
     parameters: Arc<ParameterCache>,
     editor: Option<ResizeRequest>,
+    /// The size the host window last gave the embedded editor, which a failed resize restores.
+    editor_size: (u32, u32),
+    /// Host edits were queued at the last idle, and how many blocks had processed then: edits
+    /// that waited from one idle to the next with no block are flushed.
+    idle_edits: (bool, u64),
     audio_active: std::collections::HashMap<(bool, u64), bool>,
 }
 
@@ -196,6 +201,8 @@ impl Plugin {
             audio: AudioCalls::default(),
             parameters: Arc::default(),
             editor: None,
+            editor_size: (0, 0),
+            idle_edits: (false, 0),
             audio_active: std::collections::HashMap::new(),
         })
     }
@@ -368,8 +375,9 @@ impl Plugin {
             .collect()
     }
 
-    /// Queues a host edit of a normalized value; it reaches the plugin with the next block or
-    /// flush.
+    /// Queues a host edit of a normalized value. An inactive plugin is flushed with it right
+    /// away; an active one takes it with the next block, or with a flush from [`Plugin::idle`]
+    /// when blocks stopped coming.
     pub(crate) fn set_parameter(&mut self, id: u64, value: f64) -> Result<(), ClapError> {
         if !value.is_finite() || !(0.0..=1.0).contains(&value) {
             return Err(ClapError::Input(plughost_core::InputError::ParameterValue));
@@ -393,6 +401,11 @@ impl Plugin {
             return Err(ClapError::Input(plughost_core::InputError::EventCapacity));
         }
         pending.push((parameter.native.get(), plain));
+        drop(pending);
+        // An inactive plugin gets no blocks; its editor shows the edit once it is flushed.
+        if lock(&self.engine).processor.is_none() {
+            self.flush();
+        }
         Ok(())
     }
 
@@ -534,7 +547,9 @@ impl Plugin {
             .get_size(&handle)
             .map_or((0, 0), |size| (size.width, size.height));
         self.editor = Some(resize);
+        self.editor_size = (width, height);
         self.shared().editor_open.store(true, Ordering::Relaxed);
+        self.shared().editor_embedded.store(true, Ordering::Relaxed);
         Ok(EditorView::Embedded { width, height })
     }
 
@@ -562,6 +577,9 @@ impl Plugin {
 
     pub(crate) fn close_editor(&mut self) {
         self.shared().editor_open.store(false, Ordering::Relaxed);
+        self.shared()
+            .editor_embedded
+            .store(false, Ordering::Relaxed);
         if self.editor.take().is_some()
             && let Some(gui) = self.shared().extensions().gui
         {
@@ -595,6 +613,7 @@ impl Plugin {
             .adjust_size(&handle, GuiSize { width, height })
             .unwrap_or(GuiSize { width, height });
         gui.set_size(&handle, size).ok()?;
+        self.editor_size = (size.width, size.height);
         Some((size.width, size.height))
     }
 
@@ -641,11 +660,23 @@ impl Plugin {
                 }
             }
         }
-        if flush {
+        // An active plugin takes host edits with the next block. When blocks stopped coming,
+        // edits that waited from the last idle to this one with no block are flushed.
+        let waiting = self.shared().has_pending();
+        let blocks = self.shared().blocks.load(Ordering::Relaxed);
+        let stalled = waiting && self.idle_edits == (true, blocks);
+        self.idle_edits = (waiting, blocks);
+        if flush || stalled {
             self.flush();
         }
         if let (Some((width, height)), Some(resize)) = (requested, &self.editor) {
-            resize(width, height);
+            if resize(width, height) {
+                self.editor_size = (width, height);
+            } else if let Some(gui) = self.shared().extensions().gui {
+                // The plugin may already draw at the size it asked for.
+                let (width, height) = self.editor_size;
+                let _ = gui.set_size(&self.instance.plugin_handle(), GuiSize { width, height });
+            }
         }
     }
 }

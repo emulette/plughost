@@ -77,6 +77,9 @@ pub const EDIT_SETTLE: Duration = Duration::from_millis(100);
 const NOTIFY_SETTLE: Duration = Duration::from_millis(50);
 /// Tails reported beyond this are treated as infinite.
 const MAX_TAIL_SECONDS: f64 = 3600.0;
+/// How many of a parameter's host edits wait for the v2 bridge to report them back; the oldest
+/// is forgotten past this.
+const HOST_VALUES: usize = 64;
 /// `AUMIDIEvent.length` is 16 bits.
 const MAX_NATIVE_SYSEX_BYTES: usize = u16::MAX as usize;
 
@@ -174,9 +177,10 @@ pub struct Plugin {
     value_strings: Option<events::ValueStrings>,
     _invalidation: invalidation::Observation,
     parameter_metadata_changed: bool,
-    /// The plain value this host last set per parameter of a v2 unit. The v2 bridge reports host
-    /// edits back as if the unit made them.
-    host_values: HashMap<u64, f32>,
+    /// The plain values this host set per parameter of a v2 unit and the bridge has not reported
+    /// back yet, oldest first. The v2 bridge reports host edits back as if the unit made them,
+    /// in order, some 50 ms later; quick edits are still waiting when the next one is made.
+    host_values: HashMap<u64, std::collections::VecDeque<f32>>,
     /// When this host last notified a v2 unit's parameter listeners; see [`NOTIFY_SETTLE`].
     notified: Option<std::time::Instant>,
     unconvertible: Arc<AtomicU64>,
@@ -412,7 +416,11 @@ impl Plugin {
                     NonNull::from(&mut target),
                 );
             }
-            self.host_values.insert(id, plain);
+            let sent = self.host_values.entry(id).or_default();
+            if sent.len() == HOST_VALUES {
+                sent.pop_front();
+            }
+            sent.push_back(plain);
             self.notified = Some(std::time::Instant::now());
         } else {
             // The observer token as originator keeps the edit from being reported back.

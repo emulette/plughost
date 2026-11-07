@@ -4,6 +4,11 @@
 mod events;
 
 #[cfg(target_os = "macos")]
+use objc2_core_foundation::{
+    CFAbsoluteTimeGetCurrent, CFRunLoop, CFRunLoopTimer, kCFRunLoopDefaultMode,
+};
+
+#[cfg(target_os = "macos")]
 fn main() {
     use objc2_app_kit::NSApplication;
     unsafe extern "C" {
@@ -15,6 +20,18 @@ fn main() {
     assert!(unsafe { APPLICATION.is_null() });
     events::with_pool(events::pump);
     assert!(unsafe { APPLICATION.is_null() });
+    // Waiting for a request keeps it lazy too, and a request that arrives wakes the wait.
+    let woken = |what: &str| {
+        events::wake();
+        let started = std::time::Instant::now();
+        events::with_pool(|| events::wait(std::time::Duration::from_secs(5)));
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "the wait {what} was not woken"
+        );
+    };
+    woken("without an application");
+    assert!(unsafe { APPLICATION.is_null() });
     // An interactive retry initializes the application and returns foreground activation
     // when no plugin window remains. Host initialization can then be repeated safely.
     events::activate();
@@ -22,6 +39,51 @@ fn main() {
     events::pump();
     let _host = events::init(true).unwrap();
     events::pump();
+    woken("with an application");
+    // A run of the run loop the helper's own loop did not start is nested; the helper's own
+    // wait for a request is not.
+    assert_eq!(
+        depth_seen(|| unsafe {
+            CFRunLoop::run_in_mode(kCFRunLoopDefaultMode, 0.2, true);
+        }),
+        1
+    );
+    assert_eq!(
+        depth_seen(|| events::wait(std::time::Duration::from_millis(200))),
+        0
+    );
+}
+
+/// The nesting depth a timer sees that fires during `run`, which runs again until it has.
+#[cfg(target_os = "macos")]
+fn depth_seen(mut run: impl FnMut()) -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEEN: AtomicU32 = AtomicU32::new(u32::MAX);
+    unsafe extern "C-unwind" fn fired(_timer: *mut CFRunLoopTimer, _info: *mut std::ffi::c_void) {
+        SEEN.store(events::nested_depth(), Ordering::Relaxed);
+    }
+    SEEN.store(u32::MAX, Ordering::Relaxed);
+    let timer = unsafe {
+        CFRunLoopTimer::new(
+            None,
+            CFAbsoluteTimeGetCurrent() + 0.05,
+            0.0,
+            0,
+            0,
+            Some(fired),
+            std::ptr::null_mut(),
+        )
+    }
+    .unwrap();
+    CFRunLoop::main()
+        .unwrap()
+        .add_timer(Some(&timer), unsafe { kCFRunLoopDefaultMode });
+    let started = std::time::Instant::now();
+    while SEEN.load(Ordering::Relaxed) == u32::MAX {
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        run();
+    }
+    SEEN.load(Ordering::Relaxed)
 }
 
 #[cfg(not(target_os = "macos"))]

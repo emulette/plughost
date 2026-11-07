@@ -71,8 +71,10 @@ fn create<I: Interface>(module: &Module, cid: &TUID) -> Option<ComPtr<I>> {
 // both threads only change the atomic COM reference count.
 unsafe impl Send for Instance {}
 // SAFETY: besides the calls the engine mutex orders, the thread that created the plugin shares the
-// instance only for the queries VST3 lets the UI thread make while the processor processes:
-// `getState`, `getTailSamples`, `canProcessSampleSize` and the bus queries.
+// instance only for `getState`, which VST3 lets the UI thread call while the processor processes,
+// and, while the plugin is not prepared and nothing processes, for the bus, event bus and sample
+// size queries. Prepared, it answers those from what it read before activating, and reads the
+// tail under the engine mutex.
 unsafe impl Sync for Instance {}
 
 impl Instance {

@@ -191,7 +191,10 @@ impl Processor {
             processed.map_err(ClapError::Process)
         });
         if result.is_ok() {
-            processor.access_shared_handler(|shared| shared.forget_delivered(edits));
+            processor.access_shared_handler(|shared| {
+                shared.forget_delivered(edits);
+                shared.blocks.fetch_add(1, Ordering::Relaxed);
+            });
         }
         prepared.steady_time = next_time;
         if processor

@@ -203,12 +203,9 @@ impl Plugin {
         if self.handler.has_pending() && lock(&self.engine).prepared.is_some() {
             self.deliver_edits()?;
         }
-        let source = lock(&self.engine).tail_source();
-        if let Some(instance) = source {
-            let tail = super::engine::tail(&instance.processor);
-            lock(&self.engine).set_tail(tail);
-        }
-        lock(&self.engine).timing()
+        let mut engine = lock(&self.engine);
+        engine.read_tail();
+        engine.timing()
     }
 
     /// As [`Plugin::timing`], unless the processing thread holds the engine.
@@ -218,12 +215,9 @@ impl Plugin {
             Err(std::sync::TryLockError::Poisoned(error)) => Some(error.into_inner()),
             Err(std::sync::TryLockError::WouldBlock) => None,
         };
-        let source = try_lock()?.tail_source();
-        if let Some(instance) = source {
-            let tail = super::engine::tail(&instance.processor);
-            try_lock()?.set_tail(tail);
-        }
-        try_lock()?.timing().ok()
+        let mut engine = try_lock()?;
+        engine.read_tail();
+        engine.timing().ok()
     }
 
     /// The optional VST3 processor's requested context flags, queried on the owning thread

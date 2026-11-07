@@ -3,7 +3,8 @@
 use std::path::Path;
 
 use plughost_core::{
-    BlockContext, Events, FailureKind, HostIdentity, Layout, ProcessConfig, SampleFormat, Support,
+    BlockContext, Events, FailureKind, HostIdentity, Layout, ParameterEvent, ProcessConfig,
+    SampleFormat, Support,
 };
 use plughost_formats::clap::Plugin;
 use plughost_formats::{Error, HostedPlugin};
@@ -109,4 +110,64 @@ fn mpe_only_ports_advertise_note_input_and_output() {
     let caps = plugin.capabilities().unwrap();
     assert_eq!(caps.note_input, Support::Supported);
     assert_eq!(caps.note_output, Support::Supported);
+}
+
+/// Whether the plugin reported taking an edit of `id`: the delay fixture reports every gain edit
+/// it receives back as its own gesture.
+fn took_edit(plugin: &mut Plugin, id: u64) -> bool {
+    plugin
+        .take_parameter_events()
+        .events
+        .contains(&ParameterEvent::BeginEdit { id })
+}
+
+#[test]
+#[ignore = "needs delay CLAP fixture"]
+fn an_inactive_plugin_takes_a_host_edit_right_away() {
+    let mut plugin = plugin("delay", 1);
+    let _ = plugin.take_parameter_events();
+    plugin.set_parameter(0, 0.25).unwrap();
+    assert!(took_edit(&mut plugin, 0));
+}
+
+#[test]
+#[ignore = "needs delay CLAP fixture"]
+fn an_active_plugin_without_blocks_takes_a_host_edit_from_idle() {
+    let mut plugin = plugin("delay", 1);
+    prepare(&mut plugin);
+    let _ = plugin.take_parameter_events();
+    plugin.set_parameter(0, 0.25).unwrap();
+    plugin.idle();
+    // The first idle leaves it for a block that may still come.
+    assert!(!took_edit(&mut plugin, 0));
+    plugin.idle();
+    assert!(took_edit(&mut plugin, 0));
+}
+
+#[test]
+#[ignore = "needs meters CLAP fixture"]
+fn meters_that_report_every_block_take_one_record_each() {
+    // 200 meters report their values in every block; eight blocks come before the events are
+    // drained, as small blocks between two helper ticks do.
+    let mut plugin = plugin("meters", 0x1D);
+    prepare(&mut plugin);
+    let _ = plugin.take_parameter_events();
+    let input = [1.0f32; 64];
+    for _ in 0..8 {
+        let (mut left, mut right) = (vec![0.0; 64], vec![0.0; 64]);
+        plugin
+            .process(
+                &BlockContext::new(64),
+                &[&input, &input],
+                &mut [&mut left, &mut right],
+                &[],
+                &Events::new(),
+                &mut Events::for_block(),
+            )
+            .unwrap();
+    }
+    let batch = plugin.take_parameter_events();
+    assert_eq!(batch.dropped, 0);
+    assert!(!batch.resync_required);
+    assert_eq!(batch.events.len(), 200);
 }

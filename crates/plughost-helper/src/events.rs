@@ -10,7 +10,10 @@ mod platform {
         NSApplication, NSApplicationActivationOptions, NSApplicationActivationPolicy, NSEventMask,
         NSRunningApplication, NSWorkspace,
     };
-    use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
+    use objc2_core_foundation::{
+        CFRetained, CFRunLoop, CFRunLoopActivity, CFRunLoopObserver, CFRunLoopSource,
+        CFRunLoopSourceContext, kCFRunLoopCommonModes, kCFRunLoopDefaultMode,
+    };
     use objc2_foundation::{NSDate, NSDefaultRunLoopMode};
 
     unsafe extern "C" {
@@ -39,10 +42,102 @@ mod platform {
     }
 
     pub fn init(host: bool) -> std::io::Result<Runtime> {
-        if host && let Some(mtm) = MainThreadMarker::new() {
-            application(mtm);
+        if let Some(mtm) = MainThreadMarker::new() {
+            WAKER.get_or_init(|| Waker::new(mtm));
+            if host {
+                application(mtm);
+            }
         }
         Ok(Runtime)
+    }
+
+    /// Wakes the main thread from [`wait`] from any thread. A run loop wakeup alone is lost when
+    /// the main thread is not asleep yet; the signaled source stays signaled until the run loop
+    /// handles it.
+    struct Waker {
+        source: CFRetained<CFRunLoopSource>,
+        run_loop: CFRetained<CFRunLoop>,
+    }
+
+    // SAFETY: signaling a run loop source and waking a run loop are thread-safe.
+    unsafe impl Send for Waker {}
+    unsafe impl Sync for Waker {}
+
+    static WAKER: std::sync::OnceLock<Waker> = std::sync::OnceLock::new();
+
+    thread_local! {
+        /// How many runs of the main run loop are in progress, one inside the other.
+        static DEPTH: Cell<u32> = const { Cell::new(0) };
+        /// The helper's own loop is running the run loop: waiting for a request or pumping. A
+        /// run it started is not nested; runs inside it, or started while it handles a request
+        /// or an event, are.
+        static OUTER: Cell<bool> = const { Cell::new(false) };
+    }
+
+    unsafe extern "C-unwind" fn counted(
+        _observer: *mut CFRunLoopObserver,
+        activity: CFRunLoopActivity,
+        _info: *mut std::ffi::c_void,
+    ) {
+        DEPTH.with(|depth| {
+            if activity.contains(CFRunLoopActivity::Entry) {
+                depth.set(depth.get() + 1);
+            } else if activity.contains(CFRunLoopActivity::Exit) {
+                depth.set(depth.get().saturating_sub(1));
+            }
+        });
+    }
+
+    /// How many loops are nested in the helper's own on the main thread: a dialog's, a menu's,
+    /// a panel's. Call it on the main thread, from inside such a loop or between requests.
+    pub fn nested_depth() -> u32 {
+        DEPTH.get().saturating_sub(u32::from(OUTER.get()))
+    }
+
+    /// Runs `run` as the helper's own run of the run loop.
+    fn outer<R>(run: impl FnOnce() -> R) -> R {
+        let previous = OUTER.replace(true);
+        let result = run();
+        OUTER.set(previous);
+        result
+    }
+
+    unsafe extern "C-unwind" fn woken(_info: *mut std::ffi::c_void) {}
+
+    impl Waker {
+        fn new(_mtm: MainThreadMarker) -> Waker {
+            let mut context = CFRunLoopSourceContext {
+                version: 0,
+                info: std::ptr::null_mut(),
+                retain: None,
+                release: None,
+                copyDescription: None,
+                equal: None,
+                hash: None,
+                schedule: None,
+                cancel: None,
+                perform: Some(woken),
+            };
+            // SAFETY: the context is a valid version 0 context, copied by the call.
+            let source =
+                unsafe { CFRunLoopSource::new(None, 0, &mut context) }.expect("a run loop source");
+            let run_loop = CFRunLoop::main().expect("the main run loop");
+            run_loop.add_source(Some(&source), unsafe { kCFRunLoopDefaultMode });
+            // SAFETY: the callout matches the observer's signature and takes no context.
+            let observer = unsafe {
+                CFRunLoopObserver::new(
+                    None,
+                    (CFRunLoopActivity::Entry | CFRunLoopActivity::Exit).0,
+                    true,
+                    0,
+                    Some(counted),
+                    std::ptr::null_mut(),
+                )
+            }
+            .expect("a run loop observer");
+            run_loop.add_observer(Some(&observer), unsafe { kCFRunLoopCommonModes });
+            Waker { source, run_loop }
+        }
     }
 
     /// Brings the helper to the front, so editors and the dialogs plugins show can be used. The
@@ -85,6 +180,24 @@ mod platform {
         objc2::rc::autoreleasepool(|_| work())
     }
 
+    /// Waits up to `timeout` on the main run loop until a run loop source, an event or [`wake`]
+    /// comes, then handles the events that are ready. Run loop sources, timers and the main
+    /// queue run while the helper waits for requests, not only when it pumps.
+    pub fn wait(timeout: std::time::Duration) {
+        outer(|| unsafe {
+            CFRunLoop::run_in_mode(kCFRunLoopDefaultMode, timeout.as_secs_f64(), true)
+        });
+        pump();
+    }
+
+    /// Wakes the main thread from [`wait`], from any thread: a request is waiting for it.
+    pub fn wake() {
+        if let Some(waker) = WAKER.get() {
+            waker.source.signal();
+            waker.run_loop.wake_up();
+        }
+    }
+
     /// Handles the events and run loop sources that are ready, without waiting, then returns the
     /// activation if the last window closed.
     pub fn pump() {
@@ -94,20 +207,20 @@ mod platform {
         // SAFETY: AppKit's application pointer is inspected only on the main thread. A scan
         // does not need an application unless a plugin created one or an interactive retry did.
         if unsafe { APPLICATION.is_null() } {
-            unsafe { CFRunLoop::run_in_mode(kCFRunLoopDefaultMode, 0.0, true) };
+            outer(|| unsafe { CFRunLoop::run_in_mode(kCFRunLoopDefaultMode, 0.0, true) });
             return;
         }
         let app = application(mtm);
         let now = NSDate::now();
         loop {
-            let event = unsafe {
+            let event = outer(|| unsafe {
                 app.nextEventMatchingMask_untilDate_inMode_dequeue(
                     NSEventMask::Any,
                     Some(&now),
                     NSDefaultRunLoopMode,
                     true,
                 )
-            };
+            });
             match event {
                 Some(event) => app.sendEvent(&event),
                 None => break,
@@ -157,6 +270,9 @@ mod platform {
 
     /// Foreground permission is granted by the application before an interactive request.
     pub fn activate() {}
+
+    /// The Windows helper waits for requests on its channel, which wakes it.
+    pub fn wake() {}
 
     /// Runs `work`; Windows has no autorelease pools.
     pub fn with_pool<R>(work: impl FnOnce() -> R) -> R {
@@ -213,7 +329,9 @@ mod platform {
     }
 }
 
-pub use platform::{activate, init, pump, with_pool};
+pub use platform::{activate, init, pump, wake, with_pool};
+#[cfg(target_os = "macos")]
+pub use platform::{nested_depth, wait};
 #[cfg(target_os = "windows")]
 pub use platform::{raise, signal, wait_sent};
 

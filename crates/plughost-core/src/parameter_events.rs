@@ -81,6 +81,33 @@ impl Default for Pending {
     }
 }
 
+impl Pending {
+    /// Appends `event`. A full queue drops its oldest record, but not a metadata change: the
+    /// helper refreshes metadata only when one is there, so it outlives the values a flood drops.
+    /// A metadata change already queued stands for another.
+    fn push(&mut self, event: ParameterEvent) {
+        let metadata = event == ParameterEvent::MetadataChanged;
+        if metadata && self.events.contains(&event) {
+            return;
+        }
+        if self.events.len() == PARAMETER_EVENT_CAPACITY {
+            let oldest = self
+                .events
+                .iter()
+                .position(|queued| *queued != ParameterEvent::MetadataChanged);
+            match oldest {
+                Some(oldest) => {
+                    self.events.remove(oldest);
+                }
+                // Only metadata changes are queued, which this one cannot be.
+                None => return,
+            }
+            self.dropped = self.dropped.saturating_add(1);
+        }
+        self.events.push_back(event);
+    }
+}
+
 /// A bounded producer queue shared by native callbacks and the owning main thread.
 #[derive(Clone, Default)]
 pub struct ParameterEventBuffer(Arc<Mutex<Pending>>);
@@ -92,22 +119,35 @@ impl ParameterEventBuffer {
         pending.dropped = pending.dropped.saturating_add(batch.dropped);
         pending.resync_required |= batch.resync_required;
         for event in batch.events {
-            if pending.events.len() == PARAMETER_EVENT_CAPACITY {
-                pending.events.pop_front();
-                pending.dropped = pending.dropped.saturating_add(1);
-            }
-            pending.events.push_back(event);
+            pending.push(event);
         }
     }
 
     /// Appends one notification, dropping the oldest on capacity overflow.
     pub fn record(&self, event: ParameterEvent) {
         let mut pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
-        if pending.events.len() == PARAMETER_EVENT_CAPACITY {
-            pending.events.pop_front();
-            pending.dropped = pending.dropped.saturating_add(1);
+        pending.push(event);
+    }
+
+    /// Records a value the plugin reported for `id`, replacing the one queued for it when no
+    /// gesture of `id` came after: a meter that reports every block takes one record until the
+    /// queue is drained, not one per block.
+    pub fn record_value(&self, id: u64, normalized: f64) {
+        let mut pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        let last = pending.events.iter_mut().rev().find(|event| {
+            matches!(event,
+                ParameterEvent::Value { id: other, .. }
+                | ParameterEvent::BeginEdit { id: other }
+                | ParameterEvent::EndEdit { id: other } if *other == id)
+        });
+        if let Some(ParameterEvent::Value {
+            normalized: queued, ..
+        }) = last
+        {
+            *queued = normalized;
+            return;
         }
-        pending.events.push_back(event);
+        pending.push(ParameterEvent::Value { id, normalized });
     }
 
     /// Drains notifications and loss counters into an owned batch.
@@ -185,5 +225,52 @@ mod tests {
             resync_required: true,
         });
         assert!(buffer.take().resync_required);
+    }
+
+    #[test]
+    fn a_metadata_change_outlives_a_flood_of_values() {
+        let buffer = ParameterEventBuffer::default();
+        buffer.record(ParameterEvent::MetadataChanged);
+        for id in 0..2 * PARAMETER_EVENT_CAPACITY as u64 {
+            buffer.record(ParameterEvent::Value {
+                id,
+                normalized: 0.5,
+            });
+        }
+        buffer.record(ParameterEvent::MetadataChanged);
+        let batch = buffer.take();
+        assert_eq!(batch.events.len(), PARAMETER_EVENT_CAPACITY);
+        assert_eq!(batch.events[0], ParameterEvent::MetadataChanged);
+        assert_eq!(
+            batch
+                .events
+                .iter()
+                .filter(|event| **event == ParameterEvent::MetadataChanged)
+                .count(),
+            1
+        );
+        assert!(batch.resync_required);
+    }
+
+    #[test]
+    fn reported_values_replace_the_queued_one_up_to_a_gesture() {
+        let buffer = ParameterEventBuffer::default();
+        for normalized in [0.1, 0.2, 0.3] {
+            buffer.record_value(7, normalized);
+            buffer.record_value(8, normalized);
+        }
+        buffer.record(ParameterEvent::BeginEdit { id: 7 });
+        buffer.record_value(7, 0.4);
+        buffer.record_value(7, 0.5);
+        let value = |id, normalized| ParameterEvent::Value { id, normalized };
+        assert_eq!(
+            buffer.take().events,
+            [
+                value(7, 0.3),
+                value(8, 0.3),
+                ParameterEvent::BeginEdit { id: 7 },
+                value(7, 0.5)
+            ]
+        );
     }
 }

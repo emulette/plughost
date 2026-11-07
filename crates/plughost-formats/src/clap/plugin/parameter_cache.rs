@@ -36,6 +36,12 @@ impl Parameter {
     pub fn normalized(&self, plain: f64) -> Option<f64> {
         crate::parameter_values::normalized(plain, self.min, self.max)
     }
+
+    /// A value the plugin reports normalized, when it is one of the parameter's: in the range
+    /// or past an end by rounding.
+    pub fn reported(&self, plain: f64) -> Option<f64> {
+        crate::parameter_values::reported(plain, self.min, self.max)
+    }
 }
 
 #[derive(Default)]

@@ -1,8 +1,8 @@
 //! Native bus discovery and complete arrangement/activation negotiation.
 use super::{errors::Vst3Error, host::wide_string, instance::Instance};
 use plughost_core::{
-    AudioBusConfig, AudioBusInfo, AudioBusRole, AudioConfig, AudioDirection, Layout, ProcessConfig,
-    Support,
+    AudioBusConfig, AudioBusInfo, AudioBusRole, AudioConfig, AudioDirection, EventPortInfo, Layout,
+    ProcessConfig, Support,
 };
 use vst3::Steinberg::Vst::{
     BusDirections_, BusInfo, BusTypes_, IAudioProcessorTrait, IComponentTrait, MediaTypes_,
@@ -53,15 +53,56 @@ fn layout(value: SpeakerArrangement) -> Option<Layout> {
         .find(|&layout| arrangement(layout) == Some(value))
 }
 
+/// What the owning thread asks the component and processor about, besides the audio buses: read
+/// before the plugin activates, and answered from here while it is prepared. VST3 allows these
+/// queries on the UI thread while the processor does not process. The event ports' note
+/// expressions are the controller's, asked when the ports are.
+#[derive(Clone)]
+pub(crate) struct Queried {
+    pub event_ports: Vec<EventPortInfo>,
+    pub f32: Support,
+    pub f64: Support,
+    pub note_input: Support,
+    pub note_output: Support,
+}
+
 impl Instance {
-    pub fn audio_buses(&self) -> Result<Vec<AudioBusInfo>, Vst3Error> {
-        let precision = |size| match unsafe { self.processor.canProcessSampleSize(size) } {
+    /// Whether the processor processes samples of `size`.
+    fn precision(&self, size: i32) -> Support {
+        match unsafe { self.processor.canProcessSampleSize(size) } {
             result if result == kResultOk => Support::Supported,
             result if result == kResultFalse => Support::Unsupported,
             _ => Support::Unknown,
+        }
+    }
+
+    /// Reads [`Queried`], without calling the controller. Call it while the processor does not
+    /// process.
+    pub(crate) fn queried(&self) -> Result<Queried, Vst3Error> {
+        let notes = |direction| {
+            let count = unsafe {
+                self.component
+                    .getBusCount(MediaTypes_::kEvent as i32, direction)
+            };
+            if count < 0 {
+                Support::Unknown
+            } else {
+                (count > 0).into()
+            }
         };
-        let f32 = precision(SymbolicSampleSizes_::kSample32 as i32);
-        let f64 = precision(SymbolicSampleSizes_::kSample64 as i32);
+        Ok(Queried {
+            event_ports: self.event_ports_with(|_| Support::Unknown)?,
+            f32: self.precision(SymbolicSampleSizes_::kSample32 as i32),
+            f64: self.precision(SymbolicSampleSizes_::kSample64 as i32),
+            note_input: notes(BusDirections_::kInput as i32),
+            note_output: notes(BusDirections_::kOutput as i32),
+        })
+    }
+
+    /// The audio buses. Call it while the processor does not process.
+    pub fn audio_buses(&self) -> Result<Vec<AudioBusInfo>, Vst3Error> {
+        let f32 = self.precision(SymbolicSampleSizes_::kSample32 as i32);
+        let f64 = self.precision(SymbolicSampleSizes_::kSample64 as i32);
         let mut buses = Vec::new();
         for dir in [AudioDirection::Input, AudioDirection::Output] {
             let count = unsafe {

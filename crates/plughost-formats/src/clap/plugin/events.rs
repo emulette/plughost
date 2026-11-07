@@ -68,14 +68,15 @@ impl clack_host::events::io::OutputEventBuffer for ParameterOutput<'_> {
                     queue.record(ParameterEvent::ValuesChanged);
                     return Ok(());
                 };
-                // A notification outside the parameter's range is not one of its values.
-                let Some(normalized) = parameter
-                    .normalized(value.value())
-                    .filter(|_| (parameter.min..=parameter.max).contains(&value.value()))
-                else {
+                // A value past the range by more than rounding is not one of the parameter's:
+                // the application reads the values again.
+                let Some(normalized) = parameter.reported(value.value()) else {
+                    queue.record(ParameterEvent::ValuesChanged);
                     return Ok(());
                 };
-                ParameterEvent::Value { id, normalized }
+                // A meter reports its value every block; the queue keeps the latest.
+                queue.record_value(id, normalized);
+                return Ok(());
             }
             Some(CoreEventSpace::ParamGestureBegin(value)) => {
                 let Some(id) = value.param_id() else {
