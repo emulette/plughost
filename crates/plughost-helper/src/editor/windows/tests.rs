@@ -5,6 +5,15 @@ use windows_sys::Win32::UI::HiDpi::{AreDpiAwarenessContextsEqual, GetThreadDpiAw
 
 use super::*;
 
+/// The SDK sample's editors crash when two threads open them at once; one test opens them at a
+/// time.
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    static EDITORS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    EDITORS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn client_size(hwnd: HWND) -> (i32, i32) {
     let mut rect = RECT::default();
     assert_ne!(unsafe { GetClientRect(hwnd, &mut rect) }, 0);
@@ -14,6 +23,7 @@ fn client_size(hwnd: HWND) -> (i32, i32) {
 #[test]
 #[ignore = "needs scripts/build-test-plugins.ps1; opens a window"]
 fn native_editor_scales_minimizes_closes_and_reopens() {
+    let _serial = serial();
     let _runtime = crate::events::init(true).unwrap();
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-plugins/again.vst3");
     // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
@@ -60,4 +70,32 @@ fn native_editor_scales_minimizes_closes_and_reopens() {
     drop(editor);
     assert_eq!(unsafe { IsWindow(hwnd) }, 0);
     EditorWindow::open(&mut plugin).unwrap().close(&mut plugin);
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.ps1; opens a window"]
+fn a_size_the_system_does_not_give_the_window_is_refused_and_undone() {
+    let _serial = serial();
+    let _runtime = crate::events::init(true).unwrap();
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-plugins/again.vst3");
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    let module = unsafe { Module::load(&path) }.unwrap();
+    let mut plugin = Plugin::new(
+        &module,
+        module.classes()[0].id.class_id().as_str(),
+        &plughost_core::HostIdentity::default(),
+    )
+    .unwrap();
+    let editor = EditorWindow::open(&mut plugin).unwrap();
+    let hwnd = editor.state.hwnd.get();
+    let initial = client_size(hwnd);
+    let (width, height) = (initial.0 as u32, initial.1 as u32);
+    // A captioned window is never one pixel wide.
+    assert!(!editor.state.resize_exactly(1, height));
+    assert_eq!(client_size(hwnd), initial);
+    assert_eq!(editor.size(), (width, height));
+    assert!(editor.state.resize_exactly(width + 20, height + 10));
+    assert_eq!(client_size(hwnd), (initial.0 + 20, initial.1 + 10));
+    assert_eq!(editor.size(), (width + 20, height + 10));
+    editor.close(&mut plugin);
 }

@@ -93,7 +93,7 @@ pub enum Error {
     /// chain under it, and processing through the chain itself.
     RealtimeRunning,
     /// A remote session's channel closed: its helper exited, or a later
-    /// [`Chain::remote_session`](crate::Chain::remote_session) replaced it.
+    /// `Chain::remote_session` (macOS) replaced it.
     RemoteSessionEnded,
     /// A remote session's commands back up past what it holds; this one was not sent.
     RemoteBacklog,

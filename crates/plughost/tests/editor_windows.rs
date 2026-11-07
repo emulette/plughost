@@ -1,14 +1,17 @@
 //! Editor windows of a real helper on the desktop: keyboard focus, window sizes the system
-//! corrects, and editors that show, hide and close themselves. Build the helper and the test plugins first (see `support`).
+//! corrects, editors that show, hide and close themselves, and windows that outlast the instance
+//! whose editor they show. Build the helper and the test plugins first (see `support`).
 #![cfg(target_os = "windows")]
 
 use std::time::{Duration, Instant};
 
-use plughost::{BlockContext, Chain, Event, Events, Layout, PluginFormat};
+use plughost::{BlockContext, Chain, Event, Events, Layout, PluginFormat, StatePurpose};
 use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GA_ROOT, GUITHREADINFO, GetAncestor, GetClassNameW, GetClientRect,
-    GetGUIThreadInfo, GetWindowThreadProcessId, IsWindowVisible,
+    EnumWindows, GA_ROOT, GUITHREADINFO, GW_CHILD, GetAncestor, GetClassNameW, GetClientRect,
+    GetForegroundWindow, GetGUIThreadInfo, GetWindow, GetWindowPlacement, GetWindowThreadProcessId,
+    IsIconic, IsWindowVisible, SW_MINIMIZE, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
+    ShowWindowAsync, WINDOWPLACEMENT,
 };
 
 mod support;
@@ -111,6 +114,115 @@ fn a_floating_editor_follows_its_own_requests_and_reopens() {
     expect(&mut chain, true, Some(true));
     chain.close_editor(0).unwrap();
     expect(&mut chain, false, None);
+}
+
+#[test]
+#[ignore = "needs helper and synth fixtures and a desktop session"]
+fn a_hidden_floating_editor_stays_hidden_when_the_chain_is_prepared_again() {
+    let _serial = support::editor_test();
+    let mut chain = spawn(&[fixture(
+        PluginFormat::Clap,
+        "plughost-test-synth",
+        "com.studio.plughost.test-synth",
+    )]);
+    let config = chain
+        .main_bus_config(48_000.0, 512, Layout::None, &[Layout::Stereo])
+        .unwrap();
+    chain.prepare_audio(&config).unwrap();
+    chain.open_editor(0).unwrap();
+    expect(&mut chain, true, Some(true));
+    request(&mut chain, 0);
+    expect(&mut chain, true, Some(false));
+    // Preparing a prepared chain stages a fresh instance, whose editor reopens in place.
+    chain.prepare_audio(&config).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    expect(&mut chain, true, Some(false));
+    chain.close_editor(0).unwrap();
+}
+
+/// The window's normal place, whether it is visible and minimized, and whether it holds an editor.
+fn frame(window: HWND) -> ((i32, i32, i32, i32), bool, bool, bool) {
+    let mut placement = WINDOWPLACEMENT {
+        length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+        ..Default::default()
+    };
+    assert_ne!(unsafe { GetWindowPlacement(window, &mut placement) }, 0);
+    let place = placement.rcNormalPosition;
+    (
+        (place.left, place.top, place.right, place.bottom),
+        unsafe { IsWindowVisible(window) } != 0,
+        unsafe { IsIconic(window) } != 0,
+        !unsafe { GetWindow(window, GW_CHILD) }.is_null(),
+    )
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn an_editor_keeps_its_window_when_its_instance_is_replaced() {
+    let _serial = support::editor_test();
+    let mut chain = spawn(&[delay_variant(PluginFormat::Clap, "editor", 0xB)]);
+    prepare(&mut chain);
+    let pid = chain.helper_monitor().process_id();
+    chain.open_editor(0).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let editor = loop {
+        assert!(chain.editor_open(0).unwrap());
+        if let Some(editor) = window(pid, "PlughostEditorWindow")
+            && frame(editor).1
+        {
+            break editor;
+        }
+        assert!(Instant::now() < deadline, "the editor window never showed");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    // Restoring a state and preparing the chain again each replace the plugin's instance.
+    let replace = |chain: &mut Chain| {
+        let state = chain.save_state(0, StatePurpose::Project).unwrap();
+        chain
+            .restore_state(0, &state, StatePurpose::Project)
+            .unwrap();
+        assert!(chain.editor_open(0).unwrap());
+        let restored = (window(pid, "PlughostEditorWindow"), frame(editor));
+        prepare(chain);
+        assert!(chain.editor_open(0).unwrap());
+        [
+            restored,
+            (window(pid, "PlughostEditorWindow"), frame(editor)),
+        ]
+    };
+    // The user moved the window.
+    assert_ne!(
+        unsafe {
+            SetWindowPos(
+                editor,
+                std::ptr::null_mut(),
+                160,
+                140,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            )
+        },
+        0
+    );
+    let shown = frame(editor);
+    assert!(shown.1 && !shown.2 && shown.3, "{shown:?}");
+    assert_eq!(replace(&mut chain), [(Some(editor), shown); 2]);
+    // The user minimized it and went on in another window.
+    unsafe { ShowWindowAsync(editor, SW_MINIMIZE) };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while unsafe { IsIconic(editor) } == 0 || unsafe { GetForegroundWindow() } == editor {
+        assert!(
+            Instant::now() < deadline,
+            "the editor window never minimized"
+        );
+        assert!(chain.editor_open(0).unwrap());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let minimized = frame(editor);
+    assert_eq!(replace(&mut chain), [(Some(editor), minimized); 2]);
+    assert_ne!(unsafe { GetForegroundWindow() }, editor);
+    chain.close_editor(0).unwrap();
 }
 
 #[test]

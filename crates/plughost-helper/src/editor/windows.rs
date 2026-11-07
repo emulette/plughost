@@ -212,10 +212,13 @@ impl EditorWindow {
             return Ok(());
         };
         self.floating = false;
+        // Only the resize frame follows the editor; the window keeps its visible, minimized and
+        // maximized state, which a reattached editor must not change.
+        let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32;
         let style = if plugin.editor_can_resize() {
-            STYLE | WS_THICKFRAME | WS_MAXIMIZEBOX
+            style | WS_THICKFRAME | WS_MAXIMIZEBOX
         } else {
-            STYLE
+            style & !(WS_THICKFRAME | WS_MAXIMIZEBOX)
         };
         unsafe { SetWindowLongW(hwnd, GWL_STYLE, style as i32) };
         if !self.state.resize(width, height) {
