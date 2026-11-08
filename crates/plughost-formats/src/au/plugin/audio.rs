@@ -1,5 +1,6 @@
 //! AU bus negotiation. Channel counts are constraints, not speaker arrangements.
 use std::ops::Range;
+use std::ptr::NonNull;
 
 use objc2::rc::Retained;
 use objc2::{AnyThread, msg_send};
@@ -475,6 +476,24 @@ pub(super) fn configure(
                     order,
                 });
                 offset = end;
+            } else {
+                // Units may refuse to allocate while any bus, enabled or not, has another rate.
+                let current = self::format(&bus)?;
+                if unsafe { current.sampleRate() } != config.sample_rate {
+                    let mut description = unsafe { *current.streamDescription().as_ptr() };
+                    description.mSampleRate = config.sample_rate;
+                    let format = unsafe {
+                        AVAudioFormat::initWithStreamDescription_channelLayout(
+                            AVAudioFormat::alloc(),
+                            NonNull::from(&description),
+                            current.channelLayout().as_deref(),
+                        )
+                    }
+                    .ok_or(AuError::AudioConfiguration)?;
+                    let set: Result<(), Retained<NSError>> =
+                        unsafe { msg_send![&*bus, setFormat: &*format, error: _] };
+                    set.map_err(|_| AuError::AudioConfiguration)?;
+                }
             }
             unsafe { bus.setEnabled(active) };
             if unsafe { bus.isEnabled() } != active {

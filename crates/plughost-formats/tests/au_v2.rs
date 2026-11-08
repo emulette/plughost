@@ -4,6 +4,10 @@
 //! setting its second one renames the list's values, which the unit announces through
 //! `kAudioUnitProperty_ParameterValueStrings` listeners. Its third parameter is an index from 0 to
 //! 22, whose values the unit records as it receives them.
+//!
+//! Two more registrations of the unit differ in one way each: one lowers a maximum block size
+//! above `FRAME_LIMIT` to it, and one has a second stereo output and fails to initialize while its
+//! outputs have different sample rates.
 
 #![cfg(target_os = "macos")]
 
@@ -21,6 +25,14 @@ const FAIL_KEY: u8 = 127;
 
 /// The values the unit received for `STEPS`: set, or scheduled at a buffer offset.
 static STEPS_RECEIVED: Mutex<Vec<(Option<u32>, f32)>> = Mutex::new(Vec::new());
+
+/// The largest maximum block size the `LIMITED` registration accepts.
+const FRAME_LIMIT: u32 = 256;
+
+/// The registrations of the unit, by subtype.
+const ECHO: [u8; 4] = *b"v2ec";
+const LIMITED: [u8; 4] = *b"v2lm";
+const AUXILIARY: [u8; 4] = *b"v2ax";
 
 use objc2_audio_toolbox::{
     AUChannelInfo, AudioComponentDescription, AudioComponentInstance, AudioComponentMethod,
@@ -107,7 +119,9 @@ struct Listener {
 
 struct State {
     unit: AudioUnit,
-    format: AudioStreamBasicDescription,
+    subtype: [u8; 4],
+    /// The format of each output.
+    formats: Vec<AudioStreamBasicDescription>,
     max_frames: u32,
     values: [f32; 3],
     renamed: bool,
@@ -160,8 +174,13 @@ fn stereo(sample_rate: f64) -> AudioStreamBasicDescription {
 }
 
 unsafe extern "C-unwind" fn factory(
-    _: NonNull<AudioComponentDescription>,
+    description: NonNull<AudioComponentDescription>,
 ) -> *mut AudioComponentPlugInInterface {
+    // SAFETY: the system passes the description of the registered component it instantiates.
+    let subtype = unsafe { description.as_ref() }
+        .componentSubType
+        .to_be_bytes();
+    let outputs = if subtype == AUXILIARY { 2 } else { 1 };
     let instance = Box::new(Instance {
         interface: AudioComponentPlugInInterface {
             Open: open,
@@ -171,7 +190,8 @@ unsafe extern "C-unwind" fn factory(
         },
         state: Mutex::new(State {
             unit: std::ptr::null_mut(),
-            format: stereo(48_000.0),
+            subtype,
+            formats: vec![stereo(48_000.0); outputs],
             max_frames: 1156,
             values: [0.0; 3],
             renamed: false,
@@ -197,7 +217,8 @@ unsafe extern "C-unwind" fn close(this: NonNull<c_void>) -> OsStatus {
 
 unsafe extern "C-unwind" fn lookup(selector: i16) -> AudioComponentMethod {
     let method: *const c_void = match selector {
-        0x0001 | 0x0002 => no_op as *const c_void,
+        0x0001 => initialize as *const c_void,
+        0x0002 => no_op as *const c_void,
         0x0003 => get_property_info as *const c_void,
         0x0004 => get_property as *const c_void,
         0x0005 => set_property as *const c_void,
@@ -221,6 +242,19 @@ unsafe extern "C-unwind" fn no_op(_: NonNull<c_void>) -> OsStatus {
     0
 }
 
+unsafe extern "C-unwind" fn initialize(this: NonNull<c_void>) -> OsStatus {
+    let state = state(this);
+    let rate = state.formats[0].mSampleRate;
+    if state
+        .formats
+        .iter()
+        .any(|format| format.mSampleRate != rate)
+    {
+        return kAudioUnitErr_FormatNotSupported;
+    }
+    0
+}
+
 unsafe extern "C-unwind" fn reset(_: NonNull<c_void>, _: AudioUnitScope, _: u32) -> OsStatus {
     // The product is zero only when the thread flushes subnormal results.
     let product = std::hint::black_box(f32::MIN_POSITIVE / 2.0) * std::hint::black_box(1.0f32);
@@ -229,17 +263,21 @@ unsafe extern "C-unwind" fn reset(_: NonNull<c_void>, _: AudioUnitScope, _: u32)
 }
 
 /// The size of a property, or None when the unit does not have it there.
-fn property_size(id: AudioUnitPropertyID, scope: AudioUnitScope, element: u32) -> Option<usize> {
+fn property_size(
+    state: &State,
+    id: AudioUnitPropertyID,
+    scope: AudioUnitScope,
+    element: u32,
+) -> Option<usize> {
     let global = scope == kAudioUnitScope_Global;
+    let output = scope == kAudioUnitScope_Output && (element as usize) < state.formats.len();
     Some(match id {
         SAMPLE_RATE | LATENCY | TAIL_TIME => size_of::<f64>(),
         PARAMETER_LIST => usize::from(global) * NAMES.len() * size_of::<u32>(),
         PARAMETER_INFO if global && element <= STEPS => size_of::<AudioUnitParameterInfo>(),
         PARAMETER_VALUE_STRINGS if global && element == MODE => size_of::<*const CFArray>(),
         PARAMETER_STRING_FROM_VALUE => size_of::<AudioUnitParameterStringFromValue>(),
-        STREAM_FORMAT if scope == kAudioUnitScope_Output && element == 0 => {
-            size_of::<AudioStreamBasicDescription>()
-        }
+        STREAM_FORMAT if output => size_of::<AudioStreamBasicDescription>(),
         ELEMENT_COUNT | MAXIMUM_FRAMES_PER_SLICE => size_of::<u32>(),
         SUPPORTED_NUM_CHANNELS => size_of::<AUChannelInfo>(),
         MIDI_OUTPUT_CALLBACK_INFO => size_of::<*const CFArray>(),
@@ -249,14 +287,14 @@ fn property_size(id: AudioUnitPropertyID, scope: AudioUnitScope, element: u32) -
 }
 
 unsafe extern "C-unwind" fn get_property_info(
-    _: NonNull<c_void>,
+    this: NonNull<c_void>,
     id: AudioUnitPropertyID,
     scope: AudioUnitScope,
     element: u32,
     size: *mut u32,
     writable: *mut u8,
 ) -> OsStatus {
-    let Some(bytes) = property_size(id, scope, element) else {
+    let Some(bytes) = property_size(&state(this), id, scope, element) else {
         return kAudioUnitErr_InvalidProperty;
     };
     // SAFETY: the caller passes null or valid outputs.
@@ -328,14 +366,14 @@ unsafe extern "C-unwind" fn get_property(
     data: *mut c_void,
     size: *mut u32,
 ) -> OsStatus {
-    if property_size(id, scope, element).is_none() {
+    let state = state(this);
+    if property_size(&state, id, scope, element).is_none() {
         return kAudioUnitErr_InvalidProperty;
     }
-    let state = state(this);
     // SAFETY: the caller passes an output of the size the property info reported.
     unsafe {
         match id {
-            SAMPLE_RATE => put(data, size, state.format.mSampleRate),
+            SAMPLE_RATE => put(data, size, state.formats[0].mSampleRate),
             LATENCY | TAIL_TIME => put(data, size, 0.0f64),
             PARAMETER_LIST if scope == kAudioUnitScope_Global => {
                 put(data, size, [MODE, RENAME, STEPS])
@@ -359,8 +397,16 @@ unsafe extern "C-unwind" fn get_property(
                 (*request).outString = CFRetained::into_raw(CFString::from_str(name)).as_ptr();
                 0
             }
-            STREAM_FORMAT => put(data, size, state.format),
-            ELEMENT_COUNT => put(data, size, u32::from(scope != kAudioUnitScope_Input)),
+            STREAM_FORMAT => put(data, size, state.formats[element as usize]),
+            ELEMENT_COUNT => put(
+                data,
+                size,
+                if scope == kAudioUnitScope_Input {
+                    0
+                } else {
+                    state.formats.len() as u32
+                },
+            ),
             MAXIMUM_FRAMES_PER_SLICE => put(data, size, state.max_frames),
             SUPPORTED_NUM_CHANNELS => put(
                 data,
@@ -389,25 +435,34 @@ unsafe extern "C-unwind" fn set_property(
     // SAFETY: the caller passes `size` readable bytes.
     unsafe {
         match id {
-            SAMPLE_RATE if size == size_of::<f64>() => {
-                state.format.mSampleRate = data.cast::<f64>().read_unaligned();
+            SAMPLE_RATE
+                if scope == kAudioUnitScope_Output
+                    && (element as usize) < state.formats.len()
+                    && size == size_of::<f64>() =>
+            {
+                state.formats[element as usize].mSampleRate = data.cast::<f64>().read_unaligned();
                 0
             }
             STREAM_FORMAT
                 if scope == kAudioUnitScope_Output
-                    && element == 0
+                    && (element as usize) < state.formats.len()
                     && size == size_of::<AudioStreamBasicDescription>() =>
             {
                 let format = data.cast::<AudioStreamBasicDescription>().read_unaligned();
                 if format != stereo(format.mSampleRate) {
                     return kAudioUnitErr_FormatNotSupported;
                 }
-                state.format = format;
+                state.formats[element as usize] = format;
                 0
             }
             STREAM_FORMAT => kAudioUnitErr_InvalidElement,
             MAXIMUM_FRAMES_PER_SLICE if size == size_of::<u32>() => {
-                state.max_frames = data.cast::<u32>().read_unaligned();
+                let frames = data.cast::<u32>().read_unaligned();
+                state.max_frames = if state.subtype == LIMITED {
+                    frames.min(FRAME_LIMIT)
+                } else {
+                    frames
+                };
                 0
             }
             MIDI_OUTPUT_CALLBACK if size == size_of::<OutputTarget>() => {
@@ -647,54 +702,78 @@ unsafe extern "C-unwind" fn render(
     0
 }
 
-/// Registers the unit once and returns its class ID.
-fn class_id() -> String {
+/// Registers the unit's registrations once and returns the class ID of the one with `subtype`.
+fn registered(subtype: [u8; 4]) -> String {
     static REGISTER: Once = Once::new();
-    REGISTER.call_once(|| unsafe {
-        AudioComponentRegister(
-            NonNull::from(&AudioComponentDescription {
-                componentType: kAudioUnitType_MIDIProcessor,
-                componentSubType: u32::from_be_bytes(*b"v2ec"),
-                componentManufacturer: u32::from_be_bytes(*b"Plgh"),
-                componentFlags: 0,
-                componentFlagsMask: 0,
-            }),
-            &CFString::from_str("plughost: v2 echo"),
-            1,
-            Some(factory),
-        );
+    REGISTER.call_once(|| {
+        for (subtype, name) in [
+            (ECHO, "plughost: v2 echo"),
+            (LIMITED, "plughost: v2 limited"),
+            (AUXILIARY, "plughost: v2 auxiliary"),
+        ] {
+            unsafe {
+                AudioComponentRegister(
+                    NonNull::from(&AudioComponentDescription {
+                        componentType: kAudioUnitType_MIDIProcessor,
+                        componentSubType: u32::from_be_bytes(subtype),
+                        componentManufacturer: u32::from_be_bytes(*b"Plgh"),
+                        componentFlags: 0,
+                        componentFlagsMask: 0,
+                    }),
+                    &CFString::from_str(name),
+                    1,
+                    Some(factory),
+                );
+            }
+        }
     });
-    au::components()
-        .into_iter()
-        .find(|component| component.name == "v2 echo")
-        .unwrap()
-        .id
-        .class_id()
-        .to_string()
+    let id = format!(
+        "{:08X}{:08X}{:08X}",
+        kAudioUnitType_MIDIProcessor,
+        u32::from_be_bytes(subtype),
+        u32::from_be_bytes(*b"Plgh")
+    );
+    assert!(
+        au::components()
+            .iter()
+            .any(|component| component.id.class_id().to_string() == id)
+    );
+    id
 }
 
-fn prepared() -> Plugin {
+fn class_id() -> String {
+    registered(ECHO)
+}
+
+/// Prepares the registration with `subtype` with its first output active.
+fn prepare(
+    subtype: [u8; 4],
+    sample_rate: f64,
+    max_frames: usize,
+) -> Result<Plugin, plughost_formats::Error> {
     // SAFETY: the tests load only the repository's fixtures and Apple's own units.
-    let mut plugin = unsafe { Plugin::new(&class_id()) }.unwrap();
+    let mut plugin = unsafe { Plugin::new(&registered(subtype)) }.unwrap();
     let output = plugin
         .audio_buses()
         .unwrap()
         .into_iter()
         .find(|bus| bus.direction == AudioDirection::Output)
         .unwrap();
-    plugin
-        .prepare_audio(
-            &AudioConfig::new(
-                48_000.0,
-                512,
-                SampleFormat::F32,
-                Vec::new(),
-                vec![AudioBusConfig::new(output.id, Layout::Stereo, true)],
-            )
-            .with_events(EventConfig::new(vec![0], vec![0])),
+    plugin.prepare_audio(
+        &AudioConfig::new(
+            sample_rate,
+            max_frames,
+            SampleFormat::F32,
+            Vec::new(),
+            vec![AudioBusConfig::new(output.id, Layout::Stereo, true)],
         )
-        .unwrap();
-    plugin
+        .with_events(EventConfig::new(vec![0], vec![0])),
+    )?;
+    Ok(plugin)
+}
+
+fn prepared() -> Plugin {
+    prepare(ECHO, 48_000.0, 512).unwrap()
 }
 
 fn block(plugin: &mut Plugin, events: &Events) -> Events {
@@ -868,4 +947,42 @@ fn non_realtime_parameters_allow_edits_but_reject_block_automation() {
         Some(0.0),
         "the valid prefix must not have been scheduled"
     );
+}
+
+#[test]
+fn a_maximum_block_size_the_unit_lowers_fails_preparation() {
+    let error = prepare(LIMITED, 48_000.0, FRAME_LIMIT as usize + 1)
+        .err()
+        .unwrap();
+    assert_eq!(error.kind(), plughost_core::FailureKind::Configuration);
+    let mut plugin = prepare(LIMITED, 48_000.0, FRAME_LIMIT as usize).unwrap();
+    let mut output = vec![vec![0.0f32; FRAME_LIMIT as usize]; 2];
+    let mut outputs: Vec<&mut [f32]> = output.iter_mut().map(Vec::as_mut_slice).collect();
+    plugin
+        .process(
+            &plughost_core::BlockContext::new(FRAME_LIMIT as usize),
+            &[],
+            &mut outputs,
+            &[],
+            &Events::new(),
+            &mut Events::for_block(),
+        )
+        .unwrap();
+}
+
+#[test]
+fn an_inactive_output_runs_at_the_prepared_sample_rate() {
+    // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+    let buses = unsafe { Plugin::new(&registered(AUXILIARY)) }
+        .unwrap()
+        .audio_buses()
+        .unwrap();
+    assert_eq!(
+        buses
+            .iter()
+            .filter(|bus| bus.direction == AudioDirection::Output)
+            .count(),
+        2
+    );
+    prepare(AUXILIARY, 44_100.0, 512).unwrap();
 }

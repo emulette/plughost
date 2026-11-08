@@ -659,20 +659,36 @@ impl Engine {
             .try_reserve_exact(plughost_core::MAX_BLOCK_EVENTS)
             .map_err(|_| AuError::ProcessingStorage)?;
         let config = audio_config;
-        // AUAudioFrameCount is 32 bits, but the v2 bridge declares this setter with NSUInteger;
+        // AUAudioFrameCount is 32 bits, but the v2 bridge declares this property with NSUInteger;
         // objc2's message check requires the width the receiving class declares.
-        let wide = unit
-            .class()
+        let class = unit.class();
+        let wide_setter = class
             .instance_method(objc2::sel!(setMaximumFramesToRender:))
             .and_then(|method| method.argument_type(2))
             .is_some_and(|encoding| encoding.to_bytes() == b"Q");
-        unsafe {
-            if wide {
+        let wide_getter = class
+            .instance_method(objc2::sel!(maximumFramesToRender))
+            .is_some_and(|method| method.return_type().to_bytes() == b"Q");
+        // A unit may lower the maximum it is given; blocks above it would fail or overrun.
+        let accepted = unsafe {
+            if wide_setter {
                 let () = msg_send![unit, setMaximumFramesToRender: config.max_block_size as u64];
             } else {
                 unit.setMaximumFramesToRender(config.max_block_size as AUAudioFrameCount);
             }
             unit.setRenderingOffline(config.mode == ProcessMode::Offline);
+            if wide_getter {
+                let frames: u64 = msg_send![unit, maximumFramesToRender];
+                frames
+            } else {
+                u64::from(unit.maximumFramesToRender())
+            }
+        };
+        if accepted < config.max_block_size as u64 {
+            return Err(AuError::MaximumFrames {
+                requested: config.max_block_size,
+                accepted,
+            });
         }
 
         let sample_rate = config.sample_rate;
@@ -771,10 +787,15 @@ impl Engine {
         // SAFETY: the getters return valid blocks of these types, or null.
         let (render, schedule, schedule_midi) = unsafe {
             (
-                RcBlock::copy(unit.renderBlock().cast()).ok_or(AuError::RenderBlocks)?,
-                RcBlock::copy(unit.scheduleParameterBlock().cast()).ok_or(AuError::RenderBlocks)?,
+                RcBlock::copy(unit.renderBlock().cast()),
+                RcBlock::copy(unit.scheduleParameterBlock().cast()),
                 RcBlock::copy(unit.scheduleMIDIEventBlock().cast()),
             )
+        };
+        // An allocated unit refuses the format changes of the next preparation.
+        let (Some(render), Some(schedule)) = (render, schedule) else {
+            unsafe { unit.deallocateRenderResources() };
+            return Err(AuError::RenderBlocks);
         };
         self.prepared = Some(Prepared {
             config: audio_config.clone(),

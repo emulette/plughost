@@ -25,6 +25,7 @@ const SAMPLE_FORMAT_UNSUPPORTED: &str = "Audio Units process 32-bit float sample
 const NO_BUS: &str = "the Audio Unit has no bus for the requested layout";
 const LAYOUT_REFUSED: &str = "the Audio Unit refused the requested layout";
 const ALLOCATE: &str = "the Audio Unit could not allocate render resources";
+const MAXIMUM_FRAMES: &str = "the Audio Unit lowered the maximum block size";
 const PROCESSING_STORAGE: &str = "could not reserve the prepared Audio Unit audio buffers";
 const RENDER: &str = "the Audio Unit's render call failed";
 const RENDER_OUTPUT: &str = "the Audio Unit returned render buffers that do not match the request";
@@ -98,6 +99,13 @@ pub(crate) enum AuError {
     LayoutRefused(Layout, NativeError),
     /// The Audio Unit could not allocate render resources.
     Allocate(NativeError),
+    /// The Audio Unit lowered the maximum block size it was given.
+    MaximumFrames {
+        /// The prepared maximum block size.
+        requested: usize,
+        /// The maximum the unit kept.
+        accepted: u64,
+    },
     /// `AudioUnitSetParameter` returned the supplied OSStatus error code.
     SetParameter(i32),
     /// The plugin is not prepared for processing.
@@ -148,6 +156,10 @@ impl fmt::Display for AuError {
             AuError::NoBus(layout) => write!(f, "{NO_BUS} ({layout:?})"),
             AuError::LayoutRefused(layout, _) => write!(f, "{LAYOUT_REFUSED} ({layout:?})"),
             AuError::Allocate(_) => f.write_str(ALLOCATE),
+            AuError::MaximumFrames {
+                requested,
+                accepted,
+            } => write!(f, "{MAXIMUM_FRAMES} from {requested} to {accepted} frames"),
             AuError::NotPrepared => f.write_str(NOT_PREPARED),
             AuError::Invalidated => f.write_str(INVALIDATED),
             AuError::ProcessingStorage => f.write_str(PROCESSING_STORAGE),
@@ -208,9 +220,10 @@ impl AuError {
             Self::Instantiate(_) => FailureKind::Load,
             Self::SetParameter(_) => FailureKind::State,
             Self::SampleFormatUnsupported(_) | Self::NoEditor => FailureKind::Unsupported,
-            Self::NoBus(_) | Self::LayoutRefused(_, _) | Self::Allocate(_) => {
-                FailureKind::Configuration
-            }
+            Self::NoBus(_)
+            | Self::LayoutRefused(_, _)
+            | Self::Allocate(_)
+            | Self::MaximumFrames { .. } => FailureKind::Configuration,
             Self::NotPrepared => FailureKind::NotPrepared,
             Self::Closed => FailureKind::Closed,
             Self::Invalidated => FailureKind::RestartRequired,
