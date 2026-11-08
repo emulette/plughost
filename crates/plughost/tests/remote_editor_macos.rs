@@ -20,7 +20,8 @@ use plughost::{
 mod support;
 
 use support::desktop::{
-    CGMainDisplayID, act, cursor, display_origin, frontmost, test_display, value, wait, windows,
+    CGMainDisplayID, act, cursor, display_origin, frontmost, move_machine_cursor, test_display,
+    value, wait, windows,
 };
 use support::{delay_variant, fixture, helper, spawn};
 
@@ -708,7 +709,8 @@ fn relative_moves_go_on_from_where_the_plugin_warped_the_mouse() {
 #[ignore = "needs helper and delay fixtures and a desktop session"]
 fn moves_over_the_editor_reach_its_tracking_area() {
     let _serial = support::editor_test();
-    // The machine's cursor over the region would hover the editor too.
+    // Without accessibility access for the helper's parent, the machine's cursor over the region
+    // would hover the editor too.
     let (x, y, width, height) = global(100.0, 100.0, 300.0, 200.0);
     let (cursor_x, cursor_y) = cursor();
     assert!(
@@ -1400,4 +1402,102 @@ fn a_waiting_panel_is_given_up_when_its_editor_closes_or_its_instance_is_replace
     // The session's end calls no handler of them.
     drop(session);
     assert_eq!(value(&mut chain, PANEL_RESULT), 0.0);
+}
+
+/// Apple's AUDelay, a version 2 unit, which runs the run loop for a while in a save after an edit
+/// so its listeners take the edit.
+fn audelay() -> PluginRef {
+    PluginRef::audio_unit("6175667864656C796170706C")
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_wait_of_the_host_in_a_request_is_no_nested_loop_and_runs_no_panel_handler() {
+    // AUDelay's save runs the run loop for 100 ms after an edit, for its listeners.
+    const SAVE_WAIT: Duration = Duration::from_millis(100);
+    let _serial = support::editor_test();
+    let mut chain = spawn_remote(&[editor(), audelay()]);
+    let mut session = chain.remote_session().unwrap();
+    chain
+        .set_remote_region(region(100.0, 100.0, 300.0, 200.0))
+        .unwrap();
+    chain.open_remote_editor(0).unwrap();
+    let sender = session.sender();
+    let (panel, _, _) = ask_panel(&mut chain, &mut session, "20");
+    let notices = std::thread::spawn(move || {
+        let mut notices = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if let Some(notice) = session.recv(Duration::from_millis(20)).unwrap() {
+                notices.push((notice, Instant::now()));
+            }
+        }
+        notices
+    });
+    chain.set_parameter(1, 0, 0.3).unwrap();
+    let started = Instant::now();
+    // The answer comes while the save waits.
+    let answering = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(30));
+        answer(&sender, panel, Some(vec![scratch("a.fxp")]));
+    });
+    chain
+        .save_state(1, plughost::StatePurpose::Project)
+        .unwrap();
+    answering.join().unwrap();
+    let notices = notices.join().unwrap();
+    assert!(
+        !notices
+            .iter()
+            .any(|(notice, _)| matches!(notice, Notice::Nested { depth, .. } if *depth > 0)),
+        "the save's wait was told as a nested loop: {notices:?}"
+    );
+    let finished = notices
+        .iter()
+        .find(|(notice, _)| *notice == Notice::panel_finished(panel))
+        .map(|(_, at)| *at)
+        .expect("the panel was not answered");
+    assert!(
+        finished.duration_since(started) >= SAVE_WAIT,
+        "the panel's handler ran {:?} into the save",
+        finished.duration_since(started)
+    );
+    assert_eq!(value(&mut chain, PANEL_RESULT), 3.0);
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures, a desktop session and accessibility access"]
+fn the_machines_mouse_over_the_region_does_not_reach_the_editor() {
+    let _serial = support::editor_test();
+    let (x, y, width, height) = global(100.0, 100.0, 300.0, 200.0);
+    let (back_x, back_y) = cursor();
+    let (mut chain, _session, _) = shown_editor();
+    // The window server lists the editor's window once it shows.
+    let pid = chain.helper_monitor().process_id();
+    wait(
+        &mut chain,
+        |_| !on_screen(pid).is_empty(),
+        "the editor's window did not show",
+    );
+    // Into the editor's view, 20 points into the region, across it and out again.
+    move_machine_cursor(x - 50.0, y - 50.0);
+    for (dx, dy) in [
+        (80.0, 60.0),
+        (120.0, 70.0),
+        (200.0, 80.0),
+        (width + 50.0, height + 50.0),
+    ] {
+        move_machine_cursor(x + dx, y + dy);
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    move_machine_cursor(back_x, back_y);
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        (
+            value(&mut chain, ENTERED),
+            value(&mut chain, MOVED),
+            value(&mut chain, EXITED)
+        ),
+        (0.0, 0.0, 0.0)
+    );
 }

@@ -641,6 +641,16 @@ fn post(
 /// so they run in the order they came whichever timer fires first.
 fn deliver(command: Command) {
     DELIVERIES.with_borrow_mut(|deliveries| deliveries.push_back(command));
+    if !arm(0.0) {
+        DELIVERIES.with_borrow_mut(VecDeque::pop_back);
+    }
+}
+
+/// How long a command that came during a wait waits before it is tried again.
+const AFTER_WAIT: f64 = 0.01;
+
+/// Adds a timer that runs the first command waiting `after` seconds from now, in every mode.
+fn arm(after: f64) -> bool {
     let mut context = objc2_core_foundation::CFRunLoopTimerContext {
         version: 0,
         info: std::ptr::null_mut(),
@@ -648,18 +658,23 @@ fn deliver(command: Command) {
         release: None,
         copyDescription: None,
     };
-    let fire = CFAbsoluteTimeGetCurrent();
+    let fire = CFAbsoluteTimeGetCurrent() + after;
     // SAFETY: the context is a valid version 0 context with no info, copied by the call.
     let timer =
         unsafe { CFRunLoopTimer::new(None, fire, 0.0, 0, 0, Some(delivered), &mut context) };
-    if let (Some(timer), Some(main)) = (timer, CFRunLoop::main()) {
-        main.add_timer(Some(&timer), unsafe { kCFRunLoopCommonModes });
-    } else {
-        DELIVERIES.with_borrow_mut(VecDeque::pop_back);
-    }
+    let (Some(timer), Some(main)) = (timer, CFRunLoop::main()) else {
+        return false;
+    };
+    main.add_timer(Some(&timer), unsafe { kCFRunLoopCommonModes });
+    true
 }
 
+/// A command that comes while host code waits in a request runs after the wait, as one acting
+/// on the machine could not act before it either.
 unsafe extern "C-unwind" fn delivered(_timer: *mut CFRunLoopTimer, _info: *mut std::ffi::c_void) {
+    if crate::events::in_wait() && arm(AFTER_WAIT) {
+        return;
+    }
     match DELIVERIES.with_borrow_mut(VecDeque::pop_front) {
         Some(Command::ChooseMenuItem(choice)) => menu::choose(&choice),
         Some(Command::CloseMenu(id)) => menu::close(id),

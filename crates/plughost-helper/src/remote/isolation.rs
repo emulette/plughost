@@ -4,9 +4,16 @@
 //! in the Finder, open nothing on the machine: the session is told instead
 //! (`-[NSWorkspace openURL:]`, `openURL:configuration:completionHandler:`, `openFile:`,
 //! `activateFileViewerSelectingURLs:`, `selectFile:inFileViewerRootedAtPath:`, and through the
-//! symbol rebinding `LSOpenCFURLRef`).
+//! symbol rebinding `LSOpenCFURLRef`). The machine's own mouse does not reach its windows: an
+//! event tap for this process drops the mouse events the window server routes to it, the moves
+//! that make tracking areas take an entry first among them, which AppKit hands to their owners
+//! inside the loop that takes events, out of reach of monitors and `sendEvent:`. The session's
+//! input goes into the application's queue and never passes the tap. A tap that drops events
+//! needs the application that started the helper to have accessibility access.
 
+use std::ffi::c_void;
 use std::path::PathBuf;
+use std::ptr::NonNull;
 use std::sync::{Once, OnceLock};
 
 use block2::Block;
@@ -15,6 +22,10 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, Bool, Imp, Sel};
 use objc2::{ClassType, sel};
 use objc2_app_kit::{NSPasteboard, NSPasteboardNameGeneral, NSWorkspace};
+use objc2_core_foundation::{CFMachPort, CFRetained, CFRunLoop, kCFRunLoopCommonModes};
+use objc2_core_graphics::{
+    CGEvent, CGEventTapOptions, CGEventTapPlacement, CGEventTapProxy, CGEventType,
+};
 use objc2_foundation::{NSArray, NSString, NSURL};
 use plughost_core::remote::Notice;
 
@@ -114,6 +125,67 @@ extern "C-unwind" fn select_file(
     };
     reveal(vec![PathBuf::from(path.to_string())]);
     Bool::YES
+}
+
+/// The event types the machine's mouse sends: buttons, moves, drags, the wheel, and a tracking
+/// area's entry and exit, which have no `CGEventType` of their own (8 and 9).
+const MACHINE_MOUSE: [u32; 13] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 22, 25, 26, 27];
+
+/// The tap, which the window server disables when its thread answers late.
+static TAP: OnceLock<usize> = OnceLock::new();
+
+unsafe extern "C-unwind" fn machine_mouse(
+    _proxy: CGEventTapProxy,
+    kind: CGEventType,
+    event: NonNull<CGEvent>,
+    _info: *mut c_void,
+) -> *mut CGEvent {
+    if kind == CGEventType::TapDisabledByTimeout || kind == CGEventType::TapDisabledByUserInput {
+        if let Some(&tap) = TAP.get() {
+            // SAFETY: the tap lives for the rest of the process's life.
+            CGEvent::tap_enable(unsafe { &*(tap as *const CFMachPort) }, true);
+        }
+        return event.as_ptr();
+    }
+    if MACHINE_MOUSE.contains(&kind.0) {
+        return std::ptr::null_mut();
+    }
+    event.as_ptr()
+}
+
+/// Keeps the machine's mouse from the helper's windows for the rest of the process's life, on a
+/// thread of its own so the window server does not wait for the main thread. Returns whether it
+/// could: without accessibility access the tap cannot drop events.
+pub fn keep_machine_mouse() -> bool {
+    let (made, was_made) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mask = MACHINE_MOUSE
+            .iter()
+            .fold(0u64, |mask, kind| mask | 1 << kind);
+        // SAFETY: the callback has the tap's signature and takes no context.
+        let tap = unsafe {
+            CGEvent::tap_create_for_pid(
+                std::process::id() as libc::pid_t,
+                CGEventTapPlacement::HeadInsertEventTap,
+                CGEventTapOptions::Default,
+                mask,
+                Some(machine_mouse),
+                std::ptr::null_mut(),
+            )
+        };
+        let source = tap
+            .as_ref()
+            .and_then(|tap| CFMachPort::new_run_loop_source(None, Some(tap), 0));
+        let (Some(tap), Some(source), Some(run_loop)) = (tap, source, CFRunLoop::current()) else {
+            let _ = made.send(false);
+            return;
+        };
+        run_loop.add_source(Some(&source), unsafe { kCFRunLoopCommonModes });
+        let _ = TAP.set(CFRetained::into_raw(tap).as_ptr() as usize);
+        let _ = made.send(true);
+        CFRunLoop::run();
+    });
+    was_made.recv().unwrap_or(false)
 }
 
 /// Tells the session the plugin asked to open `url`.

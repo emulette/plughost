@@ -5,6 +5,7 @@
 //! is not active (JUCE does) are told it is.
 
 use std::sync::Once;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 mod cursor;
 mod hover;
@@ -42,14 +43,23 @@ extern "C-unwind" fn active(_this: *mut AnyObject, _cmd: Sel) -> Bool {
     Bool::YES
 }
 
+/// Whether the machine's mouse is kept from the helper's windows; see [`isolation`].
+static MACHINE_MOUSE_KEPT: AtomicBool = AtomicBool::new(false);
+
+/// Whether the machine's mouse is kept from the helper's windows.
+pub fn machine_mouse_kept() -> bool {
+    MACHINE_MOUSE_KEPT.load(Ordering::Relaxed)
+}
+
 /// Puts the process in remote mode for the rest of its life: activating the application does
 /// nothing, the application reports itself active, plugins move the helper's own mouse and set
-/// its own cursor, not the machine's, and they copy to a pasteboard of its own and open nothing
-/// on the machine.
+/// its own cursor, not the machine's, they copy to a pasteboard of its own and open nothing on
+/// the machine, and the machine's mouse does not reach its windows when it can be kept away.
 pub fn enter() {
     rebind::install();
     cursor::install();
     isolation::install();
+    MACHINE_MOUSE_KEPT.store(isolation::keep_machine_mouse(), Ordering::Relaxed);
     static ENTERED: Once = Once::new();
     ENTERED.call_once(|| {
         // SAFETY: each replacement has the signature its type encoding states, which is the

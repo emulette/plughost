@@ -204,7 +204,9 @@ extern "C-unwind" fn run_modal(panel: &NSSavePanel, _cmd: Sel) -> isize {
             break answer;
         }
         // SAFETY: the default mode is a valid mode; the session's commands come in it.
-        unsafe { CFRunLoop::run_in_mode(kCFRunLoopDefaultMode, 0.05, true) };
+        crate::events::interactive(|| unsafe {
+            CFRunLoop::run_in_mode(kCFRunLoopDefaultMode, 0.05, true)
+        });
     };
     let response = keep(panel, answer.as_deref());
     session::notify(Notice::panel_finished(id));

@@ -41,7 +41,7 @@ rustix = { workspace = true, features = ["process"] }
 objc2.workspace = true
 objc2-app-kit = { workspace = true, features = ["NSBitmapImageRep", "NSCell", "NSCursor", "NSGraphicsContext", "NSImage", "NSImageRep", "NSMenu", "NSMenuItem", "NSOpenPanel", "NSPanel", "NSPasteboard", "NSSavePanel", "NSTrackingArea", "block2", "objc2-core-graphics"] }
 objc2-core-foundation.workspace = true
-objc2-core-graphics.workspace = true
+objc2-core-graphics = { workspace = true, features = ["libc"] }
 objc2-foundation = { workspace = true, features = ["NSArray", "NSAttributedString", "NSData", "NSDictionary", "NSProcessInfo", "NSNotification", "NSOperation", "NSURL", "NSValue", "block2"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]

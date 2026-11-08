@@ -47,24 +47,32 @@ fn main() {
     woken("with an application");
     // A run of the run loop the helper's own loop did not start is nested; the helper's own
     // wait for a request is not.
-    assert_eq!(
-        depth_seen(|| unsafe {
-            CFRunLoop::run_in_mode(kCFRunLoopDefaultMode, 0.2, true);
-        }),
-        1
-    );
+    let run = || unsafe {
+        CFRunLoop::run_in_mode(kCFRunLoopDefaultMode, 0.2, true);
+    };
+    assert_eq!(depth_seen(run), (1, false));
     assert_eq!(
         depth_seen(|| events::wait(std::time::Duration::from_millis(200))),
-        0
+        (0, false)
+    );
+    // One in the default mode while the helper handles a request is the host's wait, as an Audio
+    // Unit's; one the helper runs for a plugin's panel then is nested.
+    assert_eq!(depth_seen(|| events::handling(run)), (0, true));
+    assert_eq!(
+        depth_seen(|| events::handling(|| events::interactive(run))),
+        (1, false)
     );
 }
 
-/// The nesting depth a timer sees that fires during `run`, which runs again until it has.
+/// The nesting depth a timer sees that fires during `run`, which runs again until it has, and
+/// whether it fires in a wait.
 #[cfg(target_os = "macos")]
-fn depth_seen(mut run: impl FnMut()) -> u32 {
-    use std::sync::atomic::{AtomicU32, Ordering};
+fn depth_seen(mut run: impl FnMut()) -> (u32, bool) {
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     static SEEN: AtomicU32 = AtomicU32::new(u32::MAX);
+    static IN_WAIT: AtomicBool = AtomicBool::new(false);
     unsafe extern "C-unwind" fn fired(_timer: *mut CFRunLoopTimer, _info: *mut std::ffi::c_void) {
+        IN_WAIT.store(events::in_wait(), Ordering::Relaxed);
         SEEN.store(events::nested_depth(), Ordering::Relaxed);
     }
     SEEN.store(u32::MAX, Ordering::Relaxed);
@@ -88,7 +96,10 @@ fn depth_seen(mut run: impl FnMut()) -> u32 {
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
         run();
     }
-    SEEN.load(Ordering::Relaxed)
+    (
+        SEEN.load(Ordering::Relaxed),
+        IN_WAIT.load(Ordering::Relaxed),
+    )
 }
 
 #[cfg(not(target_os = "macos"))]

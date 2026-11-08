@@ -784,8 +784,10 @@ cursor warp moves that mouse, not the machine's cursor; a `Motion` goes on from 
 left it. Moves without a button reach the views tracking the mouse (hover). `Cursor` notices tell
 the cursor the plugin sets over the shown editor, an AppKit `CursorShape` or an `Image` (PNG,
 size and hot spot in points), and whether it is hidden; lock the pointer and send `Motion` while
-it is. Neither reaches the machine's cursor, but the machine's own cursor over the region still
-reaches the views tracking the mouse there. Input does not choose the items of an AppKit menu
+it is. Neither reaches the machine's cursor. The machine's own mouse does not reach the helper's
+windows when the application has accessibility access, which lets the helper drop the mouse events
+the window server sends it; without it the machine's cursor over the region still reaches the
+views tracking the mouse there, and the chain's diagnostics carry a warning. Input does not choose the items of an AppKit menu
 the plugin opens: `MenuOpened` lists them (`MenuItem`: index among all items, title, enabled,
 `MenuItemState`, separator, submenu; hidden items and submenus more than 16 levels down left
 out), the menu's window comes in `Windows`
@@ -803,7 +805,9 @@ a general pasteboard of its own, and the URLs, files and Finder reveals a plugin
 nothing on the machine: `OpenUrl` and `RevealFiles` tell them. A session starts while a plugin's dialog or menu holds the main thread, so a reconnecting client
 can close it. While the
 helper's main thread is in a loop nested in its own (a plugin's dialog, a menu, a file panel),
-`Nested` reports its depth and the chain's requests wait for the loop to end; the helper keeps
+`Nested` reports its depth and the chain's requests wait for the loop to end (a wait of the
+helper's own inside a request, as an Audio Unit's for its listeners, is no such loop, and menu and
+panel commands that come during it run after it); the helper keeps
 them alive past their timeout while that loop runs, and a main thread held up outside any loop
 still times out. Send preview audio through the realtime endpoint, which does not wait for the
 main thread. An AUv3 editor (it runs in

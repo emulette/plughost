@@ -2,7 +2,7 @@
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
 
     use objc2::MainThreadMarker;
     use objc2::rc::Retained;
@@ -72,20 +72,60 @@ mod platform {
         /// run it started is not nested; runs inside it, or started while it handles a request
         /// or an event, are.
         static OUTER: Cell<bool> = const { Cell::new(false) };
+        /// The helper handles a request.
+        static REQUEST: Cell<bool> = const { Cell::new(false) };
+        /// How many loops the helper runs for a plugin as its own: a panel's.
+        static INTERACTIVE: Cell<u32> = const { Cell::new(0) };
+        /// For each run of the main run loop in progress, innermost last, whether it is a wait.
+        static RUNS: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
     }
 
+    /// Counts the runs of the main run loop. One in the default mode that host code starts while
+    /// the helper handles a request, as an Audio Unit's wait for its listeners or its
+    /// instantiation does, is a wait, not a loop nested in the helper's: no events are taken
+    /// in it, so no one can act in it, as a plugin's dialog, menu or panel lets one.
     unsafe extern "C-unwind" fn counted(
         _observer: *mut CFRunLoopObserver,
         activity: CFRunLoopActivity,
         _info: *mut std::ffi::c_void,
     ) {
-        DEPTH.with(|depth| {
-            if activity.contains(CFRunLoopActivity::Entry) {
-                depth.set(depth.get() + 1);
-            } else if activity.contains(CFRunLoopActivity::Exit) {
-                depth.set(depth.get().saturating_sub(1));
+        if activity.contains(CFRunLoopActivity::Entry) {
+            let wait = REQUEST.get()
+                && INTERACTIVE.get() == 0
+                && CFRunLoop::main()
+                    .and_then(|main| main.current_mode())
+                    .is_some_and(|mode| Some(&*mode) == unsafe { kCFRunLoopDefaultMode });
+            RUNS.with_borrow_mut(|runs| runs.push(wait));
+            if !wait {
+                DEPTH.set(DEPTH.get() + 1);
             }
-        });
+        } else if activity.contains(CFRunLoopActivity::Exit)
+            && RUNS.with_borrow_mut(Vec::pop) == Some(false)
+        {
+            DEPTH.set(DEPTH.get().saturating_sub(1));
+        }
+    }
+
+    /// Handles a request: runs of the run loop in it in the default mode are waits.
+    pub fn handling<R>(handle: impl FnOnce() -> R) -> R {
+        let previous = REQUEST.replace(true);
+        let result = handle();
+        REQUEST.set(previous);
+        result
+    }
+
+    /// Runs a loop the helper runs for a plugin in the default mode, which counts as nested.
+    pub fn interactive<R>(run: impl FnOnce() -> R) -> R {
+        INTERACTIVE.set(INTERACTIVE.get() + 1);
+        let result = run();
+        INTERACTIVE.set(INTERACTIVE.get() - 1);
+        result
+    }
+
+    /// Whether the innermost run of the main run loop is a wait, in which nothing a plugin does
+    /// for someone acting should run.
+    pub fn in_wait() -> bool {
+        RUNS.with_borrow(|runs| runs.last() == Some(&true))
     }
 
     /// How many loops are nested in the helper's own on the main thread: a dialog's, a menu's,
@@ -331,7 +371,7 @@ mod platform {
 
 pub use platform::{activate, init, pump, wake, with_pool};
 #[cfg(target_os = "macos")]
-pub use platform::{nested_depth, wait};
+pub use platform::{handling, in_wait, interactive, nested_depth, wait};
 #[cfg(target_os = "windows")]
 pub use platform::{raise, signal, wait_sent};
 

@@ -61,6 +61,16 @@ impl Host {
         processing: Arc<Processing>,
         remote: bool,
     ) -> Self {
+        #[cfg(target_os = "macos")]
+        if remote && !crate::remote::machine_mouse_kept() {
+            responder.diagnostics.record(
+                plughost_core::DiagnosticSeverity::Warning,
+                crate::errors::MACHINE_MOUSE,
+                None,
+                None,
+                Some(FailureKind::Host),
+            );
+        }
         Self {
             slots: Vec::new(),
             parameter_events: Vec::new(),

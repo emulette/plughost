@@ -267,6 +267,9 @@ fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
                 Ok(request) => request,
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
             };
+        #[cfg(target_os = "macos")]
+        events::with_pool(|| events::handling(|| handle(&mut host, request, &responder)))?;
+        #[cfg(target_os = "windows")]
         events::with_pool(|| handle(&mut host, request, &responder))?;
     }
 }

@@ -114,8 +114,9 @@ pub struct SpawnOptions {
     /// Whether the chain shows its editors remotely, to someone not in front of the machine
     /// (macOS only; elsewhere starting fails as unsupported). Its helper never activates itself,
     /// so it does not take the focus from other sessions on the machine, tells plugins that check
-    /// that it is active, and opens editors only with [`Chain::open_remote_editor`]. Recovered
-    /// chains keep it.
+    /// that it is active, and opens editors only with [`Chain::open_remote_editor`]. When the
+    /// application has accessibility access, the machine's own mouse does not reach its windows;
+    /// without it a warning diagnostic says so. Recovered chains keep it.
     pub remote: bool,
 }
 

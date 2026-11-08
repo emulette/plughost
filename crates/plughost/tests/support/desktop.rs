@@ -16,6 +16,13 @@ unsafe extern "C" {
     fn CGDisplayBounds(display: u32) -> objc2_core_foundation::CGRect;
     fn CGEventCreate(source: *const std::ffi::c_void) -> *mut std::ffi::c_void;
     fn CGEventGetLocation(event: *mut std::ffi::c_void) -> objc2_core_foundation::CGPoint;
+    fn CGEventCreateMouseEvent(
+        source: *const std::ffi::c_void,
+        kind: u32,
+        location: objc2_core_foundation::CGPoint,
+        button: u32,
+    ) -> *mut std::ffi::c_void;
+    fn CGEventPost(tap: u32, event: *mut std::ffi::c_void);
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -31,6 +38,32 @@ pub fn cursor() -> (f64, f64) {
         let point = CGEventGetLocation(event);
         CFRelease(event);
         (point.x, point.y)
+    }
+}
+
+/// Moves the machine's cursor to `(x, y)` global points as its mouse would, through the HID
+/// level, and waits until it is there. Posting there needs accessibility access.
+pub fn move_machine_cursor(x: f64, y: f64) {
+    const MOUSE_MOVED: u32 = 5;
+    const HID_EVENT_TAP: u32 = 0;
+    // SAFETY: the event is released once posted.
+    unsafe {
+        let event = CGEventCreateMouseEvent(
+            std::ptr::null(),
+            MOUSE_MOVED,
+            objc2_core_foundation::CGPoint::new(x, y),
+            0,
+        );
+        CGEventPost(HID_EVENT_TAP, event);
+        CFRelease(event);
+    }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while cursor() != (x, y) {
+        assert!(
+            Instant::now() < deadline,
+            "the machine's cursor did not move: the tests need accessibility access"
+        );
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 
