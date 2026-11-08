@@ -97,7 +97,7 @@ fn began(menu: Retained<NSMenu>) {
     }
     let id = MenuId(NEXT.get());
     NEXT.set(id.0 + 1);
-    session::notify(Notice::menu_opened(id, items(&menu)));
+    session::notify(Notice::menu_opened(id, items(&menu, 0)));
     OPEN.with_borrow_mut(|open| {
         open.push(Open {
             id,
@@ -117,8 +117,9 @@ fn ended(menu: &NSMenu) {
     }
 }
 
-/// The menu's items but the hidden ones, each with its index among all of them.
-fn items(menu: &NSMenu) -> Vec<MenuItem> {
+/// The menu's items but the hidden ones, each with its index among all of them, `depth`
+/// submenus down. Submenus past the protocol's depth are left out.
+fn items(menu: &NSMenu, depth: usize) -> Vec<MenuItem> {
     menu.itemArray()
         .iter()
         .enumerate()
@@ -139,7 +140,8 @@ fn items(menu: &NSMenu) -> Vec<MenuItem> {
             };
             let submenu = item
                 .submenu()
-                .map(|submenu| items(&submenu))
+                .filter(|_| depth < plughost_core::ipc::MAX_MENU_DEPTH)
+                .map(|submenu| items(&submenu, depth + 1))
                 .unwrap_or_default();
             MenuItem::new(
                 index,
@@ -236,6 +238,6 @@ pub fn tell_all() {
             .collect()
     });
     for (id, menu) in open {
-        session::notify(Notice::menu_opened(id, items(&menu)));
+        session::notify(Notice::menu_opened(id, items(&menu, 0)));
     }
 }

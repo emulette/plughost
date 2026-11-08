@@ -82,7 +82,7 @@ fn start_timer() {
                     std::ptr::null_mut(),
                 )
             }
-            .expect("a run loop timer");
+            .expect(crate::errors::RUN_LOOP_TIMER);
             if let Some(main) = CFRunLoop::main() {
                 main.add_timer(Some(&created), unsafe { kCFRunLoopCommonModes });
             }

@@ -47,6 +47,15 @@ struct WindowState {
 }
 
 impl WindowState {
+    /// Restores a maximized window that shows, without activating it, for an editor that cannot
+    /// take its size.
+    fn unmaximize(&self) {
+        let hwnd = self.hwnd.get();
+        if unsafe { IsZoomed(hwnd) } != 0 && unsafe { IsWindowVisible(hwnd) } != 0 {
+            unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
+        }
+    }
+
     fn resize(&self, width: u32, height: u32) -> bool {
         let _context = DpiContext::enter();
         let hwnd = self.hwnd.get();
@@ -60,23 +69,51 @@ impl WindowState {
             bottom: height_i32,
         };
         // SAFETY: the window belongs to this thread and outlives every plugin resize callback.
-        let resized = unsafe {
+        if unsafe {
             AdjustWindowRectExForDpi(
                 &mut rect,
                 GetWindowLongW(hwnd, GWL_STYLE) as u32,
                 0,
                 0,
                 GetDpiForWindow(hwnd),
-            ) != 0
-                && SetWindowPos(
+            )
+        } == 0
+        {
+            return false;
+        }
+        let (outer_width, outer_height) = (rect.right - rect.left, rect.bottom - rect.top);
+        // `SetWindowPos` sizes what shows: the frame of a maximized window, which stays
+        // maximized, or nothing of a minimized one, not the window either restores to.
+        if unsafe { IsZoomed(hwnd) } != 0 {
+            // A maximized window keeps its size, which `tick` offers the editor.
+            self.size.set((width, height));
+            return true;
+        }
+        let resized = if unsafe { IsIconic(hwnd) } != 0 {
+            // The window restores to this size, still minimized and not activated meanwhile.
+            let mut placement = WINDOWPLACEMENT {
+                length: size_of::<WINDOWPLACEMENT>() as u32,
+                ..WINDOWPLACEMENT::default()
+            };
+            let got = unsafe { GetWindowPlacement(hwnd, &mut placement) } != 0;
+            let normal = &mut placement.rcNormalPosition;
+            normal.right = normal.left + outer_width;
+            normal.bottom = normal.top + outer_height;
+            placement.showCmd = SW_SHOWMINNOACTIVE as u32;
+            got && unsafe { SetWindowPlacement(hwnd, &placement) } != 0
+        } else {
+            let moved = unsafe {
+                SetWindowPos(
                     hwnd,
                     null_mut(),
                     0,
                     0,
-                    rect.right - rect.left,
-                    rect.bottom - rect.top,
+                    outer_width,
+                    outer_height,
                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
-                ) != 0
+                )
+            };
+            moved != 0
         };
         if resized {
             // The system keeps a window between its smallest and largest sizes. Record the size
@@ -98,8 +135,12 @@ impl WindowState {
     }
 
     /// Gives the window the size a plugin asked for. When the system keeps the window from
-    /// taking exactly that size, the window goes back to the size it had and the request fails.
+    /// taking exactly that size, the window goes back to the size it had and the request fails;
+    /// a maximized window takes no other size.
     fn resize_exactly(&self, width: u32, height: u32) -> bool {
+        if unsafe { IsZoomed(self.hwnd.get()) } != 0 {
+            return false;
+        }
         let previous = self.size.get();
         if self.resize(width, height) && self.size.get() == (width, height) {
             return true;
@@ -181,13 +222,17 @@ impl EditorWindow {
     pub fn set_region(&mut self, _region: Region) {}
 
     /// Opens `plugin`'s editor in this window after [`EditorWindow::detach`]. The window keeps
-    /// its place, order, and minimized or hidden state, and does not take focus. On failure the
-    /// caller drops the window.
+    /// its place, order, and minimized or hidden state, and does not take focus; it shows again
+    /// when a floating editor before hid it. On failure the caller drops the window.
     pub fn reattach(&mut self, plugin: &mut dyn HostedPlugin) -> Result<(), Failure> {
         let _context = DpiContext::enter();
+        let was_floating = self.floating;
         self.attach(plugin)?;
         if self.hidden {
             plugin.set_editor_visible(false);
+        } else if was_floating && !self.floating {
+            // The floating editor before hid the window; it shows again without activating.
+            unsafe { ShowWindow(self.state.hwnd.get(), SW_SHOWNA) };
         }
         Ok(())
     }
@@ -221,6 +266,9 @@ impl EditorWindow {
             style & !(WS_THICKFRAME | WS_MAXIMIZEBOX)
         };
         unsafe { SetWindowLongW(hwnd, GWL_STYLE, style as i32) };
+        if !plugin.editor_can_resize() {
+            self.state.unmaximize();
+        }
         if !self.state.resize(width, height) {
             let error = window_error(io::Error::last_os_error());
             plugin.close_editor();
@@ -308,6 +356,8 @@ impl EditorWindow {
                 // Refused user resizes must restore the last size the plugin accepted.
                 let accepted = accepted.unwrap_or(self.state.size.get());
                 if accepted != dragged {
+                    // A maximized window the editor cannot fill is restored to its size.
+                    self.state.unmaximize();
                     self.state.resize(accepted.0, accepted.1);
                 } else {
                     self.state.size.set(accepted);

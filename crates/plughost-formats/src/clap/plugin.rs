@@ -134,11 +134,12 @@ pub struct Plugin {
     audio: AudioCalls,
     parameters: Arc<ParameterCache>,
     editor: Option<ResizeRequest>,
-    /// The size the host window last gave the embedded editor, which a failed resize restores.
-    editor_size: (u32, u32),
-    /// Host edits were queued at the last idle, and how many blocks had processed then: edits
-    /// that waited from one idle to the next with no block are flushed.
-    idle_edits: (bool, u64),
+    /// The size the host window last gave the embedded editor, which a failed resize restores,
+    /// if the plugin told it.
+    editor_size: Option<(u32, u32)>,
+    /// While host edits are queued, how many blocks had processed when an idle first saw them
+    /// waiting, and when: edits that waited that long with no block are flushed.
+    idle_edits: Option<(u64, Instant)>,
     audio_active: std::collections::HashMap<(bool, u64), bool>,
 }
 
@@ -201,8 +202,8 @@ impl Plugin {
             audio: AudioCalls::default(),
             parameters: Arc::default(),
             editor: None,
-            editor_size: (0, 0),
-            idle_edits: (false, 0),
+            editor_size: None,
+            idle_edits: None,
             audio_active: std::collections::HashMap::new(),
         })
     }
@@ -377,7 +378,7 @@ impl Plugin {
 
     /// Queues a host edit of a normalized value. An inactive plugin is flushed with it right
     /// away; an active one takes it with the next block, or with a flush from [`Plugin::idle`]
-    /// when blocks stopped coming.
+    /// once no block came for two of the longest blocks.
     pub(crate) fn set_parameter(&mut self, id: u64, value: f64) -> Result<(), ClapError> {
         if !value.is_finite() || !(0.0..=1.0).contains(&value) {
             return Err(ClapError::Input(plughost_core::InputError::ParameterValue));
@@ -543,11 +544,9 @@ impl Plugin {
             return Err(ClapError::Editor(error));
         }
         let _ = gui.show(&handle);
-        let (width, height) = gui
-            .get_size(&handle)
-            .map_or((0, 0), |size| (size.width, size.height));
+        self.editor_size = gui.get_size(&handle).map(|size| (size.width, size.height));
+        let (width, height) = self.editor_size.unwrap_or_default();
         self.editor = Some(resize);
-        self.editor_size = (width, height);
         self.shared().editor_open.store(true, Ordering::Relaxed);
         self.shared().editor_embedded.store(true, Ordering::Relaxed);
         Ok(EditorView::Embedded { width, height })
@@ -602,6 +601,7 @@ impl Plugin {
         let handle = self.instance.plugin_handle();
         gui.set_scale(&handle, scale).ok()?;
         let size = gui.get_size(&handle)?;
+        self.editor_size = Some((size.width, size.height));
         Some((size.width, size.height))
     }
 
@@ -613,7 +613,7 @@ impl Plugin {
             .adjust_size(&handle, GuiSize { width, height })
             .unwrap_or(GuiSize { width, height });
         gui.set_size(&handle, size).ok()?;
-        self.editor_size = (size.width, size.height);
+        self.editor_size = Some((size.width, size.height));
         Some((size.width, size.height))
     }
 
@@ -661,20 +661,30 @@ impl Plugin {
             }
         }
         // An active plugin takes host edits with the next block. When blocks stopped coming,
-        // edits that waited from the last idle to this one with no block are flushed.
-        let waiting = self.shared().has_pending();
+        // edits that waited at least two of the longest blocks with none are flushed; blocks that
+        // come, as realtime ones do, take them.
         let blocks = self.shared().blocks.load(Ordering::Relaxed);
-        let stalled = waiting && self.idle_edits == (true, blocks);
-        self.idle_edits = (waiting, blocks);
+        self.idle_edits = match self.idle_edits {
+            _ if !self.shared().has_pending() => None,
+            Some((seen, since)) if seen == blocks => Some((seen, since)),
+            _ => Some((blocks, Instant::now())),
+        };
+        let stalled = self.idle_edits.is_some_and(|(_, since)| {
+            let longest = lock(&self.engine).prepared.as_ref().map(|prepared| {
+                prepared.config.max_block_size as f64 / prepared.config.sample_rate
+            });
+            longest.is_none_or(|longest| since.elapsed().as_secs_f64() >= 2.0 * longest)
+        });
         if flush || stalled {
             self.flush();
         }
         if let (Some((width, height)), Some(resize)) = (requested, &self.editor) {
             if resize(width, height) {
-                self.editor_size = (width, height);
-            } else if let Some(gui) = self.shared().extensions().gui {
+                self.editor_size = Some((width, height));
+            } else if let (Some(gui), Some((width, height))) =
+                (self.shared().extensions().gui, self.editor_size)
+            {
                 // The plugin may already draw at the size it asked for.
-                let (width, height) = self.editor_size;
                 let _ = gui.set_size(&self.instance.plugin_handle(), GuiSize { width, height });
             }
         }

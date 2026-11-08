@@ -492,7 +492,7 @@ pub(super) fn configure(
                     .ok_or(AuError::AudioConfiguration)?;
                     let set: Result<(), Retained<NSError>> =
                         unsafe { msg_send![&*bus, setFormat: &*format, error: _] };
-                    set.map_err(|_| AuError::AudioConfiguration)?;
+                    set.map_err(|error| AuError::RateRefused(describe(&error)))?;
                 }
             }
             unsafe { bus.setEnabled(active) };

@@ -34,6 +34,8 @@ use crate::errors;
 pub const FOCUSED: u32 = 1;
 /// A key reached the view.
 pub const KEY: u32 = 2;
+/// A key the host sent reached the view, not the view's own.
+pub const HOST_KEY: u32 = 3;
 
 const SIZE: GuiSize = GuiSize {
     width: 240,
@@ -215,10 +217,11 @@ define_class!(
 
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
-            self.ivars().focus.store(KEY, Ordering::Relaxed);
             if SENDING_KEY.load(Ordering::Relaxed) {
+                self.ivars().focus.store(KEY, Ordering::Relaxed);
                 return;
             }
+            self.ivars().focus.store(HOST_KEY, Ordering::Relaxed);
             let character = event
                 .characters()
                 .and_then(|characters| characters.to_string().chars().next());
@@ -416,6 +419,19 @@ define_class!(
                     .store(read.URLs().count() as i64, Ordering::Relaxed);
             });
             panel.beginWithCompletionHandler(&handler);
+        }
+
+        /// Begins an open panel and closes it before it is answered. Its handler records 7 if it
+        /// is called.
+        #[unsafe(method(beginAndClosePanel))]
+        fn begin_and_close_panel(&self) {
+            let panel = objc2_app_kit::NSOpenPanel::openPanel(self.mtm());
+            set_up_panel(&panel);
+            let handler = block2::RcBlock::new(move |_response: isize| {
+                INPUT.panel_result.store(7, Ordering::Relaxed);
+            });
+            panel.beginWithCompletionHandler(&handler);
+            panel.close();
         }
 
         /// Saves through a save panel as a sheet on the editor's window.
@@ -653,7 +669,7 @@ fn image_cursor(red: bool) -> Retained<NSCursor> {
             32,
         )
     }
-    .expect("a bitmap");
+    .expect(crate::errors::BITMAP);
     let pixel: [u8; 4] = if red { [255, 0, 0, 255] } else { [0; 4] };
     // SAFETY: the representation holds SIDE * SIDE pixels of 4 bytes.
     let data =
@@ -779,7 +795,8 @@ impl Editor {
     /// a cursor with nothing to see, 13 hides the cursor, 14 shows it, 15 and 16 do so through
     /// Core Graphics, 17 hides it until the mouse moves, 18 pops up a menu, 19 runs a save panel,
     /// 20 begins an open panel, 21 begins a save panel as a sheet, 22 copies text, 23 opens a web
-    /// page, 24 shows a file in the Finder, 25 opens a web page through Launch Services.
+    /// page, 24 shows a file in the Finder, 25 opens a web page through Launch Services, 26 begins
+    /// an open panel and closes it, as a plugin does when its editor goes away.
     pub fn act(&self, action: u32) {
         let action = match action {
             1 => sel!(hideApplication),
@@ -807,6 +824,7 @@ impl Editor {
             23 => sel!(openPage),
             24 => sel!(revealFile),
             25 => sel!(openThroughLaunchServices),
+            26 => sel!(beginAndClosePanel),
             _ => return,
         };
         unsafe {

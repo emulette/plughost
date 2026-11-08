@@ -23,7 +23,7 @@ mod platform {
     use plughost_core::{Failure, FailureKind};
     use plughost_formats::{EditorView, HostedPlugin, ResizeRequest};
 
-    use crate::errors::{FLOATING_REMOTE, NOT_MAIN_THREAD};
+    use crate::errors::{EXTENSION_EDITOR, FLOATING_REMOTE, NOT_MAIN_THREAD};
 
     /// AppKit's level for menus (`NSPopUpMenuWindowLevel`).
     const MENU_LEVEL: isize = 101;
@@ -314,12 +314,23 @@ mod platform {
         }
 
         /// Opens `plugin`'s editor in this window after [`EditorWindow::detach`]. The window
-        /// keeps its place, order, and minimized or hidden state, and does not take focus. On
-        /// failure the caller drops the window.
+        /// keeps its place, order, and minimized or hidden state, and does not take focus; it
+        /// shows again when a floating editor before hid it. A remote editor fails as
+        /// [`EditorWindow::open_remote`] does. On failure the caller drops the window.
         pub fn reattach(&mut self, plugin: &mut dyn HostedPlugin) -> Result<(), Failure> {
+            if self.remote.is_some() && plugin.editor_in_extension() {
+                return Err(Failure::new(FailureKind::Unsupported, EXTENSION_EDITOR));
+            }
+            let was_floating = self.floating;
             self.attach(plugin)?;
+            if self.remote.is_some() && self.floating {
+                plugin.close_editor();
+                return Err(Failure::new(FailureKind::Unsupported, FLOATING_REMOTE));
+            }
             if self.hidden {
                 plugin.set_editor_visible(false);
+            } else if was_floating && !self.floating {
+                self.window.orderFrontRegardless();
             }
             Ok(())
         }

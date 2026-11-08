@@ -457,7 +457,8 @@ impl Chain {
     /// editor is shown and the remote editor shown before is hidden, not closed, so it keeps its
     /// state; an editor already open is shown again. Returns the editor and its size.
     ///
-    /// Needs a remote chain ([`SpawnOptions::remote`]) and a region. An Audio Unit v3 editor,
+    /// Needs a remote chain ([`SpawnOptions::remote`]) and a region, without which it fails as
+    /// [`InputError::RemoteRegion`](crate::InputError::RemoteRegion). An Audio Unit v3 editor,
     /// which runs in its extension's process, and an editor that draws only in its own window
     /// fail as unsupported. Close it with [`Chain::close_editor`].
     pub fn open_remote_editor(&mut self, slot: usize) -> Result<remote::Opened, Error> {
@@ -477,8 +478,8 @@ impl Chain {
     /// ends this one. Needs a remote chain ([`SpawnOptions::remote`]).
     #[cfg(target_os = "macos")]
     pub fn remote_session(&mut self) -> Result<remote::Session, Error> {
-        let (commands_read, commands_write) = remote::pipe().map_err(Error::HelperStart)?;
-        let (notices_read, notices_write) = remote::pipe().map_err(Error::HelperStart)?;
+        let (commands_read, commands_write) = remote::pipe().map_err(Error::RemoteChannel)?;
+        let (notices_read, notices_write) = remote::pipe().map_err(Error::RemoteChannel)?;
         let commands = self.helper.send_channel(&commands_read)?;
         let notices = self.helper.send_channel(&notices_write)?;
         drop((commands_read, notices_write));

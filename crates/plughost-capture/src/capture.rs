@@ -199,6 +199,18 @@ fn failed(error: &NSError) -> CaptureError {
     }
 }
 
+thread_local! {
+    /// The capture whose callback runs on this thread, which a drop in it does not wait for.
+    static CALLING: std::cell::Cell<*const Shared> = const { std::cell::Cell::new(std::ptr::null()) };
+}
+
+/// Runs `call` as a callback of `shared`'s capture.
+fn calling(shared: &Arc<Shared>, call: impl FnOnce()) {
+    let before = CALLING.replace(Arc::as_ptr(shared));
+    call();
+    CALLING.set(before);
+}
+
 /// What the stream's callbacks share with the capture.
 struct Shared {
     on_frame: Box<dyn Fn(Frame) + Send + Sync>,
@@ -228,7 +240,7 @@ define_class!(
                 (DECLINED, _) => StopReason::PermissionDenied,
                 (code, message) => StopReason::Failed { code, message },
             };
-            (shared.on_stop)(reason);
+            calling(shared, || (shared.on_stop)(reason));
         }
     }
 
@@ -252,11 +264,12 @@ define_class!(
                 return;
             };
             let time = unsafe { buffer.presentation_time_stamp().seconds() };
-            (shared.on_frame)(Frame {
+            let frame = Frame {
                 buffer: pixels,
                 scale: shared.scale,
                 time: Duration::try_from_secs_f64(time).unwrap_or_default(),
-            });
+            };
+            calling(shared, || (shared.on_frame)(frame));
         }
     }
 );
@@ -491,7 +504,8 @@ impl Capture {
     /// Starts capturing `region` with only the windows of the helper process `helper_pid`
     /// (`plughost::HelperMonitor::process_id`), and returns once frames can come. Frames go to
     /// `on_frame` and a stop ScreenCaptureKit decides to `on_stop`, on the capture's own queue,
-    /// one at a time; they should not block. Start it after the helper's remote editor opened:
+    /// one at a time; they should not block. A callback may drop the capture, after which no
+    /// other reaches the application. Start it after the helper's remote editor opened:
     /// a helper without windows may not be capturable yet.
     pub fn start(
         region: &Region,
@@ -589,7 +603,10 @@ impl Drop for Capture {
         let _ = completed(|handler| unsafe {
             self.stream.stopCaptureWithCompletionHandler(Some(handler))
         });
-        // A callback that began before the stop finishes before the drop returns.
-        self.queue.exec_sync(|| {});
+        // A callback that began before the stop finishes before the drop returns, unless the
+        // drop is in that callback.
+        if !std::ptr::eq(CALLING.get(), Arc::as_ptr(&self.shared)) {
+            self.queue.exec_sync(|| {});
+        }
     }
 }

@@ -1,10 +1,14 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-/// Maximum queued parameter notifications before the oldest records are dropped.
+/// Maximum queued parameter notifications. Past it the oldest record is dropped, but not a
+/// metadata change.
 pub const PARAMETER_EVENT_CAPACITY: usize = 256;
 
-/// Notifications reported by the plugin, in observed order. Values are normalized to 0..=1.
+/// Notifications reported by the plugin, in observed order, but for two merges: a value reported
+/// for an ID replaces the one queued for it when no gesture of that ID or metadata change came
+/// between them, and a values change replaces the one queued before it. Values are normalized to
+/// 0..=1.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum ParameterEvent {
@@ -41,7 +45,7 @@ pub enum ParameterEvent {
 #[non_exhaustive]
 #[must_use]
 pub struct ParameterEventBatch {
-    /// Notifications retained in observed order.
+    /// Notifications retained in observed order, merged as [`ParameterEvent`] says.
     pub events: Vec<ParameterEvent>,
     /// Cancel open gestures and requery metadata and values when true.
     pub resync_required: bool,
@@ -84,24 +88,19 @@ impl Default for Pending {
 impl Pending {
     /// Appends `event`. A full queue drops its oldest record, but not a metadata change: the
     /// helper refreshes metadata only when one is there, so it outlives the values a flood drops.
-    /// A metadata change already queued stands for another.
+    /// A metadata change already queued stands for another. A values change replaces the one
+    /// queued before it: the values are read again after every record before it.
     fn push(&mut self, event: ParameterEvent) {
-        let metadata = event == ParameterEvent::MetadataChanged;
-        if metadata && self.events.contains(&event) {
-            return;
+        match event {
+            ParameterEvent::MetadataChanged if self.events.contains(&event) => return,
+            ParameterEvent::ValuesChanged => self.events.retain(|queued| *queued != event),
+            _ => {}
         }
         if self.events.len() == PARAMETER_EVENT_CAPACITY {
-            let oldest = self
-                .events
-                .iter()
-                .position(|queued| *queued != ParameterEvent::MetadataChanged);
-            match oldest {
-                Some(oldest) => {
-                    self.events.remove(oldest);
-                }
-                // Only metadata changes are queued, which this one cannot be.
-                None => return,
-            }
+            // At most one metadata change is queued, so the oldest other record is the first or
+            // the second.
+            let oldest = usize::from(self.events[0] == ParameterEvent::MetadataChanged);
+            self.events.remove(oldest);
             self.dropped = self.dropped.saturating_add(1);
         }
         self.events.push_back(event);
@@ -130,8 +129,8 @@ impl ParameterEventBuffer {
     }
 
     /// Records a value the plugin reported for `id`, replacing the one queued for it when no
-    /// gesture of `id` came after: a meter that reports every block takes one record until the
-    /// queue is drained, not one per block.
+    /// gesture of `id` or metadata change came after: a meter that reports every block takes one
+    /// record until the queue is drained, not one per block.
     pub fn record_value(&self, id: u64, normalized: f64) {
         let mut pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
         let last = pending.events.iter_mut().rev().find(|event| {
@@ -139,6 +138,7 @@ impl ParameterEventBuffer {
                 ParameterEvent::Value { id: other, .. }
                 | ParameterEvent::BeginEdit { id: other }
                 | ParameterEvent::EndEdit { id: other } if *other == id)
+                || **event == ParameterEvent::MetadataChanged
         });
         if let Some(ParameterEvent::Value {
             normalized: queued, ..
@@ -272,5 +272,46 @@ mod tests {
                 value(7, 0.5)
             ]
         );
+    }
+
+    #[test]
+    fn a_value_is_not_merged_across_a_metadata_change() {
+        let buffer = ParameterEventBuffer::default();
+        let value = |id, normalized| ParameterEvent::Value { id, normalized };
+        buffer.record_value(7, 0.1);
+        buffer.record(ParameterEvent::MetadataChanged);
+        buffer.record_value(7, 0.2);
+        assert_eq!(
+            buffer.take().events,
+            [
+                value(7, 0.1),
+                ParameterEvent::MetadataChanged,
+                value(7, 0.2)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_values_change_replaces_the_one_queued_before_it() {
+        let buffer = ParameterEventBuffer::default();
+        buffer.record(ParameterEvent::BeginEdit { id: 7 });
+        for _ in 0..2 * PARAMETER_EVENT_CAPACITY {
+            buffer.record_value(7, 0.5);
+            buffer.record_value(8, 0.5);
+            buffer.record(ParameterEvent::ValuesChanged);
+        }
+        buffer.record_value(7, 0.6);
+        let batch = buffer.take();
+        let value = |id, normalized| ParameterEvent::Value { id, normalized };
+        assert_eq!(
+            batch.events,
+            [
+                ParameterEvent::BeginEdit { id: 7 },
+                value(7, 0.6),
+                value(8, 0.5),
+                ParameterEvent::ValuesChanged
+            ]
+        );
+        assert_eq!(batch.dropped, 0);
     }
 }

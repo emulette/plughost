@@ -7,8 +7,8 @@
 //! included. The application hands each event out, through the helper's mouse's monitor: mouse
 //! events go on to their windows, with the tracking areas under a move messaged; keys and wheel
 //! events, which AppKit would send to the key window or the real cursor's, go to the window they
-//! are for directly. Menu and panel commands, which are no events, each go in a one-shot timer of
-//! their own.
+//! are for directly. Menu and panel commands, which are no events, run in order from one-shot
+//! timers.
 //!
 //! A relative move goes on from the helper's mouse, which a plugin may warp while it handles the
 //! move before. Moves that come before the application handed out the pointer event posted last
@@ -69,12 +69,14 @@ thread_local! {
     /// The window a held button went down in, the button, and the last point there.
     static PRESSED: RefCell<Option<(Retained<NSWindow>, Button, NSPoint)>> =
         const { RefCell::new(None) };
-    /// The window the last pointer down went to, which takes keys and text.
+    /// The window the last pointer down went to, which takes keys and text while it shows.
     static FOCUS: RefCell<Option<Retained<NSWindow>>> = const { RefCell::new(None) };
+    /// The keys down, each with the window its key down went to.
+    static HELD: RefCell<Vec<(KeyInput, Retained<NSWindow>)>> = const { RefCell::new(Vec::new()) };
     /// The modifiers held.
     static MODIFIERS: Cell<Modifiers> = const { Cell::new(Modifiers::empty()) };
-    /// Each menu command's place, so timers that fire at once run in the order they were made.
-    static ORDER: Cell<u64> = const { Cell::new(0) };
+    /// The menu and panel commands to run, in order, one per timer.
+    static DELIVERIES: RefCell<VecDeque<Command>> = const { RefCell::new(VecDeque::new()) };
     /// The events posted and not yet handed out, by tag, with what each is for.
     static POSTED: RefCell<VecDeque<(i64, Posted)>> = const { RefCell::new(VecDeque::new()) };
     /// The tag of the pointer event posted last, until the application hands it out.
@@ -133,14 +135,6 @@ fn handed(event: &NSEvent) -> bool {
     let Some(posted) = posted else {
         return false;
     };
-    if AWAITING.get() == Some(tag) {
-        AWAITING.set(None);
-        if let Some(pending) = PENDING.take() {
-            // After the event's window handled it, which may warp the mouse.
-            queue().push_front(Queued::Command(Command::Motion(pending)));
-            wake();
-        }
-    }
     match posted {
         Posted::Mouse => false,
         Posted::Hover(window, point, flags) => {
@@ -154,10 +148,24 @@ fn handed(event: &NSEvent) -> bool {
     }
 }
 
+/// The application took `event` from its queue, for its own loop or one that takes events itself,
+/// as a control's tracking does: the moves summed while the pointer event posted last waited go
+/// in.
+fn dequeued(event: &NSEvent) {
+    if AWAITING.get() == Some(tag(event.timestamp())) {
+        AWAITING.set(None);
+        if let Some(pending) = PENDING.take() {
+            // Run after the event's window handled it, which may warp the mouse.
+            queue().push_front(Queued::Command(Command::Motion(pending)));
+            wake();
+        }
+    }
+}
+
 /// Installs the source on the main run loop and the helper's mouse. Call it on the main thread
 /// before a session starts.
 pub fn install(mtm: MainThreadMarker) {
-    mouse::install(mtm, handed);
+    mouse::install(mtm, handed, dequeued);
     menu::install(mtm);
     panel::install(mtm);
     WAKE.get_or_init(|| {
@@ -174,9 +182,9 @@ pub fn install(mtm: MainThreadMarker) {
             perform: Some(drained),
         };
         // SAFETY: the context is a valid version 0 context, copied by the call.
-        let source =
-            unsafe { CFRunLoopSource::new(None, 0, &mut context) }.expect("a run loop source");
-        let run_loop = CFRunLoop::main().expect("the main run loop");
+        let source = unsafe { CFRunLoopSource::new(None, 0, &mut context) }
+            .expect(crate::errors::RUN_LOOP_SOURCE);
+        let run_loop = CFRunLoop::main().expect(crate::errors::MAIN_RUN_LOOP);
         run_loop.add_source(Some(&source), unsafe { kCFRunLoopCommonModes });
         Wake { source, run_loop }
     });
@@ -194,25 +202,62 @@ fn wake() {
 }
 
 /// Queues `command` from the reader thread. A move without a button change replaces a move
-/// still waiting before it.
-pub fn receive(command: Command) {
+/// still waiting before it, and a relative move adds to one waiting before it. A full queue drops
+/// its oldest move or wheel command, or else its oldest command, never a session's start or end.
+pub fn receive(mut command: Command) {
     {
         let mut queue = queue();
-        let replaces = matches!(
-            (&command, queue.back()),
+        let replaces = match (&command, queue.back()) {
             (
-                Command::Pointer(PointerInput { kind: PointerKind::Move, editor, .. }),
+                Command::Pointer(PointerInput {
+                    kind: PointerKind::Move,
+                    editor,
+                    ..
+                }),
                 Some(Queued::Command(Command::Pointer(PointerInput {
                     kind: PointerKind::Move,
                     editor: before,
                     ..
-                })))
-            ) if editor == before
-        );
+                }))),
+            ) => editor == before,
+            (Command::Motion(input), Some(Queued::Command(Command::Motion(before))))
+                if input.editor == before.editor =>
+            {
+                command = Command::Motion(MotionInput::new(
+                    input.editor,
+                    before.dx + input.dx,
+                    before.dy + input.dy,
+                    input.modifiers,
+                ));
+                true
+            }
+            _ => false,
+        };
         if replaces {
             queue.pop_back();
-        } else if queue.len() == BACKLOG {
-            queue.pop_front();
+        } else if queue.len() >= BACKLOG {
+            let oldest = queue
+                .iter()
+                .position(|queued| {
+                    matches!(
+                        queued,
+                        Queued::Command(
+                            Command::Pointer(PointerInput {
+                                kind: PointerKind::Move,
+                                ..
+                            }) | Command::Motion(_)
+                                | Command::Wheel(_)
+                        )
+                    )
+                })
+                .or_else(|| {
+                    queue
+                        .iter()
+                        .position(|queued| matches!(queued, Queued::Command(_)))
+                });
+            if let Some(oldest) = oldest {
+                queue.remove(oldest);
+            }
         }
         queue.push_back(Queued::Command(command));
     }
@@ -282,6 +327,10 @@ fn run(command: Command) {
     {
         return;
     }
+    // A point or distance that is not finite would place the helper's mouse nowhere.
+    if !finite(&command) {
+        return;
+    }
     let Some(shown) = watch::shown() else {
         return;
     };
@@ -317,24 +366,39 @@ fn run(command: Command) {
         }
         Command::ReleaseAll(_) => release(),
         Command::Wheel(input) => target.wheel(&input),
-        Command::Key(input) => key(&input),
+        Command::Key(input) => key(&input, &target.editor),
         Command::Text(input) => {
+            let window = focus(&target.editor);
             for character in input.text.chars() {
                 let text = character.to_string();
                 for down in [true, false] {
-                    key(&KeyInput::new(
-                        input.editor,
-                        down,
-                        0,
-                        text.clone(),
-                        text.clone(),
-                        false,
-                        Modifiers::empty(),
-                    ));
+                    post_key(
+                        &KeyInput::new(
+                            input.editor,
+                            down,
+                            0,
+                            text.clone(),
+                            text.clone(),
+                            false,
+                            Modifiers::empty(),
+                        ),
+                        &window,
+                    );
                 }
             }
         }
         _ => {}
+    }
+}
+
+/// Whether the command's points and distances are finite.
+fn finite(command: &Command) -> bool {
+    let point = |at: &Point| at.x.is_finite() && at.y.is_finite();
+    match command {
+        Command::Pointer(input) => point(&input.at),
+        Command::Motion(input) => input.dx.is_finite() && input.dy.is_finite(),
+        Command::Wheel(input) => point(&input.at) && input.dx.is_finite() && input.dy.is_finite(),
+        _ => true,
     }
 }
 
@@ -377,6 +441,10 @@ impl Target {
                 let Some((window, point)) = self.window_at(input.at) else {
                     return;
                 };
+                // One button is held at a time: the one held before goes up first.
+                if let Some((held, button, last)) = PRESSED.take() {
+                    post(&held, up(button), last, 1, flags, Posted::Mouse);
+                }
                 post(
                     &window,
                     down(input.button),
@@ -469,12 +537,19 @@ impl Target {
     }
 }
 
-/// Releases a held button and the modifiers, and drops relative moves not yet made.
+/// Releases a held button, the keys down and the modifiers, and drops relative moves not yet
+/// made.
 fn release() {
     PENDING.set(None);
     if let Some((window, button, point)) = PRESSED.take() {
         let flags = NSEventModifierFlags::empty();
         post(&window, up(button), point, 1, flags, Posted::Mouse);
+    }
+    for (mut input, window) in HELD.take() {
+        input.down = false;
+        input.repeat = false;
+        input.modifiers = Modifiers::empty();
+        post_key(&input, &window);
     }
     MODIFIERS.set(Modifiers::empty());
     mouse::set_modifiers(NSEventModifierFlags::empty());
@@ -561,38 +636,34 @@ fn post(
     }
 }
 
-/// Runs a menu or panel command from a one-shot timer of its own: choosing an item or answering
-/// a panel calls plugin code.
+/// Runs a menu or panel command from a one-shot timer: choosing an item or answering a panel
+/// calls plugin code, which may run a loop of its own. Each timer runs the first command waiting,
+/// so they run in the order they came whichever timer fires first.
 fn deliver(command: Command) {
-    let order = ORDER.get();
-    ORDER.set(order + 1);
-    let info = Box::into_raw(Box::new(command)).cast::<std::ffi::c_void>();
+    DELIVERIES.with_borrow_mut(|deliveries| deliveries.push_back(command));
     let mut context = objc2_core_foundation::CFRunLoopTimerContext {
         version: 0,
-        info,
+        info: std::ptr::null_mut(),
         retain: None,
         release: None,
         copyDescription: None,
     };
-    // Timers that fire at once run in fire date order; the order keeps them in sequence.
-    let fire = CFAbsoluteTimeGetCurrent() + order as f64 * 1e-9;
-    // SAFETY: the callout takes back the box `info` points to, once: the timer does not repeat.
+    let fire = CFAbsoluteTimeGetCurrent();
+    // SAFETY: the context is a valid version 0 context with no info, copied by the call.
     let timer =
         unsafe { CFRunLoopTimer::new(None, fire, 0.0, 0, 0, Some(delivered), &mut context) };
     if let (Some(timer), Some(main)) = (timer, CFRunLoop::main()) {
         main.add_timer(Some(&timer), unsafe { kCFRunLoopCommonModes });
     } else {
-        // SAFETY: no timer took the box.
-        drop(unsafe { Box::from_raw(info.cast::<Command>()) });
+        DELIVERIES.with_borrow_mut(VecDeque::pop_back);
     }
 }
 
-unsafe extern "C-unwind" fn delivered(_timer: *mut CFRunLoopTimer, info: *mut std::ffi::c_void) {
-    // SAFETY: `deliver` made `info` from a box this callout takes back once.
-    match *unsafe { Box::from_raw(info.cast::<Command>()) } {
-        Command::ChooseMenuItem(choice) => menu::choose(&choice),
-        Command::CloseMenu(id) => menu::close(id),
-        Command::AnswerPanel(answer) => panel::answer(&answer),
+unsafe extern "C-unwind" fn delivered(_timer: *mut CFRunLoopTimer, _info: *mut std::ffi::c_void) {
+    match DELIVERIES.with_borrow_mut(VecDeque::pop_front) {
+        Some(Command::ChooseMenuItem(choice)) => menu::choose(&choice),
+        Some(Command::CloseMenu(id)) => menu::close(id),
+        Some(Command::AnswerPanel(answer)) => panel::answer(&answer),
         _ => {}
     }
 }
@@ -649,12 +720,44 @@ impl Target {
     }
 }
 
-/// Posts a key event for the window the last pointer down went to. It is not the key window,
-/// which the helper never makes one, so the event goes to it directly once handed out.
-fn key(input: &KeyInput) {
-    let Some(window) = FOCUS.with_borrow(Clone::clone) else {
-        return;
-    };
+/// The window that takes keys and text: the one the last pointer down went to while it shows,
+/// or else the shown editor's.
+fn focus(editor: &Retained<NSWindow>) -> Retained<NSWindow> {
+    FOCUS.with_borrow_mut(|focus| {
+        if focus.as_ref().is_some_and(|window| !window.isVisible()) {
+            *focus = None;
+        }
+        focus.clone().unwrap_or_else(|| editor.clone())
+    })
+}
+
+/// Posts a key event for the window that takes keys, and keeps the key while it is down. A key
+/// goes up in the window it went down in.
+fn key(input: &KeyInput, editor: &Retained<NSWindow>) {
+    let held = HELD.with_borrow_mut(|held| {
+        let index = held
+            .iter()
+            .position(|(down, _)| down.key_code == input.key_code)?;
+        if input.down {
+            Some(held[index].1.clone())
+        } else {
+            Some(held.remove(index).1)
+        }
+    });
+    let window = held.unwrap_or_else(|| focus(editor));
+    if input.down && !input.repeat {
+        HELD.with_borrow_mut(|held| {
+            if !held.iter().any(|(down, _)| down.key_code == input.key_code) {
+                held.push((input.clone(), window.clone()));
+            }
+        });
+    }
+    post_key(input, &window);
+}
+
+/// Posts a key event for `window`. It is not the key window, which the helper never makes one,
+/// so the event goes to it directly once handed out.
+fn post_key(input: &KeyInput, window: &Retained<NSWindow>) {
     let flags = flags(input.modifiers);
     let tag = next_tag();
     let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
@@ -675,5 +778,84 @@ fn key(input: &KeyInput) {
     );
     if let Some(event) = event {
         post_tagged(&event, tag, Posted::Direct(window.clone()), window.mtm());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use plughost_core::remote::EditorId;
+
+    use super::*;
+
+    /// The queue is the process's; one test uses it at a time.
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        static SERIAL: Mutex<()> = Mutex::new(());
+        SERIAL.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn wheel(editor: EditorId, dy: f64) -> Command {
+        Command::Wheel(WheelInput::new(
+            editor,
+            Point::new(0.0, 0.0),
+            0.0,
+            dy,
+            WheelUnit::Line,
+            Modifiers::empty(),
+        ))
+    }
+
+    #[test]
+    fn a_full_queue_keeps_the_session_start_and_drops_the_oldest_wheel_first() {
+        let _serial = serial();
+        let editor = EditorId(1);
+        queue().clear();
+        started(std::time::Duration::from_secs(1));
+        let key = Command::Key(KeyInput::new(
+            editor,
+            true,
+            0,
+            "a",
+            "a",
+            false,
+            Modifiers::empty(),
+        ));
+        receive(key.clone());
+        let count = 2 * BACKLOG;
+        for dy in 0..count {
+            receive(wheel(editor, dy as f64));
+        }
+        let queued: Vec<Queued> = queue().drain(..).collect();
+        assert_eq!(queued.len(), BACKLOG);
+        assert!(matches!(queued[0], Queued::Started(_)));
+        assert!(matches!(&queued[1], Queued::Command(command) if *command == key));
+        assert!(matches!(
+            queued.last(),
+            Some(Queued::Command(command)) if *command == wheel(editor, (count - 1) as f64)
+        ));
+    }
+
+    #[test]
+    fn relative_moves_waiting_in_a_row_add_up() {
+        let _serial = serial();
+        let editor = EditorId(2);
+        queue().clear();
+        receive(Command::Motion(MotionInput::new(
+            editor,
+            1.0,
+            2.0,
+            Modifiers::empty(),
+        )));
+        receive(Command::Motion(MotionInput::new(
+            editor,
+            3.0,
+            4.0,
+            Modifiers::SHIFT,
+        )));
+        let queued: Vec<Queued> = queue().drain(..).collect();
+        assert!(matches!(
+            queued.as_slice(),
+            [Queued::Command(Command::Motion(motion))]
+                if *motion == MotionInput::new(editor, 4.0, 6.0, Modifiers::SHIFT)
+        ));
     }
 }

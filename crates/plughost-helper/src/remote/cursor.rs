@@ -57,11 +57,14 @@ extern "C-unwind" fn set(this: &NSCursor, _cmd: Sel) {
     if same {
         return;
     }
-    let (shape, blank) = describe(this);
+    // A cursor whose image AppKit cannot render leaves the one told before.
+    let described = describe(this);
     STATE.with_borrow_mut(|state| {
         state.set = Some(this.retain());
-        state.shape = shape;
-        state.blank = blank;
+        if let Some((shape, blank)) = described {
+            state.shape = shape;
+            state.blank = blank;
+        }
     });
     changed();
 }
@@ -167,8 +170,9 @@ fn changed() {
     });
 }
 
-/// The cursor's shape, and whether its image has nothing to see.
-fn describe(cursor: &NSCursor) -> (CursorShape, bool) {
+/// The cursor's shape, and whether its image has nothing to see; `None` when its image cannot
+/// be rendered.
+fn describe(cursor: &NSCursor) -> Option<(CursorShape, bool)> {
     #[expect(
         deprecated,
         reason = "plugins built against earlier SDKs set these cursors, which are told by name"
@@ -212,7 +216,7 @@ fn describe(cursor: &NSCursor) -> (CursorShape, bool) {
         .into_iter()
         .find(|(known, _)| std::ptr::eq(&**known, cursor))
     {
-        return (shape, false);
+        return Some((shape, false));
     }
     let image = cursor.image();
     let size = image.size();
@@ -220,9 +224,7 @@ fn describe(cursor: &NSCursor) -> (CursorShape, bool) {
     // SAFETY: no rectangle, context or hints asks for the image's own best representation.
     let cg =
         unsafe { image.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None) };
-    let Some(cg) = cg else {
-        return (CursorShape::Arrow, false);
-    };
+    let cg = cg?;
     let blank = CGDataProvider::data(CGImage::data_provider(Some(&cg)).as_deref())
         .is_some_and(|data| data.to_vec().iter().all(|byte| *byte == 0));
     let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg);
@@ -230,9 +232,8 @@ fn describe(cursor: &NSCursor) -> (CursorShape, bool) {
     let png = unsafe {
         rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
     }
-    .map(|data| data.to_vec())
-    .unwrap_or_default();
-    (
+    .map(|data| data.to_vec())?;
+    Some((
         CursorShape::Image(CursorImage::new(
             png,
             size.width,
@@ -240,5 +241,5 @@ fn describe(cursor: &NSCursor) -> (CursorShape, bool) {
             Point::new(hot_spot.x, hot_spot.y),
         )),
         blank,
-    )
+    ))
 }

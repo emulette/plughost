@@ -24,6 +24,7 @@ const SET_PARAMETER: &str = "the Audio Unit rejected the parameter change";
 const SAMPLE_FORMAT_UNSUPPORTED: &str = "Audio Units process 32-bit float samples only";
 const NO_BUS: &str = "the Audio Unit has no bus for the requested layout";
 const LAYOUT_REFUSED: &str = "the Audio Unit refused the requested layout";
+const RATE_REFUSED: &str = "the Audio Unit refused the sample rate on an inactive bus";
 const ALLOCATE: &str = "the Audio Unit could not allocate render resources";
 const MAXIMUM_FRAMES: &str = "the Audio Unit lowered the maximum block size";
 const PROCESSING_STORAGE: &str = "could not reserve the prepared Audio Unit audio buffers";
@@ -97,6 +98,8 @@ pub(crate) enum AuError {
     NoBus(Layout),
     /// The Audio Unit refused the requested layout.
     LayoutRefused(Layout, NativeError),
+    /// The Audio Unit refused the sample rate on a bus it is prepared with inactive.
+    RateRefused(NativeError),
     /// The Audio Unit could not allocate render resources.
     Allocate(NativeError),
     /// The Audio Unit lowered the maximum block size it was given.
@@ -155,6 +158,7 @@ impl fmt::Display for AuError {
             }
             AuError::NoBus(layout) => write!(f, "{NO_BUS} ({layout:?})"),
             AuError::LayoutRefused(layout, _) => write!(f, "{LAYOUT_REFUSED} ({layout:?})"),
+            AuError::RateRefused(_) => f.write_str(RATE_REFUSED),
             AuError::Allocate(_) => f.write_str(ALLOCATE),
             AuError::MaximumFrames {
                 requested,
@@ -182,6 +186,7 @@ impl std::error::Error for AuError {
             Self::Input(error) => Some(error),
             Self::Instantiate(Some(error))
             | Self::LayoutRefused(_, error)
+            | Self::RateRefused(error)
             | Self::Allocate(error) => Some(error),
             _ => None,
         }
@@ -195,6 +200,7 @@ impl AuError {
             Self::Render(status) | Self::SetParameter(status) => Some(*status),
             Self::Instantiate(Some(error))
             | Self::LayoutRefused(_, error)
+            | Self::RateRefused(error)
             | Self::Allocate(error) => i32::try_from(error.code).ok(),
             _ => None,
         }
@@ -222,6 +228,7 @@ impl AuError {
             Self::SampleFormatUnsupported(_) | Self::NoEditor => FailureKind::Unsupported,
             Self::NoBus(_)
             | Self::LayoutRefused(_, _)
+            | Self::RateRefused(_)
             | Self::Allocate(_)
             | Self::MaximumFrames { .. } => FailureKind::Configuration,
             Self::NotPrepared => FailureKind::NotPrepared,

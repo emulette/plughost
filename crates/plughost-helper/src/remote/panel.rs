@@ -4,16 +4,18 @@
 //! `beginSheetModalForWindow:completionHandler:` run it, then `URL` (and `-[NSOpenPanel URLs]`)
 //! give its answer. These ask the session instead and never show a panel: `runModal` runs the
 //! run loop until the answer comes, as the real panel would, and the other two call their
-//! handler then. The answer stays on the panel object for the plugin to read.
+//! handler then. The answer stays on the panel object for the plugin to read. A plugin that
+//! closes a waiting panel, as one does when its editor goes away, gives it up: its handler is not
+//! called, and the session is told it finished. One that sends it `cancel:` answers it so.
 
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
-use std::sync::Once;
+use std::sync::{Once, OnceLock};
 
 use block2::{Block, RcBlock};
 use objc2::ffi::{OBJC_ASSOCIATION_RETAIN_NONATOMIC, class_replaceMethod};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyClass, Imp, Sel};
+use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
 use objc2::{ClassType, MainThreadMarker, Message, sel};
 use objc2_app_kit::{NSOpenPanel, NSSavePanel, NSWindow};
 use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
@@ -48,6 +50,58 @@ thread_local! {
 
 /// The key the answer is kept under on its panel.
 static ANSWER: u8 = 0;
+
+/// `-close` and `-cancel:` of the panel class as AppKit has them.
+static CLOSE: OnceLock<usize> = OnceLock::new();
+static CANCEL_ACTION: OnceLock<usize> = OnceLock::new();
+
+/// The waiting panel that is `panel`, if any.
+fn waiting_id(panel: &NSSavePanel) -> Option<PanelId> {
+    WAITING.with_borrow(|waiting| {
+        waiting
+            .iter()
+            .find(|waiting| std::ptr::eq(&*waiting.panel, panel))
+            .map(|waiting| waiting.id)
+    })
+}
+
+extern "C-unwind" fn close(panel: &NSSavePanel, cmd: Sel) {
+    let given_up = WAITING.with_borrow_mut(|waiting| {
+        let index = waiting
+            .iter()
+            .position(|waiting| std::ptr::eq(&*waiting.panel, panel))?;
+        match &mut waiting[index].waits {
+            // `runModal` returns cancelled and tells the session itself.
+            Waits::Modal(answer) => {
+                answer.get_or_insert(None);
+                None
+            }
+            Waits::Handler(_) => Some(waiting.remove(index)),
+        }
+    });
+    if let Some(given_up) = given_up {
+        session::notify(Notice::panel_finished(given_up.id));
+    }
+    if let Some(&original) = CLOSE.get() {
+        // SAFETY: the original has this signature.
+        let original: extern "C-unwind" fn(&NSSavePanel, Sel) =
+            unsafe { std::mem::transmute(original) };
+        original(panel, cmd);
+    }
+}
+
+extern "C-unwind" fn cancel_action(panel: &NSSavePanel, cmd: Sel, sender: *mut AnyObject) {
+    if let Some(id) = waiting_id(panel) {
+        answer(&PanelAnswer::new(id, None));
+        return;
+    }
+    if let Some(&original) = CANCEL_ACTION.get() {
+        // SAFETY: the original has this signature.
+        let original: extern "C-unwind" fn(&NSSavePanel, Sel, *mut AnyObject) =
+            unsafe { std::mem::transmute(original) };
+        original(panel, cmd, sender);
+    }
+}
 
 fn request(panel: &NSSavePanel) -> PanelRequest {
     let open = panel.downcast_ref::<NSOpenPanel>();
@@ -191,7 +245,7 @@ pub fn install(_mtm: MainThreadMarker) {
                     imp,
                     types.as_ptr(),
                 )
-            };
+            }
         };
         let save = NSSavePanel::class();
         // SAFETY: the transmutes keep each function's signature, which its encoding states.
@@ -236,6 +290,31 @@ pub fn install(_mtm: MainThreadMarker) {
             >(urls);
             replace(save, sel!(URLs), urls, c"@@:");
             replace(NSOpenPanel::class(), sel!(URLs), urls, c"@@:");
+            // The panel's own method or its window's, which the replacement calls on.
+            for (sel, imp, types, original) in [
+                (
+                    sel!(close),
+                    std::mem::transmute::<extern "C-unwind" fn(&NSSavePanel, Sel), Imp>(close),
+                    c"v@:",
+                    &CLOSE,
+                ),
+                (
+                    sel!(cancel:),
+                    std::mem::transmute::<
+                        extern "C-unwind" fn(&NSSavePanel, Sel, *mut AnyObject),
+                        Imp,
+                    >(cancel_action),
+                    c"v@:@",
+                    &CANCEL_ACTION,
+                ),
+            ] {
+                let inherited = objc2::ffi::method_getImplementation(
+                    objc2::ffi::class_getInstanceMethod(save, sel),
+                );
+                if let Some(replaced) = replace(save, sel, imp, types).or(inherited) {
+                    let _ = original.set(replaced as usize);
+                }
+            }
         }
     });
 }

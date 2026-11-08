@@ -287,7 +287,7 @@ pub(super) enum NoticeDef {
     MenuOpened {
         #[serde_as(as = "MenuIdDef")]
         menu: remote::MenuId,
-        #[serde_as(as = "Vec<MenuItemDef>")]
+        #[serde_as(as = "MenuTreeDef")]
         items: Vec<remote::MenuItem>,
     },
     MenuClosed {
@@ -297,14 +297,8 @@ pub(super) enum NoticeDef {
     PanelRequested {
         #[serde_as(as = "PanelIdDef")]
         panel: remote::PanelId,
-        #[serde_as(as = "PanelKindDef")]
-        kind: remote::PanelKind,
-        directory: Option<PathBuf>,
-        name: String,
-        types: Vec<String>,
-        multiple: bool,
-        directories: bool,
-        message: String,
+        #[serde_as(as = "PanelRequestDef")]
+        request: remote::PanelRequest,
     },
     PanelFinished {
         #[serde_as(as = "PanelIdDef")]
@@ -334,6 +328,21 @@ remote!(PanelKindDef, crate::remote::PanelKind);
 
 #[serde_as]
 #[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::PanelRequest")]
+pub(super) struct PanelRequestDef {
+    #[serde_as(as = "PanelKindDef")]
+    kind: remote::PanelKind,
+    directory: Option<PathBuf>,
+    name: String,
+    types: Vec<String>,
+    multiple: bool,
+    directories: bool,
+    message: String,
+}
+remote!(PanelRequestDef, crate::remote::PanelRequest);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
 #[serde(remote = "crate::remote::PanelAnswer")]
 pub(super) struct PanelAnswerDef {
     #[serde_as(as = "PanelIdDef")]
@@ -356,20 +365,89 @@ pub(super) enum MenuItemStateDef {
 }
 remote!(MenuItemStateDef, crate::remote::MenuItemState);
 
+/// A menu's items as a list in order, each with its depth: a tree decoded recursively would let
+/// a helper exhaust the application's stack with a deeply nested menu.
+pub(super) struct MenuTreeDef;
+
 #[serde_as]
 #[derive(Serialize, Deserialize)]
-#[serde(remote = "crate::remote::MenuItem")]
-pub(super) struct MenuItemDef {
+struct FlatMenuItem {
+    depth: usize,
     index: usize,
     title: String,
     enabled: bool,
     #[serde_as(as = "MenuItemStateDef")]
     state: remote::MenuItemState,
     separator: bool,
-    #[serde_as(as = "Vec<MenuItemDef>")]
-    submenu: Vec<remote::MenuItem>,
 }
-remote!(MenuItemDef, crate::remote::MenuItem);
+
+fn flatten(items: &[remote::MenuItem], depth: usize, flat: &mut Vec<FlatMenuItem>) {
+    for item in items {
+        flat.push(FlatMenuItem {
+            depth,
+            index: item.index,
+            title: item.title.clone(),
+            enabled: item.enabled,
+            state: item.state,
+            separator: item.separator,
+        });
+        flatten(&item.submenu, depth + 1, flat);
+    }
+}
+
+impl SerializeAs<Vec<remote::MenuItem>> for MenuTreeDef {
+    fn serialize_as<S: Serializer>(
+        items: &Vec<remote::MenuItem>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut flat = Vec::new();
+        flatten(items, 0, &mut flat);
+        flat.serialize(serializer)
+    }
+}
+
+impl<'de> DeserializeAs<'de, Vec<remote::MenuItem>> for MenuTreeDef {
+    fn deserialize_as<D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<remote::MenuItem>, D::Error> {
+        /// Gives the items of the deepest open level to the last item of the level above.
+        fn close(levels: &mut Vec<Vec<remote::MenuItem>>) {
+            if let Some(items) = levels.pop()
+                && let Some(parent) = levels.last_mut().and_then(|level| level.last_mut())
+            {
+                parent.submenu = items;
+            }
+        }
+        let flat = Vec::<FlatMenuItem>::deserialize(deserializer)?;
+        let mut levels: Vec<Vec<remote::MenuItem>> = vec![Vec::new()];
+        for item in flat {
+            // An item is at most one level below the one before it, under an item.
+            let opens =
+                item.depth == levels.len() && levels.last().is_some_and(|level| !level.is_empty());
+            if item.depth > super::MAX_MENU_DEPTH || (item.depth >= levels.len() && !opens) {
+                return Err(serde::de::Error::custom(crate::errors::MALFORMED_MENU));
+            }
+            while levels.len() > item.depth + 1 {
+                close(&mut levels);
+            }
+            if opens {
+                levels.push(Vec::new());
+            }
+            levels[item.depth].push(remote::MenuItem {
+                index: item.index,
+                title: item.title,
+                enabled: item.enabled,
+                state: item.state,
+                separator: item.separator,
+                submenu: Vec::new(),
+            });
+        }
+        while levels.len() > 1 {
+            close(&mut levels);
+        }
+        Ok(levels.pop().unwrap_or_default())
+    }
+}
 
 #[serde_as]
 #[derive(Serialize, Deserialize)]
@@ -1256,3 +1334,42 @@ pub(super) struct TransportDef {
     loop_region: Option<LoopRegion>,
 }
 remote!(TransportDef, crate::Transport);
+
+#[cfg(test)]
+mod tests {
+    use super::super::{MAX_MENU_DEPTH, NoticeMessage};
+    use crate::remote::{MenuId, MenuItem, MenuItemState, Notice};
+
+    fn item(index: usize, submenu: Vec<MenuItem>) -> MenuItem {
+        MenuItem::new(index, "item", true, MenuItemState::Off, false, submenu)
+    }
+
+    fn nested(depth: usize) -> Vec<MenuItem> {
+        (0..depth).fold(vec![item(0, Vec::new())], |items, _| vec![item(0, items)])
+    }
+
+    fn round_trip(notice: Notice) -> Result<Notice, postcard::Error> {
+        let bytes = postcard::to_allocvec(&NoticeMessage(notice)).unwrap();
+        postcard::from_bytes::<NoticeMessage>(&bytes).map(|message| message.0)
+    }
+
+    #[test]
+    fn a_menu_tree_round_trips() {
+        let items = vec![
+            item(
+                0,
+                vec![item(0, Vec::new()), item(2, vec![item(1, Vec::new())])],
+            ),
+            item(1, Vec::new()),
+            item(3, nested(MAX_MENU_DEPTH - 1)),
+        ];
+        let notice = Notice::menu_opened(MenuId(4), items);
+        assert_eq!(round_trip(notice.clone()).unwrap(), notice);
+    }
+
+    #[test]
+    fn a_menu_nested_past_the_limit_is_rejected() {
+        let notice = Notice::menu_opened(MenuId(4), nested(MAX_MENU_DEPTH + 1));
+        assert!(round_trip(notice).is_err());
+    }
+}

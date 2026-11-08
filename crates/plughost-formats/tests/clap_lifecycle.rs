@@ -138,8 +138,10 @@ fn an_active_plugin_without_blocks_takes_a_host_edit_from_idle() {
     let _ = plugin.take_parameter_events();
     plugin.set_parameter(0, 0.25).unwrap();
     plugin.idle();
-    // The first idle leaves it for a block that may still come.
+    // An idle within two of the longest blocks (512 frames at 48 kHz) leaves it for a block that
+    // may still come.
     assert!(!took_edit(&mut plugin, 0));
+    std::thread::sleep(std::time::Duration::from_millis(25));
     plugin.idle();
     assert!(took_edit(&mut plugin, 0));
 }

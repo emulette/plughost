@@ -509,7 +509,7 @@ impl PluginMainThreadParams for MainThread<'_> {
                 name: b"Editor window action",
                 module: b"",
                 min_value: 0.0,
-                max_value: 25.0,
+                max_value: 26.0,
                 default_value: 0.0,
             }),
             16 if variant() == Variant::Editor => info.set(&ParamInfo {
@@ -529,7 +529,7 @@ impl PluginMainThreadParams for MainThread<'_> {
                 name: b"Editor focus",
                 module: b"",
                 min_value: 0.0,
-                max_value: 2.0,
+                max_value: 3.0,
                 default_value: 0.0,
             }),
             13..=14 => info.set(&ParamInfo {

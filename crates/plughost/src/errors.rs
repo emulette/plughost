@@ -16,6 +16,7 @@ const OPERATION: &str = "the operation failed";
 pub(crate) const REMOTE_UNSUPPORTED: &str = "remote mode is available on macOS only";
 const REMOTE_BACKLOG: &str =
     "the remote session's commands back up: the helper does not take them as fast as they come";
+const REMOTE_CHANNEL: &str = "could not make the remote session's channel";
 const REMOTE_SESSION_ENDED: &str =
     "the remote session ended: its helper exited or a later session replaced it";
 const PROTOCOL: &str = "the helper sent an invalid or unexpected message";
@@ -97,6 +98,9 @@ pub enum Error {
     RemoteSessionEnded,
     /// A remote session's commands back up past what it holds; this one was not sent.
     RemoteBacklog,
+    /// A remote session's channel could not be made, as when the process has no file
+    /// descriptors left.
+    RemoteChannel(std::io::Error),
 }
 
 fn slot(f: &mut fmt::Formatter<'_>, slot: &Option<usize>) -> fmt::Result {
@@ -152,6 +156,7 @@ impl fmt::Display for Error {
             Error::RealtimeRunning => f.write_str(REALTIME_RUNNING),
             Error::RemoteSessionEnded => f.write_str(REMOTE_SESSION_ENDED),
             Error::RemoteBacklog => f.write_str(REMOTE_BACKLOG),
+            Error::RemoteChannel(_) => f.write_str(REMOTE_CHANNEL),
         }
     }
 }
@@ -159,7 +164,9 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Error::HelperStart(error) | Error::Cache(error) => Some(error),
+            Error::HelperStart(error) | Error::Cache(error) | Error::RemoteChannel(error) => {
+                Some(error)
+            }
             Error::Operation { failure, .. } => Some(failure),
             Error::Input { error, .. } => Some(error),
             Error::Render(error) => Some(error),
@@ -196,7 +203,8 @@ impl Error {
             Self::HelperStart(_)
             | Self::Cache(_)
             | Self::RemoteSessionEnded
-            | Self::RemoteBacklog => FailureKind::Host,
+            | Self::RemoteBacklog
+            | Self::RemoteChannel(_) => FailureKind::Host,
             Self::Handshake | Self::ProtocolVersion { .. } | Self::Protocol => {
                 FailureKind::Protocol
             }

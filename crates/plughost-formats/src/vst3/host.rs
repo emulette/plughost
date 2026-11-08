@@ -568,7 +568,7 @@ impl ComponentHandler {
     /// thread took the queue meanwhile.
     pub fn forget_delivered(&self, sent: &[(ParamID, ParamValue)], taken: u64) {
         let mut pending = lock(&self.pending);
-        if self.taken.load(Ordering::Relaxed) != taken || pending.len() < sent.len() {
+        if self.taken.load(Ordering::Relaxed) != taken {
             return;
         }
         let mut index = 0;

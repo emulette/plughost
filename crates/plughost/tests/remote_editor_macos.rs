@@ -452,7 +452,7 @@ fn shown_editor() -> (Chain, Session, EditorId) {
 fn pointer_wheel_and_key_input_reach_the_shown_editor() {
     let _serial = support::editor_test();
     let (mut chain, session, editor) = shown_editor();
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     // The editor's view starts 20 points in from the region's corner.
     click(&sender, editor, 50.0, 60.0, 1);
     click(&sender, editor, 50.0, 60.0, 2);
@@ -525,7 +525,7 @@ fn pointer_wheel_and_key_input_reach_the_shown_editor() {
 fn input_reaches_a_dialog_the_editor_runs_from_a_key() {
     let _serial = support::editor_test();
     let (mut chain, mut session, editor) = shown_editor();
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     click(&sender, editor, 50.0, 60.0, 1);
     // The key opens a dialog that a click in it and then a key end.
     key(&sender, editor, 46, "m");
@@ -572,7 +572,7 @@ fn input_reaches_a_dialog_the_editor_runs_from_a_key() {
 fn input_for_another_editor_is_dropped() {
     let _serial = support::editor_test();
     let (mut chain, session, editor) = shown_editor();
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     click(&sender, EditorId(editor.0 + 1), 50.0, 60.0, 5);
     click(&sender, editor, 50.0, 60.0, 1);
     wait(
@@ -588,7 +588,7 @@ fn input_for_another_editor_is_dropped() {
 fn a_session_ending_releases_the_held_button() {
     let _serial = support::editor_test();
     let (mut chain, session, editor) = shown_editor();
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     sender
         .send(pointer(editor, PointerKind::Down, 50.0, 60.0, 1))
         .unwrap();
@@ -612,7 +612,6 @@ fn a_later_session_releases_the_button_the_one_before_held() {
     let (mut chain, first, editor) = shown_editor();
     first
         .sender()
-        .unwrap()
         .send(pointer(editor, PointerKind::Down, 50.0, 60.0, 1))
         .unwrap();
     wait(
@@ -634,7 +633,7 @@ fn a_later_session_releases_the_button_the_one_before_held() {
 fn a_plugin_asking_for_the_mouse_is_told_the_sessions() {
     let _serial = support::editor_test();
     let (mut chain, session, editor) = shown_editor();
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     sender
         .send(Command::Pointer(PointerInput::new(
             editor,
@@ -666,7 +665,7 @@ fn a_plugin_asking_for_the_mouse_is_told_the_sessions() {
 fn relative_moves_go_on_from_where_the_plugin_warped_the_mouse() {
     let _serial = support::editor_test();
     let (mut chain, session, editor) = shown_editor();
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     // The view's centre: the fixture warps there after each drag with Command, as a JUCE
     // slider's velocity mode does.
     sender
@@ -717,7 +716,7 @@ fn moves_over_the_editor_reach_its_tracking_area() {
         "move the machine's cursor off the region first"
     );
     let (mut chain, session, editor) = shown_editor();
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     sender
         .send(pointer(editor, PointerKind::Move, 50.0, 60.0, 0))
         .unwrap();
@@ -765,7 +764,7 @@ fn a_plugin_showing_activating_or_running_a_dialog_leaves_the_helper_behind() {
     behind("unhide:");
     act(&mut chain, 9);
     behind("activateFromApplication:options:");
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     click(&sender, editor, 50.0, 60.0, 1);
     key(&sender, editor, 46, "m");
     until(
@@ -793,7 +792,7 @@ fn next_cursor(session: &mut Session, what: &str) -> (CursorShape, bool) {
 fn the_session_is_told_the_cursor_the_plugin_sets_and_hides() {
     let _serial = support::editor_test();
     let (mut chain, mut session, editor) = shown_editor();
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     assert_eq!(
         next_cursor(&mut session, "not told the cursor"),
         (CursorShape::Arrow, false)
@@ -913,7 +912,7 @@ fn a_menu_the_plugin_opens_is_told_and_its_item_chosen_by_index() {
         (more[1].title.as_str(), more[1].enabled, more[1].state),
         ("Off", false, MenuItemState::Off)
     );
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     // A disabled item is not chosen, and the menu stays open.
     sender
         .send(Command::ChooseMenuItem(MenuChoice::new(menu, vec![3, 1])))
@@ -962,11 +961,7 @@ fn a_later_session_is_told_the_open_menu_and_can_close_it() {
             "the replacement closed the menu"
         );
     }
-    later
-        .sender()
-        .unwrap()
-        .send(Command::CloseMenu(menu))
-        .unwrap();
+    later.sender().send(Command::CloseMenu(menu)).unwrap();
     menu_closed(&mut later, menu, "the menu did not close");
     assert_eq!(
         (
@@ -996,7 +991,7 @@ fn a_session_ending_closes_its_menus() {
 fn a_session_starts_while_a_dialog_the_plugin_runs_is_open() {
     let _serial = support::editor_test();
     let (mut chain, mut session, editor) = shown_editor();
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     click(&sender, editor, 50.0, 60.0, 1);
     // The key opens a dialog that a click in it and then a key end; the session that opened
     // it goes, as a browser that reloads does.
@@ -1026,7 +1021,7 @@ fn a_session_starts_while_a_dialog_the_plugin_runs_is_open() {
         "the later session was not told the dialog",
     );
     let frame = dialog.unwrap();
-    let sender = later.sender().unwrap();
+    let sender = later.sender();
     click(
         &sender,
         editor,
@@ -1073,20 +1068,13 @@ fn ask_panel(chain: &mut Chain, session: &mut Session, action: &str) -> (PanelId
         |notice| matches!(notice, Notice::PanelRequested { .. }),
         "not told the panel's request",
     ) {
-        Notice::PanelRequested {
-            panel,
-            kind,
-            directory,
-            types,
-            multiple,
-            ..
-        } => {
+        Notice::PanelRequested { panel, request, .. } => {
             assert_eq!(
-                directory.as_deref(),
+                request.directory.as_deref(),
                 Some(std::path::Path::new("/tmp/plughost-test-panels"))
             );
-            assert_eq!(types, ["fxp"]);
-            (panel, kind, multiple)
+            assert_eq!(request.types, ["fxp"]);
+            (panel, request.kind, request.multiple)
         }
         _ => unreachable!(),
     }
@@ -1124,35 +1112,24 @@ fn scratch(name: &str) -> std::path::PathBuf {
 fn a_save_panel_the_plugin_runs_is_answered_by_the_session() {
     let _serial = support::editor_test();
     let (mut chain, mut session, editor) = shown_editor();
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     chain.set_parameter_text(0, 17, "19").unwrap();
     let request = until(
         &mut session,
         |notice| matches!(notice, Notice::PanelRequested { .. }),
         "not told the panel's request",
     );
-    let Notice::PanelRequested {
-        panel,
-        kind,
-        directory,
-        name,
-        types,
-        multiple,
-        directories,
-        message,
-        ..
-    } = request
-    else {
+    let Notice::PanelRequested { panel, request, .. } = request else {
         unreachable!()
     };
     assert_eq!(
         (
-            kind,
-            name.as_str(),
-            types,
-            multiple,
-            directories,
-            message.as_str()
+            request.kind,
+            request.name.as_str(),
+            request.types,
+            request.multiple,
+            request.directories,
+            request.message.as_str()
         ),
         (
             PanelKind::Save,
@@ -1164,7 +1141,7 @@ fn a_save_panel_the_plugin_runs_is_answered_by_the_session() {
         )
     );
     assert_eq!(
-        directory.as_deref(),
+        request.directory.as_deref(),
         Some(std::path::Path::new("/tmp/plughost-test-panels"))
     );
     // The plugin waits in the panel's modal loop, which drops input to its editor.
@@ -1193,7 +1170,7 @@ fn a_save_panel_the_plugin_runs_is_answered_by_the_session() {
 fn an_open_panel_with_a_handler_takes_several_files() {
     let _serial = support::editor_test();
     let (mut chain, mut session, _) = shown_editor();
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     let (panel, kind, multiple) = ask_panel(&mut chain, &mut session, "20");
     assert_eq!((kind, multiple), (PanelKind::Open, true));
     // An open takes one file at least.
@@ -1219,7 +1196,7 @@ fn an_open_panel_with_a_handler_takes_several_files() {
 fn a_save_panel_sheet_is_cancelled_by_the_session() {
     let _serial = support::editor_test();
     let (mut chain, mut session, _) = shown_editor();
-    let sender = session.sender().unwrap();
+    let sender = session.sender();
     let (panel, kind, _) = ask_panel(&mut chain, &mut session, "21");
     assert_eq!(kind, PanelKind::Save);
     // A save takes one path.
@@ -1261,11 +1238,7 @@ fn a_later_session_is_told_the_waiting_panel_and_answers_it() {
         |notice| matches!(notice, Notice::PanelRequested { panel: asked, .. } if *asked == panel),
         "the later session was not told the waiting panel",
     );
-    answer(
-        &later.sender().unwrap(),
-        panel,
-        Some(vec![scratch("a.fxp")]),
-    );
+    answer(&later.sender(), panel, Some(vec![scratch("a.fxp")]));
     panel_finished(
         &mut later,
         panel,
@@ -1333,4 +1306,68 @@ fn urls_and_files_a_plugin_opens_or_shows_are_told_instead() {
         |notice| *notice == Notice::open_url("plughost-test://launch-services"),
         "not told the page the plugin opened through Launch Services",
     );
+}
+
+/// The editor focus the fixture in `slot` reports: 3 once its view took a key the host sent.
+fn focus(chain: &mut Chain, slot: usize) -> f64 {
+    const EDITOR_FOCUS: u64 = 15;
+    let (_, value) = chain
+        .parameters(slot)
+        .unwrap()
+        .into_iter()
+        .find(|(info, _)| info.id == EDITOR_FOCUS)
+        .unwrap();
+    chain
+        .parameter_to_plain(slot, EDITOR_FOCUS, value.unwrap())
+        .unwrap()
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn keys_go_to_the_shown_editor_once_the_clicked_one_is_hidden() {
+    const TOOK_KEY: f64 = 3.0;
+    let _serial = support::editor_test();
+    let mut chain = spawn_remote(&[editor(), editor()]);
+    let session = chain.remote_session().unwrap();
+    let sender = session.sender();
+    chain
+        .set_remote_region(region(100.0, 100.0, 300.0, 200.0))
+        .unwrap();
+    let first = chain.open_remote_editor(0).unwrap().editor;
+    click(&sender, first, 50.0, 60.0, 1);
+    wait(
+        &mut chain,
+        |chain| value(chain, CLICKS) == 1.0,
+        "the click did not reach the first editor",
+    );
+    let second = chain.open_remote_editor(1).unwrap().editor;
+    key(&sender, second, 0, "a");
+    wait(
+        &mut chain,
+        |chain| focus(chain, 1) == TOOK_KEY,
+        "the key did not reach the shown editor",
+    );
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_panel_the_plugin_closes_is_given_up() {
+    let _serial = support::editor_test();
+    let (mut chain, mut session, _) = shown_editor();
+    let (panel, kind, _) = ask_panel(&mut chain, &mut session, "26");
+    assert_eq!(kind, PanelKind::Open);
+    panel_finished(&mut session, panel, "the closed panel did not finish");
+    // A later session is not told it, and the session's end does not call its handler.
+    let mut later = chain.remote_session().unwrap();
+    drop(session);
+    let deadline = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < deadline {
+        let notice = later.recv(Duration::from_millis(50)).unwrap();
+        assert!(
+            !matches!(notice, Some(Notice::PanelRequested { .. })),
+            "the later session was told the closed panel"
+        );
+    }
+    drop(later);
+    assert_eq!(value(&mut chain, PANEL_RESULT), 0.0);
 }

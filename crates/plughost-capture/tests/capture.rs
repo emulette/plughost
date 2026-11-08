@@ -305,3 +305,42 @@ fn a_window_another_session_opens_later_is_left_out() {
     // The popup covers the region's left edge up to and under this editor, 20 points in.
     assert_eq!(pixel(frames.last().unwrap(), 10.0, 50.0), [0, 0, 0]);
 }
+
+#[test]
+#[ignore = "needs screen recording permission, the helper and the delay fixtures"]
+fn a_capture_dropped_in_its_own_callback_ends() {
+    let _serial = serial();
+    let area = region(100.0, 100.0, 300.0, 200.0);
+    let mut chain = editor(area);
+    let held: Arc<Mutex<Option<Capture>>> = Arc::default();
+    let (dropped, was_dropped) = std::sync::mpsc::channel();
+    let pid = chain.helper_monitor().process_id();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let capture = loop {
+        let (held, dropped) = (Arc::clone(&held), dropped.clone());
+        match Capture::start(
+            &area,
+            pid,
+            &CaptureOptions::default(),
+            move |_| {
+                let capture = held.lock().unwrap().take();
+                if capture.is_some() {
+                    drop(capture);
+                    let _ = dropped.send(());
+                }
+            },
+            |reason| panic!("the capture stopped: {reason}"),
+        ) {
+            Ok(capture) => break capture,
+            Err(CaptureError::NoHelper) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => panic!("the capture did not start: {error:?}"),
+        }
+    };
+    *held.lock().unwrap() = Some(capture);
+    paint(&mut chain);
+    was_dropped
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the capture was not dropped in its callback");
+}

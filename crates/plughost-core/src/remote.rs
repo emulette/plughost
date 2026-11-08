@@ -97,7 +97,8 @@ pub struct Opened {
 }
 
 impl Opened {
-    /// The editor `editor` of the given size.
+    /// The editor `editor` of the given size Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
     #[must_use]
     pub fn new(editor: EditorId, width: f64, height: f64) -> Opened {
         Opened {
@@ -138,7 +139,8 @@ pub struct Window {
 }
 
 impl Window {
-    /// The window `id` of `kind` at `frame`, reaching out of the region when `outside` is set.
+    /// The window `id` of `kind` at `frame`, reaching out of the region when `outside` is set Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
     #[must_use]
     pub fn new(id: u64, kind: WindowKind, frame: Rect, outside: bool) -> Window {
         Window {
@@ -215,20 +217,8 @@ pub enum Notice {
     PanelRequested {
         /// The panel.
         panel: PanelId,
-        /// Whether it opens files or saves one.
-        kind: PanelKind,
-        /// The folder the plugin starts it in, if it names one.
-        directory: Option<PathBuf>,
-        /// The file name it proposes, which may be empty.
-        name: String,
-        /// The file name extensions it allows, none for any.
-        types: Vec<String>,
-        /// Whether it takes several files.
-        multiple: bool,
-        /// Whether it takes folders.
-        directories: bool,
-        /// The message it shows, which may be empty.
-        message: String,
+        /// What it asks for.
+        request: PanelRequest,
     },
     /// The panel's call returned to the plugin with the answer. That is no promise the plugin
     /// finished writing or reading the files.
@@ -294,22 +284,23 @@ impl PanelAnswer {
 pub struct PanelRequest {
     /// Whether it opens files or saves one.
     pub kind: PanelKind,
-    /// The folder the plugin starts it in.
+    /// The folder the plugin starts it in, if it names one.
     pub directory: Option<PathBuf>,
-    /// The proposed file name.
+    /// The file name it proposes, which may be empty.
     pub name: String,
-    /// The allowed file name extensions.
+    /// The file name extensions it allows, none for any.
     pub types: Vec<String>,
     /// Whether it takes several files.
     pub multiple: bool,
     /// Whether it takes folders.
     pub directories: bool,
-    /// Its message.
+    /// The message it shows, which may be empty.
     pub message: String,
 }
 
 impl PanelRequest {
-    /// A request; see the fields.
+    /// A request; see the fields Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
     #[must_use]
     pub fn new(
         kind: PanelKind,
@@ -368,7 +359,8 @@ pub struct MenuItem {
 }
 
 impl MenuItem {
-    /// A menu item; see the fields.
+    /// A menu item; see the fields Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
     #[must_use]
     pub fn new(
         index: usize,
@@ -468,7 +460,8 @@ pub struct CursorImage {
 }
 
 impl CursorImage {
-    /// A cursor image; see the fields.
+    /// A cursor image; see the fields Internal to the plughost crates; exempt from semver.
+    #[doc(hidden)]
     #[must_use]
     pub fn new(png: Vec<u8>, width: f64, height: f64, hot_spot: Point) -> CursorImage {
         CursorImage {
@@ -480,71 +473,73 @@ impl CursorImage {
     }
 }
 
+/// Internal to the plughost crates; exempt from semver: the helper builds notices.
 impl Notice {
     /// The shown editor's windows.
+    #[doc(hidden)]
     #[must_use]
     pub fn windows(editor: EditorId, windows: Vec<Window>) -> Notice {
         Notice::Windows { editor, windows }
     }
 
     /// A remote editor closed.
+    #[doc(hidden)]
     #[must_use]
     pub fn editor_closed(editor: EditorId, slot: usize) -> Notice {
         Notice::EditorClosed { editor, slot }
     }
 
     /// The main thread's loops nest `depth` deep.
+    #[doc(hidden)]
     #[must_use]
     pub fn nested(depth: u32) -> Notice {
         Notice::Nested { depth }
     }
 
     /// The plugin's cursor.
+    #[doc(hidden)]
     #[must_use]
     pub fn cursor(shape: CursorShape, hidden: bool) -> Notice {
         Notice::Cursor { shape, hidden }
     }
 
     /// A menu opened.
+    #[doc(hidden)]
     #[must_use]
     pub fn menu_opened(menu: MenuId, items: Vec<MenuItem>) -> Notice {
         Notice::MenuOpened { menu, items }
     }
 
     /// A menu closed.
+    #[doc(hidden)]
     #[must_use]
     pub fn menu_closed(menu: MenuId) -> Notice {
         Notice::MenuClosed { menu }
     }
 
     /// A panel waits for an answer.
+    #[doc(hidden)]
     #[must_use]
     pub fn panel_requested(panel: PanelId, request: PanelRequest) -> Notice {
-        Notice::PanelRequested {
-            panel,
-            kind: request.kind,
-            directory: request.directory,
-            name: request.name,
-            types: request.types,
-            multiple: request.multiple,
-            directories: request.directories,
-            message: request.message,
-        }
+        Notice::PanelRequested { panel, request }
     }
 
     /// A panel's call returned to the plugin.
+    #[doc(hidden)]
     #[must_use]
     pub fn panel_finished(panel: PanelId) -> Notice {
         Notice::PanelFinished { panel }
     }
 
     /// The plugin asked to open `url`.
+    #[doc(hidden)]
     #[must_use]
     pub fn open_url(url: impl Into<String>) -> Notice {
         Notice::OpenUrl { url: url.into() }
     }
 
     /// The plugin asked to show `paths` in the Finder.
+    #[doc(hidden)]
     #[must_use]
     pub fn reveal_files(paths: Vec<PathBuf>) -> Notice {
         Notice::RevealFiles { paths }
@@ -730,7 +725,8 @@ impl WheelInput {
     }
 }
 
-/// A key going down or up. It goes to the window the last pointer down went to.
+/// A key going down or up. It goes to the window the last pointer down went to while that window
+/// shows, or else to the shown editor's; a key goes up in the window it went down in.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct KeyInput {
@@ -830,7 +826,8 @@ pub enum Command {
     Text(TextInput),
     /// The modifiers held changed.
     Modifiers(ModifiersInput),
-    /// Releases a held button and the modifiers, as when the user's browser lost the focus.
+    /// Releases a held button, the keys down and the modifiers, as when the user's browser lost
+    /// the focus.
     ReleaseAll(EditorId),
     /// Chooses an item of an open menu, which closes it. A disabled item, a separator, an item
     /// that opens a submenu or a path that names no item is not chosen.

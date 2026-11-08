@@ -13,7 +13,7 @@ mod isolation;
 pub mod menu;
 mod mouse;
 mod panel;
-mod rebind;
+pub mod rebind;
 pub mod session;
 pub mod watch;
 

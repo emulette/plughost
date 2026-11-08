@@ -38,17 +38,17 @@ extern "C-unwind" fn general_pasteboard(_class: *mut AnyObject, _cmd: Sel) -> *m
 extern "C-unwind" fn pasteboard_with_name(
     class: *mut AnyObject,
     cmd: Sel,
-    name: &NSString,
+    name: *mut NSString,
 ) -> *mut NSPasteboard {
-    // SAFETY: the name constant is AppKit's.
-    if name == unsafe { NSPasteboardNameGeneral } {
+    // SAFETY: the name, if given, is a string; the constant is AppKit's.
+    if unsafe { name.as_ref() }.is_some_and(|name| name == unsafe { NSPasteboardNameGeneral }) {
         return pasteboard();
     }
     let Some(&original) = WITH_NAME.get() else {
         return std::ptr::null_mut();
     };
     // SAFETY: the original has this signature.
-    let original: extern "C-unwind" fn(*mut AnyObject, Sel, &NSString) -> *mut NSPasteboard =
+    let original: extern "C-unwind" fn(*mut AnyObject, Sel, *mut NSString) -> *mut NSPasteboard =
         unsafe { std::mem::transmute(original) };
     original(class, cmd, name)
 }
@@ -57,17 +57,20 @@ fn file_url(url: &NSURL) -> Option<PathBuf> {
     url.path().map(|path| PathBuf::from(path.to_string()))
 }
 
-extern "C-unwind" fn open_url(_this: &NSWorkspace, _cmd: Sel, url: &NSURL) -> Bool {
-    if let Some(url) = url.absoluteString() {
-        open(url.to_string());
-    }
+/// Plugins pass nil where a URL or a path failed to parse; AppKit opens nothing then.
+extern "C-unwind" fn open_url(_this: &NSWorkspace, _cmd: Sel, url: *mut NSURL) -> Bool {
+    // SAFETY: the URL, if given, is a URL.
+    let Some(url) = unsafe { url.as_ref() }.and_then(NSURL::absoluteString) else {
+        return Bool::NO;
+    };
+    open(url.to_string());
     Bool::YES
 }
 
 extern "C-unwind" fn open_url_configured(
     this: &NSWorkspace,
     cmd: Sel,
-    url: &NSURL,
+    url: *mut NSURL,
     _configuration: *mut AnyObject,
     handler: *mut Block<dyn Fn(*mut AnyObject, *mut AnyObject)>,
 ) {
@@ -79,26 +82,36 @@ extern "C-unwind" fn open_url_configured(
     }
 }
 
-extern "C-unwind" fn open_file(_this: &NSWorkspace, _cmd: Sel, path: &NSString) -> Bool {
-    let url = NSURL::fileURLWithPath(path);
-    if let Some(url) = url.absoluteString() {
-        open(url.to_string());
-    }
+extern "C-unwind" fn open_file(_this: &NSWorkspace, _cmd: Sel, path: *mut NSString) -> Bool {
+    // SAFETY: the path, if given, is a string.
+    let Some(url) = unsafe { path.as_ref() }
+        .map(NSURL::fileURLWithPath)
+        .and_then(|url| url.absoluteString())
+    else {
+        return Bool::NO;
+    };
+    open(url.to_string());
     Bool::YES
 }
 
-extern "C-unwind" fn reveal_urls(_this: &NSWorkspace, _cmd: Sel, urls: &NSArray<NSURL>) {
-    reveal(urls.iter().filter_map(|url| file_url(&url)).collect());
+extern "C-unwind" fn reveal_urls(_this: &NSWorkspace, _cmd: Sel, urls: *mut NSArray<NSURL>) {
+    // SAFETY: the array, if given, holds URLs.
+    if let Some(urls) = unsafe { urls.as_ref() } {
+        reveal(urls.iter().filter_map(|url| file_url(&url)).collect());
+    }
 }
 
+/// The root may be nil or empty, as AppKit allows; the file is shown in it.
 extern "C-unwind" fn select_file(
     _this: &NSWorkspace,
     _cmd: Sel,
     file: *mut NSString,
-    root: &NSString,
+    root: *mut NSString,
 ) -> Bool {
-    // SAFETY: the file, if given, is a string.
-    let path = unsafe { file.as_ref() }.unwrap_or(root);
+    // SAFETY: the file and the root, if given, are strings.
+    let Some(path) = (unsafe { file.as_ref() }).or(unsafe { root.as_ref() }) else {
+        return Bool::NO;
+    };
     reveal(vec![PathBuf::from(path.to_string())]);
     Bool::YES
 }
@@ -120,7 +133,12 @@ pub fn install() {
             // SAFETY: each replacement has the signature its type encoding states, which is the
             // replaced method's.
             unsafe {
-                class_replaceMethod(std::ptr::from_ref(class).cast_mut(), sel, imp, types.as_ptr())
+                class_replaceMethod(
+                    std::ptr::from_ref(class).cast_mut(),
+                    sel,
+                    imp,
+                    types.as_ptr(),
+                )
             }
         };
         let pasteboard = NSPasteboard::class().metaclass();
@@ -140,7 +158,7 @@ pub fn install() {
                 pasteboard,
                 sel!(pasteboardWithName:),
                 std::mem::transmute::<
-                    extern "C-unwind" fn(*mut AnyObject, Sel, &NSString) -> *mut NSPasteboard,
+                    extern "C-unwind" fn(*mut AnyObject, Sel, *mut NSString) -> *mut NSPasteboard,
                     Imp,
                 >(pasteboard_with_name),
                 c"@@:@",
@@ -150,9 +168,10 @@ pub fn install() {
             replace(
                 workspace,
                 sel!(openURL:),
-                std::mem::transmute::<extern "C-unwind" fn(&NSWorkspace, Sel, &NSURL) -> Bool, Imp>(
-                    open_url,
-                ),
+                std::mem::transmute::<
+                    extern "C-unwind" fn(&NSWorkspace, Sel, *mut NSURL) -> Bool,
+                    Imp,
+                >(open_url),
                 c"B@:@",
             );
             replace(
@@ -162,7 +181,7 @@ pub fn install() {
                     extern "C-unwind" fn(
                         &NSWorkspace,
                         Sel,
-                        &NSURL,
+                        *mut NSURL,
                         *mut AnyObject,
                         *mut Block<dyn Fn(*mut AnyObject, *mut AnyObject)>,
                     ),
@@ -174,7 +193,7 @@ pub fn install() {
                 workspace,
                 sel!(openFile:),
                 std::mem::transmute::<
-                    extern "C-unwind" fn(&NSWorkspace, Sel, &NSString) -> Bool,
+                    extern "C-unwind" fn(&NSWorkspace, Sel, *mut NSString) -> Bool,
                     Imp,
                 >(open_file),
                 c"B@:@",
@@ -182,16 +201,17 @@ pub fn install() {
             replace(
                 workspace,
                 sel!(activateFileViewerSelectingURLs:),
-                std::mem::transmute::<extern "C-unwind" fn(&NSWorkspace, Sel, &NSArray<NSURL>), Imp>(
-                    reveal_urls,
-                ),
+                std::mem::transmute::<
+                    extern "C-unwind" fn(&NSWorkspace, Sel, *mut NSArray<NSURL>),
+                    Imp,
+                >(reveal_urls),
                 c"v@:@",
             );
             replace(
                 workspace,
                 sel!(selectFile:inFileViewerRootedAtPath:),
                 std::mem::transmute::<
-                    extern "C-unwind" fn(&NSWorkspace, Sel, *mut NSString, &NSString) -> Bool,
+                    extern "C-unwind" fn(&NSWorkspace, Sel, *mut NSString, *mut NSString) -> Bool,
                     Imp,
                 >(select_file),
                 c"B@:@@",

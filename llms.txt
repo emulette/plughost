@@ -635,8 +635,10 @@ still allocate or lock; late completions count what that costs.
   with, alike: a value outside its range is clamped into it, and one the plugin does not give (a
   CLAP `get_value` that fails, an `AudioUnitGetParameter` a v2 unit refuses), that is not finite,
   or whose range is not, is `None` rather than a value that looks like a real 0.
-  `vst3::Plugin::parameter_value` is `None` for an unknown ID too. Values a plugin reports
-  through its own edits and notifications outside their range are dropped, as before. A CLAP
+  `vst3::Plugin::parameter_value` is `None` for an unknown ID too. A value a plugin reports
+  through its own edits and notifications past an end of its range by rounding is that end; one
+  further out is not reported but asks to read the values again (`ParameterEvent::ValuesChanged`),
+  and a VST3 `performEdit` with it fails with `kInvalidArgument`. A CLAP
   parameter whose range is not finite has no default, and edits and automation of a CLAP or
   Audio Unit parameter with such a range fail with a `FailureKind::Host` error.
 - `parameter_details` returns native range endpoints and group information. Endpoints do
@@ -649,7 +651,10 @@ still allocate or lock; late completions count what that costs.
   cannot be read or planned afterwards: the chain keeps its last latency and tail, and the
   diagnostics record the failure. `bypass` / `set_bypass` use native bypass without host dry/wet substitution.
 - `take_parameter_events` drains bounded value/gesture/metadata notifications. On overflow,
-  cancel active gestures and requery metadata and values.
+  cancel active gestures and requery metadata and values. A value reported again for an ID
+  replaces the one queued for it unless a gesture of that ID or a metadata change came between
+  them, so a meter that reports every block takes one record per drain, and one `ValuesChanged`
+  stands for those queued before it.
 
 `save_state(slot, purpose)` returns an opaque `PluginState`; use `StatePurpose::Project` for
 project persistence. Persist `state.to_bytes()` in application-owned storage and read it with
@@ -680,7 +685,10 @@ with `RestartRequired`); the same holds for the other replacements below. The sl
 bypass unless the state sets it, as a VST3 or CLAP state holding a bypass parameter can; preset
 imports, discovered presets and factory presets do the same. Notes the replaced instance already
 sent to later slots are not ended, so a note-producing plugin's replacement can leave them held;
-`reset()` ends them, and `resync_realtime()` does while an endpoint runs. An open editor is recreated; reopening failures appear in diagnostics. State payloads are bounded by `MAX_STATE_BYTES`
+`reset()` ends them, and `resync_realtime()` does while an endpoint runs. An open editor goes on
+in the same window, which keeps its place and hidden or minimized state and does not take focus;
+failures appear in diagnostics, and a remote editor whose new instance draws only in its own
+window or runs in an Audio Unit extension closes. State payloads are bounded by `MAX_STATE_BYTES`
 (128 MiB across processor and controller payloads). A VST3 component or controller that
 rejects its state fails the restore; a controller without state support does not.
 
@@ -745,10 +753,12 @@ editors only remotely (`open_editor` and a plugin's own request to open fail or 
 unsupported). `set_remote_region` sets a `remote::Region`, a display identifier and a
 `remote::Rect` in points from the display's top-left corner, which the application reads and
 shows; a region that is not finite, not positive or not within an existing display is
-`InputError::RemoteRegion` and changes nothing. `open_remote_editor(slot)` opens the slot's
+`InputError::RemoteRegion` and changes nothing, as is opening a remote editor before a region is
+set. A remote chain off macOS fails to spawn as unsupported. `open_remote_editor(slot)` opens the slot's
 editor in a borderless window `remote::EDITOR_INSET` points into the region, shows it and returns
 its `remote::Opened` (editor identifier and size); the editor shown before is hidden, not closed,
-and `show_remote_editor(slot)` shows it again with its state. `remote_session()` starts a
+and `show_remote_editor(slot)` shows it again with its state (a slot without an open remote
+editor is `InputError::RemoteEditor`). `remote_session()` starts a
 `remote::Session`, the channel on which the helper tells what happens as it happens, beginning
 with the current state; `recv(timeout)` returns `remote::Notice`s: the shown editor's `Windows`
 front to back (its own and the menus, popups and dialogs its plugin opens, each with its frame in
@@ -757,30 +767,36 @@ region points and whether it reaches out of the region), `EditorClosed`, `Nested
 `DisplayLost`. A later session ends the one before with `Error::RemoteSessionEnded`.
 `Session::sender()` returns a `remote::Sender` (cloneable, any thread) whose `send(Command)`
 never blocks: `Error::RemoteBacklog` when 1024 commands wait to be written, `RemoteSessionEnded`
-once the session ended. Commands are `Pointer` (`Down`, `Up`, `Move` with a button, a region
+once the session ended. The helper takes commands as they come; while its main thread is held up
+outside any loop it keeps 1024, merging moves and dropping the oldest moves and wheel commands
+first. Points and distances that are not finite are dropped. Commands are `Pointer` (`Down`, `Up`, `Move` with a button, a region
 point, the click count and `Modifiers`), `Motion` (a relative move in points, as Pointer Lock
 reports while a plugin hides the cursor, after the system's acceleration), `Wheel` (`dy` positive scrolls the content down; `Line`
 or `Point` units), `Key` (macOS virtual key code and characters), `Text`, `Modifiers` and
 `ReleaseAll`; each names the shown editor's `EditorId` and the helper drops input for another.
 Pointer input goes to the helper's frontmost window under the point, keys and text to the window
-of the last button down, and input reaches the dialogs and menus a plugin runs in a loop of its
-own; a session's end releases a held button. Plugins that ask where the mouse is, which buttons
+of the last button down while it shows (else to the shown editor's), a key going up where it went
+down, and input reaches the dialogs and menus a plugin runs in a loop of its own, a control's
+tracking included. One button is held at a time: a second goes down after the first goes up.
+`ReleaseAll` and a session's end release a held button, the keys down and the modifiers. Plugins that ask where the mouse is, which buttons
 are down or which modifiers are held are answered with the session's input, and a plugin's
 cursor warp moves that mouse, not the machine's cursor; a `Motion` goes on from where the warp
 left it. Moves without a button reach the views tracking the mouse (hover). `Cursor` notices tell
 the cursor the plugin sets over the shown editor, an AppKit `CursorShape` or an `Image` (PNG,
 size and hot spot in points), and whether it is hidden; lock the pointer and send `Motion` while
-it is. Neither reaches the machine's cursor. Input does not choose the items of an AppKit menu
+it is. Neither reaches the machine's cursor, but the machine's own cursor over the region still
+reaches the views tracking the mouse there. Input does not choose the items of an AppKit menu
 the plugin opens: `MenuOpened` lists them (`MenuItem`: index among all items, title, enabled,
-`MenuItemState`, separator, submenu; hidden items left out), the menu's window comes in `Windows`
+`MenuItemState`, separator, submenu; hidden items and submenus more than 16 levels down left
+out), the menu's window comes in `Windows`
 as kind `Menu`, and `Command::ChooseMenuItem(MenuChoice::new(menu, index_path))` chooses one or
 `CloseMenu` closes it; a disabled item, a separator or a path that names no item is not chosen.
 A menu open past `Timeouts::menu` (60 seconds by default), or whose session ends, closes. Open
-and save panels never show on the machine: `PanelRequested` tells what the plugin asked
-(`PanelKind`, its folder, proposed name, allowed extensions, whether it takes several files or
-folders, its message) and `Command::AnswerPanel(PanelAnswer::new(panel, Some(paths)))` answers it,
+and save panels never show on the machine: `PanelRequested` tells the panel and what the plugin
+asked, a `PanelRequest` (`PanelKind`, its folder, proposed name, allowed extensions, whether it
+takes several files or folders, its message), and `Command::AnswerPanel(PanelAnswer::new(panel, Some(paths)))` answers it,
 `None` cancelling; a save takes one path and an open at least one. `PanelFinished` follows once
-the plugin has the answer. While a plugin waits in a modal panel, input to its editor is dropped.
+the plugin has the answer, or once the plugin closed the panel, which gives it up. While a plugin waits in a modal panel, input to its editor is dropped.
 A session's end cancels its panels and closes its menus; a later session that replaces it gets
 them instead, so replace a session rather than dropping it to keep them. A remote helper keeps
 a general pasteboard of its own, and the URLs, files and Finder reveals a plugin asks for open
@@ -793,7 +809,16 @@ still times out. Send preview audio through the realtime endpoint, which does no
 main thread. An AUv3 editor (it runs in
 its extension's process) and an editor that draws only in its own window are unsupported. The
 display, sending what is read, and the sessions are the application's; the `plughost-capture`
-crate reads the region with only the helper's windows, in one process of the application.
+crate reads the region with only the helper's windows, in one process of the application:
+`Capture::start(&region, helper_pid, &CaptureOptions, on_frame, on_stop)` (the helper's
+`HelperMonitor::process_id`, after its remote editor opened) hands `Frame`s (a `CVPixelBuffer`,
+its pixel size, `scale` in pixels per point and `time`) to `on_frame` and a `StopReason` to
+`on_stop`, one at a time on the capture's queue; `CaptureOptions` sets the most frames a second
+(frames come only when the region changes), how many frames are in flight and the `PixelFormat`
+(`Bgra` or `Nv12`). `set_region` follows the layout on the same display, `pause` and `resume`
+stop and restart the frames, and dropping the capture, from a callback too, ends it. It fails with
+a `CaptureError` (no screen recording permission, no display, no helper window yet, a region
+outside its display, a ScreenCaptureKit error, no answer).
 
 Match typed `Error` variants (`Error::Render` carries a `RenderError`, `Error::Input` an
 `InputError`) or use `Error::kind()` for the shared `FailureKind`; do not parse display text.

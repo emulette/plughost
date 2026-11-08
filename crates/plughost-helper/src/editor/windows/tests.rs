@@ -99,3 +99,55 @@ fn a_size_the_system_does_not_give_the_window_is_refused_and_undone() {
     assert_eq!(editor.size(), (width + 20, height + 10));
     editor.close(&mut plugin);
 }
+
+/// The client size a window restores to.
+fn restored_size(hwnd: HWND) -> (i32, i32) {
+    let mut placement = WINDOWPLACEMENT {
+        length: size_of::<WINDOWPLACEMENT>() as u32,
+        ..WINDOWPLACEMENT::default()
+    };
+    assert_ne!(unsafe { GetWindowPlacement(hwnd, &mut placement) }, 0);
+    let outer = placement.rcNormalPosition;
+    let mut frame = RECT::default();
+    let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32;
+    assert_ne!(
+        unsafe { AdjustWindowRectExForDpi(&mut frame, style, 0, 0, GetDpiForWindow(hwnd)) },
+        0
+    );
+    (
+        (outer.right - outer.left) - (frame.right - frame.left),
+        (outer.bottom - outer.top) - (frame.bottom - frame.top),
+    )
+}
+
+#[test]
+#[ignore = "needs scripts/build-test-plugins.ps1; opens a window"]
+fn a_minimized_window_restores_to_the_size_it_was_given_and_a_maximized_one_refuses_it() {
+    let _serial = serial();
+    let _runtime = crate::events::init(true).unwrap();
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-plugins/again.vst3");
+    // SAFETY: the tests load only the repository's fixture and SDK sample plugins.
+    let module = unsafe { Module::load(&path) }.unwrap();
+    let mut plugin = Plugin::new(
+        &module,
+        module.classes()[0].id.class_id().as_str(),
+        &plughost_core::HostIdentity::default(),
+    )
+    .unwrap();
+    let editor = EditorWindow::open(&mut plugin).unwrap();
+    let hwnd = editor.state.hwnd.get();
+    let initial = client_size(hwnd);
+    let (width, height) = (initial.0 as u32 + 20, initial.1 as u32 + 10);
+    unsafe { ShowWindow(hwnd, SW_SHOWMINNOACTIVE) };
+    assert!(editor.state.resize_exactly(width, height));
+    assert_ne!(unsafe { IsIconic(hwnd) }, 0);
+    assert_eq!(restored_size(hwnd), (width as i32, height as i32));
+    unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
+    assert_eq!(client_size(hwnd), (width as i32, height as i32));
+    unsafe { ShowWindow(hwnd, SW_MAXIMIZE) };
+    let maximized = client_size(hwnd);
+    assert!(!editor.state.resize_exactly(width + 20, height + 10));
+    assert_ne!(unsafe { IsZoomed(hwnd) }, 0);
+    assert_eq!(client_size(hwnd), maximized);
+    editor.close(&mut plugin);
+}

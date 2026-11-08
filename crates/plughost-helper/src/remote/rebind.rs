@@ -9,6 +9,7 @@
 
 use std::ffi::{CStr, c_char, c_void};
 use std::sync::Once;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use objc2_core_foundation::CGPoint;
 
@@ -286,6 +287,15 @@ fn name(raw: &[c_char; 16]) -> &[u8] {
     &bytes[..end]
 }
 
+/// An image loaded since [`take_unbound`] last answered kept pointers that could not be made
+/// writable to point at the replacements.
+static UNBOUND: AtomicBool = AtomicBool::new(false);
+
+/// Whether an image loaded since the last call kept pointers to the real functions.
+pub fn take_unbound() -> bool {
+    UNBOUND.swap(false, Ordering::Relaxed)
+}
+
 unsafe fn rebind_section(section: &Section64, slide: isize, tables: &Tables, read_only: bool) {
     let pointers = (slide as usize + section.addr as usize) as *mut *mut c_void;
     let count = section.size as usize / size_of::<*mut c_void>();
@@ -314,6 +324,7 @@ unsafe fn rebind_section(section: &Section64, slide: isize, tables: &Tables, rea
         if read_only && !writable {
             // `__DATA_CONST` is read-only once dyld bound it.
             if !protect(pointers.cast(), section.size as usize, true) {
+                UNBOUND.store(true, Ordering::Relaxed);
                 return;
             }
             writable = true;

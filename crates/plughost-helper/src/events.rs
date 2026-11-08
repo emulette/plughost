@@ -119,9 +119,9 @@ mod platform {
                 perform: Some(woken),
             };
             // SAFETY: the context is a valid version 0 context, copied by the call.
-            let source =
-                unsafe { CFRunLoopSource::new(None, 0, &mut context) }.expect("a run loop source");
-            let run_loop = CFRunLoop::main().expect("the main run loop");
+            let source = unsafe { CFRunLoopSource::new(None, 0, &mut context) }
+                .expect(crate::errors::RUN_LOOP_SOURCE);
+            let run_loop = CFRunLoop::main().expect(crate::errors::MAIN_RUN_LOOP);
             run_loop.add_source(Some(&source), unsafe { kCFRunLoopDefaultMode });
             // SAFETY: the callout matches the observer's signature and takes no context.
             let observer = unsafe {
@@ -134,7 +134,7 @@ mod platform {
                     std::ptr::null_mut(),
                 )
             }
-            .expect("a run loop observer");
+            .expect(crate::errors::RUN_LOOP_OBSERVER);
             run_loop.add_observer(Some(&observer), unsafe { kCFRunLoopCommonModes });
             Waker { source, run_loop }
         }

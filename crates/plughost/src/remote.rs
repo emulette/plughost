@@ -29,6 +29,8 @@ mod session {
 
     /// How many commands wait for the helper before [`Sender::send`] refuses more.
     const BACKLOG: usize = 1024;
+    /// The longest wait one `poll` takes.
+    const LONGEST_POLL: Duration = Duration::from_millis(i32::MAX as u64);
 
     /// A pipe for a session, both ends closed on exec. A session's channel is a pair of pipes,
     /// not a socket pair: macOS's collection of Unix sockets in flight between processes flushed
@@ -71,7 +73,9 @@ mod session {
     impl Sender {
         /// Queues `command` for the helper. Fails with [`Error::RemoteBacklog`] when the helper
         /// has not taken the commands before it, and with [`Error::RemoteSessionEnded`] once the
-        /// session ended.
+        /// session ended. The helper takes commands as they come and runs them on its main
+        /// thread; while that thread is held up outside any loop it keeps 1024, merging moves and
+        /// dropping the oldest moves and wheel commands first.
         pub fn send(&self, command: Command) -> Result<(), Error> {
             self.queue.try_send(command).map_err(|error| match error {
                 TrySendError::Full(_) => Error::RemoteBacklog,
@@ -124,9 +128,8 @@ mod session {
         }
 
         /// A sender of commands to the helper; its clones send on the same session.
-        pub fn sender(&self) -> Result<Sender, Error> {
-            Ok(self
-                .sender
+        pub fn sender(&self) -> Sender {
+            self.sender
                 .get_or_init(|| {
                     let mut writer = MessageWriter::new(Commands(Arc::clone(&self.commands)));
                     let (queue, commands) = mpsc::sync_channel::<Command>(BACKLOG);
@@ -139,14 +142,15 @@ mod session {
                     });
                     Sender { queue }
                 })
-                .clone())
+                .clone()
         }
 
         /// The next notice, waiting up to `timeout` for it; `None` when none came in time.
         /// Fails with [`Error::RemoteSessionEnded`] once the helper exits or a later session
         /// replaces this one.
         pub fn recv(&mut self, timeout: Duration) -> Result<Option<Notice>, Error> {
-            let deadline = Instant::now() + timeout;
+            // A timeout past any instant, such as `Duration::MAX`, waits without a deadline.
+            let deadline = Instant::now().checked_add(timeout);
             loop {
                 if let Some(message) = self.decoder.message::<NoticeMessage>() {
                     return match message {
@@ -154,16 +158,21 @@ mod session {
                         Err(_) => Err(Error::Protocol),
                     };
                 }
-                let left = deadline.saturating_duration_since(Instant::now());
-                if left.is_zero() {
+                let left =
+                    deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
+                if left.is_some_and(|left| left.is_zero()) {
                     return Ok(None);
                 }
-                let timeout = Timespec {
-                    tv_sec: left.as_secs() as i64,
-                    tv_nsec: i64::from(left.subsec_nanos()),
-                };
+                // macOS `poll` takes milliseconds in a C `int`; a longer wait polls again.
+                let timeout = left.map(|left| {
+                    let left = left.min(LONGEST_POLL);
+                    Timespec {
+                        tv_sec: left.as_secs() as i64,
+                        tv_nsec: i64::from(left.subsec_nanos()),
+                    }
+                });
                 let mut ready = [PollFd::new(&self.notices, PollFlags::IN)];
-                match rustix::event::poll(&mut ready, Some(&timeout)) {
+                match rustix::event::poll(&mut ready, timeout.as_ref()) {
                     Ok(0) => continue,
                     Ok(_) => {}
                     Err(rustix::io::Errno::INTR) => continue,
@@ -177,6 +186,26 @@ mod session {
                     Err(_) => return Err(Error::RemoteSessionEnded),
                 }
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use plughost_core::ipc::{MessageWriter, NoticeMessage};
+
+        use super::*;
+
+        #[test]
+        fn a_wait_past_any_instant_or_any_poll_takes_the_notice_that_came() {
+            let (notices, helper_notices) = pipe().unwrap();
+            let (_helper_commands, commands) = pipe().unwrap();
+            let mut session = Session::new(notices, commands);
+            let mut helper = MessageWriter::new(File::from(helper_notices));
+            for timeout in [Duration::MAX, Duration::from_secs(30 * 86_400)] {
+                helper.write(&NoticeMessage(Notice::nested(1))).unwrap();
+                assert_eq!(session.recv(timeout).unwrap(), Some(Notice::nested(1)));
+            }
+            assert_eq!(session.recv(Duration::from_millis(10)).unwrap(), None);
         }
     }
 }

@@ -528,6 +528,14 @@ impl Host {
         // SAFETY: plugin code runs only in this helper process, so whatever it does stays in it.
         let mut loaded = unsafe { plughost_formats::load(plugin, host) }?;
         loaded.set_audio_thread(AudioThread::new(&self.processing, slot));
+        #[cfg(target_os = "macos")]
+        if crate::remote::rebind::take_unbound() {
+            crate::record_failure(
+                &self.diagnostics,
+                Some(slot),
+                &Failure::new(FailureKind::Host, crate::errors::UNBOUND_CURSOR),
+            );
+        }
         Ok(loaded)
     }
 

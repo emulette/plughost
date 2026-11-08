@@ -15,6 +15,16 @@ pub const NOT_REMOTE: &str = "remote editors need a chain started in remote mode
 pub const LOCAL_EDITOR_IN_REMOTE: &str =
     "a chain started in remote mode opens editors only as remote editors";
 #[cfg(target_os = "macos")]
+pub const RUN_LOOP_SOURCE: &str = "Core Foundation could not create a run loop source";
+#[cfg(target_os = "macos")]
+pub const RUN_LOOP_OBSERVER: &str = "Core Foundation could not create a run loop observer";
+#[cfg(target_os = "macos")]
+pub const RUN_LOOP_TIMER: &str = "Core Foundation could not create a run loop timer";
+#[cfg(target_os = "macos")]
+pub const MAIN_RUN_LOOP: &str = "the process has no main run loop";
+#[cfg(target_os = "macos")]
+pub const UNBOUND_CURSOR: &str = "a library the plugin loaded keeps calling the machine's cursor functions: its cursor warps and hiding reach the machine's cursor";
+#[cfg(target_os = "macos")]
 pub const FLOATING_REMOTE: &str =
     "the editor draws only in its own window, which a remote editor cannot place in its region";
 #[cfg(target_os = "windows")]

@@ -257,8 +257,8 @@ pub enum InputError {
     RealtimeLatency,
     /// A dry fallback needs as many output channels as input channels.
     RealtimeDry,
-    /// A remote editor region does not have a finite position and a positive size within an
-    /// existing display.
+    /// No remote editor region was set, or the one given does not have a finite position and a
+    /// positive size within an existing display.
     RemoteRegion,
     /// The slot has no open remote editor.
     RemoteEditor,
@@ -334,8 +334,7 @@ const REALTIME_QUANTUM: &str =
 const REALTIME_LATENCY: &str = "a realtime latency must be one, two or three quanta";
 const REALTIME_DRY: &str = "a dry fallback needs as many output channels as input channels";
 const REMOTE_EDITOR: &str = "the slot has no open remote editor";
-const REMOTE_REGION: &str =
-    "a remote editor region needs a finite position and a positive size within an existing display";
+const REMOTE_REGION: &str = "a remote editor needs a region set, with a finite position and a positive size within an existing display";
 
 const INPUT: &str = "invalid render input";
 const LATENCY_CHANGED: &str = "the processor's latency changed during rendering";
@@ -350,6 +349,7 @@ const SESSION_CLOSED: &str = "the render session is no longer active";
 const NON_FINITE_OUTPUT: &str = "the processor output a NaN or infinite sample";
 pub(crate) const MESSAGE_TOO_LARGE: &str = "the message exceeds the maximum size";
 pub(crate) const MALFORMED_MESSAGE: &str = "the message could not be decoded";
+pub(crate) const MALFORMED_MENU: &str = "a menu's items do not form a tree within the depth limit";
 
 /// Errors from the offline render rules.
 #[derive(Clone, Debug, PartialEq, Eq)]

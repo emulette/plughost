@@ -2,6 +2,11 @@
 #[cfg(target_os = "macos")]
 #[path = "../src/events.rs"]
 mod events;
+// The messages `events` uses; the rest of them serve the helper.
+#[cfg(target_os = "macos")]
+#[path = "../src/errors.rs"]
+#[allow(dead_code)]
+mod errors;
 
 #[cfg(target_os = "macos")]
 use objc2_core_foundation::{
