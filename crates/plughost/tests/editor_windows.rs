@@ -305,6 +305,66 @@ fn a_window_the_system_widens_past_the_editor_is_not_offered_to_it() {
     chain.close_editor(0).unwrap();
 }
 
+/// The editor variant's parameter value, plain.
+fn plain(chain: &mut Chain, id: u64) -> f64 {
+    let (_, value) = chain
+        .parameters(0)
+        .unwrap()
+        .into_iter()
+        .find(|(info, _)| info.id == id)
+        .unwrap();
+    chain.parameter_to_plain(0, id, value.unwrap()).unwrap()
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_size_the_window_cannot_take_returns_the_editor_to_the_size_it_had() {
+    let _serial = support::editor_test();
+    // The editor variant accepts only its own size and counts the sizes it accepted and refused.
+    // Set to `ONE_PIXEL_WIDE`, the window action parameter has it ask for a size one pixel wide.
+    const REFUSED_SIZES: u64 = 16;
+    const EDITOR_WINDOW: u64 = 17;
+    const ACCEPTED_SIZES: u64 = 40;
+    const ONE_PIXEL_WIDE: &str = "27";
+    let mut chain = spawn(&[delay_variant(PluginFormat::Clap, "editor", 0xB)]);
+    chain.open_editor(0).unwrap();
+    let pid = chain.helper_monitor().process_id();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let (window, size) = loop {
+        if let Some(window) = window(pid, "PlughostEditorWindow") {
+            let mut rect = RECT::default();
+            if unsafe { GetClientRect(window, &mut rect) } != 0 && rect.right > 0 {
+                break (window, rect);
+            }
+        }
+        assert!(Instant::now() < deadline, "the editor window never opened");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(plain(&mut chain, ACCEPTED_SIZES), 0.0);
+    chain
+        .set_parameter_text(0, EDITOR_WINDOW, ONE_PIXEL_WIDE)
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while plain(&mut chain, ACCEPTED_SIZES) == 0.0 {
+        assert!(
+            Instant::now() < deadline,
+            "the editor was never given its size back"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The window refused the size and kept its own; the editor got back only the size it had.
+    let mut rect = RECT::default();
+    assert_ne!(unsafe { GetClientRect(window, &mut rect) }, 0);
+    assert_eq!(
+        (rect.right - rect.left, rect.bottom - rect.top),
+        (size.right - size.left, size.bottom - size.top)
+    );
+    assert_eq!(plain(&mut chain, ACCEPTED_SIZES), 1.0);
+    assert_eq!(plain(&mut chain, REFUSED_SIZES), 0.0);
+    assert!(chain.editor_open(0).unwrap());
+    chain.close_editor(0).unwrap();
+}
+
 #[test]
 #[ignore = "needs helper and SDK sample fixtures and a desktop session"]
 fn edits_and_saves_with_the_editor_open_survive_until_a_crash_and_recovery_reopens_it() {

@@ -2,7 +2,8 @@
 //! takes keyboard focus when given it and then sends a key to its window, so the parameter
 //! `clap::EDITOR_FOCUS` tells whether the host focused the view and whether keys reach it. It
 //! claims to be resizable but accepts only its own size, and once open it resizes its window as
-//! a user dragging it would; `clap::REFUSED_SIZES` counts the sizes it refused. Set
+//! a user dragging it would; `clap::REFUSED_SIZES` counts the sizes it refused and
+//! `clap::ACCEPTED_SIZES` the sizes it accepted. Set
 //! `clap::EDITOR_WINDOW`, it hides or shows the helper application, closes its window, activates
 //! the application as a click in a JUCE editor does, opens a popup window beside the editor,
 //! runs a modal dialog for `MODAL` and ends it, or paints its window red and green in turn.
@@ -885,6 +886,7 @@ impl PluginGuiImpl for MainThread<'_> {
 
     fn set_size(&self, size: GuiSize) -> Result<(), PluginError> {
         if size == SIZE {
+            self.shared.accepted_sizes.fetch_add(1, Ordering::Relaxed);
             Ok(())
         } else {
             self.shared.refused_sizes.fetch_add(1, Ordering::Relaxed);

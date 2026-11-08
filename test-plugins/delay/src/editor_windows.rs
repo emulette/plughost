@@ -1,13 +1,14 @@
 //! The CLAP editor of the `editor` variant, on Windows: a child window inside the host's window,
 //! narrower than the system lets a window be, so the host's window is wider than the editor. It
 //! claims to be resizable but accepts only its own size; `clap::REFUSED_SIZES` counts the sizes it
-//! refused.
+//! refused and `clap::ACCEPTED_SIZES` the sizes it accepted. Set `clap::EDITOR_WINDOW` to
+//! `ONE_PIXEL_WIDE`, it asks the host for a size one pixel wide, which no captioned window takes.
 
 use std::cell::RefCell;
 use std::sync::atomic::Ordering;
 
 use clack_extensions::gui::{
-    GuiApiType, GuiConfiguration, GuiSize, PluginGuiImpl, Window as ParentWindow,
+    GuiApiType, GuiConfiguration, GuiSize, HostGui, PluginGuiImpl, Window as ParentWindow,
 };
 use clack_plugin::prelude::*;
 use windows_sys::Win32::Foundation::HWND;
@@ -23,6 +24,20 @@ const SIZE: GuiSize = GuiSize {
     width: 40,
     height: 120,
 };
+
+/// The `clap::EDITOR_WINDOW` action that asks the host for a size one pixel wide.
+const ONE_PIXEL_WIDE: u32 = 27;
+
+impl MainThread<'_> {
+    /// Asks the host for a size one pixel wide for `ONE_PIXEL_WIDE`.
+    pub(crate) fn act(&self, action: u32) {
+        if action == ONE_PIXEL_WIDE
+            && let Some(gui) = self.host.get_extension::<HostGui>()
+        {
+            let _ = gui.request_resize(&self.host.shared(), 1, SIZE.height);
+        }
+    }
+}
 
 /// The open editor's window, destroyed when dropped.
 pub struct Editor(HWND);
@@ -76,6 +91,7 @@ impl PluginGuiImpl for MainThread<'_> {
 
     fn set_size(&self, size: GuiSize) -> Result<(), PluginError> {
         if size == SIZE {
+            self.shared.accepted_sizes.fetch_add(1, Ordering::Relaxed);
             Ok(())
         } else {
             self.shared.refused_sizes.fetch_add(1, Ordering::Relaxed);

@@ -55,6 +55,8 @@ const EDITOR_WINDOW: ClapId = ClapId::new(17);
 /// The `editor` variant's report of whether its application said it was active after the
 /// editor tried to activate it (`editor::act`).
 const APPLICATION_ACTIVE: ClapId = ClapId::new(18);
+/// The `editor` variant's count of editor sizes it accepted.
+const ACCEPTED_SIZES: ClapId = ClapId::new(40);
 /// The `meters` variant's meters, which report their values every block, and its count of the
 /// host's parameter value reads.
 const METERS: u32 = 200;
@@ -156,6 +158,7 @@ impl DefaultPluginFactory for TestPlugin {
             latency: AtomicU32::new(0),
             editor_focus: Arc::new(AtomicU32::new(0)),
             refused_sizes: AtomicU32::new(0),
+            accepted_sizes: AtomicU32::new(0),
             removed_timer_calls: AtomicU32::new(0),
             timer_calls: AtomicU32::new(0),
             system_timer_calls: Arc::new(AtomicU32::new(0)),
@@ -212,6 +215,8 @@ pub struct Shared {
     editor_focus: Arc<AtomicU32>,
     /// How often the `editor` variant's editor refused a size, reported as `REFUSED_SIZES`.
     pub(crate) refused_sizes: AtomicU32,
+    /// How often the `editor` variant's editor accepted a size, reported as `ACCEPTED_SIZES`.
+    pub(crate) accepted_sizes: AtomicU32,
     /// Calls the `timers` variant received for a timer it had removed, reported as
     /// `REMOVED_TIMER_CALLS`.
     pub(crate) removed_timer_calls: AtomicU32,
@@ -393,7 +398,7 @@ impl PluginMainThreadParams for MainThread<'_> {
         15 + u32::from(matches!(
             variant(),
             Variant::Editor | Variant::Timers | Variant::FlushRequest | Variant::ThreadCheck
-        )) + 24 * u32::from(variant() == Variant::Editor)
+        )) + 25 * u32::from(variant() == Variant::Editor)
             + 3 * u32::from(variant() == Variant::Timers)
             + 5 * u32::from(variant() == Variant::ThreadCheck)
             + (1 + METERS) * u32::from(variant() == Variant::Meters)
@@ -509,7 +514,17 @@ impl PluginMainThreadParams for MainThread<'_> {
                 name: b"Editor window action",
                 module: b"",
                 min_value: 0.0,
-                max_value: 26.0,
+                max_value: 27.0,
+                default_value: 0.0,
+            }),
+            40 if variant() == Variant::Editor => info.set(&ParamInfo {
+                id: ACCEPTED_SIZES,
+                flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: b"Accepted editor sizes",
+                module: b"",
+                min_value: 0.0,
+                max_value: 1_000_000.0,
                 default_value: 0.0,
             }),
             16 if variant() == Variant::Editor => info.set(&ParamInfo {
@@ -697,6 +712,11 @@ impl PluginMainThreadParams for MainThread<'_> {
         if id == REFUSED_SIZES && variant() == Variant::Editor {
             return Some(f64::from(self.shared.refused_sizes.load(Ordering::Relaxed)));
         }
+        if id == ACCEPTED_SIZES && variant() == Variant::Editor {
+            return Some(f64::from(
+                self.shared.accepted_sizes.load(Ordering::Relaxed),
+            ));
+        }
         if id == EDITOR_WINDOW && variant() == Variant::Editor {
             return Some(0.0);
         }
@@ -796,6 +816,13 @@ impl PluginMainThreadParams for MainThread<'_> {
                 && let Some(editor) = &*self.editor().borrow()
             {
                 editor.act(change.value() as u32);
+            }
+            #[cfg(target_os = "windows")]
+            if let Some(CoreEventSpace::ParamValue(change)) = event.as_core_event()
+                && change.param_id() == Some(EDITOR_WINDOW)
+                && self.editor().borrow().is_some()
+            {
+                self.act(change.value() as u32);
             }
             if let Some(CoreEventSpace::ParamValue(change)) = event.as_core_event()
                 && change.param_id() == Some(RANGE)

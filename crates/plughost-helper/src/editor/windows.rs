@@ -13,7 +13,7 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-    GetDpiForWindow, SetThreadDpiAwarenessContext,
+    GetDpiForWindow, GetSystemMetricsForDpi, SetThreadDpiAwarenessContext,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
@@ -89,47 +89,55 @@ impl WindowState {
             self.size.set((width, height));
             return true;
         }
-        let resized = if unsafe { IsIconic(hwnd) } != 0 {
+        if unsafe { IsIconic(hwnd) } != 0 {
             // The window restores to this size, still minimized and not activated meanwhile.
+            // `SetWindowPlacement` stores any size, so the window's smallest and largest sizes,
+            // which restoring applies, are applied here.
+            let dpi = unsafe { GetDpiForWindow(hwnd) };
+            let metric = |index| unsafe { GetSystemMetricsForDpi(index, dpi) };
+            let restored = (
+                outer_width.clamp(metric(SM_CXMINTRACK), metric(SM_CXMAXTRACK)),
+                outer_height.clamp(metric(SM_CYMINTRACK), metric(SM_CYMAXTRACK)),
+            );
             let mut placement = WINDOWPLACEMENT {
                 length: size_of::<WINDOWPLACEMENT>() as u32,
                 ..WINDOWPLACEMENT::default()
             };
             let got = unsafe { GetWindowPlacement(hwnd, &mut placement) } != 0;
             let normal = &mut placement.rcNormalPosition;
-            normal.right = normal.left + outer_width;
-            normal.bottom = normal.top + outer_height;
+            normal.right = normal.left + restored.0;
+            normal.bottom = normal.top + restored.1;
             placement.showCmd = SW_SHOWMINNOACTIVE as u32;
-            got && unsafe { SetWindowPlacement(hwnd, &placement) } != 0
-        } else {
-            let moved = unsafe {
-                SetWindowPos(
-                    hwnd,
-                    null_mut(),
-                    0,
-                    0,
-                    outer_width,
-                    outer_height,
-                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
-                )
-            };
-            moved != 0
-        };
-        if resized {
-            // The system keeps a window between its smallest and largest sizes. Record the size
-            // the window got, which `tick` compares it with; a minimized window has no client area.
-            let mut client = RECT::default();
-            let size = if unsafe { IsIconic(hwnd) } == 0
-                && unsafe { GetClientRect(hwnd, &mut client) } != 0
-            {
-                (
-                    (client.right - client.left) as u32,
-                    (client.bottom - client.top) as u32,
-                )
-            } else {
-                (width, height)
-            };
-            self.size.set(size);
+            if !got || unsafe { SetWindowPlacement(hwnd, &placement) } == 0 {
+                return false;
+            }
+            // A minimized window has no client area; record the one it restores to, which
+            // `tick` compares the window with once it shows.
+            self.size.set((
+                (width_i32 + restored.0 - outer_width) as u32,
+                (height_i32 + restored.1 - outer_height) as u32,
+            ));
+            return true;
+        }
+        let resized = unsafe {
+            SetWindowPos(
+                hwnd,
+                null_mut(),
+                0,
+                0,
+                outer_width,
+                outer_height,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            )
+        } != 0;
+        // The system keeps a window between its smallest and largest sizes. Record the size the
+        // window got, which `tick` compares it with.
+        let mut client = RECT::default();
+        if resized && unsafe { GetClientRect(hwnd, &mut client) } != 0 {
+            self.size.set((
+                (client.right - client.left) as u32,
+                (client.bottom - client.top) as u32,
+            ));
         }
         resized
     }
