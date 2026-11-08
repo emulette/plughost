@@ -6,7 +6,10 @@
 //! run loop until the answer comes, as the real panel would, and the other two call their
 //! handler then. The answer stays on the panel object for the plugin to read. A plugin that
 //! closes a waiting panel, as one does when its editor goes away, gives it up: its handler is not
-//! called, and the session is told it finished. One that sends it `cancel:` answers it so.
+//! called, and the session is told it finished. One that sends it `cancel:` answers it so. A
+//! panel waiting for its handler belongs to the slot whose editor shows when it begins, and is
+//! given up the same way when that editor closes or the slot's instance goes: its handler, and
+//! the code that releases it, may be gone with the instance.
 
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
@@ -38,6 +41,8 @@ enum Waits {
 
 struct Waiting {
     id: PanelId,
+    /// The slot whose remote editor showed when the panel began.
+    slot: Option<usize>,
     panel: Retained<NSSavePanel>,
     request: PanelRequest,
     waits: Waits,
@@ -140,6 +145,7 @@ fn ask(panel: &NSSavePanel, waits: Waits) -> PanelId {
     WAITING.with_borrow_mut(|waiting| {
         waiting.push(Waiting {
             id,
+            slot: super::watch::shown_slot(),
             panel: panel.retain(),
             request,
             waits,
@@ -358,6 +364,21 @@ pub fn answer(answer: &PanelAnswer) {
         let response = keep(&panel, answer.paths.as_deref());
         handler.call((response,));
         session::notify(Notice::panel_finished(id));
+    }
+}
+
+/// Gives up the panels waiting for their handler that belong to `slot`, or all of them for
+/// `None`, without calling the handlers. Call it before the slot's instance is dropped.
+pub fn give_up(slot: Option<usize>) {
+    let given_up: Vec<Waiting> = WAITING.with_borrow_mut(|waiting| {
+        let (given_up, kept) = std::mem::take(waiting).into_iter().partition(|waiting| {
+            matches!(waiting.waits, Waits::Handler(_)) && (slot.is_none() || waiting.slot == slot)
+        });
+        *waiting = kept;
+        given_up
+    });
+    for given_up in given_up {
+        session::notify(Notice::panel_finished(given_up.id));
     }
 }
 

@@ -70,7 +70,8 @@ impl Chain {
     /// Stages state on a fresh instance in the helper, replacing the slot only after restore,
     /// preparation and timing checks succeed. Returned native failures preserve the active slot;
     /// a crash or timeout can still terminate the shared helper. Successful restore clears DSP
-    /// history for this slot. An open editor is recreated and reopen failures enter diagnostics.
+    /// history for this slot. An open editor goes on in the same window, which keeps its place
+    /// and hidden or minimized state; failures enter diagnostics.
     /// The slot keeps its native bypass unless the state sets it, as a VST3 or CLAP state holding
     /// a bypass parameter can; the same holds for presets and factory presets. Notes the replaced
     /// instance already sent to later slots are not ended: [`Chain::reset`] ends them.

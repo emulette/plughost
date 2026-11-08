@@ -195,7 +195,7 @@ pub trait HostedPlugin: sealed::Sealed {
         false
     }
     /// Whether the editor and the panels it opens run in an app extension's process rather than
-    /// this one, as an AUv3 unit's do. The default is false.
+    /// this one, as those of an AUv3 unit loaded out of process do. The default is false.
     fn editor_in_extension(&self) -> bool {
         false
     }

@@ -1371,3 +1371,33 @@ fn a_panel_the_plugin_closes_is_given_up() {
     drop(later);
     assert_eq!(value(&mut chain, PANEL_RESULT), 0.0);
 }
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_waiting_panel_is_given_up_when_its_editor_closes_or_its_instance_is_replaced() {
+    let _serial = support::editor_test();
+    let (mut chain, mut session, _) = shown_editor();
+    let (panel, _, _) = ask_panel(&mut chain, &mut session, "20");
+    chain.close_editor(0).unwrap();
+    panel_finished(
+        &mut session,
+        panel,
+        "the closed editor's panel was not given up",
+    );
+    chain.open_remote_editor(0).unwrap();
+    let (panel, _, _) = ask_panel(&mut chain, &mut session, "20");
+    let state = chain
+        .save_state(0, plughost::StatePurpose::Project)
+        .unwrap();
+    chain
+        .restore_state(0, &state, plughost::StatePurpose::Project)
+        .unwrap();
+    panel_finished(
+        &mut session,
+        panel,
+        "the replaced instance's panel was not given up",
+    );
+    // The session's end calls no handler of them.
+    drop(session);
+    assert_eq!(value(&mut chain, PANEL_RESULT), 0.0);
+}

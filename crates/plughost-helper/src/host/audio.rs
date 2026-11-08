@@ -296,6 +296,8 @@ impl Host {
             if let Some(candidate) = candidate {
                 let plugin = std::mem::replace(&mut self.slots[slot], candidate);
                 self.retain_diagnostics(slot, plugin.as_ref());
+                #[cfg(target_os = "macos")]
+                crate::remote::panel::give_up(Some(slot));
                 old.push((slot, plugin));
             }
         }

@@ -176,10 +176,10 @@ mod unit {
         CONTROLLER.with_borrow(|controller| controller.clone().unwrap())
     }
 
-    pub fn a_version_3_editor_runs_in_its_extension() {
+    pub fn a_version_3_unit_registered_in_this_process_has_its_editor_here() {
         // SAFETY: the tests load only the repository's fixtures and Apple's own units.
         let plugin = unsafe { Plugin::new(&class_id()) }.unwrap();
-        assert!(plugin.editor_in_extension());
+        assert!(!plugin.editor_in_extension());
     }
 
     pub fn the_window_follows_the_size_the_view_takes() {
@@ -231,7 +231,7 @@ mod unit {
 fn main() {
     #[cfg(target_os = "macos")]
     {
-        unit::a_version_3_editor_runs_in_its_extension();
+        unit::a_version_3_unit_registered_in_this_process_has_its_editor_here();
         unit::the_window_follows_the_size_the_view_takes();
     }
 }

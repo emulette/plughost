@@ -103,12 +103,12 @@ impl Plugin {
         }
     }
 
-    /// Whether this is a version 3 unit, whose view and panels its extension provides, or a unit
-    /// that can no longer tell. Version 2 units come through the system's v2 bridge.
+    /// Whether the unit runs in its extension's process, which then provides its view and panels:
+    /// a version 3 unit loads there unless it was registered in this process. A unit that went
+    /// away is in none; opening its editor fails.
     pub(crate) fn editor_in_extension(&self) -> bool {
-        self.shared_unit().map_or(true, |unit| {
-            unit.downcast_ref::<AUAudioUnitV2Bridge>().is_none()
-        })
+        self.shared_unit()
+            .is_ok_and(|unit| !unsafe { unit.isLoadedInProcess() })
     }
 
     fn view_controller(&self) -> Result<Retained<NSViewController>, AuError> {

@@ -222,6 +222,8 @@ impl Host {
         drop(replaced);
         self.retain_diagnostics(slot, old.as_ref());
         self.invalidate_parameters(slot);
+        #[cfg(target_os = "macos")]
+        crate::remote::panel::give_up(Some(slot));
         drop(old);
         if let Some(window) = editor {
             self.reattach_editor(slot, window);

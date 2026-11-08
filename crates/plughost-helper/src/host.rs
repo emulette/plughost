@@ -484,6 +484,8 @@ impl Host {
         self.timing = None;
         self.timing_polls.clear();
         self.parameter_events.clear();
+        #[cfg(target_os = "macos")]
+        crate::remote::panel::give_up(None);
         self.slots.clear();
         self.references.clear();
         self.retired_diagnostics = Default::default();

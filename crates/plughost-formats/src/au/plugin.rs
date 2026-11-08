@@ -77,6 +77,9 @@ pub const EDIT_SETTLE: Duration = Duration::from_millis(100);
 const NOTIFY_SETTLE: Duration = Duration::from_millis(50);
 /// Tails reported beyond this are treated as infinite.
 const MAX_TAIL_SECONDS: f64 = 3600.0;
+/// How long after this host notified a v2 unit's listeners of an edit the bridge stamps its
+/// report of it: some tens of microseconds, the delivery itself coming some 50 ms later.
+const ECHO_STAMP: Duration = Duration::from_millis(10);
 /// How many of a parameter's host edits wait for the v2 bridge to report them back; the oldest
 /// is forgotten past this.
 const HOST_VALUES: usize = 64;
@@ -177,10 +180,12 @@ pub struct Plugin {
     value_strings: Option<events::ValueStrings>,
     _invalidation: invalidation::Observation,
     parameter_metadata_changed: bool,
-    /// The plain values this host set per parameter of a v2 unit and the bridge has not reported
-    /// back yet, oldest first. The v2 bridge reports host edits back as if the unit made them,
-    /// in order, some 50 ms later; quick edits are still waiting when the next one is made.
-    host_values: HashMap<u64, std::collections::VecDeque<f32>>,
+    /// When this host notified a v2 unit's listeners of each edit per parameter that the bridge
+    /// has not reported back yet, oldest first, in clock ticks. The v2 bridge reports host edits
+    /// back as if the unit made them, one report per notification, some 50 ms later, each
+    /// stamped just after its notification and carrying the value the parameter has when it is
+    /// delivered, not the one notified; quick edits are still waiting when the next one is made.
+    host_edits: HashMap<u64, std::collections::VecDeque<u64>>,
     /// When this host last notified a v2 unit's parameter listeners; see [`NOTIFY_SETTLE`].
     notified: Option<std::time::Instant>,
     unconvertible: Arc<AtomicU64>,
@@ -232,7 +237,7 @@ impl Plugin {
             value_strings,
             _invalidation: invalidation,
             parameter_metadata_changed: false,
-            host_values: HashMap::new(),
+            host_edits: HashMap::new(),
             notified: None,
             unconvertible,
         };
@@ -409,6 +414,7 @@ impl Plugin {
             if status != 0 {
                 return Err(AuError::SetParameter(status));
             }
+            let notified = plughost_core::ipc::shared::clock::now();
             unsafe {
                 AUParameterListenerNotify(
                     std::ptr::null_mut(),
@@ -416,11 +422,11 @@ impl Plugin {
                     NonNull::from(&mut target),
                 );
             }
-            let sent = self.host_values.entry(id).or_default();
+            let sent = self.host_edits.entry(id).or_default();
             if sent.len() == HOST_VALUES {
                 sent.pop_front();
             }
-            sent.push_back(plain);
+            sent.push_back(notified);
             self.notified = Some(std::time::Instant::now());
         } else {
             // The observer token as originator keeps the edit from being reported back.

@@ -204,20 +204,26 @@ impl Plugin {
         for event in pending.events {
             let id = event.address;
             if event.eventType == AUParameterAutomationEventType::Value
-                && let Some(sent) = self.host_values.get_mut(&id)
+                && let Some(sent) = self.host_edits.get_mut(&id)
             {
-                // The v2 bridge reports this host's own edits back, in order, and may leave out
-                // ones a later edit replaced or report one again. The edits before a reported one
-                // are done; it stays until another value comes. Any other value came from the
-                // unit and ends them.
-                match sent.iter().position(|value| *value == event.value) {
-                    Some(position) => {
-                        sent.drain(..position);
-                        continue;
-                    }
-                    None => {
-                        self.host_values.remove(&id);
-                    }
+                // The v2 bridge reports this host's own edits back, each stamped just after this
+                // host notified it and in order; its value tells nothing, as it is the one the
+                // parameter has by then. A report stamped within the stamp delay of the oldest
+                // edit waiting is that edit's; edits whose reports could no longer come are done.
+                // Any other report came from the unit.
+                let stamp = plughost_core::ipc::shared::clock::ticks(super::ECHO_STAMP);
+                while sent
+                    .front()
+                    .is_some_and(|&notified| notified.saturating_add(stamp) < event.hostTime)
+                {
+                    sent.pop_front();
+                }
+                if sent
+                    .front()
+                    .is_some_and(|&notified| notified <= event.hostTime)
+                {
+                    sent.pop_front();
+                    continue;
                 }
             }
             let mapped = match event.eventType {
@@ -272,6 +278,55 @@ mod tests {
         }
         crate::au::wait::run_loop_for(std::time::Duration::from_millis(200));
         assert_eq!(plugin.take_parameter_events().events, []);
+    }
+
+    #[test]
+    fn an_edit_the_unit_makes_after_quick_host_edits_is_reported() {
+        // SAFETY: the tests load only the repository's fixtures and Apple's own units.
+        let mut plugin = unsafe { Plugin::new("6175667864656C796170706C") }.unwrap();
+        let _ = plugin.take_parameter_events();
+        // The bridge reports each of these back with the value the parameter has by then, 0.2.
+        for value in [0.2, 0.4, 0.2] {
+            plugin.set_parameter(0, value).unwrap();
+        }
+        crate::au::wait::run_loop_for(std::time::Duration::from_millis(200));
+        assert_eq!(plugin.take_parameter_events().events, []);
+        // The unit sets 0.4 itself, as its own editor would, and tells its listeners.
+        let unit = plugin.shared_unit().unwrap();
+        let audio_unit = unsafe {
+            unit.downcast_ref::<AUAudioUnitV2Bridge>()
+                .unwrap()
+                .audioUnit()
+        };
+        let plain = plugin.parameter_to_plain(0, 0.4).unwrap() as f32;
+        let mut target = objc2_audio_toolbox::AudioUnitParameter {
+            mAudioUnit: audio_unit,
+            mParameterID: 0,
+            mScope: objc2_audio_toolbox::kAudioUnitScope_Global,
+            mElement: 0,
+        };
+        unsafe {
+            objc2_audio_toolbox::AudioUnitSetParameter(
+                audio_unit,
+                0,
+                objc2_audio_toolbox::kAudioUnitScope_Global,
+                0,
+                plain,
+                0,
+            );
+            objc2_audio_toolbox::AUParameterListenerNotify(
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                NonNull::from(&mut target),
+            );
+        }
+        crate::au::wait::run_loop_for(std::time::Duration::from_millis(200));
+        let events = plugin.take_parameter_events().events;
+        assert!(
+            matches!(events.as_slice(), [ParameterEvent::Value { id: 0, normalized }]
+                if (normalized - 0.4).abs() < 1e-6),
+            "{events:?}"
+        );
     }
 
     #[test]

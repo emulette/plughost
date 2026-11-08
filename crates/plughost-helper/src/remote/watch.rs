@@ -99,16 +99,24 @@ pub fn update(
     others: Vec<Retained<NSWindow>>,
 ) {
     start_timer();
-    WATCH.with_borrow_mut(|watch| {
-        for (id, slot) in &watch.editors {
-            if !editors.iter().any(|(open, _)| open == id) {
-                session::notify(Notice::editor_closed(*id, *slot));
-            }
-        }
+    let closed: Vec<usize> = WATCH.with_borrow_mut(|watch| {
+        let closed = watch
+            .editors
+            .iter()
+            .filter(|(id, _)| !editors.iter().any(|(open, _)| open == id))
+            .map(|&(id, slot)| {
+                session::notify(Notice::editor_closed(id, slot));
+                slot
+            })
+            .collect();
         watch.editors = editors;
         watch.shown = shown;
         watch.others = others;
+        closed
     });
+    for slot in closed {
+        super::panel::give_up(Some(slot));
+    }
     check();
 }
 
@@ -119,6 +127,18 @@ pub struct Target {
     pub region: Region,
     /// The other editors' windows, which take no input for this one.
     pub others: Vec<Retained<NSWindow>>,
+}
+
+/// The slot of the shown remote editor, if one is.
+pub fn shown_slot() -> Option<usize> {
+    WATCH.with_borrow(|watch| {
+        let shown = watch.shown.as_ref()?;
+        watch
+            .editors
+            .iter()
+            .find(|(id, _)| *id == shown.id)
+            .map(|(_, slot)| *slot)
+    })
 }
 
 /// The shown remote editor, if one is.
