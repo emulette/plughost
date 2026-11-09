@@ -106,8 +106,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pwsh -NoProfile -File scripts/build-helper.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # Runners have one display, and the test of a dialog that opens on another display needs a
+      # second; verify-macos.sh skips it the same way.
       - name: Test the resolved dependencies on the minimum supported Rust version
-        run: cargo test --workspace --locked -- --include-ignored --skip benchmark
+        run: >-
+          cargo test --workspace --locked -- --include-ignored --skip benchmark
+          --skip a_dialog_opened_on_another_display_moves_into_the_region
 
   fuzz:
     name: Parser corpus and AddressSanitizer fuzzing
