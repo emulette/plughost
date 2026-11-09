@@ -34,7 +34,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use interprocess::local_socket::prelude::*;
-use interprocess::local_socket::{GenericNamespaced, SendHalf, Stream};
+use interprocess::local_socket::{GenericNamespaced, Stream};
 use plughost_core::internal::DiagnosticBuffer;
 use plughost_core::ipc::shared::transfer;
 use plughost_core::ipc::{
@@ -126,9 +126,9 @@ fn serve(mode: Mode, name: &str, token: u64) -> io::Result<()> {
         remote::enter();
         remote::input::install(mtm);
     }
-    let stream = Stream::connect(name.to_ns_name::<GenericNamespaced>()?)?;
-    let (receive, send) = stream.split();
-    let mut send = MessageWriter::new(send);
+    let stream = Arc::new(Stream::connect(name.to_ns_name::<GenericNamespaced>()?)?);
+    let receive = Connection(Arc::clone(&stream));
+    let mut send = MessageWriter::new(Connection(stream));
     send.write(&Hello {
         protocol: PROTOCOL_VERSION,
         token,
@@ -330,11 +330,32 @@ struct Waiting {
     since: Instant,
 }
 
+/// The connection to the application, which the request reader and the responders share: a
+/// stream reads and writes through a shared reference, and the connection closes when the last
+/// one goes.
+pub(crate) struct Connection(Arc<Stream>);
+
+impl io::Read for Connection {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        (&*self.0).read(buffer)
+    }
+}
+
+impl io::Write for Connection {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        (&*self.0).write(buffer)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        (&*self.0).flush()
+    }
+}
+
 /// Writes responses to the application, from the main thread and the processing thread. The
 /// application sends one request at a time, so their responses do not interleave.
 #[derive(Clone)]
 pub(crate) struct Responder {
-    send: Arc<Mutex<MessageWriter<SendHalf>>>,
+    send: Arc<Mutex<MessageWriter<Connection>>>,
     waiting: Arc<Mutex<Waiting>>,
     diagnostics: DiagnosticBuffer,
 }
@@ -361,7 +382,7 @@ impl Responder {
         written
     }
 
-    fn writer(&self) -> std::sync::MutexGuard<'_, MessageWriter<SendHalf>> {
+    fn writer(&self) -> std::sync::MutexGuard<'_, MessageWriter<Connection>> {
         self.send.lock().unwrap_or_else(PoisonError::into_inner)
     }
 

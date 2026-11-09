@@ -74,9 +74,8 @@ fn shared_audio_child() {
         return;
     };
     let stream = Stream::connect(name.to_ns_name::<GenericNamespaced>().unwrap()).unwrap();
-    let (read, write) = stream.split();
-    let mut read = MessageReader::new(read);
-    let mut write = MessageWriter::new(write);
+    let mut read = MessageReader::new(&stream);
+    let mut write = MessageWriter::new(&stream);
     let receiver = transfer::Receiver::take_from_stdin().unwrap();
     let (descriptor, token): (Descriptor, u64) = read.read().unwrap();
     // SAFETY: this test's parent transferred one live anonymous file handle and never exposes it.
@@ -168,9 +167,8 @@ fn anonymous_slots_round_trip_across_processes_and_remain_owned_after_child_exit
         };
         let mut memory = SharedAudio::new(descriptor).unwrap();
         let token = sender.send(&memory, &child.0).unwrap();
-        let (read, write) = stream.split();
-        let mut read = MessageReader::new(read);
-        let mut write = MessageWriter::new(write);
+        let mut read = MessageReader::new(&stream);
+        let mut write = MessageWriter::new(&stream);
         write.write(&(descriptor, token)).unwrap();
         assert!(read.read::<bool>().unwrap());
         let mut output32 = vec![vec![0.0f32; 17]; 2];

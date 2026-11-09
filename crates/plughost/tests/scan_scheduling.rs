@@ -63,9 +63,8 @@ fn peer(name: &str, token: u64) {
             thread::park();
         }
     }
-    let (read, write) = stream.split();
-    let mut read = MessageReader::new(read);
-    let mut write = MessageWriter::new(write);
+    let mut read = MessageReader::new(&stream);
+    let mut write = MessageWriter::new(&stream);
     write
         .write(&Hello {
             protocol: if fault == "protocol" {

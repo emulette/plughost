@@ -55,9 +55,8 @@ fn main() {
 fn peer(name: &str, token: u64) {
     let receiver = transfer::Receiver::take_from_stdin().unwrap();
     let stream = Stream::connect(name.to_ns_name::<GenericNamespaced>().unwrap()).unwrap();
-    let (read, write) = stream.split();
-    let mut read = MessageReader::new(read);
-    let mut write = MessageWriter::new(write);
+    let mut read = MessageReader::new(&stream);
+    let mut write = MessageWriter::new(&stream);
     write
         .write(&Hello {
             protocol: PROTOCOL_VERSION,
