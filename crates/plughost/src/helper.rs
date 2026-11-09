@@ -224,6 +224,13 @@ impl Helper {
         }
     }
 
+    /// Records how many slots the loaded chain has now, after a change of its slots.
+    pub fn set_slots(&mut self, slots: usize) {
+        if let Some(shared) = &mut self.shared {
+            shared.slots = slots;
+        }
+    }
+
     fn valid_slot(&self, slot: Option<usize>) -> bool {
         slot.is_none_or(|slot| {
             self.shared

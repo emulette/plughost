@@ -4,6 +4,7 @@ mod audio;
 mod realtime;
 mod recovery;
 mod shared;
+mod slots;
 mod state;
 
 use std::path::{Path, PathBuf};
@@ -595,22 +596,7 @@ fn start(
         });
     }
     for (slot, spec) in slots.iter().enumerate() {
-        if spec
-            .plugin
-            .bundle()
-            .is_some_and(|path| path.to_str().is_none())
-        {
-            return Err(Error::Input {
-                slot: Some(slot),
-                error: plughost_core::InputError::PathEncoding,
-            });
-        }
-        if let Some(state) = &spec.state {
-            state.validate().map_err(|error| Error::Input {
-                slot: Some(slot),
-                error,
-            })?;
-        }
+        validate_slot(slot, spec)?;
     }
     let plugins: Vec<PluginRef> = slots.iter().map(|spec| spec.plugin.clone()).collect();
     let plugins = plugins.as_slice();
@@ -650,6 +636,27 @@ fn start(
         }
     }
     Ok(chain)
+}
+
+/// Refuses a slot whose bundle path the helper cannot be given or whose state is malformed.
+fn validate_slot(slot: usize, spec: &ChainSlot) -> Result<(), Error> {
+    if spec
+        .plugin
+        .bundle()
+        .is_some_and(|path| path.to_str().is_none())
+    {
+        return Err(Error::Input {
+            slot: Some(slot),
+            error: plughost_core::InputError::PathEncoding,
+        });
+    }
+    if let Some(state) = &spec.state {
+        state.validate().map_err(|error| Error::Input {
+            slot: Some(slot),
+            error,
+        })?;
+    }
+    Ok(())
 }
 
 fn expect_done(response: Response) -> Result<(), Error> {

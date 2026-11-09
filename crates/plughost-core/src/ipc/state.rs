@@ -52,6 +52,33 @@ pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<PluginS
     })
 }
 
+/// A state a request may carry, borrowed from the caller until it is sent.
+pub fn serialize_option<S: Serializer>(
+    state: &Option<Cow<'_, PluginState>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    struct Borrowed<'a>(&'a PluginState);
+    impl Serialize for Borrowed<'_> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serialize(self.0, serializer)
+        }
+    }
+    state.as_deref().map(Borrowed).serialize(serializer)
+}
+
+/// A state a request may carry; received, it is owned.
+pub fn deserialize_option_cow<'de, 'a, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Cow<'a, PluginState>>, D::Error> {
+    struct Owned(PluginState);
+    impl<'de> Deserialize<'de> for Owned {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Owned, D::Error> {
+            deserialize(deserializer).map(Owned)
+        }
+    }
+    Ok(Option::<Owned>::deserialize(deserializer)?.map(|state| Cow::Owned(state.0)))
+}
+
 /// A state a request borrows from the caller until it is sent; received, it is owned.
 pub fn deserialize_cow<'de, 'a, D: Deserializer<'de>>(
     deserializer: D,

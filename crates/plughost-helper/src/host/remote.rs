@@ -22,6 +22,14 @@ pub(super) struct RemoteEditors {
     next: u64,
 }
 
+impl RemoteEditors {
+    /// Follows the shown editor's slot to where it moved, by `moved` from a slot before to its
+    /// slot now; one whose slot went shows no editor.
+    pub(super) fn renumber(&mut self, moved: impl Fn(usize) -> Option<usize>) {
+        self.shown = self.shown.and_then(moved);
+    }
+}
+
 fn unsupported(slot: Option<usize>, message: &str) -> Response {
     Response::Failed {
         slot,

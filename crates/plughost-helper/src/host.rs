@@ -6,6 +6,7 @@
 mod audio;
 mod realtime;
 mod remote;
+mod slots;
 mod state;
 mod timing;
 
@@ -300,6 +301,20 @@ impl Host {
             }),
             Request::ImportPreset { slot, bytes } => self.import_preset(slot, &bytes),
             Request::ReprepareSlot { slot } => self.reprepare_slot(slot),
+            Request::InsertSlot {
+                slot,
+                plugin,
+                state,
+                bypass,
+            } => self.insert_slot(slot, &plugin, state.as_deref(), bypass),
+            Request::ReplaceSlot {
+                slot,
+                plugin,
+                state,
+                bypass,
+            } => self.replace_slot(slot, &plugin, state.as_deref(), bypass),
+            Request::RemoveSlot { slot } => self.remove_slot(slot),
+            Request::MoveSlot { from, to } => self.move_slot(from, to),
             Request::Reset => self.reset(),
             Request::Timing => self.timing(),
             Request::OpenEditor { slot } => self.open_editor(slot),

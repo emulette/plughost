@@ -19,6 +19,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - `Command::MoveWindow` (`WindowMove`) moves a window a remote editor's plugin opened to a region
   point, as dragging its title bar does, which posted input cannot, and `Command::CloseWindow`
   (`WindowClose`) closes one as its close button does.
+- `Chain::insert_slot`, `replace_slot`, `remove_slot` and `move_slot` change a running chain's
+  slots in its own helper: the other slots' plugins stay loaded with their states, open editors
+  and a remote session, a moved plugin takes its editor along, and a replaced or
+  removed one's editor closes. A changed chain is left unprepared, to be prepared again for the
+  slots it has; the chain was started again in another helper before.
 
 ### Changed
 

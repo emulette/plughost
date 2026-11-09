@@ -109,6 +109,10 @@ impl Host {
                 | Request::Reset
                 | Request::Load { .. }
                 | Request::LoadState { .. }
+                | Request::InsertSlot { .. }
+                | Request::ReplaceSlot { .. }
+                | Request::RemoveSlot { .. }
+                | Request::MoveSlot { .. }
         );
         (self.realtime_running && refused)
             .then(|| failure(FailureKind::InvalidInput, REALTIME_RUNNING))

@@ -387,6 +387,16 @@ pub fn give_up(slot: Option<usize>) {
     }
 }
 
+/// Follows the waiting panels' slots to where they moved, by `moved` from a slot before to its
+/// slot now. Give up those of a slot that goes first.
+pub fn renumber(moved: impl Fn(usize) -> Option<usize>) {
+    WAITING.with_borrow_mut(|waiting| {
+        for waiting in waiting.iter_mut() {
+            waiting.slot = waiting.slot.and_then(&moved);
+        }
+    });
+}
+
 /// The panels waiting for an answer.
 pub fn waiting() -> Vec<PanelId> {
     WAITING.with_borrow(|waiting| waiting.iter().map(|waiting| waiting.id).collect())

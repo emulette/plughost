@@ -367,7 +367,7 @@ impl Host {
 impl Host {
     /// Forgets the prepared chain after its active instances were changed, so blocks fail as
     /// unprepared until the chain is prepared again.
-    fn unprepare(&mut self) {
+    pub(super) fn unprepare(&mut self) {
         self.remove_realtime();
         self.audio_config = None;
         self.audio_slots.clear();

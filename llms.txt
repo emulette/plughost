@@ -270,6 +270,19 @@ library; callers read their fields rather than construct them. CLAP preset disco
 flags as `PresetFlags` (`FACTORY_CONTENT`, `USER_CONTENT`, `DEMO_CONTENT`, `FAVORITE`), keeping
 bits later CLAP versions define.
 
+A running chain's slots change in its own helper: `insert_slot(slot, &chain_slot)` loads a
+`ChainSlot` into a new slot at `slot` (up to the slot count, which appends), `replace_slot(slot,
+&chain_slot)` loads one in place of the slot's plugin, `remove_slot(slot)` removes one (the last
+slot stays: `InputError::EmptyChain`) and `move_slot(from, to)` moves one, the slots between moving
+one toward `from`. A loaded plugin restores its state and takes its bypass before it goes in, as
+with `spawn`, and one that cannot leaves the chain as it was. The helper and the other slots'
+plugins stay, with their states, open editors and a remote session, and a moved
+plugin takes its editor along; a replaced or removed plugin's editor closes, which a remote
+session is told with `EditorClosed`. Slot numbers follow the change, a position past the slots is
+`InputError::Slot`, and a change leaves a prepared chain unprepared, its realtime endpoint gone
+with its preparation: prepare it again with a configuration for the slots it has. While the
+endpoint runs, a change fails with `Error::RealtimeRunning`.
+
 `chain.plugins()` returns loaded plugin metadata. `chain.capabilities(slot)` returns a
 `CapabilityReport` with native plugin evidence and isolated-host implementation support.
 Both sides must support an operation. Treat `Support::Unknown` separately from
@@ -610,7 +623,8 @@ fallback with `resync` set, and retries nothing; without an endpoint the call re
 `Error::NotPrepared`. A new chain holds only what the slots hold.
 
 While the endpoint runs, `reset`, `prepare_audio`, `reprepare`, `realtime_endpoint`,
-`process_audio_*` and rendering fail with `Error::RealtimeRunning`; after `stop_realtime` they
+`process_audio_*`, rendering and changes of the slots (`insert_slot`, `replace_slot`,
+`remove_slot`, `move_slot`) fail with `Error::RealtimeRunning`; after `stop_realtime` they
 work as before (`resync_realtime` resets under a running endpoint). Parameter edits and queries,
 bus and capability queries, editors, bypass, `save_state`, `snapshot`, `export_preset`,
 `take_changes`, and diagnostics go on, and so does replacing one slot: `restore_state`,

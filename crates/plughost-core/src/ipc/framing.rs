@@ -269,6 +269,40 @@ mod tests {
     }
 
     #[test]
+    fn slot_changes_round_trip_with_and_without_a_state() {
+        use crate::plugin::{PluginFormat, PluginId, PluginInfo, PluginKind, PluginRef};
+        use crate::state::PluginState;
+        let plugin = PluginRef::vst3("/tmp/Delay.vst3", "0123456789ABCDEF0123456789ABCDEF");
+        let info = PluginInfo::new(
+            PluginId::new(PluginFormat::Vst3, "0123456789ABCDEF0123456789ABCDEF"),
+            "Delay",
+            PluginKind::Effect,
+        );
+        let state = PluginState::new(&info, vec![1, 2, 3], Some(vec![4]));
+        for request in [
+            Request::InsertSlot {
+                slot: 2,
+                plugin: plugin.clone(),
+                state: Some(std::borrow::Cow::Borrowed(&state)),
+                bypass: Some(true),
+            },
+            Request::ReplaceSlot {
+                slot: 0,
+                plugin: plugin.clone(),
+                state: None,
+                bypass: None,
+            },
+            Request::RemoveSlot { slot: 1 },
+            Request::MoveSlot { from: 0, to: 3 },
+        ] {
+            let mut wire = Vec::new();
+            write_message(&mut wire, &request).unwrap();
+            let read: Request = MessageReader::new(wire.as_slice()).read().unwrap();
+            assert_eq!(read, request);
+        }
+    }
+
+    #[test]
     fn oversized_and_malformed_messages_are_rejected() {
         let huge = ((MAX_MESSAGE_BYTES + 1) as u32).to_le_bytes();
         let error = MessageReader::new(huge.as_slice())

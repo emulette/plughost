@@ -211,6 +211,43 @@ pub enum Request<'a> {
     ReprepareSlot {
         slot: usize,
     },
+    /// Loads `plugin` into a new slot at `slot`, at most the slot count, restoring `state` and
+    /// taking `bypass` before it goes in. The other slots' instances and editors stay, and a
+    /// prepared chain is left unprepared. Answered with `Loaded` and every slot's plugin.
+    InsertSlot {
+        slot: usize,
+        #[serde_as(as = "wire::PluginRefDef")]
+        plugin: PluginRef,
+        #[serde(
+            serialize_with = "state::serialize_option",
+            deserialize_with = "state::deserialize_option_cow"
+        )]
+        state: Option<Cow<'a, PluginState>>,
+        bypass: Option<bool>,
+    },
+    /// As `InsertSlot`, in place of the slot's plugin, whose editor closes.
+    ReplaceSlot {
+        slot: usize,
+        #[serde_as(as = "wire::PluginRefDef")]
+        plugin: PluginRef,
+        #[serde(
+            serialize_with = "state::serialize_option",
+            deserialize_with = "state::deserialize_option_cow"
+        )]
+        state: Option<Cow<'a, PluginState>>,
+        bypass: Option<bool>,
+    },
+    /// Removes the slot and its plugin, whose editor closes; a chain keeps one slot at least.
+    /// Answered as `InsertSlot`.
+    RemoveSlot {
+        slot: usize,
+    },
+    /// Moves the slot's plugin, with its state and open editor, to `to`; the others keep their
+    /// order. Answered as `InsertSlot`.
+    MoveSlot {
+        from: usize,
+        to: usize,
+    },
     Reset,
     Timing,
     /// Opens the plugin's editor in a window of the helper, which processes while it is open.
@@ -289,6 +326,8 @@ impl Request<'_> {
             | Self::ExportPreset { slot }
             | Self::ImportPreset { slot, .. }
             | Self::ReprepareSlot { slot }
+            | Self::ReplaceSlot { slot, .. }
+            | Self::RemoveSlot { slot }
             | Self::SaveState { slot, .. }
             | Self::RestoreState { slot, .. }
             | Self::LoadState { slot, .. }

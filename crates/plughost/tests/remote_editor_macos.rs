@@ -229,6 +229,43 @@ fn a_remote_chain_shows_one_editor_and_keeps_the_others_open() {
 
 #[test]
 #[ignore = "needs helper and delay fixtures and a desktop session"]
+fn remote_editors_follow_their_plugins_while_slots_change_and_close_with_them() {
+    let _serial = support::editor_test();
+    let mut chain = spawn_remote(&[editor(), editor()]);
+    let mut session = chain.remote_session().unwrap();
+    chain
+        .set_remote_region(region(100.0, 100.0, 300.0, 200.0))
+        .unwrap();
+    let first = chain.open_remote_editor(0).unwrap().editor;
+    let second = chain.open_remote_editor(1).unwrap().editor;
+    let helper = chain.helper_monitor().process_id();
+    // A slot inserted before them moves their plugins along, and their editors stay open with
+    // them: opening one that is open shows it with the identifier it had.
+    chain.insert_slot(0, &ChainSlot::from(editor())).unwrap();
+    assert_eq!(chain.open_remote_editor(2).unwrap().editor, second);
+    assert_eq!(chain.open_remote_editor(1).unwrap().editor, first);
+    // A moved plugin takes its editor along.
+    chain.move_slot(1, 0).unwrap();
+    assert_eq!(chain.open_remote_editor(0).unwrap().editor, first);
+    // A replaced or removed plugin's editor closes, and the session is told.
+    chain.replace_slot(0, &ChainSlot::from(editor())).unwrap();
+    until(
+        &mut session,
+        |notice| matches!(notice, Notice::EditorClosed { editor, .. } if *editor == first),
+        "the replaced plugin's editor was not told closed",
+    );
+    chain.remove_slot(2).unwrap();
+    until(
+        &mut session,
+        |notice| matches!(notice, Notice::EditorClosed { editor, .. } if *editor == second),
+        "the removed plugin's editor was not told closed",
+    );
+    assert_eq!(chain.plugins().len(), 2);
+    assert_eq!(chain.helper_monitor().process_id(), helper);
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
 fn a_region_off_its_display_changes_nothing() {
     let _serial = support::editor_test();
     let mut chain = spawn_remote(&[editor()]);

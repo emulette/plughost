@@ -268,6 +268,13 @@ fn reconfiguring_the_chain_under_a_running_endpoint_is_refused() {
             .realtime_endpoint(&RealtimeConfig::new(QUANTUM))
             .map(|_| ())
     ));
+    // Changes of the slots unprepare the chain, which a running endpoint processes.
+    let slot = plughost::ChainSlot::from(delay(PluginFormat::Clap));
+    assert!(running(chain.insert_slot(1, &slot)));
+    assert!(running(chain.replace_slot(0, &slot)));
+    assert!(running(chain.remove_slot(0)));
+    assert!(running(chain.move_slot(0, 0)));
+    assert_eq!(chain.plugins().len(), 1);
     // Parameter edits and replacements of a slot's instance reach the running chain between
     // quanta.
     chain.set_parameter(0, gain, 0.25).unwrap();
