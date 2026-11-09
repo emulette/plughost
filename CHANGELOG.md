@@ -5,6 +5,93 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-11-09
+
+### Added
+
+- Remote editors (macOS): a chain shows its editors to someone who is not in front of the
+  machine, in a region of a display the application reads. Start it with
+  `SpawnOptions::remote`: its helper never activates itself, tells plugins that check that it is
+  active, and opens editors only remotely. `Chain::set_remote_region` sets the `remote::Region`,
+  `Chain::open_remote_editor` opens a slot's editor in a borderless window there and returns its
+  `remote::Opened`, and `Chain::show_remote_editor` shows another open one; the editor shown
+  before is hidden, not closed. A region that is not finite, not positive or not on a display, or
+  a missing one, is `InputError::RemoteRegion`; a slot without an open remote editor is
+  `InputError::RemoteEditor`. A remote chain off macOS fails to spawn as unsupported, and an
+  Audio Unit v3 editor or an editor that draws only in its own window is unsupported.
+- `Chain::remote_session` starts a `remote::Session`, a channel of its own on which the helper
+  tells what happens to its remote editors as it happens, starting with the current state, and
+  takes commands, including while its main thread is in a dialog's, a menu's or a panel's loop.
+  `Session::recv` returns `remote::Notice`s (`Windows`, `EditorClosed`, `Nested`, `Cursor`,
+  `MenuOpened`, `MenuClosed`, `PanelRequested`, `PanelFinished`, `OpenUrl`, `RevealFiles`,
+  `DisplayLost`), and `Session::sender` gives a `remote::Sender` whose `send` never blocks and
+  fails with `Error::RemoteBacklog` or `Error::RemoteSessionEnded`. `Error::RemoteChannel`
+  reports a channel that could not be made. A later session ends the one before; a session's end
+  cancels its panels, closes its menus and releases its input, while a session that replaces it
+  takes them over.
+- Remote input: `remote::Command` sends pointer, wheel, key, text, modifier and relative motion
+  input to the shown editor, its menus, popups and dialogs, and inside the loops a plugin runs.
+  Plugins that ask where the mouse is, which buttons and modifiers are down, or warp the cursor
+  get a mouse of the helper's own; the cursor they set comes as `Notice::Cursor` and never
+  reaches the machine's. AppKit menus are listed in `MenuOpened` and chosen by index path with
+  `ChooseMenuItem`; a menu open past the new `Timeouts::menu` (60 seconds by default) closes.
+  Open and save panels never show: `PanelRequested` tells what the plugin asked and
+  `AnswerPanel` answers with paths or cancels.
+- A remote helper keeps a pasteboard of its own and opens no URLs, files or Finder windows on the
+  machine; `OpenUrl` and `RevealFiles` tell them. When the application has accessibility access,
+  the machine's own mouse does not reach its windows; without it the chain's diagnostics carry a
+  warning.
+- The `plughost-capture` crate (macOS) reads a remote editor's region with only its helper's
+  windows, menus and dialogs included and other sessions' windows left out: `Capture::start`
+  hands `Frame`s in BGRA or NV12 to the application, at most `CaptureOptions::max_fps` a second
+  and only when the region changes, with `set_region`, `pause` and `resume`, and tells why the
+  capture stopped. Run every capture in one process of the application.
+
+### Changed
+
+- The internal helper protocol is now 45. Applications and helpers with different protocol
+  versions fail the handshake; rebuild and distribute the helper with the application.
+- Replacing a plugin instance with an open editor (`restore_state`, presets, factory presets,
+  `reprepare_slot`) goes on in the same window, which keeps its place and its hidden or minimized
+  state and does not take the focus. The editor was closed and opened again, centered and in
+  front.
+- A value a plugin reports past an end of its range by rounding is reported as that end; one
+  further out is not reported but asks to read the values again with
+  `ParameterEvent::ValuesChanged`, and a VST3 `performEdit` with it fails with
+  `kInvalidArgument`. Such values were dropped, an Audio Unit's with a full resync each time.
+- A value reported again for a parameter replaces the one queued for it unless a gesture of
+  that parameter or a metadata change came between them, and one `ValuesChanged` stands for
+  those queued before it. A plugin reporting many values every block, as meters do, no longer
+  overflows the queue into rereading every parameter each tick.
+- An Audio Unit that lowers the maximum block size it is given fails preparation with a
+  configuration error; blocks above its maximum failed to render or overran its buffers.
+
+### Fixed
+
+- On macOS, hiding the helper (Hide Others) no longer detaches every editor as if the user had
+  closed it: an editor is closed when its window closes.
+- A VST3 `resizeView` with a null size fails instead of reading it, one to the current size does
+  not call `onSize` again, and `onSize` gets the size the window took, so the view and its window
+  no longer disagree.
+- A CLAP `request_resize` without an editor or for a floating one is refused, and a resize the
+  window refuses keeps the window's size and sets the editor back to the size it had.
+- An Audio Unit view factory that cannot make a Cocoa view, or makes none, fails opening the
+  editor; the helper ended with an Objective-C exception or a panic.
+- Quick host edits to an Audio Unit version 2 are no longer reported back as the plugin's own
+  edits, and their late reports no longer swallow edits the unit made itself.
+- Host edits taken for a VST3 block that fails reach the plugin with the next block; they were
+  lost.
+- A CLAP plugin that gets no blocks sees host edits at once when it is inactive, and when it is
+  active but no block came for twice the longest block; its editor showed them only after the
+  next parameter read.
+- Audio Unit inactive buses take the prepared sample rate, so a unit that refuses mixed rates
+  prepares, and a unit that gives no render block after allocating releases its resources, which
+  refused the next preparation.
+- VST3 bus, event bus, sample size and tail queries no longer run while the plugin processes.
+- On Windows, reattaching an editor to a replaced instance no longer hides its window, after
+  which a VSTGUI editor kept the helper's message pump from returning. A minimized editor window
+  restores to a size within the system's limits, and a maximized one keeps its size.
+
 ## [0.2.1] - 2026-10-27
 
 ### Added
@@ -925,6 +1012,7 @@ Windows x64, and of Audio Units on macOS, with each chain isolated in a helper p
 - Failures: typed errors with the failing slot, helper exit monitoring, diagnostics, and chain
   recovery in a new helper from saved states.
 
+[0.2.2]: https://github.com/emulette/plughost/releases/tag/v0.2.2
 [0.2.1]: https://github.com/emulette/plughost/releases/tag/v0.2.1
 [0.2.0]: https://github.com/emulette/plughost/releases/tag/v0.2.0
 [0.1.6]: https://github.com/emulette/plughost/releases/tag/v0.1.6

@@ -1039,7 +1039,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "plughost"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "cpal",
  "interprocess",
@@ -1059,7 +1059,7 @@ dependencies = [
 
 [[package]]
 name = "plughost-capture"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "block2",
  "dispatch2",
@@ -1075,7 +1075,7 @@ dependencies = [
 
 [[package]]
 name = "plughost-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bitflags 2.13.2",
  "interprocess",
@@ -1090,7 +1090,7 @@ dependencies = [
 
 [[package]]
 name = "plughost-formats"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "block2",
  "clack-extensions",
@@ -1114,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "plughost-helper"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "block2",
  "interprocess",

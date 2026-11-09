@@ -26,7 +26,7 @@ def main() -> None:
     metadata = json.loads(subprocess.check_output(
         ["cargo", "metadata", "--no-deps", "--format-version", "1", "--locked"], cwd=root
     ))
-    names = ["plughost-core", "plughost-formats", "plughost-helper", "plughost"]
+    names = ["plughost-core", "plughost-formats", "plughost-helper", "plughost", "plughost-capture"]
     version = next(p["version"] for p in metadata["packages"] if p["name"] == "plughost")
     # The consumer below builds every crate from these archives. Cargo's own verification would
     # reuse sources it extracted earlier for the same unreleased version.
@@ -51,12 +51,15 @@ def main() -> None:
         '[workspace]\nmembers = ["app", "helper"]\nresolver = "3"\n'
         f"[patch.crates-io]\n{patches}\n", encoding="utf-8"
     )
-    for name, dependency in [("app", "plughost"), ("helper", "plughost-helper")]:
+    # The application also builds plughost-capture, which is empty off macOS.
+    members = [("app", ["plughost", "plughost-capture"]), ("helper", ["plughost-helper"])]
+    for name, dependencies in members:
         member = consumer / name
         (member / "src").mkdir(parents=True)
+        requirements = "".join(f'{dependency} = "={version}"\n' for dependency in dependencies)
         (member / "Cargo.toml").write_text(
             f'[package]\nname = "package-{name}"\nversion = "0.0.0"\nedition = "2024"\n'
-            f'[dependencies]\n{dependency} = "={version}"\n', encoding="utf-8"
+            f'[dependencies]\n{requirements}', encoding="utf-8"
         )
     shutil.copyfile(root / "release-tests/package-consumer/app.rs", consumer / "app/src/main.rs")
     (consumer / "helper/src/main.rs").write_text(
