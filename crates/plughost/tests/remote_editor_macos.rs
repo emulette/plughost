@@ -360,26 +360,48 @@ fn a_session_starts_with_the_current_state_and_a_later_one_ends_it() {
 fn a_dialog_opened_on_another_display_moves_into_the_region() {
     let _serial = support::editor_test();
     assert_ne!(test_display(), unsafe { CGMainDisplayID() });
-    let mut chain = spawn_remote(&[editor()]);
-    let mut session = chain.remote_session().unwrap();
-    chain
-        .set_remote_region(region(100.0, 100.0, 400.0, 300.0))
-        .unwrap();
-    chain.open_remote_editor(0).unwrap();
     // The editor's dialog opens at the main display's corner, where the application does not
-    // read; the helper moves it to where editors open in the region.
-    chain.set_parameter_text(0, 17, "6").unwrap();
-    until(
-        &mut session,
-        |notice| {
-            matches!(notice, Notice::Windows { windows, .. }
-                if windows.iter().any(|window| window.kind == WindowKind::Dialog
-                    && window.frame.x == EDITOR_INSET
-                    && window.frame.y == EDITOR_INSET
-                    && !window.outside))
-        },
-        "the dialog was not moved into the region",
-    );
+    // read; the helper moves it into the region: to the editor's right where the region has
+    // room, else below it, else over it one step (24 points) down and to the right.
+    for (width, height, place) in [
+        (600.0, 300.0, "to the right of"),
+        (400.0, 300.0, "below"),
+        (300.0, 200.0, "over"),
+    ] {
+        let mut chain = spawn_remote(&[editor()]);
+        let mut session = chain.remote_session().unwrap();
+        chain
+            .set_remote_region(region(100.0, 100.0, width, height))
+            .unwrap();
+        chain.open_remote_editor(0).unwrap();
+        chain.set_parameter_text(0, 17, "6").unwrap();
+        until(
+            &mut session,
+            |notice| {
+                let Notice::Windows { windows, .. } = notice else {
+                    return false;
+                };
+                let Some(editor) = windows
+                    .iter()
+                    .find(|window| window.kind == WindowKind::Editor)
+                    .map(|window| window.frame)
+                else {
+                    return false;
+                };
+                let expected = match place {
+                    "to the right of" => (editor.x + editor.width + EDITOR_INSET, editor.y),
+                    "below" => (editor.x, editor.y + editor.height + EDITOR_INSET),
+                    _ => (editor.x + 24.0, editor.y + 24.0),
+                };
+                windows.iter().any(|window| {
+                    window.kind == WindowKind::Dialog
+                        && (window.frame.x, window.frame.y) == expected
+                        && !window.outside
+                })
+            },
+            &format!("the dialog was not moved {place} the editor"),
+        );
+    }
 }
 
 /// What the editor's view received, as the editor variant reports it.
@@ -745,6 +767,48 @@ fn moves_over_the_editor_reach_its_tracking_area() {
     assert_eq!(value(&mut chain, ENTERED), 1.0);
 }
 
+fn kinds(windows: &[Window]) -> Vec<WindowKind> {
+    windows.iter().map(|window| window.kind).collect()
+}
+
+fn order_until(session: &mut Session, expected: &[WindowKind], what: &str) {
+    until(
+        session,
+        |notice| matches!(notice, Notice::Windows { windows, .. } if kinds(windows) == expected),
+        what,
+    );
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_window_the_plugin_opens_behind_comes_forward_and_a_click_raises_the_window_under_it() {
+    let _serial = support::editor_test();
+    let (mut chain, mut session, editor) = shown_editor();
+    let sender = session.sender();
+    // The plugin opens a window behind the editor, over its corner: nothing on the machine
+    // raises it, so the helper brings it to the front.
+    chain.set_parameter_text(0, 17, "27").unwrap();
+    order_until(
+        &mut session,
+        &[WindowKind::Dialog, WindowKind::Editor],
+        "the window opened behind the editor did not come to the front",
+    );
+    // A click where only the editor shows raises the editor, as a click on a window of an
+    // active application does, and one where only the window shows raises it again.
+    click(&sender, editor, 250.0, 60.0, 1);
+    order_until(
+        &mut session,
+        &[WindowKind::Editor, WindowKind::Dialog],
+        "the click did not raise the editor",
+    );
+    click(&sender, editor, 100.0, 150.0, 1);
+    order_until(
+        &mut session,
+        &[WindowKind::Dialog, WindowKind::Editor],
+        "the click did not raise the window",
+    );
+}
+
 #[test]
 #[ignore = "needs helper and delay fixtures and a desktop session"]
 fn a_plugin_showing_activating_or_running_a_dialog_leaves_the_helper_behind() {
@@ -902,7 +966,8 @@ fn a_menu_the_plugin_opens_is_told_and_its_item_chosen_by_index() {
         [
             (0, "First", false, 0),
             (1, "", true, 0),
-            (3, "More", false, 2)
+            (3, "More", false, 2),
+            (4, "Save", false, 0)
         ]
     );
     let more = &items[2].submenu;
@@ -938,6 +1003,49 @@ fn a_menu_the_plugin_opens_is_told_and_its_item_chosen_by_index() {
             value(&mut chain, MENUS_CLOSED)
         ),
         (3.0, 1.0)
+    );
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_chosen_item_runs_once_its_menu_closed() {
+    let _serial = support::editor_test();
+    let (mut chain, mut session, _) = shown_editor();
+    let (menu, _) = pop_up_menu(&mut chain, &mut session);
+    let sender = session.sender();
+    sender
+        .send(Command::ChooseMenuItem(MenuChoice::new(menu, vec![4])))
+        .unwrap();
+    // The item runs a save panel: the menu closes before the panel is asked for, as AppKit runs
+    // a chosen item once its menu is down, rather than staying up while the panel waits.
+    let mut closed = false;
+    let panel = loop {
+        match until(
+            &mut session,
+            |notice| {
+                matches!(
+                    notice,
+                    Notice::MenuClosed { .. } | Notice::PanelRequested { .. }
+                )
+            },
+            "neither the menu closed nor the panel was asked for",
+        ) {
+            Notice::MenuClosed { menu: closing, .. } if closing == menu => closed = true,
+            Notice::PanelRequested { panel, .. } => {
+                assert!(closed, "the panel was asked for while the menu was up");
+                break panel;
+            }
+            _ => {}
+        }
+    };
+    answer(&sender, panel, None);
+    panel_finished(&mut session, panel, "the cancelled panel did not finish");
+    assert_eq!(
+        (
+            value(&mut chain, PANEL_RESULT),
+            value(&mut chain, MENUS_CLOSED)
+        ),
+        (2.0, 1.0)
     );
 }
 

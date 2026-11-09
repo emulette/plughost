@@ -5,6 +5,24 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- A dialog or popup that a remote editor's plugin opens on another display than the region's
+  moves into the region beside the shown editor where the region has room, to its right, then
+  below it, else over it, one step further down and to the right for each window moved before.
+  All of them went to the editor's corner, over the editor and over each other.
+
+### Fixed
+
+- On macOS, choosing an item of an AppKit menu a remote editor's plugin opened closes the menu
+  before the item runs, as AppKit does: an item that runs a panel or a dialog no longer leaves the
+  menu up while it waits, and `MenuClosed` comes before that panel's `PanelRequested`.
+- A remote helper brings a dialog or popup its plugin opens to the front, and a remote button
+  down brings the window under it to the front outside a plugin's dialog, menu or panel loop. A
+  plugin's window that opened behind the editor stayed hidden, and a click raised no window.
+
 ## [0.2.2] - 2026-11-09
 
 ### Added

@@ -158,15 +158,39 @@ mod platform {
         })
     }
 
-    /// Moves the helper's window numbered `id` to where remote editors open in `region`.
-    pub fn place_in_region(id: u64, region: &Region) {
-        let (Some(mtm), Some(top_left)) = (MainThreadMarker::new(), editor_top_left(region)) else {
-            return;
-        };
-        if let Some(window) =
-            NSApplication::sharedApplication(mtm).windowWithWindowNumber(id as isize)
-        {
+    /// The helper's window numbered `id`, if it has one.
+    fn numbered(id: u64) -> Option<Retained<NSWindow>> {
+        let mtm = MainThreadMarker::new()?;
+        NSApplication::sharedApplication(mtm).windowWithWindowNumber(id as isize)
+    }
+
+    /// Moves the helper's window numbered `id` so its top-left corner is at `at` in `region`.
+    pub fn move_in_region(id: u64, region: &Region, at: Point) {
+        if let (Some(window), Some(top_left)) = (numbered(id), screen_point(region, at)) {
             window.setFrameTopLeftPoint(top_left);
+        }
+    }
+
+    /// Brings the helper's window numbered `id` to the front without activating the helper.
+    pub fn order_front(id: u64) {
+        if let Some(window) = numbered(id) {
+            window.orderFrontRegardless();
+        }
+    }
+
+    /// Brings `window` to the front without activating the helper, as a click on a window of an
+    /// active application does: not a menu's, and not while a loop nested in the helper's own (a
+    /// modal dialog's, a menu's, a panel's) takes the input, whose window stays in front.
+    pub fn raise(window: &Retained<NSWindow>) {
+        if window.level() >= MENU_LEVEL || crate::events::nested_depth() > 0 {
+            return;
+        }
+        if front_to_back(&[])
+            .iter()
+            .find(|front| front.level() < MENU_LEVEL)
+            .is_some_and(|front| front != window)
+        {
+            window.orderFrontRegardless();
         }
     }
 
@@ -469,7 +493,7 @@ pub use platform::EditorWindow;
 /// Windows.
 #[cfg(target_os = "macos")]
 pub use platform::{
-    display_in_region, front_to_back, main_height, place_in_region, region_fits,
+    display_in_region, front_to_back, main_height, move_in_region, order_front, raise, region_fits,
     remote_window_list, screen_point,
 };
 #[cfg(target_os = "windows")]

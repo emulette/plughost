@@ -13,13 +13,16 @@ use objc2_app_kit::NSWindow;
 use objc2_core_foundation::{
     CFAbsoluteTimeGetCurrent, CFRetained, CFRunLoop, CFRunLoopTimer, kCFRunLoopCommonModes,
 };
-use plughost_core::remote::{EditorId, Notice, Region, Window, WindowKind};
+use plughost_core::remote::{EDITOR_INSET, EditorId, Notice, Point, Region, Window, WindowKind};
 
 use super::session;
 use crate::editor;
 
 /// How often the timer looks.
 const INTERVAL: f64 = 0.05;
+/// How far each window moved into the region over the editor sits from the one before, so their
+/// title bars stay in reach.
+const CASCADE: f64 = 24.0;
 
 /// The shown remote editor.
 pub struct Shown {
@@ -40,6 +43,8 @@ struct Watch {
     told_lost: bool,
     /// Windows already moved into the region, which are not moved again.
     placed: Vec<u64>,
+    /// Windows already brought to the front once they opened.
+    fronted: Vec<u64>,
 }
 
 thread_local! {
@@ -178,7 +183,8 @@ fn check() {
             watch.told_lost = lost;
             let mut windows =
                 editor::remote_window_list(&shown.window, &shown.region, &watch.others);
-            if place_strays(&windows, &shown.region, &mut watch.placed) {
+            let placed = place_strays(&windows, &shown.region, &mut watch.placed);
+            if front_new(&windows, &mut watch.fronted) || placed {
                 windows = editor::remote_window_list(&shown.window, &shown.region, &watch.others);
             }
             if watch.told_windows.as_ref() != Some(&(shown.id, windows.clone())) {
@@ -193,12 +199,60 @@ fn check() {
     });
 }
 
+/// Brings the dialogs and popups a plugin opened to the front once, back to front so they keep
+/// their order: a plugin's window the helper does not activate for may open behind the editor,
+/// and nothing on the machine raises it. Returns whether one was brought.
+fn front_new(windows: &[Window], fronted: &mut Vec<u64>) -> bool {
+    fronted.retain(|id| windows.iter().any(|window| window.id == *id));
+    let mut brought = false;
+    for window in windows.iter().rev() {
+        if matches!(window.kind, WindowKind::Dialog | WindowKind::Popup)
+            && !fronted.contains(&window.id)
+        {
+            editor::order_front(window.id);
+            fronted.push(window.id);
+            brought = true;
+        }
+    }
+    brought
+}
+
+/// Where a window moved into the region goes: beside the editor where it fits, to its right, then
+/// below it, else over the editor, each window moved before pushing it one step further down and
+/// to the right.
+fn spot(
+    editor: &plughost_core::remote::Rect,
+    window: &Window,
+    region: &Region,
+    before: usize,
+) -> Point {
+    let step = CASCADE * before as f64;
+    let fits = |x: f64, y: f64| {
+        x + step + window.frame.width <= region.rect.width
+            && y + step + window.frame.height <= region.rect.height
+    };
+    let right = (editor.x + editor.width + EDITOR_INSET, editor.y);
+    let below = (editor.x, editor.y + editor.height + EDITOR_INSET);
+    let (x, y) = [right, below]
+        .into_iter()
+        .find(|&(x, y)| fits(x, y))
+        .unwrap_or((editor.x + CASCADE, editor.y + CASCADE));
+    Point::new(x + step, y + step)
+}
+
 /// Moves dialogs and popups that opened on another display than the region's, such as an alert
-/// centered on the main display, to where remote editors open: the application reads only the
-/// region. Menus stay where AppKit puts them, and a window is moved once. Returns whether one
-/// moved.
+/// centered on the main display, into the region beside the editor (see [`spot`]): the
+/// application reads only the region. Menus stay where AppKit puts them, and a window is moved
+/// once. Returns whether one moved.
 fn place_strays(windows: &[Window], region: &Region, placed: &mut Vec<u64>) -> bool {
     let Some(display) = editor::display_in_region(region) else {
+        return false;
+    };
+    let Some(editor) = windows
+        .iter()
+        .find(|window| window.kind == WindowKind::Editor)
+        .map(|window| window.frame)
+    else {
         return false;
     };
     placed.retain(|id| windows.iter().any(|window| window.id == *id));
@@ -214,7 +268,11 @@ fn place_strays(windows: &[Window], region: &Region, placed: &mut Vec<u64>) -> b
             && !display.contains(&center)
             && !placed.contains(&window.id)
         {
-            editor::place_in_region(window.id, region);
+            editor::move_in_region(
+                window.id,
+                region,
+                spot(&editor, window, region, placed.len()),
+            );
             placed.push(window.id);
             moved = true;
         }

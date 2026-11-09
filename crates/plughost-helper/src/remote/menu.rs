@@ -1,8 +1,9 @@
 //! AppKit menus a plugin opens. Posted clicks do not choose their items: AppKit tracks a menu in
 //! a loop of its own that reads the window server's events. The session is told each menu that
-//! begins tracking and its items, and chooses an item by its index path or closes the menu,
-//! inside that loop. A menu with nothing to close it holds the main thread, so one open past the
-//! session's menu timeout is closed, and the end of the session closes its menus.
+//! begins tracking and its items, and chooses an item by its index path, whose action runs once
+//! the loop ended, or closes the menu. A menu with nothing to close it holds the main thread, so
+//! one open past the session's menu timeout is closed, and the end of the session closes its
+//! menus.
 
 use std::cell::{Cell, RefCell};
 use std::ptr::NonNull;
@@ -27,8 +28,16 @@ struct Open {
     opened: Instant,
 }
 
+/// An item chosen in an open menu, run once that menu's tracking ended.
+struct Chosen {
+    root: Retained<NSMenu>,
+    menu: Retained<NSMenu>,
+    index: isize,
+}
+
 thread_local! {
     static OPEN: RefCell<Vec<Open>> = const { RefCell::new(Vec::new()) };
+    static CHOSEN: RefCell<Option<Chosen>> = const { RefCell::new(None) };
     static NEXT: Cell<u64> = const { Cell::new(1) };
     /// How long a menu stays open without a choice.
     static TIMEOUT: Cell<Duration> = const { Cell::new(Duration::MAX) };
@@ -115,6 +124,14 @@ fn ended(menu: &NSMenu) {
     if let Some(id) = closed {
         session::notify(Notice::menu_closed(id));
     }
+    let chosen = CHOSEN.with_borrow_mut(|chosen| {
+        chosen
+            .take_if(|chosen| &*chosen.root == menu)
+            .map(|chosen| (chosen.menu, chosen.index))
+    });
+    if let Some((menu, index)) = chosen {
+        menu.performActionForItemAtIndex(index);
+    }
 }
 
 /// The menu's items but the hidden ones, each with its index among all of them, `depth`
@@ -163,8 +180,9 @@ fn open_menu(id: MenuId) -> Option<Retained<NSMenu>> {
     })
 }
 
-/// Chooses the item `choice` names and closes its menu. Call it from a delivery of its own: the
-/// item's action is plugin code, which may run a loop.
+/// Chooses the item `choice` names: closes its menu and, once the menu's tracking ended, runs the
+/// item's action, as AppKit does, so an action that runs a panel's or a dialog's loop does not
+/// leave the menu up. Call it from a delivery of its own.
 pub fn choose(choice: &MenuChoice) {
     let Some(root) = open_menu(choice.menu) else {
         return;
@@ -185,7 +203,11 @@ pub fn choose(choice: &MenuChoice) {
     if !item.isEnabled() || item.isSeparatorItem() || item.hasSubmenu() || item.isHidden() {
         return;
     }
-    menu.performActionForItemAtIndex(last as isize);
+    CHOSEN.set(Some(Chosen {
+        root: root.clone(),
+        menu,
+        index: last as isize,
+    }));
     root.cancelTracking();
 }
 

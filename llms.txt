@@ -778,7 +778,12 @@ or `Point` units), `Key` (macOS virtual key code and characters), `Text`, `Modif
 Pointer input goes to the helper's frontmost window under the point, keys and text to the window
 of the last button down while it shows (else to the shown editor's), a key going up where it went
 down, and input reaches the dialogs and menus a plugin runs in a loop of its own, a control's
-tracking included. One button is held at a time: a second goes down after the first goes up.
+tracking included. A button down brings the window under it to the front, as a click on an
+active application's window does, but not while a plugin's dialog, menu or panel loop takes the
+input. A dialog or popup the plugin opens comes to the front; one that opens on another display
+than the region's moves into the region beside the shown editor where the region has room (to its
+right, then below it), else over it, 24 points further down and to the right for each window
+moved before, and `Windows` reports it `outside` when it does not fit. One button is held at a time: a second goes down after the first goes up.
 `ReleaseAll` and a session's end release a held button, the keys down and the modifiers. Plugins that ask where the mouse is, which buttons
 are down or which modifiers are held are answered with the session's input, and a plugin's
 cursor warp moves that mouse, not the machine's cursor; a `Motion` goes on from where the warp
@@ -794,6 +799,8 @@ the plugin opens: `MenuOpened` lists them (`MenuItem`: index among all items, ti
 out), the menu's window comes in `Windows`
 as kind `Menu`, and `Command::ChooseMenuItem(MenuChoice::new(menu, index_path))` chooses one or
 `CloseMenu` closes it; a disabled item, a separator or a path that names no item is not chosen.
+Choosing closes the menu and then runs the item, as AppKit does, so `MenuClosed` comes before the
+panel or dialog the item runs.
 A menu open past `Timeouts::menu` (60 seconds by default), or whose session ends, closes. Open
 and save panels never show on the machine: `PanelRequested` tells the panel and what the plugin
 asked, a `PanelRequest` (`PanelKind`, its folder, proposed name, allowed extensions, whether it

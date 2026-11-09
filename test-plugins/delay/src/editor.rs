@@ -24,7 +24,7 @@ use objc2::{
 use objc2_app_kit::{
     NSApplication, NSBackingStoreType, NSColor, NSCursor, NSEvent, NSEventModifierFlags,
     NSEventType, NSResponder, NSTrackingArea, NSTrackingAreaOptions, NSView, NSWindow,
-    NSWindowStyleMask,
+    NSWindowOrderingMode, NSWindowStyleMask,
 };
 use objc2_foundation::{NSArray, NSObject, NSPoint, NSRect, NSSize, NSString};
 
@@ -46,6 +46,9 @@ const SIZE: GuiSize = GuiSize {
 const DRAG: u32 = 60;
 /// Where the popup opens, in points from the editor window's top-left corner, and its size.
 const POPUP: NSRect = NSRect::new(NSPoint::new(250.0, 100.0), NSSize::new(60.0, 40.0));
+/// Where the window opened behind the editor opens, in points from the editor window's top-left
+/// corner, and its content size.
+const BEHIND: NSRect = NSRect::new(NSPoint::new(10.0, 10.0), NSSize::new(200.0, 100.0));
 
 /// How long the editor's modal dialog runs before it ends itself.
 const MODAL: f64 = 8.0;
@@ -60,6 +63,7 @@ pub fn application_active() -> bool {
 pub struct Ivars {
     focus: Arc<AtomicU32>,
     popup: RefCell<Option<Retained<NSWindow>>>,
+    behind: RefCell<Option<Retained<NSWindow>>>,
     /// The window is painted red, not green.
     red: std::cell::Cell<bool>,
 }
@@ -165,6 +169,34 @@ define_class!(
             ));
             popup.orderFrontRegardless();
             if let Some(old) = self.ivars().popup.replace(Some(popup)) {
+                old.close();
+            }
+        }
+
+        /// Opens a titled window behind the editor's, over its corner, as a plugin that shows
+        /// windows of its own can: nothing on the machine raises it.
+        #[unsafe(method(openBehind))]
+        fn open_behind(&self) {
+            let Some(window) = self.window() else {
+                return;
+            };
+            let frame = window.frame();
+            let behind = unsafe {
+                NSWindow::initWithContentRect_styleMask_backing_defer(
+                    NSWindow::alloc(self.mtm()),
+                    NSRect::new(NSPoint::new(0.0, 0.0), BEHIND.size),
+                    NSWindowStyleMask::Titled,
+                    NSBackingStoreType::Buffered,
+                    false,
+                )
+            };
+            unsafe { behind.setReleasedWhenClosed(false) };
+            behind.setFrameTopLeftPoint(NSPoint::new(
+                frame.origin.x + BEHIND.origin.x,
+                frame.origin.y + frame.size.height - BEHIND.origin.y,
+            ));
+            behind.orderWindow_relativeTo(NSWindowOrderingMode::Below, window.windowNumber());
+            if let Some(old) = self.ivars().behind.replace(Some(behind)) {
                 old.close();
             }
         }
@@ -344,7 +376,8 @@ define_class!(
         }
 
         /// Pops up an AppKit menu at the view's corner, as a plugin's context menu does: an item,
-        /// a separator, a hidden item, a submenu with a checked and a disabled item.
+        /// a separator, a hidden item, a submenu with a checked and a disabled item, and an item
+        /// that runs a save panel.
         #[unsafe(method(popUpMenu))]
         fn pop_up_menu(&self) {
             let mtm = self.mtm();
@@ -385,6 +418,9 @@ define_class!(
             let more = item("More", 0);
             more.setSubmenu(Some(&submenu));
             menu.addItem(&more);
+            let save = item("Save", 5);
+            unsafe { save.setAction(Some(sel!(runSavePanel))) };
+            menu.addItem(&save);
             menu.popUpMenuPositioningItem_atLocation_inView(None, NSPoint::new(10.0, 10.0), Some(self));
             INPUT.menus_closed.fetch_add(1, Ordering::Relaxed);
         }
@@ -797,7 +833,8 @@ impl Editor {
     /// Core Graphics, 17 hides it until the mouse moves, 18 pops up a menu, 19 runs a save panel,
     /// 20 begins an open panel, 21 begins a save panel as a sheet, 22 copies text, 23 opens a web
     /// page, 24 shows a file in the Finder, 25 opens a web page through Launch Services, 26 begins
-    /// an open panel and closes it, as a plugin does when its editor goes away.
+    /// an open panel and closes it, as a plugin does when its editor goes away, 27 opens a titled
+    /// window behind the editor's.
     pub fn act(&self, action: u32) {
         let action = match action {
             1 => sel!(hideApplication),
@@ -826,6 +863,7 @@ impl Editor {
             24 => sel!(revealFile),
             25 => sel!(openThroughLaunchServices),
             26 => sel!(beginAndClosePanel),
+            27 => sel!(openBehind),
             _ => return,
         };
         unsafe {
@@ -839,6 +877,9 @@ impl Drop for Editor {
     fn drop(&mut self) {
         if let Some(popup) = self.0.ivars().popup.take() {
             popup.close();
+        }
+        if let Some(behind) = self.0.ivars().behind.take() {
+            behind.close();
         }
         self.0.removeFromSuperview();
     }
@@ -928,6 +969,7 @@ unsafe fn open(parent: *mut c_void, focus: Arc<AtomicU32>) -> Option<Editor> {
     let view = FocusView::alloc(mtm).set_ivars(Ivars {
         focus,
         popup: RefCell::new(None),
+        behind: RefCell::new(None),
         red: std::cell::Cell::new(false),
     });
     let frame = NSRect::new(

@@ -441,6 +441,8 @@ impl Target {
                 let Some((window, point)) = self.window_at(input.at) else {
                     return;
                 };
+                // The helper never activates, so nothing raises the window a click lands on.
+                editor::raise(&window);
                 // One button is held at a time: the one held before goes up first.
                 if let Some((held, button, last)) = PRESSED.take() {
                     post(&held, up(button), last, 1, flags, Posted::Mouse);
