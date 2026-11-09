@@ -20,14 +20,15 @@ use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 use objc2::rc::Retained;
-use objc2::{MainThreadMarker, MainThreadOnly};
+use objc2::runtime::AnyClass;
+use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSWindow};
 use objc2_core_foundation::{
     CFAbsoluteTimeGetCurrent, CFRetained, CFRunLoop, CFRunLoopSource, CFRunLoopSourceContext,
     CFRunLoopTimer, CGPoint, kCFRunLoopCommonModes,
 };
 use objc2_core_graphics::{CGEvent, CGEventField, CGScrollEventUnit};
-use objc2_foundation::{NSPoint, NSProcessInfo, NSString};
+use objc2_foundation::{NSObjectProtocol, NSPoint, NSProcessInfo, NSString};
 use plughost_core::remote::{
     Button, Command, KeyInput, Modifiers, MotionInput, PanelAnswer, Point, PointerInput,
     PointerKind, WheelInput, WheelUnit,
@@ -142,10 +143,47 @@ fn handed(event: &NSEvent) -> bool {
             false
         }
         Posted::Direct(window) => {
-            window.sendEvent(event);
+            if !key_equivalent(&window, event) {
+                window.sendEvent(event);
+            }
             true
         }
     }
+}
+
+/// Offers a key down with Command held as AppKit's application does before a key goes to its
+/// window, as the helper never has a key window: to the window's views as a key equivalent, then,
+/// when a text view takes the keys, as the editing command an Edit menu sends (cut, copy, paste,
+/// select all, undo, redo), as the helper has no menu. Returns whether one of them took it; the
+/// key goes to the window otherwise, as plugins that read Command keys in their own views expect.
+fn key_equivalent(window: &NSWindow, event: &NSEvent) -> bool {
+    let flags = event.modifierFlags();
+    if event.r#type() != NSEventType::KeyDown || !flags.contains(NSEventModifierFlags::Command) {
+        return false;
+    }
+    if window.performKeyEquivalent(event) {
+        return true;
+    }
+    let (Some(responder), Some(text)) = (window.firstResponder(), AnyClass::get(c"NSText")) else {
+        return false;
+    };
+    if !responder.isKindOfClass(text) {
+        return false;
+    }
+    let key = event
+        .charactersIgnoringModifiers()
+        .map(|characters| characters.to_string().to_lowercase());
+    let action = match key.as_deref() {
+        Some("x") => sel!(cut:),
+        Some("c") => sel!(copy:),
+        Some("v") => sel!(paste:),
+        Some("a") => sel!(selectAll:),
+        Some("z") if flags.contains(NSEventModifierFlags::Shift) => sel!(redo:),
+        Some("z") => sel!(undo:),
+        _ => return false,
+    };
+    // SAFETY: each action takes its sender, which may be nil.
+    unsafe { responder.tryToPerform_with(action, None) }
 }
 
 /// The application took `event` from its queue, for its own loop or one that takes events itself,
@@ -342,6 +380,8 @@ fn run(command: Command) {
         Command::Text(input) => input.editor,
         Command::Modifiers(input) => input.editor,
         Command::ReleaseAll(editor) => *editor,
+        Command::MoveWindow(window) => window.editor,
+        Command::CloseWindow(window) => window.editor,
         _ => return,
     };
     // Input for an editor shown before, or for one this helper no longer shows.
@@ -354,6 +394,17 @@ fn run(command: Command) {
         others: shown.others,
     };
     match command {
+        Command::MoveWindow(window) => {
+            if editor::plugin_window(window.window, &target.editor, &target.others).is_some() {
+                editor::move_in_region(window.window, &target.region, window.to);
+            }
+        }
+        // Closing asks the plugin, which runs its code: in a delivery of its own.
+        Command::CloseWindow(window) => {
+            if editor::plugin_window(window.window, &target.editor, &target.others).is_some() {
+                deliver(Command::CloseWindow(window));
+            }
+        }
         Command::Pointer(input) => {
             // A point the application placed the pointer at supersedes moves from where it was.
             PENDING.set(None);
@@ -398,6 +449,7 @@ fn finite(command: &Command) -> bool {
         Command::Pointer(input) => point(&input.at),
         Command::Motion(input) => input.dx.is_finite() && input.dy.is_finite(),
         Command::Wheel(input) => point(&input.at) && input.dx.is_finite() && input.dy.is_finite(),
+        Command::MoveWindow(window) => point(&window.to),
         _ => true,
     }
 }
@@ -681,6 +733,14 @@ unsafe extern "C-unwind" fn delivered(_timer: *mut CFRunLoopTimer, _info: *mut s
         Some(Command::ChooseMenuItem(choice)) => menu::choose(&choice),
         Some(Command::CloseMenu(id)) => menu::close(id),
         Some(Command::AnswerPanel(answer)) => panel::answer(&answer),
+        Some(Command::CloseWindow(close)) => {
+            if let Some(mtm) = MainThreadMarker::new()
+                && let Some(window) = NSApplication::sharedApplication(mtm)
+                    .windowWithWindowNumber(close.window as isize)
+            {
+                window.performClose(None);
+            }
+        }
         _ => {}
     }
 }

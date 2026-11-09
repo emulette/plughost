@@ -10,7 +10,7 @@ use plughost::remote::{
     Button, Command, CursorShape, EDITOR_INSET, EditorId, KeyInput, MenuChoice, MenuId, MenuItem,
     MenuItemState, Modifiers, MotionInput, Notice, PanelAnswer, PanelId, PanelKind, Point,
     PointerInput, PointerKind, Rect, Region, Sender, Session, TextInput, WheelInput, WheelUnit,
-    Window, WindowKind,
+    Window, WindowClose, WindowKind, WindowMove,
 };
 use plughost::{
     Chain, ChainSlot, Error, FailureKind, InputError, PluginFormat, PluginRef, SpawnOptions,
@@ -459,6 +459,23 @@ fn key(sender: &Sender, editor: EditorId, key_code: u16, character: &str) {
     }
 }
 
+/// Presses and lets go of a key with Command held.
+fn command_key(sender: &Sender, editor: EditorId, key_code: u16, character: &str) {
+    for down in [true, false] {
+        sender
+            .send(Command::Key(KeyInput::new(
+                editor,
+                down,
+                key_code,
+                character,
+                character,
+                false,
+                Modifiers::COMMAND,
+            )))
+            .unwrap();
+    }
+}
+
 /// A remote chain showing one editor in a region at `(100, 100)`, with its session.
 fn shown_editor() -> (Chain, Session, EditorId) {
     let mut chain = spawn_remote(&[editor()]);
@@ -540,6 +557,34 @@ fn pointer_wheel_and_key_input_reach_the_shown_editor() {
         &mut chain,
         |chain| value(chain, KEYS) == 4.0 && value(chain, CHARACTER) == f64::from(u32::from('z')),
         "the text did not reach the editor",
+    );
+}
+
+/// How many characters the editor's text view holds.
+const TEXT_LENGTH: u64 = 41;
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn command_keys_reach_a_text_view_as_its_edit_commands() {
+    let _serial = support::editor_test();
+    let (mut chain, session, editor) = shown_editor();
+    let sender = session.sender();
+    // The editor puts a text view holding "abc" in front and makes it take the keys. The helper
+    // has no Edit menu and never a key window, which would turn Command keys into editing
+    // commands: select all, cut and paste twice leave "abcabc".
+    chain.set_parameter_text(0, 17, "29").unwrap();
+    wait(
+        &mut chain,
+        |chain| value(chain, TEXT_LENGTH) == 3.0,
+        "the text view did not open",
+    );
+    for (key_code, character) in [(0, "a"), (7, "x"), (9, "v"), (9, "v")] {
+        command_key(&sender, editor, key_code, character);
+    }
+    wait(
+        &mut chain,
+        |chain| value(chain, TEXT_LENGTH) == 6.0,
+        "select all, cut and paste twice did not leave the text doubled",
     );
 }
 
@@ -811,6 +856,62 @@ fn a_window_the_plugin_opens_behind_comes_forward_and_a_click_raises_the_window_
 
 #[test]
 #[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_window_the_plugin_opened_is_moved_and_closed_by_command() {
+    let _serial = support::editor_test();
+    let (mut chain, mut session, editor) = shown_editor();
+    let sender = session.sender();
+    chain.set_parameter_text(0, 17, "27").unwrap();
+    let windows = match until(
+        &mut session,
+        |notice| {
+            matches!(notice, Notice::Windows { windows, .. }
+            if kinds(windows) == [WindowKind::Dialog, WindowKind::Editor])
+        },
+        "the plugin's window did not open",
+    ) {
+        Notice::Windows { windows, .. } => windows,
+        _ => unreachable!(),
+    };
+    let (window, own) = (windows[0].id, windows[1].id);
+    // The editor's own window stays where the region puts it; the plugin's window moves.
+    sender
+        .send(Command::MoveWindow(WindowMove::new(
+            editor,
+            own,
+            Point::new(150.0, 150.0),
+        )))
+        .unwrap();
+    sender
+        .send(Command::MoveWindow(WindowMove::new(
+            editor,
+            window,
+            Point::new(80.0, 60.0),
+        )))
+        .unwrap();
+    until(
+        &mut session,
+        |notice| {
+            matches!(notice, Notice::Windows { windows, .. }
+                if windows.iter().any(|shown| shown.id == window
+                    && (shown.frame.x, shown.frame.y) == (80.0, 60.0))
+                && windows.iter().any(|shown| shown.id == own
+                    && (shown.frame.x, shown.frame.y) == (EDITOR_INSET, EDITOR_INSET)))
+        },
+        "the plugin's window did not move, or the editor's did",
+    );
+    // Closing does what the window's close button does.
+    sender
+        .send(Command::CloseWindow(WindowClose::new(editor, window)))
+        .unwrap();
+    order_until(
+        &mut session,
+        &[WindowKind::Editor],
+        "the plugin's window did not close",
+    );
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
 fn a_plugin_showing_activating_or_running_a_dialog_leaves_the_helper_behind() {
     let _serial = support::editor_test();
     let (mut chain, mut session, editor) = shown_editor();
@@ -925,16 +1026,48 @@ fn the_session_is_told_the_cursor_the_plugin_sets_and_hides() {
 const MENU_CHOICE: u64 = 35;
 const MENUS_CLOSED: u64 = 36;
 
-/// Pops up the fixture's menu and returns it with its items once the session is told. Only
-/// the edit that asks for it: a later request would wait for the menu's loop.
-fn pop_up_menu(chain: &mut Chain, session: &mut Session) -> (MenuId, Vec<MenuItem>) {
-    chain.set_parameter_text(0, 17, "18").unwrap();
+/// Has the fixture pop up its menu with `action` and returns it with its items and frame once
+/// the session is told. Only the edit that asks for it: a later request would wait for the
+/// menu's loop.
+fn pop_up(
+    chain: &mut Chain,
+    session: &mut Session,
+    action: &str,
+) -> (MenuId, Vec<MenuItem>, Option<Rect>) {
+    chain.set_parameter_text(0, 17, action).unwrap();
     match until(
         session,
         |notice| matches!(notice, Notice::MenuOpened { .. }),
         "not told the menu opened",
     ) {
-        Notice::MenuOpened { menu, items, .. } => (menu, items),
+        Notice::MenuOpened {
+            menu, items, frame, ..
+        } => (menu, items, frame),
+        _ => unreachable!(),
+    }
+}
+
+fn pop_up_menu(chain: &mut Chain, session: &mut Session) -> (MenuId, Vec<MenuItem>) {
+    let (menu, items, _) = pop_up(chain, session, "18");
+    (menu, items)
+}
+
+/// The frames of the menu windows in the next `Windows` notice that has `count` of them, front
+/// to back.
+fn menu_frames_until(session: &mut Session, count: usize, what: &str) -> Vec<Rect> {
+    let menus = |windows: &[Window]| -> Vec<Rect> {
+        windows
+            .iter()
+            .filter(|window| window.kind == WindowKind::Menu)
+            .map(|window| window.frame)
+            .collect()
+    };
+    match until(
+        session,
+        |notice| matches!(notice, Notice::Windows { windows, .. } if menus(windows).len() == count),
+        what,
+    ) {
+        Notice::Windows { windows, .. } => menus(&windows),
         _ => unreachable!(),
     }
 }
@@ -1008,6 +1141,47 @@ fn a_menu_the_plugin_opens_is_told_and_its_item_chosen_by_index() {
 
 #[test]
 #[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_menu_is_told_with_its_own_windows_frame() {
+    let _serial = support::editor_test();
+    let (mut chain, mut session, _) = shown_editor();
+    let (menu, _, frame) = pop_up(&mut chain, &mut session, "18");
+    let frame = frame.expect("the menu was told without a frame");
+    assert_eq!(
+        menu_frames_until(&mut session, 1, "the menu's window was not told"),
+        [frame]
+    );
+    session.sender().send(Command::CloseMenu(menu)).unwrap();
+    menu_closed(&mut session, menu, "the menu did not close");
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_menu_whose_submenu_opens_at_once_is_told_with_its_own_windows_frame() {
+    let _serial = support::editor_test();
+    let (mut chain, mut session, editor) = shown_editor();
+    // The menu opens with its submenu item under the helper's mouse, at the view's corner, so
+    // AppKit opens the submenu in front of it at once: the frame stays the menu's own window's,
+    // the back-most one once the submenu shows, not the front-most.
+    session
+        .sender()
+        .send(pointer(
+            editor,
+            PointerKind::Move,
+            EDITOR_INSET + 10.0,
+            EDITOR_INSET + 110.0,
+            0,
+        ))
+        .unwrap();
+    let (menu, _, frame) = pop_up(&mut chain, &mut session, "28");
+    let frame = frame.expect("the menu was told without a frame");
+    let frames = menu_frames_until(&mut session, 2, "the submenu did not open");
+    assert_eq!(frames[1], frame, "the frame is not the menu's own window's");
+    session.sender().send(Command::CloseMenu(menu)).unwrap();
+    menu_closed(&mut session, menu, "the menu did not close");
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
 fn a_chosen_item_runs_once_its_menu_closed() {
     let _serial = support::editor_test();
     let (mut chain, mut session, _) = shown_editor();
@@ -1054,11 +1228,11 @@ fn a_chosen_item_runs_once_its_menu_closed() {
 fn a_later_session_is_told_the_open_menu_and_can_close_it() {
     let _serial = support::editor_test();
     let (mut chain, mut session, _) = shown_editor();
-    let (menu, items) = pop_up_menu(&mut chain, &mut session);
+    let (menu, items, frame) = pop_up(&mut chain, &mut session, "18");
     let mut later = chain.remote_session().unwrap();
     until(
         &mut later,
-        |notice| *notice == Notice::menu_opened(menu, items.clone()),
+        |notice| *notice == Notice::menu_opened(menu, items.clone(), frame),
         "the later session was not told the open menu",
     );
     // A session replaced by a later one leaves its menu to the later one.
@@ -1184,6 +1358,8 @@ fn ask_panel(chain: &mut Chain, session: &mut Session, action: &str) -> (PanelId
                 Some(std::path::Path::new("/tmp/plughost-test-panels"))
             );
             assert_eq!(request.types, ["fxp"]);
+            // Every panel takes files; the open panel action 20 begins looks into bundles.
+            assert_eq!((request.files, request.packages), (true, action != "20"));
             (panel, request.kind, request.multiple)
         }
         _ => unreachable!(),
@@ -1239,6 +1415,8 @@ fn a_save_panel_the_plugin_runs_is_answered_by_the_session() {
             request.types,
             request.multiple,
             request.directories,
+            request.files,
+            request.packages,
             request.message.as_str()
         ),
         (
@@ -1247,6 +1425,8 @@ fn a_save_panel_the_plugin_runs_is_answered_by_the_session() {
             vec!["fxp".to_owned()],
             false,
             false,
+            true,
+            true,
             "Save the preset"
         )
     );

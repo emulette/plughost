@@ -1,6 +1,7 @@
 //! What a remote session is told without asking. A timer in the run loop's common modes, which
 //! also fire inside dialogs', menus' and panels' loops, compares the shown editor's windows, the
-//! nesting depth and the region's display with what it last told. The host records its remote
+//! nesting depth and the region's display with what it last told, and tells the menus whose
+//! windows showed. The host records its remote
 //! editors after each request and tick, and the editors that went are told closed.
 
 use std::cell::{OnceCell, RefCell};
@@ -187,10 +188,13 @@ fn check() {
             if front_new(&windows, &mut watch.fronted) || placed {
                 windows = editor::remote_window_list(&shown.window, &shown.region, &watch.others);
             }
+            super::menu::tell_opened(&windows);
             if watch.told_windows.as_ref() != Some(&(shown.id, windows.clone())) {
                 session::notify(Notice::windows(shown.id, windows.clone()));
                 watch.told_windows = Some((shown.id, windows));
             }
+        } else {
+            super::menu::tell_opened(&[]);
         }
         if watch.told_depth != Some(depth) {
             session::notify(Notice::nested(depth));

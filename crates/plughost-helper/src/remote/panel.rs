@@ -118,7 +118,7 @@ fn request(panel: &NSSavePanel) -> PanelRequest {
         .allowedFileTypes()
         .map(|types| types.iter().map(|kind| kind.to_string()).collect())
         .unwrap_or_default();
-    PanelRequest::new(
+    let mut request = PanelRequest::new(
         if open.is_some() {
             PanelKind::Open
         } else {
@@ -130,10 +130,13 @@ fn request(panel: &NSSavePanel) -> PanelRequest {
             .map(|path| PathBuf::from(path.to_string())),
         panel.nameFieldStringValue().to_string(),
         types,
-        open.is_some_and(|open| open.allowsMultipleSelection()),
-        open.is_some_and(|open| open.canChooseDirectories()),
         panel.message().to_string(),
-    )
+    );
+    request.multiple = open.is_some_and(|open| open.allowsMultipleSelection());
+    request.directories = open.is_some_and(|open| open.canChooseDirectories());
+    request.files = open.is_none_or(|open| open.canChooseFiles());
+    request.packages = !panel.treatsFilePackagesAsDirectories();
+    request
 }
 
 /// Tells the session the panel waits, and keeps it until the answer.

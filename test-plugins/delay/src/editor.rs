@@ -173,8 +173,8 @@ define_class!(
             }
         }
 
-        /// Opens a titled window behind the editor's, over its corner, as a plugin that shows
-        /// windows of its own can: nothing on the machine raises it.
+        /// Opens a titled window with a close button behind the editor's, over its corner, as a
+        /// plugin that shows windows of its own can: nothing on the machine raises it.
         #[unsafe(method(openBehind))]
         fn open_behind(&self) {
             let Some(window) = self.window() else {
@@ -185,7 +185,7 @@ define_class!(
                 NSWindow::initWithContentRect_styleMask_backing_defer(
                     NSWindow::alloc(self.mtm()),
                     NSRect::new(NSPoint::new(0.0, 0.0), BEHIND.size),
-                    NSWindowStyleMask::Titled,
+                    NSWindowStyleMask::Titled | NSWindowStyleMask::Closable,
                     NSBackingStoreType::Buffered,
                     false,
                 )
@@ -199,6 +199,44 @@ define_class!(
             if let Some(old) = self.ivars().behind.replace(Some(behind)) {
                 old.close();
             }
+        }
+
+        /// Puts an AppKit text view holding "abc" at the editor's corner and makes it take the
+        /// keys, as a plugin's name field does; its length is reported as it changes.
+        #[unsafe(method(openTextView))]
+        fn open_text_view(&self) {
+            let Some(window) = self.window() else {
+                return;
+            };
+            let text = objc2_app_kit::NSTextView::initWithFrame(
+                objc2_app_kit::NSTextView::alloc(self.mtm()),
+                NSRect::new(NSPoint::new(10.0, 10.0), NSSize::new(120.0, 24.0)),
+            );
+            text.setString(&NSString::from_str("abc"));
+            INPUT.text_length.store(3, Ordering::Relaxed);
+            let changed = block2::RcBlock::new(|notification: std::ptr::NonNull<objc2_foundation::NSNotification>| {
+                let notification = unsafe { notification.as_ref() };
+                if let Some(text) = notification
+                    .object()
+                    .and_then(|object| object.downcast::<objc2_app_kit::NSTextView>().ok())
+                {
+                    INPUT
+                        .text_length
+                        .store(text.string().length() as i64, Ordering::Relaxed);
+                }
+            });
+            let observer = unsafe {
+                objc2_foundation::NSNotificationCenter::defaultCenter()
+                    .addObserverForName_object_queue_usingBlock(
+                        Some(objc2_app_kit::NSTextDidChangeNotification),
+                        Some(&text),
+                        None,
+                        &changed,
+                    )
+            };
+            std::mem::forget(observer);
+            self.addSubview(&text);
+            window.makeFirstResponder(Some(&text));
         }
 
         /// Runs a titled dialog modally, as a plugin's About box does, until it ends itself.
@@ -380,48 +418,18 @@ define_class!(
         /// that runs a save panel.
         #[unsafe(method(popUpMenu))]
         fn pop_up_menu(&self) {
-            let mtm = self.mtm();
-            let item = |title: &str, tag: isize| {
-                let item = unsafe {
-                    objc2_app_kit::NSMenuItem::initWithTitle_action_keyEquivalent(
-                        objc2_app_kit::NSMenuItem::alloc(mtm),
-                        &NSString::from_str(title),
-                        Some(sel!(menuChose:)),
-                        &NSString::new(),
-                    )
-                };
-                unsafe { item.setTarget(Some(self)) };
-                item.setTag(tag);
-                item
-            };
-            let submenu = objc2_app_kit::NSMenu::initWithTitle(
-                objc2_app_kit::NSMenu::alloc(mtm),
-                &NSString::from_str("More"),
-            );
-            submenu.setAutoenablesItems(false);
-            let deep = item("Deep", 3);
-            deep.setState(objc2_app_kit::NSControlStateValueOn);
-            submenu.addItem(&deep);
-            let off = item("Off", 4);
-            off.setEnabled(false);
-            submenu.addItem(&off);
-            let menu = objc2_app_kit::NSMenu::initWithTitle(
-                objc2_app_kit::NSMenu::alloc(mtm),
-                &NSString::new(),
-            );
-            menu.setAutoenablesItems(false);
-            menu.addItem(&item("First", 1));
-            menu.addItem(&objc2_app_kit::NSMenuItem::separatorItem(mtm));
-            let hidden = item("Hidden", 2);
-            hidden.setHidden(true);
-            menu.addItem(&hidden);
-            let more = item("More", 0);
-            more.setSubmenu(Some(&submenu));
-            menu.addItem(&more);
-            let save = item("Save", 5);
-            unsafe { save.setAction(Some(sel!(runSavePanel))) };
-            menu.addItem(&save);
+            let (menu, _) = self.menu();
             menu.popUpMenuPositioningItem_atLocation_inView(None, NSPoint::new(10.0, 10.0), Some(self));
+            INPUT.menus_closed.fetch_add(1, Ordering::Relaxed);
+        }
+
+        /// Pops up the same menu with its submenu item under the view's corner, where the
+        /// helper's mouse is, so AppKit opens the submenu at once, as a plugin's menu whose first
+        /// item is a submenu does.
+        #[unsafe(method(popUpMenuOnSubmenu))]
+        fn pop_up_menu_on_submenu(&self) {
+            let (menu, more) = self.menu();
+            menu.popUpMenuPositioningItem_atLocation_inView(Some(&more), NSPoint::new(10.0, 10.0), Some(self));
             INPUT.menus_closed.fetch_add(1, Ordering::Relaxed);
         }
 
@@ -440,12 +448,14 @@ define_class!(
             }
         }
 
-        /// Opens files through an open panel that takes several, answered to its handler.
+        /// Opens files through an open panel that takes several and looks into bundles as
+        /// folders, answered to its handler.
         #[unsafe(method(beginOpenPanel))]
         fn begin_open_panel(&self) {
             let panel = objc2_app_kit::NSOpenPanel::openPanel(self.mtm());
             set_up_panel(&panel);
             panel.setAllowsMultipleSelection(true);
+            panel.setTreatsFilePackagesAsDirectories(true);
             let read = panel.clone();
             let handler = block2::RcBlock::new(move |response: isize| {
                 INPUT
@@ -569,6 +579,58 @@ define_class!(
 );
 
 impl FocusView {
+    /// The fixture's menu and its submenu item: an item, a separator, a hidden item, a submenu
+    /// with a checked and a disabled item, and an item that runs a save panel.
+    fn menu(
+        &self,
+    ) -> (
+        Retained<objc2_app_kit::NSMenu>,
+        Retained<objc2_app_kit::NSMenuItem>,
+    ) {
+        let mtm = self.mtm();
+        let item = |title: &str, tag: isize| {
+            let item = unsafe {
+                objc2_app_kit::NSMenuItem::initWithTitle_action_keyEquivalent(
+                    objc2_app_kit::NSMenuItem::alloc(mtm),
+                    &NSString::from_str(title),
+                    Some(sel!(menuChose:)),
+                    &NSString::new(),
+                )
+            };
+            unsafe { item.setTarget(Some(self)) };
+            item.setTag(tag);
+            item
+        };
+        let submenu = objc2_app_kit::NSMenu::initWithTitle(
+            objc2_app_kit::NSMenu::alloc(mtm),
+            &NSString::from_str("More"),
+        );
+        submenu.setAutoenablesItems(false);
+        let deep = item("Deep", 3);
+        deep.setState(objc2_app_kit::NSControlStateValueOn);
+        submenu.addItem(&deep);
+        let off = item("Off", 4);
+        off.setEnabled(false);
+        submenu.addItem(&off);
+        let menu = objc2_app_kit::NSMenu::initWithTitle(
+            objc2_app_kit::NSMenu::alloc(mtm),
+            &NSString::new(),
+        );
+        menu.setAutoenablesItems(false);
+        menu.addItem(&item("First", 1));
+        menu.addItem(&objc2_app_kit::NSMenuItem::separatorItem(mtm));
+        let hidden = item("Hidden", 2);
+        hidden.setHidden(true);
+        menu.addItem(&hidden);
+        let more = item("More", 0);
+        more.setSubmenu(Some(&submenu));
+        menu.addItem(&more);
+        let save = item("Save", 5);
+        unsafe { save.setAction(Some(sel!(runSavePanel))) };
+        menu.addItem(&save);
+        (menu, more)
+    }
+
     /// Runs a dialog modally until a click in it and then a key, as a plugin's dialog that a key
     /// opens and that takes typing does.
     fn run_closable_modal(&self) {
@@ -767,6 +829,8 @@ pub struct Input {
     pub panel_files: AtomicI64,
     /// Whether what it copied read back.
     pub copied: AtomicI64,
+    /// How many characters its text view holds.
+    pub text_length: AtomicI64,
 }
 
 pub static INPUT: Input = Input {
@@ -791,6 +855,7 @@ pub static INPUT: Input = Input {
     panel_result: AtomicI64::new(0),
     panel_files: AtomicI64::new(0),
     copied: AtomicI64::new(0),
+    text_length: AtomicI64::new(0),
 };
 
 /// What the view received, for the parameter `index`: in the order of `Input`'s fields.
@@ -821,6 +886,11 @@ pub fn input(index: u32) -> f64 {
     value.load(Ordering::Relaxed) as f64
 }
 
+/// How many characters the text view holds.
+pub fn text_length() -> f64 {
+    INPUT.text_length.load(Ordering::Relaxed) as f64
+}
+
 /// The open editor's view, removed from the host's window when dropped.
 pub struct Editor(Retained<FocusView>);
 
@@ -834,7 +904,8 @@ impl Editor {
     /// 20 begins an open panel, 21 begins a save panel as a sheet, 22 copies text, 23 opens a web
     /// page, 24 shows a file in the Finder, 25 opens a web page through Launch Services, 26 begins
     /// an open panel and closes it, as a plugin does when its editor goes away, 27 opens a titled
-    /// window behind the editor's.
+    /// window behind the editor's, 28 pops up the menu with its submenu open, 29 puts a text view
+    /// holding "abc" in the editor and makes it take the keys.
     pub fn act(&self, action: u32) {
         let action = match action {
             1 => sel!(hideApplication),
@@ -864,6 +935,8 @@ impl Editor {
             25 => sel!(openThroughLaunchServices),
             26 => sel!(beginAndClosePanel),
             27 => sel!(openBehind),
+            28 => sel!(popUpMenuOnSubmenu),
+            29 => sel!(openTextView),
             _ => return,
         };
         unsafe {

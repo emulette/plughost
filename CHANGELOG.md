@@ -7,8 +7,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 
 ## [Unreleased]
 
+### Added
+
+- `Notice::MenuOpened` carries `frame`, the menu's own window in region points, so an
+  application draws the menu where it is: the session is told the menu once that window shows,
+  behind the submenus AppKit may open in front of it at once, or without a frame when it did not
+  show within half a second.
+- `PanelRequest` carries `files`, whether the panel takes files, and `packages`, whether it takes
+  a bundle such as a `.vst3` as one file: a plugin that hosts plugins asks for a bundle in the
+  plugin folders, which an application lists among the files it offers.
+- `Command::MoveWindow` (`WindowMove`) moves a window a remote editor's plugin opened to a region
+  point, as dragging its title bar does, which posted input cannot, and `Command::CloseWindow`
+  (`WindowClose`) closes one as its close button does.
+
 ### Changed
 
+- The internal helper protocol is now 46. Rebuild and distribute the helper with the application.
 - A dialog or popup that a remote editor's plugin opens on another display than the region's
   moves into the region beside the shown editor where the region has room, to its right, then
   below it, else over it, one step further down and to the right for each window moved before.
@@ -22,6 +36,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 - A remote helper brings a dialog or popup its plugin opens to the front, and a remote button
   down brings the window under it to the front outside a plugin's dialog, menu or panel loop. A
   plugin's window that opened behind the editor stayed hidden, and a click raised no window.
+- A remote key down with Command held is offered to the window's views as a key equivalent and,
+  when a text view takes the keys, as the Edit command it stands for (cut, copy, paste, select
+  all, undo, redo) before it goes to the window. Command keys went straight to the window, so an
+  AppKit text field in a remote editor took no copy, paste or select all.
 
 ## [0.2.2] - 2026-11-09
 

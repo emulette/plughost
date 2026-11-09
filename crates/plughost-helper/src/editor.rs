@@ -164,6 +164,27 @@ mod platform {
         NSApplication::sharedApplication(mtm).windowWithWindowNumber(id as isize)
     }
 
+    /// The window numbered `id` that the plugin of the remote editor in `editor` opened on
+    /// screen: not that editor's own, not a menu's, not one of the other editors' in `others`.
+    pub fn plugin_window(
+        id: u64,
+        editor: &NSWindow,
+        others: &[Retained<NSWindow>],
+    ) -> Option<Retained<NSWindow>> {
+        front_to_back(others).into_iter().find(|window| {
+            window.windowNumber() as u64 == id && &**window != editor && window.level() < MENU_LEVEL
+        })
+    }
+
+    /// The numbers of the helper's menu windows on screen, front to back.
+    pub fn menu_windows() -> Vec<u64> {
+        front_to_back(&[])
+            .iter()
+            .filter(|window| window.level() >= MENU_LEVEL)
+            .map(|window| window.windowNumber() as u64)
+            .collect()
+    }
+
     /// Moves the helper's window numbered `id` so its top-left corner is at `at` in `region`.
     pub fn move_in_region(id: u64, region: &Region, at: Point) {
         if let (Some(window), Some(top_left)) = (numbered(id), screen_point(region, at)) {
@@ -493,8 +514,8 @@ pub use platform::EditorWindow;
 /// Windows.
 #[cfg(target_os = "macos")]
 pub use platform::{
-    display_in_region, front_to_back, main_height, move_in_region, order_front, raise, region_fits,
-    remote_window_list, screen_point,
+    display_in_region, front_to_back, main_height, menu_windows, move_in_region, order_front,
+    plugin_window, raise, region_fits, remote_window_list, screen_point,
 };
 #[cfg(target_os = "windows")]
 pub fn region_fits(_region: &plughost_core::remote::Region) -> bool {

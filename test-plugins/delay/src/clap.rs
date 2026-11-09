@@ -57,6 +57,8 @@ const EDITOR_WINDOW: ClapId = ClapId::new(17);
 const APPLICATION_ACTIVE: ClapId = ClapId::new(18);
 /// The `editor` variant's count of editor sizes it accepted.
 const ACCEPTED_SIZES: ClapId = ClapId::new(40);
+/// How many characters the `editor` variant's text view holds.
+const TEXT_LENGTH: ClapId = ClapId::new(41);
 /// The `meters` variant's meters, which report their values every block, and its count of the
 /// host's parameter value reads.
 const METERS: u32 = 200;
@@ -398,7 +400,7 @@ impl PluginMainThreadParams for MainThread<'_> {
         15 + u32::from(matches!(
             variant(),
             Variant::Editor | Variant::Timers | Variant::FlushRequest | Variant::ThreadCheck
-        )) + 25 * u32::from(variant() == Variant::Editor)
+        )) + 26 * u32::from(variant() == Variant::Editor)
             + 3 * u32::from(variant() == Variant::Timers)
             + 5 * u32::from(variant() == Variant::ThreadCheck)
             + (1 + METERS) * u32::from(variant() == Variant::Meters)
@@ -514,7 +516,17 @@ impl PluginMainThreadParams for MainThread<'_> {
                 name: b"Editor window action",
                 module: b"",
                 min_value: 0.0,
-                max_value: 27.0,
+                max_value: 29.0,
+                default_value: 0.0,
+            }),
+            41 if variant() == Variant::Editor => info.set(&ParamInfo {
+                id: TEXT_LENGTH,
+                flags: ParamInfoFlags::IS_READONLY | ParamInfoFlags::IS_STEPPED,
+                cookie: Cookie::empty(),
+                name: b"Text length",
+                module: b"",
+                min_value: 0.0,
+                max_value: 1_000_000.0,
                 default_value: 0.0,
             }),
             40 if variant() == Variant::Editor => info.set(&ParamInfo {
@@ -711,6 +723,12 @@ impl PluginMainThreadParams for MainThread<'_> {
         }
         if id == REFUSED_SIZES && variant() == Variant::Editor {
             return Some(f64::from(self.shared.refused_sizes.load(Ordering::Relaxed)));
+        }
+        if id == TEXT_LENGTH && variant() == Variant::Editor {
+            #[cfg(target_os = "macos")]
+            return Some(crate::editor::text_length());
+            #[cfg(not(target_os = "macos"))]
+            return Some(0.0);
         }
         if id == ACCEPTED_SIZES && variant() == Variant::Editor {
             return Some(f64::from(

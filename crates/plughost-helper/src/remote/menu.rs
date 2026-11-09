@@ -18,14 +18,25 @@ use objc2_app_kit::{
     NSMenuDidEndTrackingNotification,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter};
-use plughost_core::remote::{MenuChoice, MenuId, MenuItem, MenuItemState, Notice};
+use plughost_core::remote::{
+    MenuChoice, MenuId, MenuItem, MenuItemState, Notice, Rect, Window, WindowKind,
+};
 
 use super::session;
+use crate::editor;
+
+/// How long a menu waits for its window to show before the session is told it without a frame.
+const FRAME_WAIT: Duration = Duration::from_millis(500);
 
 struct Open {
     id: MenuId,
     menu: Retained<NSMenu>,
     opened: Instant,
+    /// The menu windows on screen when it began tracking, none of them its own.
+    before: Vec<u64>,
+    /// Its window's frame once the session was told the menu: `Some(None)` when the window did
+    /// not show in time, `None` before.
+    told: Option<Option<Rect>>,
 }
 
 /// An item chosen in an open menu, run once that menu's tracking ended.
@@ -106,20 +117,52 @@ fn began(menu: Retained<NSMenu>) {
     }
     let id = MenuId(NEXT.get());
     NEXT.set(id.0 + 1);
-    session::notify(Notice::menu_opened(id, items(&menu, 0)));
+    // Its window shows after tracking began; the session is told the menu with that window's
+    // frame (see `tell_opened`).
     OPEN.with_borrow_mut(|open| {
         open.push(Open {
             id,
             menu,
             opened: Instant::now(),
+            before: editor::menu_windows(),
+            told: None,
         });
     });
 }
 
+/// Tells the session the menus that began tracking, once each one's window shows among the
+/// shown editor's `windows` or [`FRAME_WAIT`] passed. Its window is the back-most menu window
+/// that was not on screen when it began: AppKit may open a submenu in front of it at once.
+pub fn tell_opened(windows: &[Window]) {
+    let notices: Vec<Notice> = OPEN.with_borrow_mut(|open| {
+        open.iter_mut()
+            .filter(|open| open.told.is_none())
+            .filter_map(|open| {
+                let frame = windows
+                    .iter()
+                    .rfind(|window| {
+                        window.kind == WindowKind::Menu && !open.before.contains(&window.id)
+                    })
+                    .map(|window| window.frame);
+                if frame.is_none() && open.opened.elapsed() < FRAME_WAIT {
+                    return None;
+                }
+                open.told = Some(frame);
+                Some(Notice::menu_opened(open.id, items(&open.menu, 0), frame))
+            })
+            .collect()
+    });
+    for notice in notices {
+        session::notify(notice);
+    }
+}
+
 fn ended(menu: &NSMenu) {
+    // A menu the session was never told closes without telling it.
     let closed = OPEN.with_borrow_mut(|open| {
         let index = open.iter().position(|open| &*open.menu == menu)?;
-        Some(open.remove(index).id)
+        let closed = open.remove(index);
+        closed.told.map(|_| closed.id)
     });
     if let Some(id) = closed {
         session::notify(Notice::menu_closed(id));
@@ -252,14 +295,14 @@ pub fn expire() {
     }
 }
 
-/// Tells a new session the open menus.
+/// Tells a new session the open menus it was told; the others are told as their windows show.
 pub fn tell_all() {
     let open: Vec<_> = OPEN.with_borrow(|open| {
         open.iter()
-            .map(|open| (open.id, open.menu.clone()))
+            .filter_map(|open| Some((open.id, open.menu.clone(), open.told?)))
             .collect()
     });
-    for (id, menu) in open {
-        session::notify(Notice::menu_opened(id, items(&menu, 0)));
+    for (id, menu, frame) in open {
+        session::notify(Notice::menu_opened(id, items(&menu, 0), frame));
     }
 }

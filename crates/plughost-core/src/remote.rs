@@ -202,6 +202,10 @@ pub enum Notice {
         menu: MenuId,
         /// Its items, hidden ones left out.
         items: Vec<MenuItem>,
+        /// The frame of the menu's own window in region points, behind the submenus AppKit may
+        /// open in front of it at once; `None` when the window did not show within half a second
+        /// of the menu beginning to track.
+        frame: Option<Rect>,
     },
     /// The menu closed: an item was chosen, it was closed, its session ended, or it stayed open
     /// past the chain's menu timeout.
@@ -294,12 +298,19 @@ pub struct PanelRequest {
     pub multiple: bool,
     /// Whether it takes folders.
     pub directories: bool,
+    /// Whether it takes files; a save panel does.
+    pub files: bool,
+    /// Whether it takes a bundle, such as a `.vst3` or a `.component`, as one file, as AppKit
+    /// does unless the plugin asks to look into bundles as folders: list bundles among the files
+    /// it may take.
+    pub packages: bool,
     /// The message it shows, which may be empty.
     pub message: String,
 }
 
 impl PanelRequest {
-    /// A request; see the fields Internal to the plughost crates; exempt from semver.
+    /// A request taking one file, no folder and bundles as files; see the fields. Internal to
+    /// the plughost crates; exempt from semver.
     #[doc(hidden)]
     #[must_use]
     pub fn new(
@@ -307,8 +318,6 @@ impl PanelRequest {
         directory: Option<PathBuf>,
         name: impl Into<String>,
         types: Vec<String>,
-        multiple: bool,
-        directories: bool,
         message: impl Into<String>,
     ) -> PanelRequest {
         PanelRequest {
@@ -316,8 +325,10 @@ impl PanelRequest {
             directory,
             name: name.into(),
             types,
-            multiple,
-            directories,
+            multiple: false,
+            directories: false,
+            files: true,
+            packages: true,
             message: message.into(),
         }
     }
@@ -397,6 +408,46 @@ impl MenuChoice {
     #[must_use]
     pub fn new(menu: MenuId, path: Vec<usize>) -> MenuChoice {
         MenuChoice { menu, path }
+    }
+}
+
+/// A window the shown editor's plugin opened, a `Dialog` or a `Popup` as [`Notice::Windows`]
+/// lists it, to move so its top-left corner is at a region point.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct WindowMove {
+    /// The shown editor.
+    pub editor: EditorId,
+    /// The window, by [`Window::id`].
+    pub window: u64,
+    /// Where its top-left corner goes, in region points.
+    pub to: Point,
+}
+
+impl WindowMove {
+    /// Moves `window` of `editor` so its top-left corner is at `to`.
+    #[must_use]
+    pub fn new(editor: EditorId, window: u64, to: Point) -> WindowMove {
+        WindowMove { editor, window, to }
+    }
+}
+
+/// A window the shown editor's plugin opened, a `Dialog` or a `Popup` as [`Notice::Windows`]
+/// lists it, to close as its close button does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct WindowClose {
+    /// The shown editor.
+    pub editor: EditorId,
+    /// The window, by [`Window::id`].
+    pub window: u64,
+}
+
+impl WindowClose {
+    /// Closes `window` of `editor`.
+    #[must_use]
+    pub fn new(editor: EditorId, window: u64) -> WindowClose {
+        WindowClose { editor, window }
     }
 }
 
@@ -506,8 +557,8 @@ impl Notice {
     /// A menu opened.
     #[doc(hidden)]
     #[must_use]
-    pub fn menu_opened(menu: MenuId, items: Vec<MenuItem>) -> Notice {
-        Notice::MenuOpened { menu, items }
+    pub fn menu_opened(menu: MenuId, items: Vec<MenuItem>, frame: Option<Rect>) -> Notice {
+        Notice::MenuOpened { menu, items, frame }
     }
 
     /// A menu closed.
@@ -836,4 +887,9 @@ pub enum Command {
     CloseMenu(MenuId),
     /// Answers a waiting panel.
     AnswerPanel(PanelAnswer),
+    /// Moves a window the plugin opened, as dragging its title bar does, which input cannot.
+    MoveWindow(WindowMove),
+    /// Closes a window the plugin opened as its close button does: the plugin may refuse, and a
+    /// window without a close button stays.
+    CloseWindow(WindowClose),
 }

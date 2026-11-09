@@ -777,13 +777,20 @@ or `Point` units), `Key` (macOS virtual key code and characters), `Text`, `Modif
 `ReleaseAll`; each names the shown editor's `EditorId` and the helper drops input for another.
 Pointer input goes to the helper's frontmost window under the point, keys and text to the window
 of the last button down while it shows (else to the shown editor's), a key going up where it went
-down, and input reaches the dialogs and menus a plugin runs in a loop of its own, a control's
+down; a key down with Command held is first offered as an application offers it, to the window's
+views as a key equivalent and then, to a text view taking the keys, as the cut, copy, paste,
+select all, undo or redo an Edit menu sends, and goes to the window when neither takes it, and input reaches the dialogs and menus a plugin runs in a loop of its own, a control's
 tracking included. A button down brings the window under it to the front, as a click on an
 active application's window does, but not while a plugin's dialog, menu or panel loop takes the
 input. A dialog or popup the plugin opens comes to the front; one that opens on another display
 than the region's moves into the region beside the shown editor where the region has room (to its
 right, then below it), else over it, 24 points further down and to the right for each window
-moved before, and `Windows` reports it `outside` when it does not fit. One button is held at a time: a second goes down after the first goes up.
+moved before, and `Windows` reports it `outside` when it does not fit.
+`Command::MoveWindow(WindowMove::new(editor, window, to))` moves such a window (a `Dialog` or
+`Popup` in `Windows`, by its `id`) so its top-left corner is at a region point, as dragging its
+title bar does, which input cannot; `CloseWindow(WindowClose::new(editor, window))` closes one as
+its close button does, which the plugin may refuse and a window without one ignores. Neither
+moves or closes the editor's own window or a menu. One button is held at a time: a second goes down after the first goes up.
 `ReleaseAll` and a session's end release a held button, the keys down and the modifiers. Plugins that ask where the mouse is, which buttons
 are down or which modifiers are held are answered with the session's input, and a plugin's
 cursor warp moves that mouse, not the machine's cursor; a `Motion` goes on from where the warp
@@ -796,15 +803,17 @@ the window server sends it; without it the machine's cursor over the region stil
 views tracking the mouse there, and the chain's diagnostics carry a warning. Input does not choose the items of an AppKit menu
 the plugin opens: `MenuOpened` lists them (`MenuItem`: index among all items, title, enabled,
 `MenuItemState`, separator, submenu; hidden items and submenus more than 16 levels down left
-out), the menu's window comes in `Windows`
-as kind `Menu`, and `Command::ChooseMenuItem(MenuChoice::new(menu, index_path))` chooses one or
+out) and `frame`, the menu's own window in region points (`None` when it did not show within
+half a second; AppKit may open a submenu in front of it at once, and the menu is told once that
+window shows), the menu's windows come in `Windows` as kind `Menu`, and `Command::ChooseMenuItem(MenuChoice::new(menu, index_path))` chooses one or
 `CloseMenu` closes it; a disabled item, a separator or a path that names no item is not chosen.
 Choosing closes the menu and then runs the item, as AppKit does, so `MenuClosed` comes before the
 panel or dialog the item runs.
 A menu open past `Timeouts::menu` (60 seconds by default), or whose session ends, closes. Open
 and save panels never show on the machine: `PanelRequested` tells the panel and what the plugin
 asked, a `PanelRequest` (`PanelKind`, its folder, proposed name, allowed extensions, whether it
-takes several files or folders, its message), and `Command::AnswerPanel(PanelAnswer::new(panel, Some(paths)))` answers it,
+takes several files or folders, whether it takes files, whether it takes a bundle such as a
+`.vst3` as one file (`packages`; list bundles among its files then), its message), and `Command::AnswerPanel(PanelAnswer::new(panel, Some(paths)))` answers it,
 `None` cancelling; a save takes one path and an open at least one. `PanelFinished` follows once
 the plugin has the answer, or once the plugin closed the panel, which gives it up. While a plugin waits in a modal panel, input to its editor is dropped.
 A session's end cancels its panels and closes its menus; a later session that replaces it gets

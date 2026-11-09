@@ -22,8 +22,8 @@ libc.workspace = true
 objc2.workspace = true
 block2.workspace = true
 objc2-core-foundation.workspace = true
-objc2-app-kit = { workspace = true, features = ["NSBitmapImageRep", "NSColor", "NSCursor", "NSGraphicsContext", "NSImage", "NSImageRep", "NSMenu", "NSMenuItem", "NSCell", "NSOpenPanel", "NSPanel", "NSPasteboard", "NSSavePanel", "NSTrackingArea", "NSWorkspace", "block2", "objc2-core-foundation"] }
-objc2-foundation.workspace = true
+objc2-app-kit = { workspace = true, features = ["NSBitmapImageRep", "NSColor", "NSCursor", "NSGraphicsContext", "NSImage", "NSImageRep", "NSMenu", "NSMenuItem", "NSCell", "NSOpenPanel", "NSPanel", "NSPasteboard", "NSSavePanel", "NSText", "NSTextView", "NSTrackingArea", "NSWorkspace", "block2", "objc2-core-foundation"] }
+objc2-foundation = { workspace = true, features = ["NSNotification", "NSOperation", "block2"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }

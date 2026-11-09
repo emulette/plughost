@@ -289,6 +289,8 @@ pub(super) enum NoticeDef {
         menu: remote::MenuId,
         #[serde_as(as = "MenuTreeDef")]
         items: Vec<remote::MenuItem>,
+        #[serde_as(as = "Option<RectDef>")]
+        frame: Option<remote::Rect>,
     },
     MenuClosed {
         #[serde_as(as = "MenuIdDef")]
@@ -337,6 +339,8 @@ pub(super) struct PanelRequestDef {
     types: Vec<String>,
     multiple: bool,
     directories: bool,
+    files: bool,
+    packages: bool,
     message: String,
 }
 remote!(PanelRequestDef, crate::remote::PanelRequest);
@@ -649,8 +653,32 @@ pub(super) enum CommandDef {
     ChooseMenuItem(#[serde_as(as = "MenuChoiceDef")] remote::MenuChoice),
     CloseMenu(#[serde_as(as = "MenuIdDef")] remote::MenuId),
     AnswerPanel(#[serde_as(as = "PanelAnswerDef")] remote::PanelAnswer),
+    MoveWindow(#[serde_as(as = "WindowMoveDef")] remote::WindowMove),
+    CloseWindow(#[serde_as(as = "WindowCloseDef")] remote::WindowClose),
 }
 remote!(CommandDef, crate::remote::Command);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::WindowMove")]
+pub(super) struct WindowMoveDef {
+    #[serde_as(as = "EditorIdDef")]
+    editor: remote::EditorId,
+    window: u64,
+    #[serde_as(as = "PointDef")]
+    to: remote::Point,
+}
+remote!(WindowMoveDef, crate::remote::WindowMove);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "crate::remote::WindowClose")]
+pub(super) struct WindowCloseDef {
+    #[serde_as(as = "EditorIdDef")]
+    editor: remote::EditorId,
+    window: u64,
+}
+remote!(WindowCloseDef, crate::remote::WindowClose);
 
 #[serde_as]
 #[derive(Serialize, Deserialize)]
@@ -1338,7 +1366,7 @@ remote!(TransportDef, crate::Transport);
 #[cfg(test)]
 mod tests {
     use super::super::{MAX_MENU_DEPTH, NoticeMessage};
-    use crate::remote::{MenuId, MenuItem, MenuItemState, Notice};
+    use crate::remote::{MenuId, MenuItem, MenuItemState, Notice, Rect};
 
     fn item(index: usize, submenu: Vec<MenuItem>) -> MenuItem {
         MenuItem::new(index, "item", true, MenuItemState::Off, false, submenu)
@@ -1363,13 +1391,14 @@ mod tests {
             item(1, Vec::new()),
             item(3, nested(MAX_MENU_DEPTH - 1)),
         ];
-        let notice = Notice::menu_opened(MenuId(4), items);
+        let notice =
+            Notice::menu_opened(MenuId(4), items, Some(Rect::new(10.0, 20.0, 160.0, 90.0)));
         assert_eq!(round_trip(notice.clone()).unwrap(), notice);
     }
 
     #[test]
     fn a_menu_nested_past_the_limit_is_rejected() {
-        let notice = Notice::menu_opened(MenuId(4), nested(MAX_MENU_DEPTH + 1));
+        let notice = Notice::menu_opened(MenuId(4), nested(MAX_MENU_DEPTH + 1), None);
         assert!(round_trip(notice).is_err());
     }
 }
