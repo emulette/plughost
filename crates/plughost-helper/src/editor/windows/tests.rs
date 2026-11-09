@@ -14,7 +14,9 @@ fn serial() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// Measured in the window's pixels, as the editor window sizes it, not scaled for this thread.
 fn client_size(hwnd: HWND) -> (i32, i32) {
+    let _context = DpiContext::enter();
     let mut rect = RECT::default();
     assert_ne!(unsafe { GetClientRect(hwnd, &mut rect) }, 0);
     (rect.right - rect.left, rect.bottom - rect.top)
@@ -102,6 +104,7 @@ fn a_size_the_system_does_not_give_the_window_is_refused_and_undone() {
 
 /// The client size a window restores to.
 fn restored_size(hwnd: HWND) -> (i32, i32) {
+    let _context = DpiContext::enter();
     let mut placement = WINDOWPLACEMENT {
         length: size_of::<WINDOWPLACEMENT>() as u32,
         ..WINDOWPLACEMENT::default()
