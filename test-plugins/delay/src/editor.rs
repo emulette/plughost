@@ -288,8 +288,10 @@ define_class!(
 
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
+            // The view's own key, sent once focused, can come after a host key: it does not
+            // take back what the host's key reported.
             if SENDING_KEY.load(Ordering::Relaxed) {
-                self.ivars().focus.store(KEY, Ordering::Relaxed);
+                self.ivars().focus.fetch_max(KEY, Ordering::Relaxed);
                 return;
             }
             self.ivars().focus.store(HOST_KEY, Ordering::Relaxed);
