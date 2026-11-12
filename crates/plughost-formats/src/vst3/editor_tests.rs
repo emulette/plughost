@@ -119,6 +119,7 @@ impl Fixture {
                 true
             }),
             resizing: Cell::new(false),
+            window: Cell::new(Some((200, 100))),
         });
         let pointer = view.as_com_ref::<IPlugView>().unwrap().as_ptr();
         view.this.set(pointer);
@@ -140,11 +141,24 @@ impl Fixture {
 }
 
 #[test]
-fn a_view_asking_for_the_size_it_has_is_not_resized() {
+fn a_view_asking_for_the_size_its_window_has_is_not_resized() {
     let fixture = Fixture::new(|_, _| {});
     assert_eq!(fixture.ask((200, 100)), kResultOk);
     assert!(fixture.window.borrow().is_empty());
     assert!(fixture.view.told.borrow().is_empty());
+}
+
+#[test]
+fn a_view_that_already_reports_the_size_it_asks_for_gets_its_window_resized() {
+    let fixture = Fixture::new(|_, _| {});
+    // The view takes its new size first and asks the host for it after.
+    fixture.view.size.set((300, 150));
+    assert_eq!(fixture.ask((300, 150)), kResultOk);
+    assert_eq!(*fixture.window.borrow(), [(300, 150)]);
+    assert!(fixture.view.told.borrow().is_empty());
+    // The window has the size now.
+    assert_eq!(fixture.ask((300, 150)), kResultOk);
+    assert_eq!(*fixture.window.borrow(), [(300, 150)]);
 }
 
 #[test]

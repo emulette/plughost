@@ -5,6 +5,15 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A VST3 editor that takes its new size before asking the host for it (FabFilter Pro-Q 4's
+  interface size) gets its window resized: `resizeView` skipped the window whenever the view
+  already reported the size asked for, which left the larger editor cropped in its old window. The
+  window is now skipped only when it has that size itself.
+
 ## [0.2.3] - 2026-11-09
 
 ### Added

@@ -43,6 +43,7 @@ impl Editor {
         let frame = ComWrapper::new(PlugFrame {
             resize,
             resizing: Cell::new(false),
+            window: Cell::new(None),
         });
         let frame_ptr = frame
             .as_com_ref::<IPlugFrame>()
@@ -58,6 +59,7 @@ impl Editor {
             _frame: frame,
         };
         let size = editor.size();
+        editor._frame.window.set(Some(size));
         Ok((editor, size))
     }
 
@@ -73,7 +75,7 @@ impl Editor {
     pub fn set_scale(&self, scale: f64) -> Option<(u32, u32)> {
         use vst3::Steinberg::{IPlugViewContentScaleSupport, IPlugViewContentScaleSupportTrait};
         let scaling = self.view.cast::<IPlugViewContentScaleSupport>()?;
-        (unsafe { scaling.setContentScaleFactor(scale as f32) } == kResultOk).then(|| self.size())
+        (unsafe { scaling.setContentScaleFactor(scale as f32) } == kResultOk).then(|| self.sized())
     }
 
     /// Offers the size the user dragged the window to. The view may adjust it, and may ask for
@@ -90,7 +92,14 @@ impl Editor {
         if dimensions(&rect) != self.size() {
             unsafe { self.view.onSize(&mut rect) };
         }
-        self.size()
+        self.sized()
+    }
+
+    /// The view's size, which the host gives the window on returning it.
+    fn sized(&self) -> (u32, u32) {
+        let size = self.size();
+        self._frame.window.set(Some(size));
+        size
     }
 }
 
@@ -126,6 +135,10 @@ struct PlugFrame {
     /// The host window is being resized for the view. A view that asks again from the resize
     /// it sees is refused, as the SDK's host does, instead of resizing the window inside itself.
     resizing: Cell<bool>,
+    /// The size the window has for the view: the view's size when it was attached, then each size
+    /// the window was given. A view may already report the size it asks for, so only the window's
+    /// own size tells whether the window has it.
+    window: Cell<Option<(u32, u32)>>,
 }
 
 impl Class for PlugFrame {
@@ -133,8 +146,8 @@ impl Class for PlugFrame {
 }
 
 impl IPlugFrameTrait for PlugFrame {
-    /// Resizes the window, then the view if it does not have the size yet. The view is told
-    /// only a size the window got.
+    /// Resizes the window unless it has the size, then the view if it does not have the size
+    /// yet. The view is told only a size the window got.
     unsafe fn resizeView(&self, view: *mut IPlugView, newSize: *mut ViewRect) -> tresult {
         let Some(view) = (unsafe { ComRef::from_raw(view) }) else {
             return kInvalidArgument;
@@ -147,14 +160,14 @@ impl IPlugFrameTrait for PlugFrame {
         }
         let mut rect = unsafe { *newSize };
         let size = dimensions(&rect);
-        if view_size(&view) == size {
-            return kResultOk;
-        }
-        self.resizing.set(true);
-        let resized = (self.resize)(size.0, size.1);
-        self.resizing.set(false);
-        if !resized {
-            return kResultFalse;
+        if self.window.get() != Some(size) {
+            self.resizing.set(true);
+            let resized = (self.resize)(size.0, size.1);
+            self.resizing.set(false);
+            if !resized {
+                return kResultFalse;
+            }
+            self.window.set(Some(size));
         }
         if view_size(&view) != size {
             unsafe { view.onSize(&mut rect) };
