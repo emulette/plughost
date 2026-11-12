@@ -66,6 +66,10 @@ impl Host {
             };
         }
         self.close_slot_editor(slot);
+        // The session is told of the closed editor while the slot still has its number: the
+        // panels that wait in the slots after it take that number next, and are not its own.
+        #[cfg(target_os = "macos")]
+        self.publish_remote();
         self.unprepare();
         let old = self.slots.remove(slot);
         self.references.remove(slot);
@@ -177,8 +181,11 @@ impl Host {
         crate::remote::panel::renumber(&moved);
     }
 
+    /// Hands the processing thread the processors of the slots as they now are. The timing
+    /// changes kept by slot start again: the chain is left unprepared, and its next preparation
+    /// observes every slot under the number it then has.
     fn publish_processors(&self) {
-        drop(self.processing.request(Command::Processors(
+        drop(self.processing.request(Command::Slots(
             self.slots.iter().map(|plugin| plugin.processor()).collect(),
         )));
     }

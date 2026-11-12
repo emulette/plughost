@@ -13,6 +13,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
   interface size) gets its window resized: `resizeView` skipped the window whenever the view
   already reported the size asked for, which left the larger editor cropped in its old window. The
   window is now skipped only when it has that size itself.
+- On macOS, removing a slot whose remote editor is open no longer gives up the file panel that
+  waits in a slot after it: the panel's slot took the removed slot's number before the session was
+  told of the closed editor, and the panel was given up in its place, its handler never called.
+- `Chain::take_changes` follows the slots a chain has after one was inserted, replaced, removed or
+  moved: the snapshot kept an entry for a removed slot and pending changes kept the numbers their
+  slots had before. The changes start again with the chain's next preparation, which a changed
+  chain needs anyway.
 
 ## [0.2.3] - 2026-11-09
 

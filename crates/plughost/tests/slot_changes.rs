@@ -31,6 +31,30 @@ fn output(chain: &mut plughost::Chain) -> f32 {
 }
 
 #[test]
+#[ignore = "needs helper and native delay fixtures"]
+fn timing_changes_follow_the_slots_the_chain_has() {
+    for format in [PluginFormat::Vst3, PluginFormat::Clap] {
+        let mut chain = spawn(&[delay(format), delay(format), delay(format)]);
+        prepare(&mut chain);
+        assert_eq!(
+            chain.take_changes().unwrap().snapshot.len(),
+            3,
+            "{format:?}"
+        );
+        // A removed slot takes its timing along: the chain prepared again tells two.
+        chain.remove_slot(2).unwrap();
+        prepare(&mut chain);
+        let batch = chain.take_changes().unwrap();
+        assert_eq!(batch.snapshot.len(), 2, "{format:?}");
+        assert!(batch.snapshot.iter().all(Option::is_some), "{format:?}");
+        assert!(
+            batch.changes.iter().all(|change| change.slot < 2),
+            "{format:?}"
+        );
+    }
+}
+
+#[test]
 #[ignore = "needs helper and native delay and routing fixtures"]
 fn slots_change_in_the_running_helper_and_the_chain_is_prepared_again_for_them() {
     for format in [PluginFormat::Vst3, PluginFormat::Clap] {

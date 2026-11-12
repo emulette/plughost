@@ -91,6 +91,13 @@ impl ChangeBuffer {
         self.pending.push(SlotChange { slot, timing });
     }
 
+    /// Forgets every slot: the pending changes, the overflow and the snapshot.
+    pub fn clear(&mut self) {
+        self.pending.clear();
+        self.snapshot.clear();
+        self.overflow = false;
+    }
+
     /// Drains pending changes and overflow, retaining and returning the latest complete snapshot.
     pub fn take(&mut self) -> ChangeBatch {
         // Preserve the producer's reserved storage while returning an owned batch.

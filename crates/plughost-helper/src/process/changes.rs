@@ -34,6 +34,17 @@ impl Changes {
     pub fn take(&mut self) -> ChangeBatch {
         self.buffer.take()
     }
+
+    /// Forgets every slot's timing and pending change, here and in the sender's cache, so the
+    /// next observation of each slot is told again.
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        self.current.clear();
+        self.observations
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+    }
 }
 
 pub(super) fn publish(
@@ -147,6 +158,28 @@ mod tests {
         assert!(processing.observe(0, timing(1)));
         assert_eq!(control.bell_count(), rung + 1);
         receive(&queue, &mut changes, timing(1));
+    }
+
+    #[test]
+    fn changed_slots_discard_the_timings_kept_under_their_old_numbers() {
+        let (processing, queue, changes) = setup();
+        let mut pipeline = Pipeline {
+            changes,
+            ..Default::default()
+        };
+        pipeline.changes.observe(0, timing(1));
+        pipeline.changes.observe(1, timing(2));
+        pipeline.changes.observe(2, timing(3));
+        pipeline.apply(&mut Command::Slots(Vec::new()));
+        let batch = pipeline.changes.take();
+        assert!(batch.changes.is_empty());
+        assert!(batch.snapshot.is_empty());
+        // The slot that now has number 0 is told again, even with the timing slot 0 had.
+        assert!(processing.observe(0, timing(1)));
+        receive(&queue, &mut pipeline.changes, timing(1));
+        let batch = pipeline.changes.take();
+        assert_eq!(batch.changes.len(), 1);
+        assert_eq!(batch.snapshot, [Some(timing(1))]);
     }
 
     #[test]

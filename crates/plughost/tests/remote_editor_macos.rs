@@ -1729,6 +1729,40 @@ fn a_waiting_panel_is_given_up_when_its_editor_closes_or_its_instance_is_replace
     assert_eq!(value(&mut chain, PANEL_RESULT), 0.0);
 }
 
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_waiting_panel_stays_when_a_slot_before_its_editor_is_removed() {
+    let _serial = support::editor_test();
+    let mut chain = spawn_remote(&[editor(), editor()]);
+    let mut session = chain.remote_session().unwrap();
+    let sender = session.sender();
+    chain
+        .set_remote_region(region(100.0, 100.0, 300.0, 200.0))
+        .unwrap();
+    chain.open_remote_editor(0).unwrap();
+    chain.open_remote_editor(1).unwrap();
+    // The second slot's editor begins an open panel with a handler, which waits.
+    chain.set_parameter_text(1, 17, "20").unwrap();
+    let request = until(
+        &mut session,
+        |notice| matches!(notice, Notice::PanelRequested { .. }),
+        "not told the panel's request",
+    );
+    let Notice::PanelRequested { panel, .. } = request else {
+        unreachable!()
+    };
+    // The first slot goes, with its open editor; the panel's slot takes its number.
+    chain.remove_slot(0).unwrap();
+    still_waiting(
+        &mut session,
+        panel,
+        "the panel of the editor that stayed was given up",
+    );
+    answer(&sender, panel, Some(vec![scratch("a.fxp")]));
+    panel_finished(&mut session, panel, "the handler was not called");
+    assert_eq!(value(&mut chain, PANEL_FILES), 1.0);
+}
+
 /// Apple's AUDelay, a version 2 unit, which runs the run loop for a while in a save after an edit
 /// so its listeners take the edit.
 fn audelay() -> PluginRef {

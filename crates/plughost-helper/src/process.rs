@@ -91,6 +91,9 @@ pub(crate) enum Command {
     /// The pipeline of a newly loaded chain.
     Load(Box<Pipeline>),
     Processors(Vec<Box<dyn BlockProcessor>>),
+    /// The processors after slots were inserted, replaced, removed or moved: the timing changes
+    /// kept by slot number are dropped with the numbering they were recorded under.
+    Slots(Vec<Box<dyn BlockProcessor>>),
     Calls(Calls),
     Prepare(Box<Prepare>),
     Replace(Box<Replace>),
@@ -152,6 +155,10 @@ impl Pipeline {
                     .clear();
             }
             Command::Processors(processors) => swap(&mut self.processors, processors),
+            Command::Slots(processors) => {
+                swap(&mut self.processors, processors);
+                self.changes.clear();
+            }
             Command::Calls(calls) => swap(&mut self.calls, calls),
             Command::Prepare(prepare) => {
                 if let Some(processors) = &mut prepare.processors {
