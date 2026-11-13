@@ -1,6 +1,6 @@
 //! Shared types and offline render rules for plughost.
 //!
-//! See the [integration guide](https://github.com/emulette/plughost/blob/v0.2.4/llms.txt)
+//! See the [integration guide](https://github.com/emulette/plughost/blob/v0.2.5/llms.txt)
 //! for end-to-end processing, routing, scanning, and recovery contracts.
 
 #![warn(missing_docs)]
