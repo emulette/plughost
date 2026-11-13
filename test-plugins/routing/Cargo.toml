@@ -16,3 +16,9 @@ workspace = true
 clack-extensions = { workspace = true, features = ["ambisonic", "audio-ports", "audio-ports-config", "audio-ports-activation", "clack-plugin", "configurable-audio-ports", "note-ports", "params", "state", "surround"] }
 clack-plugin.workspace = true
 vst3.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }

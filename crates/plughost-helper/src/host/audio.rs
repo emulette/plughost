@@ -123,7 +123,7 @@ impl Host {
                 .and_then(|()| {
                     let report = prepare(config, slot, candidate.as_mut())?;
                     if let Some(enabled) = bypass {
-                        candidate.set_bypass(enabled)?;
+                        carry_bypass(candidate.as_mut(), enabled)?;
                     }
                     Ok(report)
                 });
@@ -233,6 +233,10 @@ impl Host {
                     .map(|info| info.index)
             });
         }
+        let dry = match super::bypass::plan_dry(&config, &reports, &self.host_bypass) {
+            Ok(dry) => dry,
+            Err(response) => return *response,
+        };
         let processors: Option<Vec<Box<dyn BlockProcessor>>> =
             staged.then(|| next.iter().map(|plugin| plugin.processor()).collect());
         let timings = match audio_timing::chain_timings(&next, &calls) {
@@ -263,12 +267,12 @@ impl Host {
                 };
             }
         };
-        let (plan, tail) = match AudioTiming::plan(&config, &timings) {
+        let (plan, tail) = match AudioTiming::plan(&config, &timings, &self.host_bypass) {
             Ok(plan) => plan,
             Err((slot, failure)) => return Response::Failed { slot, failure },
         };
         let latency = plan.latency();
-        let storage = match process::prepared::Prepared::new(&config, &timings) {
+        let storage = match process::prepared::Prepared::new(&config, &timings, &dry) {
             Ok(storage) => storage,
             Err(failure) => {
                 return Response::Failed {
@@ -277,15 +281,16 @@ impl Host {
                 };
             }
         };
-        let alignment = match audio_timing::Alignment::new(&config, plan.clone()) {
-            Ok(alignment) => alignment,
-            Err(failure) => {
-                return Response::Failed {
-                    slot: None,
-                    failure,
-                };
-            }
-        };
+        let alignment =
+            match audio_timing::Alignment::new(&config, plan.clone(), &dry, &self.host_bypass) {
+                Ok(alignment) => alignment,
+                Err(failure) => {
+                    return Response::Failed {
+                        slot: None,
+                        failure,
+                    };
+                }
+            };
         let editors = if staged {
             self.detach_editors()
         } else {
@@ -328,6 +333,8 @@ impl Host {
         self.audio_config = Some(config.clone());
         self.timing = Some(plan);
         self.timing_polls = vec![super::timing::Poll::default(); self.slots.len()];
+        self.dry_lines = alignment.dry_lines();
+        self.dry_paths = dry;
         // Retire the old processor handles, and the rest of the old state, before the old
         // instances are dropped.
         drop(
@@ -341,6 +348,7 @@ impl Host {
                     events: Some(events),
                     parameters,
                     timings,
+                    host_bypass: process::bypass::HostBypass::new(self.host_bypass.clone()),
                 }))),
         );
         for (slot, plugin) in old {
@@ -374,6 +382,8 @@ impl Host {
         self.routes.clear();
         self.timing = None;
         self.timing_polls.clear();
+        self.dry_paths.clear();
+        self.dry_lines.clear();
         drop(
             self.processing
                 .request(Command::Prepare(Box::new(process::Prepare {
@@ -385,6 +395,7 @@ impl Host {
                     events: None,
                     parameters: Vec::new(),
                     timings: Vec::new(),
+                    host_bypass: Default::default(),
                 }))),
         );
     }
@@ -396,4 +407,15 @@ fn prepare(
     plugin: &mut dyn HostedPlugin,
 ) -> Result<Vec<AudioBusInfo>, Error> {
     plugin.prepare_audio(&config.slot_config(slot)?)
+}
+
+/// Gives a fresh instance the native bypass `enabled`, writing it only when the instance does
+/// not already have it: some plugins refuse or mishandle a bypass write, and a state or the
+/// instance's defaults already hold it as often as not. The value is still carried, since an
+/// Audio Unit's state holds no bypass and a factory preset resets it.
+pub(super) fn carry_bypass(candidate: &mut dyn HostedPlugin, enabled: bool) -> Result<(), Error> {
+    if candidate.bypass()?.enabled != Some(enabled) {
+        candidate.set_bypass(enabled)?;
+    }
+    Ok(())
 }

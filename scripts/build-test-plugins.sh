@@ -13,7 +13,9 @@
 #                                    bundle name)
 #   plughost-test-synth.{vst3,clap}  from test-plugins/synth
 #   plughost-test-presets.clap       from test-plugins/presets
-#   plughost-test-routing.{vst3,clap} from test-plugins/routing
+#   plughost-test-routing.{vst3,clap} from test-plugins/routing, and its variants
+#                                    plughost-test-routing-{faults,fixed-ports,counts}.clap and
+#                                    plughost-test-routing-strict.vst3
 #   again.vst3, again-simple.vst3, adelay.vst3, note-expression-synth.vst3, host-checker.vst3,
 #   utf16-name.vst3                  VST3 SDK examples (MIT); VST3_SDK_DIR reuses a complete SDK
 # For macOS; use build-test-plugins.ps1 on Windows.
@@ -71,6 +73,7 @@ done
 package "$root/target/release/libplughost_test_routing.dylib" plughost-test-routing-faults clap
 package "$root/target/release/libplughost_test_routing.dylib" plughost-test-routing-fixed-ports clap
 package "$root/target/release/libplughost_test_routing.dylib" plughost-test-routing-counts clap
+package "$root/target/release/libplughost_test_routing.dylib" plughost-test-routing-strict vst3
 
 vst3sdk="$root/.vst3sdk"
 sdk="${VST3_SDK_DIR:-$vst3sdk/VST_SDK/vst3sdk}"

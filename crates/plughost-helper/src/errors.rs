@@ -64,6 +64,9 @@ pub const EVENT_RESYNC: &str = "processing stopped after events exceeded a block
 pub const ALIGNMENT_STORAGE: &str =
     "could not reserve the chain's alignment delays within MAX_ALIGNMENT_BYTES";
 
+pub const HOST_BYPASS_LAYOUT: &str = "host bypass needs the slot's main input and main output active, in the same layout or mono and stereo";
+pub const HOST_BYPASS_STORAGE: &str = "host bypass needs a delay as long as the slot's latency, which MAX_ALIGNMENT_BYTES leaves no room for; turn it on before preparing the chain";
+
 pub const REALTIME_RUNNING: &str =
     "the request is refused while the realtime endpoint runs; stop it first";
 pub const REALTIME_NOT_INSTALLED: &str = "no realtime endpoint is installed for the prepared chain";

@@ -9,15 +9,16 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ChainSnapshot {
-    /// Each slot's plugin, its state saved with [`StatePurpose::Project`], and its native
-    /// bypass as [`Chain::bypass`] reported it, or `None` where unavailable.
+    /// Each slot's plugin, its state saved with [`StatePurpose::Project`], its native bypass as
+    /// [`Chain::bypass`] reported it, or `None` where unavailable, and its host bypass.
     pub slots: Vec<ChainSlot>,
 }
 
 impl Chain {
-    /// Saves each slot's plugin, project state and native bypass for [`Chain::recover`] and
-    /// [`Chain::recover_realtime`], or for [`Chain::spawn`] in another helper. It works while the realtime endpoint runs, as
-    /// [`Chain::save_state`] and [`Chain::bypass`] do; plughost never takes one by itself. Take
+    /// Saves each slot's plugin, project state, native bypass and host bypass for
+    /// [`Chain::recover`] and [`Chain::recover_realtime`], or for [`Chain::spawn`] in another
+    /// helper. It works while the realtime endpoint runs, as [`Chain::save_state`] and
+    /// [`Chain::bypass`] do; plughost never takes one by itself. Take
     /// snapshots while the helper is well: a plugin hanging in its processing may also hold up
     /// saving its state.
     pub fn snapshot(&mut self) -> Result<ChainSnapshot, Error> {
@@ -27,6 +28,7 @@ impl Chain {
                 plugin: self.plugins[slot].clone(),
                 state: Some(self.save_state(slot, StatePurpose::Project)?),
                 bypass: self.bypass(slot)?.enabled,
+                host_bypass: self.host_bypass(slot)?,
             });
         }
         Ok(ChainSnapshot { slots })

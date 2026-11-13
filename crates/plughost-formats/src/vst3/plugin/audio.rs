@@ -97,12 +97,13 @@ impl Plugin {
         if !self.handler.can_edit(id) {
             return Err(Vst3Error::Input(plughost_core::InputError::EventCapacity));
         }
-        let result = unsafe { self.controller.setParamNormalized(id, value) };
-        if result != kResultOk {
-            return Err(Vst3Error::BypassEdit(result));
-        }
-        if unsafe { self.handler.performEdit(id, value) } != kResultOk {
-            return Err(Vst3Error::Input(plughost_core::InputError::EventCapacity));
+        // As `set_parameter`, the controller's answer is not checked: some plugins refuse every
+        // `setParamNormalized` and take the change only through `performEdit`.
+        unsafe {
+            self.controller.setParamNormalized(id, value);
+            if self.handler.performEdit(id, value) != kResultOk {
+                return Err(Vst3Error::Input(plughost_core::InputError::EventCapacity));
+            }
         }
         self.flush_edits()
     }

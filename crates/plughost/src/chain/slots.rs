@@ -7,7 +7,7 @@ use crate::{Error, InputError, Tail};
 
 impl Chain {
     /// Loads `plugin`'s class into a new slot at `slot` (at most the slot count; the slot count
-    /// appends), restoring its state and taking its bypass before it goes in, as
+    /// appends), restoring its state and taking its bypass and host bypass before it goes in, as
     /// [`Chain::spawn`] does. The helper and the other slots' instances stay, with their states,
     /// open editors and a remote session, and slot numbers from `slot` on move one up. A prepared
     /// chain is left unprepared, its realtime endpoint gone with its preparation: prepare it
@@ -22,6 +22,7 @@ impl Chain {
             plugin: plugin.plugin.clone(),
             state: plugin.state.as_ref().map(Cow::Borrowed),
             bypass: plugin.bypass,
+            host_bypass: plugin.host_bypass,
         };
         self.change_slots(request)?;
         self.plugins.insert(slot, plugin.plugin.clone());
@@ -39,6 +40,7 @@ impl Chain {
             plugin: plugin.plugin.clone(),
             state: plugin.state.as_ref().map(Cow::Borrowed),
             bypass: plugin.bypass,
+            host_bypass: plugin.host_bypass,
         };
         self.change_slots(request)?;
         self.plugins[slot] = plugin.plugin.clone();
@@ -46,7 +48,7 @@ impl Chain {
     }
 
     /// Removes the slot and its plugin, whose editor closes; slot numbers after it move one
-    /// down. The others stay as [`Chain::insert_slot`] keeps them. The last slot is not removed
+    /// down, with their host bypass. The others stay as [`Chain::insert_slot`] keeps them. The last slot is not removed
     /// (`InputError::EmptyChain`).
     pub fn remove_slot(&mut self, slot: usize) -> Result<(), Error> {
         self.refuse_while_realtime()?;
@@ -55,7 +57,7 @@ impl Chain {
         Ok(())
     }
 
-    /// Moves the slot's plugin to `to`, with its state and open editor; the slots
+    /// Moves the slot's plugin to `to`, with its state, host bypass and open editor; the slots
     /// between move one toward `from`. The plugins stay loaded, as [`Chain::insert_slot`] keeps
     /// them, and the chain is left unprepared, unless `from` is `to`.
     pub fn move_slot(&mut self, from: usize, to: usize) -> Result<(), Error> {

@@ -112,7 +112,8 @@ pub trait HostedPlugin: sealed::Sealed {
     ) -> Result<Vec<plughost_core::AudioBusInfo>, Error>;
     /// Queries native bypass support and its current state.
     fn bypass(&mut self) -> Result<plughost_core::BypassState, Error>;
-    /// Requests native bypass; it does not implement a host-side dry signal path.
+    /// Requests native bypass; it does not implement a host-side dry signal path, which a chain
+    /// in the helper provides as host bypass.
     fn set_bypass(&mut self, enabled: bool) -> Result<(), Error>;
     /// Metadata identifying this loaded plugin instance.
     fn info(&self) -> &PluginInfo;

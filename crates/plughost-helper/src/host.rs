@@ -4,6 +4,7 @@
 //! changes without the processing thread.
 
 mod audio;
+mod bypass;
 mod realtime;
 mod remote;
 mod slots;
@@ -26,6 +27,7 @@ use crate::editor::EditorWindow;
 use crate::errors::LOCAL_EDITOR_IN_REMOTE;
 use crate::errors::WRONG_MODE;
 use crate::process::audio_timing::{self, AudioTiming};
+use crate::process::prepared::DryPath;
 use crate::process::{AudioThread, Command, Pipeline, Processing};
 
 pub struct Host {
@@ -45,6 +47,11 @@ pub struct Host {
     routes: Vec<audio::Routes>,
     timing: Option<AudioTiming>,
     timing_polls: Vec<timing::Poll>,
+    /// Each slot's host bypass, which stays with the slot whatever replaces its instance.
+    host_bypass: Vec<bool>,
+    /// The prepared slots' dry paths, and whether each has a dry line to play them through.
+    dry_paths: Vec<Option<DryPath>>,
+    dry_lines: Vec<bool>,
     transfer: Arc<transfer::Receiver>,
     calls: Calls,
     /// The application installed a realtime ring for the prepared chain.
@@ -87,6 +94,9 @@ impl Host {
             routes: Vec::new(),
             timing: None,
             timing_polls: Vec::new(),
+            host_bypass: Vec::new(),
+            dry_paths: Vec::new(),
+            dry_lines: Vec::new(),
             transfer,
             calls: Calls::default(),
             realtime_installed: false,
@@ -106,7 +116,10 @@ impl Host {
         let refresh_timing = !self.realtime_running
             && matches!(
                 &request,
-                Request::SetParameter { .. } | Request::SetParameterText { .. } | Request::Reset
+                Request::SetParameter { .. }
+                    | Request::SetParameterText { .. }
+                    | Request::SetHostBypass { .. }
+                    | Request::Reset
             );
         let response = self.dispatch(request);
         #[cfg(target_os = "macos")]
@@ -160,6 +173,8 @@ impl Host {
                 plugin.set_bypass(enabled)?;
                 plugin.bypass().map(Response::Bypass)
             }),
+            Request::HostBypass { slot } => Response::HostBypass(self.host_bypass[slot]),
+            Request::SetHostBypass { slot, enabled } => self.set_host_bypass(slot, enabled),
             Request::PrepareAudio {
                 config,
                 memory,
@@ -306,13 +321,15 @@ impl Host {
                 plugin,
                 state,
                 bypass,
-            } => self.insert_slot(slot, &plugin, state.as_deref(), bypass),
+                host_bypass,
+            } => self.insert_slot(slot, &plugin, state.as_deref(), bypass, host_bypass),
             Request::ReplaceSlot {
                 slot,
                 plugin,
                 state,
                 bypass,
-            } => self.replace_slot(slot, &plugin, state.as_deref(), bypass),
+                host_bypass,
+            } => self.replace_slot(slot, &plugin, state.as_deref(), bypass, host_bypass),
             Request::RemoveSlot { slot } => self.remove_slot(slot),
             Request::MoveSlot { from, to } => self.move_slot(from, to),
             Request::Reset => self.reset(),
@@ -508,6 +525,9 @@ impl Host {
         self.routes.clear();
         self.timing = None;
         self.timing_polls.clear();
+        self.dry_paths.clear();
+        self.dry_lines.clear();
+        self.host_bypass.clear();
         self.parameter_events.clear();
         #[cfg(target_os = "macos")]
         crate::remote::panel::give_up(None);
@@ -530,6 +550,7 @@ impl Host {
             self.progress();
         }
         self.parameter_events = self.slots.iter().map(|_| Default::default()).collect();
+        self.host_bypass = vec![false; self.slots.len()];
         self.references = plugins.to_vec();
         self.identity = host.clone();
         self.editors = self.slots.iter().map(|_| None).collect();
@@ -606,12 +627,18 @@ impl Host {
         };
         // Native reset discarded DSP history, so the previous alignment is unusable.
         let planned = AudioTiming::new(config, &timings).and_then(|plan| {
-            let alignment = audio_timing::Alignment::new(config, plan.clone())?;
+            let alignment = audio_timing::Alignment::new(
+                config,
+                plan.clone(),
+                &self.dry_paths,
+                &self.host_bypass,
+            )?;
             Ok((plan, alignment))
         });
         let (alignment, response) = match planned {
             Ok((plan, alignment)) => {
                 self.timing = Some(plan);
+                self.dry_lines = alignment.dry_lines();
                 (Some(alignment), Response::Done)
             }
             Err(failure) => {
@@ -659,7 +686,7 @@ impl Host {
         match AudioTiming::new(config, &timings) {
             Ok(plan) => Response::Timing {
                 latency: plan.latency(),
-                tail: plan.current_tail(&timings),
+                tail: plan.current_tail(&timings, &self.host_bypass),
                 latency_changed: timings.iter().any(|timing| timing.latency_changed),
             },
             Err(failure) => Response::Failed {

@@ -5,6 +5,39 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Host bypass: `Chain::set_host_bypass` and `Chain::host_bypass`, `ChainSlot::host_bypass` and
+  `ChainSlot::with_host_bypass`. While a slot's host bypass is on, its plugin keeps processing and
+  its events pass on, and the slot's main output is its main input delayed by the slot's reported
+  latency, so the chain's latency and alignment do not change; auxiliary outputs are silent and
+  the slot adds no tail. It works for plugins without a native bypass parameter and for those
+  whose native bypass stops delaying while it keeps reporting latency (Apple's AUPeakLimiter and
+  AUDynamicsProcessor among them). A mono main input fills a stereo main output and a stereo one is
+  averaged into a mono output; a slot with other main layouts, or without a main input, fails as
+  `FailureKind::Configuration`. Under a running realtime endpoint a switch crossfades over about
+  10 ms. The flag stays with its slot through preparation, state and preset changes,
+  `reprepare_slot`, slot changes and `snapshot`, from which `recover` and `recover_realtime`
+  restore it. `bypass` and `set_bypass` stay native.
+
+### Changed
+
+- The internal helper protocol is now 47. Rebuild and distribute the helper with the application.
+
+### Fixed
+
+- VST3 `set_bypass` no longer fails with "the plugin rejected the bypass change" for plugins whose
+  controller answers `setParamNormalized` with `kResultFalse` while taking the value, as every
+  iZotope plugin with a bypass parameter and Youlean Loudness Meter 2 do; it now ignores that
+  answer, as `set_parameter` already did. Preparing a prepared chain again, `restore_state`,
+  presets and `reprepare_slot` on a prepared chain, and `ChainSlot::with_bypass` no longer fail
+  for those plugins either.
+- A fresh instance that replaces a slot's (preparing again, restoring a state, a preset,
+  `reprepare_slot`, `insert_slot`, `replace_slot`) is written the slot's native bypass only when
+  it does not have it already.
+
 ## [0.2.4] - 2026-11-12
 
 ### Fixed

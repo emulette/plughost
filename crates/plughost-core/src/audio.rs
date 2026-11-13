@@ -6,9 +6,12 @@ use crate::{InputError, Layout, ProcessMode, SampleFormat, Support};
 pub const MAX_AUDIO_BUSES: usize = 64;
 /// Maximum active channel count in one direction, including all buses.
 pub const MAX_AUDIO_CHANNELS: usize = 512;
-/// Maximum sample storage in one prepared chain's external-input alignment delays (256 MiB).
-/// Preparation or staged state replacement fails before committing if the budget is exceeded.
-/// During replacement both the old bank and its prepared replacement may coexist.
+/// Maximum sample storage in one prepared chain's external-input alignment delays and host
+/// bypass delays (256 MiB). Preparation or staged state replacement fails before committing if
+/// the external-input delays, with the host bypass delays of the slots whose host bypass is on,
+/// exceed the budget; a slot whose host bypass is off gets its delay only while it fits, and
+/// cannot turn host bypass on without it. During replacement both the old bank and its prepared
+/// replacement may coexist.
 pub const MAX_ALIGNMENT_BYTES: usize = 256 * 1024 * 1024;
 
 /// Direction of an audio or event port relative to its plugin.

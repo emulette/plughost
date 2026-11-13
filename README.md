@@ -105,7 +105,10 @@ resynchronization, calls `resync_realtime`, which resets every plugin and starts
 without stopping the endpoint. Replacing a slot with `restore_state`, a preset or
 `reprepare_slot` goes on under a running endpoint. `RealtimeStatus::stalled` shows how long the
 helper has gone without completing a quantum, so the application can tell a hang from a crash,
-which `helper_monitor` reports. `snapshot` saves each slot's state and bypass, and
+which `helper_monitor` reports. `set_host_bypass` bypasses a slot in the host under a running
+endpoint, crossfading for about 10 ms: the plugin keeps processing while the slot plays its input
+delayed by the slot's latency, so the chain's latency stays. `snapshot` saves each slot's state,
+bypass and host bypass, and
 `recover_realtime` moves the same endpoint to a chain it prepares in a new helper, while the
 audio callback keeps it. The
 [realtime example](https://github.com/emulette/plughost/blob/v0.2.4/crates/plughost/examples/realtime.rs)

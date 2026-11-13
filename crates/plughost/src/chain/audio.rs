@@ -134,12 +134,41 @@ impl Chain {
     }
 
     /// Sets native bypass. Unsupported plugins return an explicit failure; audio routing is
-    /// unchanged and no host dry/wet substitution is performed.
+    /// unchanged and no host dry/wet substitution is performed: that is
+    /// [`Chain::set_host_bypass`].
     pub fn set_bypass(&mut self, slot: usize, enabled: bool) -> Result<(), Error> {
         match self.request(Request::SetBypass { slot, enabled }, self.timeouts.control)? {
             Response::Bypass(_) => Ok(()),
             _ => Err(self.protocol_error()),
         }
+    }
+
+    /// Whether the slot's host bypass is on (see [`Chain::set_host_bypass`]).
+    pub fn host_bypass(&mut self, slot: usize) -> Result<bool, Error> {
+        match self.request(Request::HostBypass { slot }, self.timeouts.control)? {
+            Response::HostBypass(enabled) => Ok(enabled),
+            _ => Err(self.protocol_error()),
+        }
+    }
+
+    /// Turns the slot's host bypass on or off, apart from the plugin's native bypass. While it is
+    /// on, the plugin goes on processing and receiving events, its output events pass on, and
+    /// the helper discards its audio: the slot's main output is its main input, as the plugin
+    /// received it, delayed by the slot's reported latency. The chain's latency and alignment do
+    /// not change, and the slot adds no tail. A mono main input fills both channels of a stereo
+    /// main output and a stereo one is averaged into a mono output; other main layouts must be
+    /// the same. Auxiliary outputs are silent, while sidechain inputs still feed the plugin.
+    ///
+    /// The slot keeps its host bypass through [`Chain::prepare_audio`], state and preset changes,
+    /// [`Chain::reprepare_slot`], slot changes and [`Chain::snapshot`]. While the realtime
+    /// endpoint runs, a switch crossfades linearly over about 10 ms; otherwise it takes effect
+    /// from the first frame of the next block. Turning it on for a slot without a main input or
+    /// output, or whose main layouts are another pair, fails as
+    /// [`crate::FailureKind::Configuration`] in a prepared chain, and preparing a chain with it
+    /// on fails the same way. So does turning it on for a prepared slot whose latency needs a
+    /// delay larger than what [`crate::MAX_ALIGNMENT_BYTES`] leaves.
+    pub fn set_host_bypass(&mut self, slot: usize, enabled: bool) -> Result<(), Error> {
+        self.request_edit(Request::SetHostBypass { slot, enabled })
     }
 
     /// Negotiates every slot and returns its complete native bus map. Caller input channels are

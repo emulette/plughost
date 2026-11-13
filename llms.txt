@@ -26,7 +26,7 @@ The application depends on `plughost = "=0.2.4"`. A separate executable depends 
 `std::process::ExitCode`. Ship that executable with the application and pass its path to
 `Scanner::new` and `Chain::spawn`. The library supplies the helper's command-line arguments
 and IPC handshake. Keep application and helper versions matched; the internal helper protocol
-is 34, and an application and a helper with different protocol versions fail the handshake with
+is 47, and an application and a helper with different protocol versions fail the handshake with
 `Error::ProtocolVersion`, which carries both versions.
 
 Supported targets are `aarch64-apple-darwin`, on macOS 15 or newer, and
@@ -210,9 +210,10 @@ is independent of scan cancellation.
 `Chain::spawn(helper, slots, &options)` starts one helper for a nonempty slice of `ChainSlot`,
 in chain order. Slots are zero-based indices in that slice. A `ChainSlot` is a `PluginRef`
 (`ChainSlot::new(plugin)` or `plugin.into()`) with an optional `StatePurpose::Project` state
-(`.with_state(state)`) and native bypass (`.with_bypass(enabled)`): each plugin loads, restores
-its state in place on that instance, which loads it once, and takes its bypass before the call
-returns. A state of another plugin class fails with `FailureKind::StateMismatch` for its slot.
+(`.with_state(state)`), native bypass (`.with_bypass(enabled)`) and host bypass
+(`.with_host_bypass(enabled)`, see below): each plugin loads, restores its state in place on that
+instance, which loads it once, and takes its bypass and host bypass before the call returns. A
+state of another plugin class fails with `FailureKind::StateMismatch` for its slot.
 `SpawnOptions` (`SpawnOptions::default()` or `SpawnOptions::new(host, timeouts)`) holds the
 `HostIdentity`, the calling application's identity, which recovered chains keep, and the
 `Timeouts`.
@@ -273,15 +274,15 @@ bits later CLAP versions define.
 A running chain's slots change in its own helper: `insert_slot(slot, &chain_slot)` loads a
 `ChainSlot` into a new slot at `slot` (up to the slot count, which appends), `replace_slot(slot,
 &chain_slot)` loads one in place of the slot's plugin, `remove_slot(slot)` removes one (the last
-slot stays: `InputError::EmptyChain`) and `move_slot(from, to)` moves one, the slots between moving
-one toward `from`. A loaded plugin restores its state and takes its bypass before it goes in, as
-with `spawn`, and one that cannot leaves the chain as it was. The helper and the other slots'
-plugins stay, with their states, open editors and a remote session, and a moved
-plugin takes its editor along; a replaced or removed plugin's editor closes, which a remote
-session is told with `EditorClosed`. Slot numbers follow the change, a position past the slots is
-`InputError::Slot`, and a change leaves a prepared chain unprepared, its realtime endpoint gone
-with its preparation: prepare it again with a configuration for the slots it has. While the
-endpoint runs, a change fails with `Error::RealtimeRunning`.
+slot stays: `InputError::EmptyChain`) and `move_slot(from, to)` moves one, the slots between
+moving one toward `from`. A loaded plugin restores its state and takes its bypass and host bypass
+before it goes in, as with `spawn`, and one that cannot leaves the chain as it was. Each slot's
+host bypass moves with it. The helper and the other slots' plugins stay, with their states, open
+editors and a remote session, and a moved plugin takes its editor along; a replaced or removed
+plugin's editor closes, which a remote session is told with `EditorClosed`. Slot numbers follow
+the change, a position past the slots is `InputError::Slot`, and a change leaves a prepared chain
+unprepared, its realtime endpoint gone with its preparation: prepare it again with a configuration
+for the slots it has. While the endpoint runs, a change fails with `Error::RealtimeRunning`.
 
 `chain.plugins()` returns loaded plugin metadata. `chain.capabilities(slot)` returns a
 `CapabilityReport` with native plugin evidence and isolated-host implementation support.
@@ -610,8 +611,8 @@ endpoint started or was recovered), while quanta the callback submitted are outs
 zero otherwise. It grows while a plugin hangs in its processing, and how long counts as a hang
 is the application's choice. A crashed helper shows through `helper_monitor()` instead.
 `chain.snapshot()` returns a `ChainSnapshot` whose `slots` hold each slot's plugin,
-`StatePurpose::Project` state and native bypass (`None` where unavailable); it also works while
-the endpoint runs, and plughost takes none by itself. After a crash or hang, call
+`StatePurpose::Project` state, native bypass (`None` where unavailable) and host bypass; it also
+works while the endpoint runs, and plughost takes none by itself. After a crash or hang, call
 `chain.recover_realtime(&snapshot.slots)`: it prepares a chain of those slots in a new helper as
 `recover` does, installs a new ring there and moves the same
 endpoint to the new chain, which starts the next generation (the callback goes on with the
@@ -624,17 +625,17 @@ fallback with `resync` set, and retries nothing; without an endpoint the call re
 
 While the endpoint runs, `reset`, `prepare_audio`, `reprepare`, `realtime_endpoint`,
 `process_audio_*`, rendering and changes of the slots (`insert_slot`, `replace_slot`,
-`remove_slot`, `move_slot`) fail with `Error::RealtimeRunning`; after `stop_realtime` they
-work as before (`resync_realtime` resets under a running endpoint). Parameter edits and queries,
-bus and capability queries, editors, bypass, `save_state`, `snapshot`, `export_preset`,
+`remove_slot`, `move_slot`) fail with `Error::RealtimeRunning`; after `stop_realtime` they work as
+before (`resync_realtime` resets under a running endpoint). Parameter edits and queries, bus and
+capability queries, editors, bypass and host bypass, `save_state`, `snapshot`, `export_preset`,
 `take_changes`, and diagnostics go on, and so does replacing one slot: `restore_state`,
 `import_preset`, `load_discovered_preset`, `select_factory_preset` and `reprepare_slot` swap a
 fresh instance in between quanta (see below). Edits reach the plugins between quanta, and timing
-changes arrive through `take_changes` instead of each edit's reply. A VST3 or CLAP restart
-request is reported there while processing goes on with the current activation; call
+changes arrive through `take_changes` instead of each edit's reply. A VST3 or CLAP restart request
+is reported there while processing goes on with the current activation; call
 `reprepare_slot(slot)` for that slot, or prepare the chain again after stopping, which a restart
-that changes the slot's buses or event ports needs. `recover` is
-allowed, but the new helper competes for the CPU.
+that changes the slot's buses or event ports needs. `recover` is allowed, but the new helper
+competes for the CPU.
 
 The helper's worker runs with the time-constraint policy for the quantum in an audio workgroup
 interval of its own on macOS, holding an activity that keeps App Nap away, and in the MMCSS
@@ -665,6 +666,22 @@ still allocate or lock; late completions count what that costs.
   chain timing. An edit, or a `reset()`, that took effect succeeds even when a slot's timing
   cannot be read or planned afterwards: the chain keeps its last latency and tail, and the
   diagnostics record the failure. `bypass` / `set_bypass` use native bypass without host dry/wet substitution.
+- `host_bypass` / `set_host_bypass` are host bypass, a per-slot flag apart from native bypass,
+  for any plugin, with or without a bypass parameter. While it is on, the plugin keeps processing
+  and receiving events, its output events pass on, and its audio is discarded: the slot's main
+  output is its main input as the plugin received it (after routing, adaptation and alignment),
+  delayed by the slot's reported latency, so the chain's latency and alignment stay and toggling
+  needs no resync. A mono main input fills a stereo main output, a stereo one is averaged into a
+  mono output, and other main layouts must match; auxiliary outputs are silent, sidechain inputs
+  still feed the plugin, and the slot adds no tail. A slot without a main input or output, or
+  with another pair of main layouts, fails as `FailureKind::Configuration` naming the slot when it
+  is turned on in a prepared chain, or when a chain with it on is prepared. So does a prepared
+  slot whose latency needs a delay beyond what `MAX_ALIGNMENT_BYTES` leaves after the
+  external-input delays and the delays of the slots with host bypass on. Under a running realtime
+  endpoint a switch crossfades linearly over about 10 ms; otherwise it applies from the next
+  block's first frame. The slot keeps it through `prepare_audio`, state and preset changes,
+  `reprepare_slot`, slot changes and `snapshot`/`recover`, and a replacement of the same latency
+  plays on without a gap.
 - `take_parameter_events` drains bounded value/gesture/metadata notifications. On overflow,
   cancel active gestures and requery metadata and values. A value reported again for an ID
   replaces the one queued for it unless a gesture of that ID or a metadata change came between
@@ -902,9 +919,9 @@ references the chain loaded; the slots are not checked against them);
 after a failure the original remains available for another attempt. Edits after the snapshot,
 DSP history, open editors and unread diagnostics are not recovered. The snapshot records each
 slot's native bypass, which a state holds only for a VST3 or CLAP bypass parameter and never for
-an Audio Unit, and the recovered chain takes it. `recover_realtime` does the same for a chain
-with a realtime endpoint (see Realtime processing); `recover` leaves the endpoint with the old
-chain.
+an Audio Unit, and its host bypass, and the recovered chain takes both. `recover_realtime` does
+the same for a chain with a realtime endpoint (see Realtime processing); `recover` leaves the
+endpoint with the old chain.
 `reprepare()` reactivates the saved configuration once, and `reprepare_slot(slot)` one slot,
 also while a realtime endpoint runs; repeated native restart requests remain visible to the
 caller.

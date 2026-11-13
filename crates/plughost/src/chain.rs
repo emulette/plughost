@@ -68,16 +68,19 @@ pub struct ChainSlot {
     /// The native bypass to set once the state is restored, or `None` to leave it as the plugin
     /// has it.
     pub bypass: Option<bool>,
+    /// Whether the slot's host bypass is on (see [`Chain::set_host_bypass`]).
+    pub host_bypass: bool,
 }
 
 impl ChainSlot {
-    /// `plugin` with its initial state and bypass.
+    /// `plugin` with its initial state and bypass, and host bypass off.
     #[must_use]
     pub fn new(plugin: PluginRef) -> ChainSlot {
         ChainSlot {
             plugin,
             state: None,
             bypass: None,
+            host_bypass: false,
         }
     }
 
@@ -92,6 +95,13 @@ impl ChainSlot {
     #[must_use]
     pub fn with_bypass(mut self, enabled: bool) -> ChainSlot {
         self.bypass = Some(enabled);
+        self
+    }
+
+    /// Turns the slot's host bypass on or off.
+    #[must_use]
+    pub fn with_host_bypass(mut self, enabled: bool) -> ChainSlot {
+        self.host_bypass = enabled;
         self
     }
 }
@@ -170,8 +180,8 @@ impl std::fmt::Debug for Chain {
 
 impl Chain {
     /// Starts a helper and loads the `slots`' plugins into it, in chain order. Each loaded
-    /// instance restores its slot's state in place and then takes its bypass, before the chain is
-    /// returned; a state of another plugin class fails with `FailureKind::StateMismatch` for its
+    /// instance restores its slot's state in place and then takes its bypass and host bypass,
+    /// before the chain is returned; a state of another plugin class fails with `FailureKind::StateMismatch` for its
     /// slot. `options.host` identifies the calling application to plugins and is retained across
     /// resets and recovery.
     pub fn spawn(
@@ -195,8 +205,8 @@ impl Chain {
     /// Starts a separate chain of `slots` with this chain's helper, host identity and timeouts,
     /// as [`Chain::spawn`] does, and prepares it with this chain's configuration when this chain
     /// has one. Take the slots from [`Chain::snapshot`]: each holds the slot's plugin, its state
-    /// saved with [`plughost_core::StatePurpose::Project`] and its native bypass; for the plugins'
-    /// initial states, take [`Chain::references`]. The slots are not checked against this chain's
+    /// saved with [`plughost_core::StatePurpose::Project`], its native bypass and its host
+    /// bypass; for the plugins' initial states, take [`Chain::references`]. The slots are not checked against this chain's
     /// plugins: other plugins are prepared with this chain's configuration, which can fail or
     /// route them differently. This chain is
     /// left as it is, crashed or not: the application switches to the returned chain when it is
@@ -572,7 +582,7 @@ impl Chain {
 }
 
 /// Starts a helper and loads the slots' plugins, restoring each state as its plugin loads and
-/// then setting the bypass.
+/// then setting the bypass and the host bypass.
 fn start(
     helper: &Path,
     slots: &[ChainSlot],
@@ -633,6 +643,9 @@ fn start(
     for (slot, spec) in slots.iter().enumerate() {
         if let Some(enabled) = spec.bypass {
             chain.set_bypass(slot, enabled)?;
+        }
+        if spec.host_bypass {
+            chain.set_host_bypass(slot, true)?;
         }
     }
     Ok(chain)

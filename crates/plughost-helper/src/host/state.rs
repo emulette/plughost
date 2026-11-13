@@ -2,7 +2,7 @@
 //! which replaces the active one only after the change, preparation and timing succeed. Native
 //! loaders can change an instance before reporting failure and cannot roll back, so this staging
 //! is what lets a failed change leave the active slot, its parameters and its DSP history intact.
-use super::audio::Routes;
+use super::audio::{Routes, carry_bypass};
 use super::*;
 use crate::process::audio_timing::DelayReplacement;
 use crate::process::{Replace, Retime};
@@ -90,7 +90,7 @@ impl Host {
             Ok(bypass) => bypass.enabled,
             Err(error) => return failed(slot, &error),
         };
-        if let Some(Err(error)) = bypass.map(|enabled| candidate.set_bypass(enabled)) {
+        if let Some(Err(error)) = bypass.map(|enabled| carry_bypass(candidate.as_mut(), enabled)) {
             return self.reject_candidate(slot, candidate.as_ref(), slot, error.failure());
         }
         let (audio_config, routing, active) = (
@@ -162,21 +162,26 @@ impl Host {
             };
             timings[slot] = current;
             let replacements = checked.and_then(|active| {
-                let (plan, tail) = AudioTiming::plan(routing, &timings)
+                let (plan, tail) = AudioTiming::plan(routing, &timings, &self.host_bypass)
                     .map_err(|(failed, failure)| (failed.unwrap_or(slot), failure))?;
+                let (dry, bypassed, lines) = (&self.dry_paths, &self.host_bypass, &self.dry_lines);
                 let (delays32, delays64) = match routing.sample_format {
                     SampleFormat::F32 => (
                         Some(
-                            DelayReplacement::new(routing, active, slot, &plan)
-                                .map_err(|failure| (slot, failure))?,
+                            DelayReplacement::new(
+                                routing, active, slot, &plan, dry, bypassed, lines,
+                            )
+                            .map_err(|failure| (slot, failure))?,
                         ),
                         None,
                     ),
                     SampleFormat::F64 => (
                         None,
                         Some(
-                            DelayReplacement::new(routing, active, slot, &plan)
-                                .map_err(|failure| (slot, failure))?,
+                            DelayReplacement::new(
+                                routing, active, slot, &plan, dry, bypassed, lines,
+                            )
+                            .map_err(|failure| (slot, failure))?,
                         ),
                     ),
                     _ => return Err((slot, crate::errors::sample_format())),
@@ -204,6 +209,14 @@ impl Host {
         let retime = retimed.map(|((delays32, delays64, plan, tail), current)| {
             timing = Some((plan.latency(), tail));
             self.timing = Some(plan.clone());
+            let line = match (&delays32, &delays64) {
+                (Some(delays), _) => delays.dry_line(),
+                (_, Some(delays)) => delays.dry_line(),
+                (None, None) => None,
+            };
+            if let Some(line) = line {
+                self.dry_lines[slot] = line;
+            }
             Retime {
                 parameters,
                 timing: current,

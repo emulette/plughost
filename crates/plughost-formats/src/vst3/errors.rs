@@ -16,7 +16,6 @@ const AUDIO_CONFIGURATIONS_UNSUPPORTED: &str = "VST3 does not enumerate named au
 const UNKNOWN_AUDIO_BUS: &str = "the plugin has no requested audio bus";
 const AUDIO_BUS_ACTIVATION: &str = "the plugin refused activation for an audio bus";
 const BYPASS_UNSUPPORTED: &str = "the plugin has no writable native bypass parameter";
-const BYPASS_EDIT: &str = "the plugin rejected the bypass change";
 const FACTORY_PRESETS_UNSUPPORTED: &str =
     "the plugin does not support native factory program selection";
 const INVALID_FACTORY_PRESET: &str = "the factory program does not belong to this plugin";
@@ -76,8 +75,6 @@ pub(crate) enum Vst3Error {
     },
     /// The plugin has no writable native bypass parameter.
     BypassUnsupported,
-    /// The plugin rejected the bypass change. The payload is a native result code.
-    BypassEdit(i32),
     /// The plugin does not support native factory program selection.
     FactoryPresetsUnsupported,
     /// The factory program does not belong to this plugin.
@@ -183,7 +180,6 @@ impl fmt::Display for Vst3Error {
                 write!(f, "{AUDIO_BUS_ACTIVATION} (bus {id}, tresult {code})")
             }
             Self::BypassUnsupported => f.write_str(BYPASS_UNSUPPORTED),
-            Self::BypassEdit(code) => write!(f, "{BYPASS_EDIT} (tresult {code})"),
             Self::FactoryPresetsUnsupported => f.write_str(FACTORY_PRESETS_UNSUPPORTED),
             Self::InvalidFactoryPreset => f.write_str(INVALID_FACTORY_PRESET),
             Self::FactoryPresetMetadata => f.write_str(FACTORY_PRESET_METADATA),
@@ -262,7 +258,6 @@ impl Vst3Error {
     pub(crate) fn native_code(&self) -> Option<i32> {
         match self {
             Self::AudioBusActivation { code, .. }
-            | Self::BypassEdit(code)
             | Self::FactoryPresetSelect(code)
             | Self::InitializeComponent(code)
             | Self::InitializeController(code)
@@ -288,7 +283,6 @@ impl Vst3Error {
                 FailureKind::Unsupported
             }
             Self::AudioBusActivation { .. } => FailureKind::Configuration,
-            Self::BypassEdit(_) => FailureKind::State,
             Self::FactoryPresetsUnsupported => FailureKind::Unsupported,
             Self::InvalidFactoryPreset => FailureKind::InvalidInput,
             Self::FactoryPresetMetadata => FailureKind::Host,

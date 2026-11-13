@@ -239,6 +239,100 @@ fn the_dry_fallback_lines_up_with_the_processed_output() {
     }
 }
 
+/// The delay fixture at half gain in a prepared chain, its host bypass `bypassed`, with a started
+/// endpoint of one quantum's latency.
+fn half_delay(bypassed: bool) -> (Chain, RealtimeEndpoint) {
+    let mut chain = spawn(&[delay(PluginFormat::Clap)]);
+    chain.set_parameter(0, 0, 0.5).unwrap();
+    prepare(&mut chain);
+    chain.set_host_bypass(0, bypassed).unwrap();
+    let endpoint = started(&mut chain, &RealtimeConfig::new(QUANTUM));
+    (chain, endpoint)
+}
+
+/// The callbacks' output and input on `channel`, each as one stream, with the input delayed by
+/// the delay fixture's latency and the endpoint's quantum.
+fn streams(outputs: &[Stereo], inputs: &[Stereo], channel: usize) -> (Vec<f32>, Vec<f32>) {
+    let output: Vec<f32> = outputs
+        .iter()
+        .flat_map(|quantum| quantum[channel].clone())
+        .collect();
+    let delayed = std::iter::repeat_n(0.0, LATENCY + QUANTUM)
+        .chain(inputs.iter().flat_map(|quantum| quantum[channel].clone()))
+        .take(output.len())
+        .collect();
+    (output, delayed)
+}
+
+#[test]
+#[ignore = "needs helper and the delay fixture (.ps1 or .sh build scripts)"]
+fn host_bypass_crossfades_under_a_running_endpoint() {
+    const SWITCH: usize = 12;
+    const CALLBACKS: usize = 30;
+    let (mut chain, mut endpoint) = half_delay(false);
+    let latency = chain.realtime_status().unwrap().latency;
+    let (mut inputs, mut outputs) = (Vec::new(), Vec::new());
+    for index in 0..CALLBACKS {
+        if index == SWITCH {
+            chain.set_host_bypass(0, true).unwrap();
+        }
+        let input = sine(index);
+        outputs.push(callback(&mut endpoint, &input).1);
+        inputs.push(input);
+    }
+    let status = chain.realtime_status().unwrap();
+    assert!(!status.resync && status.failures == 0, "{status:?}");
+    assert_eq!((status.latency, status.missed), (latency, 0));
+    assert_eq!(chain.latency() as usize, LATENCY);
+    for channel in 0..2 {
+        let (output, delayed) = streams(&outputs, &inputs, channel);
+        // Up to the switch, half the delayed input; well after it, the delayed input exactly.
+        let switched = (SWITCH + 1) * QUANTUM;
+        for frame in 0..switched {
+            assert_eq!(output[frame], delayed[frame] * 0.5, "frame {frame}");
+        }
+        let settled = switched + 2 * LATENCY;
+        assert_eq!(output[settled..], delayed[settled..]);
+        // In between, the crossfade moves in small steps and passes through the levels between.
+        let ramp = &output[switched - 1..settled];
+        assert!(
+            ramp.windows(2).all(|pair| (pair[1] - pair[0]).abs() < 0.01),
+            "channel {channel}"
+        );
+        let between = (switched..settled).filter(|&frame| {
+            let (sample, dry) = (output[frame], delayed[frame]);
+            dry.abs() > 0.1 && (sample - dry).abs() > 1e-4 && (sample - dry * 0.5).abs() > 1e-4
+        });
+        assert!(between.count() > LATENCY / 2, "channel {channel}");
+    }
+    chain.stop_realtime().unwrap();
+}
+
+#[test]
+#[ignore = "needs helper and the delay fixture (.ps1 or .sh build scripts)"]
+fn restoring_a_host_bypassed_slot_under_a_running_endpoint_leaves_no_gap() {
+    let (mut chain, mut endpoint) = half_delay(true);
+    let state = chain.save_state(0, StatePurpose::Project).unwrap();
+    let (mut inputs, mut outputs) = (Vec::new(), Vec::new());
+    for index in 0..24 {
+        // Same latency: the slot keeps the dry history its fresh instance does not have.
+        if index == 10 {
+            chain
+                .restore_state(0, &state, StatePurpose::Project)
+                .unwrap();
+        }
+        let input = sine(index);
+        outputs.push(callback(&mut endpoint, &input).1);
+        inputs.push(input);
+    }
+    assert!(!chain.realtime_status().unwrap().resync);
+    for channel in 0..2 {
+        let (output, delayed) = streams(&outputs, &inputs, channel);
+        assert_eq!(output, delayed, "channel {channel}");
+    }
+    chain.stop_realtime().unwrap();
+}
+
 #[test]
 #[ignore = "needs helper and the delay fixture (.ps1 or .sh build scripts)"]
 fn reconfiguring_the_chain_under_a_running_endpoint_is_refused() {

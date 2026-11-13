@@ -18,7 +18,7 @@ use crate::render::Tail;
 use crate::state::{PluginState, PresetInfo, StatePurpose};
 use crate::{CapabilityReport, DiagnosticBatch, Failure, HostIdentity};
 
-pub const PROTOCOL_VERSION: u32 = 46;
+pub const PROTOCOL_VERSION: u32 = 47;
 /// Upper bound on one message. A helper whose memory a plugin corrupted could send anything.
 pub const MAX_MESSAGE_BYTES: usize = 256 << 20;
 /// The deepest submenu a menu notice carries: the helper leaves deeper ones out, and the
@@ -54,6 +54,16 @@ pub enum Request<'a> {
         slot: usize,
     },
     SetBypass {
+        slot: usize,
+        enabled: bool,
+    },
+    /// Whether the slot's host bypass is on. Answered with `HostBypass`.
+    HostBypass {
+        slot: usize,
+    },
+    /// Turns the slot's host bypass on or off: the helper replaces the slot's main output with its
+    /// main input delayed by the slot's latency while the plugin goes on processing.
+    SetHostBypass {
         slot: usize,
         enabled: bool,
     },
@@ -212,7 +222,7 @@ pub enum Request<'a> {
         slot: usize,
     },
     /// Loads `plugin` into a new slot at `slot`, at most the slot count, restoring `state` and
-    /// taking `bypass` before it goes in. The other slots' instances and editors stay, and a
+    /// taking `bypass` before it goes in, with its host bypass `host_bypass`. The other slots' instances and editors stay, and a
     /// prepared chain is left unprepared. Answered with `Loaded` and every slot's plugin.
     InsertSlot {
         slot: usize,
@@ -224,6 +234,7 @@ pub enum Request<'a> {
         )]
         state: Option<Cow<'a, PluginState>>,
         bypass: Option<bool>,
+        host_bypass: bool,
     },
     /// As `InsertSlot`, in place of the slot's plugin, whose editor closes.
     ReplaceSlot {
@@ -236,6 +247,7 @@ pub enum Request<'a> {
         )]
         state: Option<Cow<'a, PluginState>>,
         bypass: Option<bool>,
+        host_bypass: bool,
     },
     /// Removes the slot and its plugin, whose editor closes; a chain keeps one slot at least.
     /// Answered as `InsertSlot`.
@@ -308,6 +320,8 @@ impl Request<'_> {
             | Self::AudioConfigurations { slot }
             | Self::Bypass { slot }
             | Self::SetBypass { slot, .. }
+            | Self::HostBypass { slot }
+            | Self::SetHostBypass { slot, .. }
             | Self::ParameterEvents { slot }
             | Self::FactoryPresets { slot }
             | Self::SelectFactoryPreset { slot, .. }
@@ -419,6 +433,8 @@ pub enum Response {
         latency_changed: bool,
     },
     EditorOpen(bool),
+    /// Whether the slot's host bypass is on.
+    HostBypass(bool),
     RemoteEditorOpened(#[serde_as(as = "wire::OpenedDef")] crate::remote::Opened),
     /// Invalid caller input; the helper remains usable and no mutation was attempted.
     Rejected {

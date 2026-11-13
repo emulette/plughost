@@ -1160,7 +1160,9 @@ version = "0.0.0"
 dependencies = [
  "clack-extensions",
  "clack-plugin",
+ "libc",
  "vst3",
+ "windows-sys",
 ]
 
 [[package]]

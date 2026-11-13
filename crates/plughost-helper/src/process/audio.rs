@@ -113,6 +113,7 @@ pub(super) fn process(
             return sink.reject(Some(event.slot), error);
         }
     }
+    let step = super::bypass::step(config.sample_rate);
     let (Some(alignment), Some((events_plan, event_buffers))) =
         (&mut pipeline.alignment, &mut pipeline.events)
     else {
@@ -134,6 +135,8 @@ pub(super) fn process(
                 event_buffers,
                 resync: &mut pipeline.resync,
                 restart_deferred: pipeline.restart_deferred,
+                host_bypass: &mut pipeline.host_bypass,
+                step,
             },
             input,
             context,
@@ -153,6 +156,8 @@ pub(super) fn process(
                 event_buffers,
                 resync: &mut pipeline.resync,
                 restart_deferred: pipeline.restart_deferred,
+                host_bypass: &mut pipeline.host_bypass,
+                step,
             },
             input,
             context,
@@ -218,6 +223,9 @@ struct AudioState<'a, S: Sample> {
     event_buffers: &'a mut events::EventBuffers,
     resync: &'a mut bool,
     restart_deferred: bool,
+    host_bypass: &'a mut super::bypass::HostBypass,
+    /// How far a host bypass crossfade moves per frame.
+    step: f32,
 }
 
 /// A plugin that asked to be prepared again is refused before any slot advances, unless the
@@ -307,6 +315,14 @@ fn run<S: WireSample>(
             }
             return sink.fail(Some(slot), error.failure());
         }
+        buffers.bypass(
+            input,
+            previous,
+            context.frames,
+            state.delays,
+            slot,
+            state.host_bypass.slot(slot, state.step),
+        );
     }
     let event_buffers = &mut *state.event_buffers;
     state.events_plan.output(
@@ -327,10 +343,11 @@ fn run<S: WireSample>(
         state.changes.observe(slot, *timing);
     }
     // A deferred restart keeps the activations, and so the alignment, the chain was planned for.
+    let bypassed = state.host_bypass.enabled();
     let tail = if state.restart_deferred {
-        state.plan.current_tail(&state.storage.timings)
+        state.plan.current_tail(&state.storage.timings, bypassed)
     } else {
-        match state.plan.tail(&state.storage.timings) {
+        match state.plan.tail(&state.storage.timings, bypassed) {
             Ok(tail) => tail,
             Err((slot, failure)) => return sink.fail(Some(slot), failure),
         }

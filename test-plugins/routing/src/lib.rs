@@ -18,6 +18,9 @@
 //! expression values.
 //! The VST3 processor and controller are separate COM objects. Preparation requires a two-way
 //! connection handshake; the controller reads the processor's gain-point counter through messages.
+//! The `routing-strict` VST3 bundle's controller takes every `setParamNormalized` value but
+//! answers `kResultFalse`, as some commercial plugins do, and counts the writes to its bypass
+//! parameter in a read-only parameter.
 mod clap;
 mod errors;
 mod vst;

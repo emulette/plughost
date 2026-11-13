@@ -8,6 +8,7 @@
 
 mod audio;
 pub(crate) mod audio_timing;
+pub(crate) mod bypass;
 mod changes;
 mod channel_views;
 pub(crate) mod events;
@@ -58,6 +59,8 @@ pub struct Pipeline {
     /// restart request waits, which is still reported.
     pub restart_deferred: bool,
     pub changes: Changes,
+    /// Each slot's host bypass, installed with the prepared chain.
+    pub host_bypass: bypass::HostBypass,
     /// Each slot's parameter metadata, against which block automation is validated.
     ///
     /// The main thread refreshes a slot's entry whenever the plugin reports changed metadata: on
@@ -99,6 +102,12 @@ pub(crate) enum Command {
     Replace(Box<Replace>),
     /// The alignment planned after a native reset, which also ended the notes slots held.
     Reset(Option<Alignment>),
+    /// Turns a prepared slot's host bypass on or off, crossfading when `ramp` is set.
+    HostBypass {
+        slot: usize,
+        enabled: bool,
+        ramp: bool,
+    },
     Parameters(usize, Parameters),
     /// Checks the complete render's distinct targets using the same metadata as block checks.
     ValidateAutomation(Vec<(usize, u64)>, Option<(usize, InputError)>),
@@ -120,6 +129,7 @@ pub(crate) struct Prepare {
     pub events: Option<(events::EventPlan, events::EventBuffers)>,
     pub parameters: Vec<Parameters>,
     pub timings: Vec<PluginTiming>,
+    pub host_bypass: bypass::HostBypass,
 }
 
 /// A slot's new instance, retimed when the chain is prepared.
@@ -170,6 +180,7 @@ impl Pipeline {
                 swap(&mut self.alignment, &mut prepare.alignment);
                 swap(&mut self.events, &mut prepare.events);
                 swap(&mut self.parameters, &mut prepare.parameters);
+                swap(&mut self.host_bypass, &mut prepare.host_bypass);
                 for (slot, timing) in prepare.timings.iter().enumerate() {
                     self.changes.observe(slot, *timing);
                 }
@@ -201,7 +212,13 @@ impl Pipeline {
             Command::Reset(alignment) => {
                 self.resync = false;
                 swap(&mut self.alignment, alignment);
+                self.host_bypass.settle();
             }
+            Command::HostBypass {
+                slot,
+                enabled,
+                ramp,
+            } => self.host_bypass.set(*slot, *enabled, *ramp),
             Command::Parameters(slot, parameters) => {
                 if let Some(cached) = self.parameters.get_mut(*slot) {
                     swap(cached, parameters);

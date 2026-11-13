@@ -86,6 +86,8 @@ pub(super) fn run(
         responder,
     );
     defer_restarts(pipeline, false);
+    // Blocks from now on switch host bypass from their first frame.
+    pipeline.host_bypass.settle();
     connected
 }
 

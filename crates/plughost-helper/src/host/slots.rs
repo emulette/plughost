@@ -1,7 +1,7 @@
 //! A chain's slots changed in place: a plugin inserted, replaced, removed or moved without
 //! starting another helper, so the other slots' instances, their open editors and a remote
 //! session stay. A prepared chain is left unprepared, and the application prepares it again for
-//! the slots it now has.
+//! the slots it now has. Each slot's host bypass goes with it.
 use super::*;
 use crate::process::AudioThread;
 use plughost_core::{PluginState, StatePurpose};
@@ -13,6 +13,7 @@ impl Host {
         plugin: &PluginRef,
         state: Option<&PluginState>,
         bypass: Option<bool>,
+        host_bypass: bool,
     ) -> Response {
         // A position past the slots names no slot the application may be told of.
         if slot > self.slots.len() {
@@ -28,6 +29,7 @@ impl Host {
         self.unprepare();
         self.slots.insert(slot, candidate);
         self.references.insert(slot, plugin.clone());
+        self.host_bypass.insert(slot, host_bypass);
         self.editors.insert(slot, None);
         self.parameter_events.insert(slot, Default::default());
         self.renumber(|index| Some(if index >= slot { index + 1 } else { index }));
@@ -41,6 +43,7 @@ impl Host {
         plugin: &PluginRef,
         state: Option<&PluginState>,
         bypass: Option<bool>,
+        host_bypass: bool,
     ) -> Response {
         let candidate = match self.candidate(slot, plugin, state, bypass) {
             Ok(candidate) => candidate,
@@ -50,6 +53,7 @@ impl Host {
         self.unprepare();
         let old = std::mem::replace(&mut self.slots[slot], candidate);
         self.references[slot] = plugin.clone();
+        self.host_bypass[slot] = host_bypass;
         // Retire the old instance's processor before the instance is dropped.
         self.publish_processors();
         self.retain_diagnostics(slot, old.as_ref());
@@ -73,6 +77,7 @@ impl Host {
         self.unprepare();
         let old = self.slots.remove(slot);
         self.references.remove(slot);
+        self.host_bypass.remove(slot);
         self.editors.remove(slot);
         self.parameter_events.remove(slot);
         self.renumber(|index| match index.cmp(&slot) {
@@ -102,6 +107,8 @@ impl Host {
         self.slots.insert(to, plugin);
         let reference = self.references.remove(from);
         self.references.insert(to, reference);
+        let host_bypass = self.host_bypass.remove(from);
+        self.host_bypass.insert(to, host_bypass);
         let editor = self.editors.remove(from);
         self.editors.insert(to, editor);
         let events = self.parameter_events.remove(from);
@@ -121,8 +128,9 @@ impl Host {
         self.slot_infos()
     }
 
-    /// A fresh instance of `plugin` for `slot`, restored from `state` and taking `bypass`, or
-    /// the response that tells why there is none. The active slots are left as they are.
+    /// A fresh instance of `plugin` for `slot`, restored from `state` and taking `bypass`, which
+    /// is written only when the instance does not have it already, or the response that tells
+    /// why there is none. The active slots are left as they are.
     fn candidate(
         &mut self,
         slot: usize,
@@ -146,7 +154,7 @@ impl Host {
             .transpose()
             .and_then(|_| {
                 bypass
-                    .map(|enabled| candidate.set_bypass(enabled))
+                    .map(|enabled| super::audio::carry_bypass(candidate.as_mut(), enabled))
                     .transpose()
             });
         if let Err(error) = applied {
