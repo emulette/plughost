@@ -893,6 +893,26 @@ fn a_window_the_plugin_opens_behind_comes_forward_and_a_click_raises_the_window_
 
 #[test]
 #[ignore = "needs helper and delay fixtures and a desktop session"]
+fn a_utility_panel_the_plugin_opens_shows_though_the_helper_is_inactive() {
+    let _serial = support::editor_test();
+    let (mut chain, mut session, _) = shown_editor();
+    let pid = chain.helper_monitor().process_id();
+    // A panel hides while its application is inactive, and the helper never activates.
+    chain.set_parameter_text(0, 17, "30").unwrap();
+    order_until(
+        &mut session,
+        &[WindowKind::Dialog, WindowKind::Editor],
+        "the panel did not open",
+    );
+    wait(
+        &mut chain,
+        |_| on_screen(pid).len() == 2,
+        "the window server does not show the panel",
+    );
+}
+
+#[test]
+#[ignore = "needs helper and delay fixtures and a desktop session"]
 fn a_window_the_plugin_opened_is_moved_and_closed_by_command() {
     let _serial = support::editor_test();
     let (mut chain, mut session, editor) = shown_editor();
@@ -1193,12 +1213,11 @@ fn a_menu_is_told_with_its_own_windows_frame() {
 
 #[test]
 #[ignore = "needs helper and delay fixtures and a desktop session"]
-fn a_menu_whose_submenu_opens_at_once_is_told_with_its_own_windows_frame() {
+fn a_menu_opened_under_the_mouse_on_a_submenu_item_opens_no_submenu() {
     let _serial = support::editor_test();
     let (mut chain, mut session, editor) = shown_editor();
-    // The menu opens with its submenu item under the helper's mouse, at the view's corner, so
-    // AppKit opens the submenu in front of it at once: the frame stays the menu's own window's,
-    // the back-most one once the submenu shows, not the front-most.
+    // The menu opens with its submenu item under the helper's mouse, at the view's corner. The
+    // session chooses by index, so its mouse leaves the menu and the submenu stays closed.
     session
         .sender()
         .send(pointer(
@@ -1211,8 +1230,37 @@ fn a_menu_whose_submenu_opens_at_once_is_told_with_its_own_windows_frame() {
         .unwrap();
     let (menu, _, frame) = pop_up(&mut chain, &mut session, "28");
     let frame = frame.expect("the menu was told without a frame");
-    let frames = menu_frames_until(&mut session, 2, "the submenu did not open");
-    assert_eq!(frames[1], frame, "the frame is not the menu's own window's");
+    assert_eq!(
+        menu_frames_until(&mut session, 1, "the menu's window was not told"),
+        vec![frame]
+    );
+    // The session's moves do not reach the menu: back over the submenu item, it stays closed.
+    session
+        .sender()
+        .send(pointer(
+            editor,
+            PointerKind::Move,
+            EDITOR_INSET + 12.0,
+            EDITOR_INSET + 111.0,
+            0,
+        ))
+        .unwrap();
+    // AppKit opens a hovered item's submenu after a short delay.
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < deadline {
+        if let Some(Notice::Windows { windows, .. }) =
+            session.recv(Duration::from_millis(100)).unwrap()
+        {
+            assert_eq!(
+                windows
+                    .iter()
+                    .filter(|window| window.kind == WindowKind::Menu)
+                    .count(),
+                1,
+                "the submenu opened"
+            );
+        }
+    }
     session.sender().send(Command::CloseMenu(menu)).unwrap();
     menu_closed(&mut session, menu, "the menu did not close");
 }

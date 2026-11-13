@@ -39,6 +39,8 @@ struct TestView {
     ask: Cell<Option<(u32, u32)>>,
     frame: Cell<*mut IPlugFrame>,
     this: Cell<*mut IPlugView>,
+    /// Where `attached` is recorded, among what the test records.
+    events: Option<Rc<RefCell<Vec<String>>>>,
 }
 
 impl Class for TestView {
@@ -50,6 +52,9 @@ impl IPlugViewTrait for TestView {
         kResultOk
     }
     unsafe fn attached(&self, _parent: *mut c_void, _type: FIDString) -> tresult {
+        if let Some(events) = &self.events {
+            events.borrow_mut().push("attached".to_owned());
+        }
         kResultOk
     }
     unsafe fn removed(&self) -> tresult {
@@ -109,6 +114,7 @@ impl Fixture {
             ask: Cell::new(None),
             frame: Cell::new(std::ptr::null_mut()),
             this: Cell::new(std::ptr::null_mut()),
+            events: None,
         });
         let sizes = Rc::new(RefCell::new(Vec::new()));
         let recorded = Rc::clone(&sizes);
@@ -138,6 +144,38 @@ impl Fixture {
         let frame = unsafe { ComRef::<IPlugFrame>::from_raw(self.view.frame.get()) }.unwrap();
         unsafe { frame.resizeView(self.view.this.get(), &mut rect(size)) }
     }
+}
+
+#[test]
+fn the_window_has_the_views_size_before_the_view_attaches() {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let view = ComWrapper::new(TestView {
+        size: Cell::new((200, 100)),
+        told: RefCell::new(Vec::new()),
+        ask: Cell::new(None),
+        frame: Cell::new(std::ptr::null_mut()),
+        this: Cell::new(std::ptr::null_mut()),
+        events: Some(Rc::clone(&events)),
+    });
+    let recorded = Rc::clone(&events);
+    let resize: ResizeRequest = Box::new(move |width, height| {
+        recorded
+            .borrow_mut()
+            .push(format!("window {width}x{height}"));
+        true
+    });
+
+    let (_editor, size) = unsafe {
+        Editor::attach_view(
+            view.to_com_ptr::<IPlugView>().unwrap(),
+            std::ptr::null_mut(),
+            resize,
+        )
+    }
+    .unwrap();
+
+    assert_eq!(*events.borrow(), ["window 200x100", "attached"]);
+    assert_eq!(size, (200, 100));
 }
 
 #[test]

@@ -1,9 +1,10 @@
 //! AppKit menus a plugin opens. Posted clicks do not choose their items: AppKit tracks a menu in
 //! a loop of its own that reads the window server's events. The session is told each menu that
 //! begins tracking and its items, and chooses an item by its index path, whose action runs once
-//! the loop ended, or closes the menu. A menu with nothing to close it holds the main thread, so
-//! one open past the session's menu timeout is closed, and the end of the session closes its
-//! menus.
+//! the loop ended, or closes the menu. The helper's mouse leaves a menu as it begins tracking, and
+//! the session's moves do not reach it while it tracks. A menu with nothing to close it holds the
+//! main thread, so one open past the session's menu timeout is closed, and the end of the session
+//! closes its menus.
 
 use std::cell::{Cell, RefCell};
 use std::ptr::NonNull;
@@ -17,7 +18,7 @@ use objc2_app_kit::{
     NSControlStateValueMixed, NSControlStateValueOn, NSMenu, NSMenuDidBeginTrackingNotification,
     NSMenuDidEndTrackingNotification,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter};
+use objc2_foundation::{NSNotification, NSNotificationCenter, NSPoint};
 use plughost_core::remote::{
     MenuChoice, MenuId, MenuItem, MenuItemState, Notice, Rect, Window, WindowKind,
 };
@@ -27,6 +28,8 @@ use crate::editor;
 
 /// How long a menu waits for its window to show before the session is told it without a frame.
 const FRAME_WAIT: Duration = Duration::from_millis(500);
+/// Where the helper's mouse goes when a menu begins tracking: on no screen, over no menu.
+const OFF_MENUS: NSPoint = NSPoint::new(-100_000.0, -100_000.0);
 
 struct Open {
     id: MenuId,
@@ -115,6 +118,9 @@ fn began(menu: Retained<NSMenu>) {
     if known {
         return;
     }
+    // The session chooses by index; left where the click was, its mouse would hover the item
+    // the menu opened under and open that item's submenu.
+    super::mouse::move_to(OFF_MENUS);
     let id = MenuId(NEXT.get());
     NEXT.set(id.0 + 1);
     // Its window shows after tracking began; the session is told the menu with that window's
@@ -213,6 +219,11 @@ fn items(menu: &NSMenu, depth: usize) -> Vec<MenuItem> {
             )
         })
         .collect()
+}
+
+/// Whether an AppKit menu the plugin opened is tracking.
+pub fn tracking() -> bool {
+    OPEN.with_borrow(|open| !open.is_empty())
 }
 
 fn open_menu(id: MenuId) -> Option<Retained<NSMenu>> {

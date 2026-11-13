@@ -365,6 +365,19 @@ fn run(command: Command) {
     {
         return;
     }
+    // The session chooses an AppKit menu's items by index: moves would hover its items and open
+    // their submenus.
+    if menu::tracking()
+        && matches!(
+            command,
+            Command::Pointer(PointerInput {
+                kind: PointerKind::Move,
+                ..
+            }) | Command::Motion(_)
+        )
+    {
+        return;
+    }
     // A point or distance that is not finite would place the helper's mouse nowhere.
     if !finite(&command) {
         return;

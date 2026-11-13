@@ -23,7 +23,7 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSApplication, NSBackingStoreType, NSColor, NSCursor, NSEvent, NSEventModifierFlags,
-    NSEventType, NSResponder, NSTrackingArea, NSTrackingAreaOptions, NSView, NSWindow,
+    NSEventType, NSPanel, NSResponder, NSTrackingArea, NSTrackingAreaOptions, NSView, NSWindow,
     NSWindowOrderingMode, NSWindowStyleMask,
 };
 use objc2_foundation::{NSArray, NSObject, NSPoint, NSRect, NSSize, NSString};
@@ -49,6 +49,9 @@ const POPUP: NSRect = NSRect::new(NSPoint::new(250.0, 100.0), NSSize::new(60.0, 
 /// Where the window opened behind the editor opens, in points from the editor window's top-left
 /// corner, and its content size.
 const BEHIND: NSRect = NSRect::new(NSPoint::new(10.0, 10.0), NSSize::new(200.0, 100.0));
+/// Where the utility panel opens, in points from the editor window's top-left corner, and its
+/// content size.
+const PANEL: NSRect = NSRect::new(NSPoint::new(30.0, 30.0), NSSize::new(160.0, 80.0));
 
 /// How long the editor's modal dialog runs before it ends itself.
 const MODAL: f64 = 8.0;
@@ -64,6 +67,7 @@ pub struct Ivars {
     focus: Arc<AtomicU32>,
     popup: RefCell<Option<Retained<NSWindow>>>,
     behind: RefCell<Option<Retained<NSWindow>>>,
+    panel: RefCell<Option<Retained<NSPanel>>>,
     /// The window is painted red, not green.
     red: std::cell::Cell<bool>,
 }
@@ -197,6 +201,35 @@ define_class!(
             ));
             behind.orderWindow_relativeTo(NSWindowOrderingMode::Below, window.windowNumber());
             if let Some(old) = self.ivars().behind.replace(Some(behind)) {
+                old.close();
+            }
+        }
+
+        /// Opens a floating utility panel over the editor, as iZotope's preset browser is: a
+        /// panel hides while its application is inactive.
+        #[unsafe(method(openUtilityPanel))]
+        fn open_utility_panel(&self) {
+            let Some(window) = self.window() else {
+                return;
+            };
+            let frame = window.frame();
+            let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
+                NSPanel::alloc(self.mtm()),
+                NSRect::new(NSPoint::new(0.0, 0.0), PANEL.size),
+                NSWindowStyleMask::Titled
+                    | NSWindowStyleMask::Closable
+                    | NSWindowStyleMask::UtilityWindow,
+                NSBackingStoreType::Buffered,
+                false,
+            );
+            unsafe { panel.setReleasedWhenClosed(false) };
+            panel.setFloatingPanel(true);
+            panel.setFrameTopLeftPoint(NSPoint::new(
+                frame.origin.x + PANEL.origin.x,
+                frame.origin.y + frame.size.height - PANEL.origin.y,
+            ));
+            panel.orderFront(None);
+            if let Some(old) = self.ivars().panel.replace(Some(panel)) {
                 old.close();
             }
         }
@@ -939,6 +972,7 @@ impl Editor {
             27 => sel!(openBehind),
             28 => sel!(popUpMenuOnSubmenu),
             29 => sel!(openTextView),
+            30 => sel!(openUtilityPanel),
             _ => return,
         };
         unsafe {
@@ -955,6 +989,9 @@ impl Drop for Editor {
         }
         if let Some(behind) = self.0.ivars().behind.take() {
             behind.close();
+        }
+        if let Some(panel) = self.0.ivars().panel.take() {
+            panel.close();
         }
         self.0.removeFromSuperview();
     }
@@ -1045,10 +1082,13 @@ unsafe fn open(parent: *mut c_void, focus: Arc<AtomicU32>) -> Option<Editor> {
         focus,
         popup: RefCell::new(None),
         behind: RefCell::new(None),
+        panel: RefCell::new(None),
         red: std::cell::Cell::new(false),
     });
+    // At the top of the parent it is given, as iZotope's views place themselves: AppKit measures
+    // the frame up from the parent's bottom.
     let frame = NSRect::new(
-        NSPoint::new(0.0, 0.0),
+        NSPoint::new(0.0, parent.bounds().size.height - f64::from(SIZE.height)),
         NSSize::new(f64::from(SIZE.width), f64::from(SIZE.height)),
     );
     let view: Retained<FocusView> = unsafe { msg_send![super(view), initWithFrame: frame] };

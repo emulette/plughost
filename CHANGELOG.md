@@ -5,6 +5,19 @@ All notable changes to plughost are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A remote editor's AppKit menu no longer opens the submenu of the item it opened under, or of an
+  item the session's moves pass over: the helper's mouse leaves a menu as it begins tracking and
+  the session's moves do not reach it while it tracks, as the session chooses its items by index.
+- A VST3 or CLAP editor that places its view at the top of its parent as it attaches, as
+  iZotope's do, no longer shows shifted down and cut off: the editor's window takes the view's
+  size before the view attaches.
+- A remote editor's plugin window that hides while its application is inactive, as a utility
+  panel does (iZotope's preset browser), now shows: the helper never activates.
+
 ## [0.2.5] - 2026-11-13
 
 ### Added

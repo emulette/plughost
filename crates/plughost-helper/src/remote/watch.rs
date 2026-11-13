@@ -9,8 +9,9 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2_app_kit::NSWindow;
+use objc2_app_kit::{NSApplication, NSWindow};
 use objc2_core_foundation::{
     CFAbsoluteTimeGetCurrent, CFRetained, CFRunLoop, CFRunLoopTimer, kCFRunLoopCommonModes,
 };
@@ -173,6 +174,7 @@ pub fn tell_all() {
 }
 
 fn check() {
+    keep_shown();
     super::menu::expire();
     let depth = crate::events::nested_depth();
     WATCH.with_borrow_mut(|watch| {
@@ -201,6 +203,20 @@ fn check() {
             watch.told_depth = Some(depth);
         }
     });
+}
+
+/// Has the helper's windows that hide while their application is inactive, as a utility panel
+/// does (iZotope's preset browser), show: the helper never activates, so the window server would
+/// keep them hidden while AppKit reports them visible.
+fn keep_shown() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    for window in NSApplication::sharedApplication(mtm).windows().iter() {
+        if window.hidesOnDeactivate() {
+            window.setHidesOnDeactivate(false);
+        }
+    }
 }
 
 /// Brings the dialogs and popups a plugin opened to the front once, back to front so they keep

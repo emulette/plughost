@@ -538,6 +538,14 @@ impl Plugin {
         let window = unsafe { Window::from_cocoa_nsview(parent) };
         #[cfg(target_os = "windows")]
         let window = unsafe { Window::from_win32_hwnd(parent) };
+        // The window takes the editor's size before the editor attaches, as a VST3 view's does:
+        // an editor placed at the top of a smaller parent stays below the window's top.
+        if let Some(size) = gui.get_size(&handle)
+            && size.width > 0
+            && size.height > 0
+        {
+            resize(size.width, size.height);
+        }
         let attached = unsafe { gui.set_parent(&handle, window) };
         if let Err(error) = attached {
             gui.destroy(&handle);

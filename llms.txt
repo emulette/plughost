@@ -835,8 +835,9 @@ views tracking the mouse there, and the chain's diagnostics carry a warning. Inp
 the plugin opens: `MenuOpened` lists them (`MenuItem`: index among all items, title, enabled,
 `MenuItemState`, separator, submenu; hidden items and submenus more than 16 levels down left
 out) and `frame`, the menu's own window in region points (`None` when it did not show within
-half a second; AppKit may open a submenu in front of it at once, and the menu is told once that
-window shows), the menu's windows come in `Windows` as kind `Menu`, and `Command::ChooseMenuItem(MenuChoice::new(menu, index_path))` chooses one or
+half a second; the menu is told once that window shows), the menu's windows come in `Windows` as
+kind `Menu`; as a menu begins tracking the helper's mouse leaves it and the session's moves do
+not reach it while it tracks, so no item is hovered and no submenu opens, and `Command::ChooseMenuItem(MenuChoice::new(menu, index_path))` chooses one or
 `CloseMenu` closes it; a disabled item, a separator or a path that names no item is not chosen.
 Choosing closes the menu and then runs the item, as AppKit does, so `MenuClosed` comes before the
 panel or dialog the item runs.

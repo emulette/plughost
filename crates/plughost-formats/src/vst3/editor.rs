@@ -37,8 +37,28 @@ impl Editor {
     ) -> Result<(Editor, (u32, u32)), Vst3Error> {
         let view = unsafe { ComPtr::from_raw(controller.createView(ViewType::kEditor)) }
             .ok_or(Vst3Error::NoEditor)?;
+        unsafe { Editor::attach_view(view, parent, resize) }
+    }
+
+    /// Attaches `view` to `parent` once the window has the view's size.
+    ///
+    /// # Safety
+    ///
+    /// As [`Editor::attach`].
+    unsafe fn attach_view(
+        view: ComPtr<IPlugView>,
+        parent: *mut c_void,
+        resize: ResizeRequest,
+    ) -> Result<(Editor, (u32, u32)), Vst3Error> {
         if unsafe { view.isPlatformTypeSupported(PLATFORM) } != kResultOk {
             return Err(Vst3Error::NoEditor);
+        }
+        // A view lays itself out in its parent as it attaches. One placed at the top of a parent
+        // smaller than its size stays that far below the top once the window grows, as an
+        // AppKit view's frame is measured up from the bottom (iZotope's views do).
+        let (width, height) = view_size(&view.as_com_ref());
+        if width > 0 && height > 0 {
+            resize(width, height);
         }
         let frame = ComWrapper::new(PlugFrame {
             resize,
